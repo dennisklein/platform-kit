@@ -305,10 +305,12 @@ The renderer reads the Flux version from the Flux manifests in the repo and uses
 </pre>
 <ul>
   <li><b>MCP endpoint.</b> The bench exposes MCP on 127.0.0.1 with a bearer token for each agent. A token lives about 8 hours; the admin approves the agent again each workday.</li>
-  <li><b>Freeform chat.</b> Chat in the UI that can see the project, through the same tools.</li>
-  <li><b>Advisory buttons.</b> Opinionated, retrieval-based help on fixed questions (for example "risks of this change"), like Skyhook/Radar. No freeform input.</li>
+  <li><b>Freeform chat.</b> Chat in the UI that can see the project, through the same tools, as the admin who is logged in. Chat can suggest edits: it shows each one as a diff in the open change, and the admin accepts or rejects it. Chat does not commit, run labs or mark ready on its own.</li>
+  <li><b>Advisory buttons.</b> Opinionated, retrieval-based help on fixed questions (for example "risks of this change"), like Skyhook/Radar. No freeform input. Each advisor recipe (prompt, allowed tools, output form) is Go code compiled into platform-kit, next to the kinds. A recipe can call Skyhook/Radar as a tool; at the start most recipes delegate to them.</li>
   <li><b>Data boundary.</b> The LLM sees all data except secrets and credentials. A hard redaction filter runs before each call. IPs and serial numbers stay visible.</li>
-  <li><b>Retrieval.</b> The index uses the local Qwen embedder and stays on site.</li>
+  <li><b>Retrieval.</b> The index uses the local Qwen embedder and stays on site. It holds the state repo, KB docs, MR discussions, merge trailers and lab reports, so the LLM knows why past changes were made. Live state is not indexed: tools read it fresh at call time.</li>
+  <li><b>Provenance.</b> LLM-made lines are not marked. The person who accepts an edit owns it, the same as a hand edit. A change that an MCP agent makes still names the agent in its <code>Pk-Agent</code> trailer, because the agent is the author.</li>
+  <li><b>Quality.</b> Users rate each chat answer and advisor result with thumbs up or down. The rating goes into the LLM log with the model name. There is no automatic check before a model or recipe change.</li>
   <li><b>Logs.</b> All prompts and answers are kept with no time limit. A UI page lets platform admins search, export and delete entries. The log is a sensitive store: on site, platform admins only, with backup. Each delete writes an audit entry.</li>
 </ul>
 
