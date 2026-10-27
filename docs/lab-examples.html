@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lab configuration examples</title>
+<style>
+  :root { --bg: #fff; --fg: #1d1d1f; --muted: #5f6368; --line: #d9d9de; --accent: #2457c5; --panel: #f6f7f9; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #16171a; --fg: #e8e8ea; --muted: #a0a3a8; --line: #33353a; --accent: #8fb0ff; --panel: #1f2024; }
+  }
+  body { background: var(--bg); color: var(--fg); font: 16px/1.55 system-ui, sans-serif; margin: 0; padding: 0 16px; }
+  main { max-width: 880px; margin: 32px auto 64px; }
+  h1 { font-size: 1.6rem; margin-bottom: .2rem; }
+  h2 { font-size: 1.2rem; margin-top: 2rem; border-bottom: 1px solid var(--line); padding-bottom: .3rem; }
+  .meta { color: var(--muted); font-size: .9rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .95rem; }
+  th, td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; }
+  pre { background: var(--panel); padding: 12px; overflow-x: auto; font-size: .85rem; line-height: 1.4; }
+  code { font-size: .9em; }
+</style>
+</head>
+<body>
+<main>
+<h1>Lab configuration examples</h1>
+<p class="meta">Companion to <a href="design.html">platform-kit design</a> · Example data from raven</p>
+
+<h2>Model: one hardware topology, two purposes</h2>
+<p>A change lab and a digital twin differ in purpose and lifetime, not in hardware.
+Thus one <b>Topology</b> describes the emulated hardware, and a thin <b>Lab</b> file sets the purpose on top of it.</p>
+<pre>
+ state repo                                   generated
+ control/inventory/*.yaml ─┐
+ control/cabling.yaml      ├──> Topology (machines, BMCs, NICs, networks)
+ control/talos/talconfig   ┘          ▲                    ▲
+ .pk/emulation.yaml (model → emulator)│                    │
+                                      │                    │
+                        Lab purpose: twin            Lab purpose: change
+                        - follows main               - base ref + change ref
+                        - kustomize overlay          - scenario steps + checks
+                        - persistent                 - ephemeral, result report
+                        - explore, learn, app dev    - gates one change
+</pre>
+<p>Each real machine maps to three emulated parts:</p>
+<table>
+<tr><th>Part</th><th>Emulator</th></tr>
+<tr><td>BMC</td><td>Go Redfish sim with a captured fixture (<code>supermicro-x12</code>, <code>huawei-2288h-v5</code>)</td></tr>
+<tr><td>Machine</td><td><code>qemu</code> (high fidelity: install, reboot, disks), <code>talos-docker</code> (fast), or <code>none</code> (BMC only)</td></tr>
+<tr><td>NICs and networks</td><td>a bridge per VLAN or segment, routers as FRR containers</td></tr>
+</table>
+<p>Nobody writes the Topology by hand. platform-kit generates it from the desired state, so a twin follows the desired state automatically. Hand changes go in <code>overrides</code>.</p>
+
+<h2>1. Emulation profile (hardware model to emulator)</h2>
+<pre>
+# .pk/emulation.yaml
+apiVersion: pk/v1alpha1
+kind: EmulationProfile
+metadata:
+  name: default
+spec:
+  machines:
+    - match: { model: "Supermicro X12*" }
+      bmc: { fixture: supermicro-x12 }
+      machine: { backend: qemu, cpus: 2, memoryMiB: 8192, firmware: ovmf }
+    - match: { model: "Huawei 2288H V5" }
+      bmc: { fixture: huawei-2288h-v5 }        # OEM VmmControl path
+      machine: { backend: qemu, cpus: 2, memoryMiB: 8192, firmware: ovmf }
+  networks:
+    bmc:  { vlan: 1034, ipv6: { prefix: fd00:1034::/64, ra: true, dhcpv6: ledger } }
+    node: { vlan: 1035, ipv4: { cidr: 10.35.0.0/24 }, ipv6: { prefix: fd00:1035::/64 } }
+    ib:   { emulate: false }                    # no HCA in QEMU
+  substrate: containerlab
+  uplink: nat                                   # never route into the real site
+</pre>
+
+<h2>2. Generated topology (read only)</h2>
+<pre>
+# generated from control/inventory + cabling.yaml + .pk/emulation.yaml
+apiVersion: pk/v1alpha1
+kind: Topology
+metadata:
+  name: raven
+spec:
+  source: { cluster: raven, ref: main }
+  machines:
+    - name: controller1
+      bmc: { fixture: supermicro-x12, mac: from-inventory, network: bmc }
+      machine: { backend: qemu, disks: [{ name: system, sizeGiB: 32, serial: from-inventory }] }
+      nics: [{ network: node, mac: from-inventory }]
+    - name: router1
+      bmc: { fixture: huawei-2288h-v5, network: bmc }
+      machine: { backend: qemu }
+      nics: [{ network: node }]
+    # ... controller2, controller3, infra01..03, router2, worker001..005
+  overrides: {}
+</pre>
+
+<h2>3. Digital twin</h2>
+<pre>
+# .pk/labs/raven-twin.yaml
+apiVersion: pk/v1alpha1
+kind: Lab
+metadata:
+  name: raven-twin
+spec:
+  purpose: twin
+  topology: raven
+  follow: { ref: main }                       # re-sync after each merge
+  overlay: control/overlays/twin              # kustomize override (next to live, dev)
+  substituteFrom: twin-vars                   # Flux postBuild vars: addresses, issuers
+  fidelity: scaled                            # replica = all machines
+  scale:
+    machines: [controller1, router1, worker001]
+    backend: talos-docker                     # cheap; qemu for install or disk work
+  provision: direct                           # metal = sim BMC → vMedia → Talos install
+  host: lab-host-1                            # or: local
+  expose: [kube-api, grafana, docs]
+  lifetime: persistent
+  snapshot: nightly                           # base for change labs
+</pre>
+
+<h2>4. Change lab</h2>
+<p>platform-kit generates it when the lab gate of a path needs a run. A person can also write one for a custom test.</p>
+<pre>
+apiVersion: pk/v1alpha1
+kind: Lab
+metadata:
+  name: c-77e1-run-2
+spec:
+  purpose: change
+  topology: raven
+  fidelity: replica
+  from: raven-twin@snapshot                   # start from the twin snapshot
+  base:   { ref: main }
+  change: { ref: change/c-77e1-cilium-bgp-peers }
+  provision: direct                           # metal for inventory/talos changes
+  scenario:
+    - name: baseline-healthy
+      check: { flux: all-ready, nodes: all-ready }
+    - name: apply-change
+      gitops: { switchTo: change }
+    - name: bgp-up
+      check: { bgp: established, timeout: 10m }
+    - name: reboot-router
+      action: { bmc: { machine: router1, power: ForceRestart } }
+    - name: still-healthy
+      check: { flux: all-ready, bgp: established, timeout: 15m }
+  results:
+    collect: [conditions, events, console-logs, flux-status]
+    report: html                              # linked from the MR, recorded as Pk-Lab-Run
+  lifetime: { ttl: 4h, keepOnFailure: true }
+</pre>
+
+<h2>5. Minimal laptop lab (the metal e2e today)</h2>
+<pre>
+apiVersion: pk/v1alpha1
+kind: Lab
+metadata:
+  name: one-vm
+spec:
+  purpose: change
+  topology:
+    inline:
+      networks: [{ name: lo, mode: user, hostIP: 127.42.16.10, forward: [50000, 6443] }]
+      machines:
+        - name: cp1
+          bmc: { fixture: supermicro-x12 }
+          machine: { backend: qemu, disks: [{ sizeGiB: 8, serial: raven-e2e-disk }] }
+  base: { ref: HEAD }
+  provision: metal
+  host: local
+</pre>
+
+
+</main>
+</body>
+</html>
