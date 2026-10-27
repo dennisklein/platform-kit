@@ -182,6 +182,22 @@ Approved-by: ...
   <li>The commit that deletes the metadata file is part of the move to "review". A commit after approval can reset the approvals.</li>
 </ul>
 
+<h3 id="object-format">Object format</h3>
+<p>Decision: the state repo uses the SHA-1 object format (the git default today). Git 3 plans SHA-256 as the default for new repos, but only when the ecosystem is ready. We do not adopt it now.</p>
+<pre>
+GitLab (forge)     SHA-256 project: experimental, set at creation only
+Flux / Argo CD     read the repo with go-git: SHA-256 not complete
+Renovate, CI,
+signing tools      not verified for SHA-256
+Other SHA-1 repos  no interop: no push or fetch between formats
+</pre>
+<ul>
+  <li>Git has no in-place conversion. A later switch is a new repo with new commit ids, so old MR links, signatures and <code>Pk-*</code> trailer references to commits break.</li>
+  <li>SHA-1 in git uses collision detection (SHA-1DC). Git 3 does not force existing repos to change, and the git project plans no removal of SHA-1.</li>
+  <li><b>Rule:</b> no commit hash is a permanent id in the data model. Use the change id (<code>c-k7m2qz</code>), the MR id or a tag. A commit hash is only a short-lived pointer, for example the revision that Flux reports as applied.</li>
+  <li><b>Re-check</b> when all of these are true: the GitLab we run lists SHA-256 projects as supported, a stable go-git 6 release has clone, fetch and push for SHA-256 and the Flux and Argo CD releases we run use it, and our CI, Renovate and signing flow work in a test repo. Until then, review again at each Git major release.</li>
+</ul>
+
 <h2 id="policy">7. Policy and access</h2>
 <h3>Policy as data</h3>
 <p><code>.pk/policy.yaml</code> in the state repo is the root of all rights. It lists people, roles, agents and path rules.
