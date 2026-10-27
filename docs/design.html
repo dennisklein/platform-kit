@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>platform-kit design</title>
+<style>
+  :root { --bg: #fff; --fg: #1d1d1f; --muted: #5f6368; --line: #d9d9de; --accent: #2457c5; --panel: #f6f7f9; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #16171a; --fg: #e8e8ea; --muted: #a0a3a8; --line: #33353a; --accent: #8fb0ff; --panel: #1f2024; }
+  }
+  body { background: var(--bg); color: var(--fg); font: 16px/1.55 system-ui, sans-serif; margin: 0; padding: 0 16px; }
+  main { max-width: 880px; margin: 32px auto 64px; }
+  h1 { font-size: 1.7rem; margin-bottom: .2rem; }
+  h2 { font-size: 1.25rem; margin-top: 2.2rem; border-bottom: 1px solid var(--line); padding-bottom: .3rem; }
+  h3 { font-size: 1.05rem; margin-top: 1.4rem; }
+  a { color: var(--accent); }
+  .meta { color: var(--muted); font-size: .9rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .95rem; }
+  th, td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; }
+  pre { background: var(--panel); padding: 12px; overflow-x: auto; font-size: .85rem; line-height: 1.35; }
+  code { font-size: .9em; }
+  ul, ol { padding-left: 1.2rem; }
+  nav ol { columns: 2; column-gap: 2rem; }
+  @media (max-width: 600px) { nav ol { columns: 1; } }
+</style>
+</head>
+<body>
+<main>
+<h1>platform-kit design</h1>
+<p class="meta">Status: draft · Scope: bare metal through Kubernetes up to apps</p>
+
+<nav>
+<ol>
+  <li><a href="#purpose">Purpose</a></li>
+  <li><a href="#users">Users and roles</a></li>
+  <li><a href="#topology">Topology</a></li>
+  <li><a href="#change">Change model</a></li>
+  <li><a href="#lifecycle">Change lifecycle</a></li>
+  <li><a href="#merge">Merge and history</a></li>
+  <li><a href="#policy">Policy and access</a></li>
+  <li><a href="#forge">Forge interface</a></li>
+  <li><a href="#editor">Editor, rendering, secrets</a></li>
+  <li><a href="#llm">LLM integration</a></li>
+  <li><a href="#labs">Labs and live state</a></li>
+  <li><a href="#sync">Org database sync</a></li>
+  <li><a href="#security">Security model</a></li>
+  <li><a href="#open">Open questions</a></li>
+</ol>
+</nav>
+
+<h2 id="purpose">1. Purpose</h2>
+<p>platform-kit is the tool to change the desired state of a multi-cluster platform, from bare metal through Kubernetes up to apps.
+The desired state lives in one git state repo. Flux applies it to the clusters.
+A git change (worktree, branch, merge request) is the only way to change desired state.</p>
+<p>The state repo is on GitLab first. A custom forge with better authorization can replace GitLab later.
+A local OpenAI-compatible LLM (completion and embedding endpoints) is available on site.</p>
+<p>The design puts the mechanics first: change tracking, policy, access, labs and LLM tools.
+Content entities (racks, nodes, platform components, apps) plug in later on top of these mechanics.</p>
+
+<h2 id="users">2. Users and roles</h2>
+<table>
+<tr><th>Role</th><th>Can do</th><th>Uses</th></tr>
+<tr><td>owner</td><td>All that a platform admin can do. Approves changes to <code>.pk/policy.yaml</code>.</td><td>bench, shared service</td></tr>
+<tr><td>platform admin</td><td>Changes all layers within policy. Approves changes. Gets cluster access and break-glass.</td><td>bench, shared service</td></tr>
+<tr><td>app team</td><td>Changes the paths of its apps within policy.</td><td>bench, shared service</td></tr>
+<tr><td>viewer</td><td>Reads desired state, open changes and history.</td><td>shared service</td></tr>
+<tr><td>auditor</td><td>Reads history, approvals and the audit trail.</td><td>shared service</td></tr>
+<tr><td>agent</td><td>Non-human identity of one admin's coding agent. See <a href="#identities">non-human identities</a>.</td><td>bench MCP endpoint</td></tr>
+<tr><td>sync bot</td><td>Non-human author of org database imports.</td><td>CI or server</td></tr>
+</table>
+<p>All human roles exist from the first release.</p>
+
+<h2 id="topology">3. Topology</h2>
+<p>One code base runs in two modes. Mode differences live behind interfaces. No state lives only in the process.</p>
+<pre>
+                      ┌──────────── site network / VPN ─────────────┐
+ admin laptop         │                                             │
+ ┌──────────────────┐ │  push / pull   ┌─────────┐   read, comment, │
+ │ bench (local)    │─┼───────────────>│ GitLab  │<── approve ──────┼── shared service ── viewer
+ │  UI + worktrees  │ │                │ (forge) │                  │   (SSO)              auditor
+ │  MCP endpoint ◄──┼─┼─ agent harness └────┬────┘                  │                      app team
+ │  (agent identity)│ │                     │ Flux                  │
+ └───────┬──────────┘ │                ┌────▼─────┐                 │
+         │ lab driver │                │ clusters │── obs ── Skyhook/Radar
+         ▼            │                └──────────┘                 │
+   QEMU VMs + BMC     │   LLM: completion + embedder (no secrets)   │
+   emulators          └─────────────────────────────────────────────┘
+</pre>
+<ul>
+  <li><b>Bench (local mode).</b> Runs on each admin laptop. It holds the worktrees, the editor, the lab drivers, the LLM client and the MCP endpoint. All writes start here.</li>
+  <li><b>Shared service.</b> Runs on a server with SSO. It reads main, branches and MRs. It can comment and approve through the forge as the signed-in user. It holds no worktrees and does not write to git.</li>
+  <li><b>Network.</b> The bench works on site, over VPN and in air-gapped labs. The LLM and the forge are optional at runtime. Each feature that needs them degrades gracefully.</li>
+</ul>
+
+<h2 id="change">4. Change model</h2>
+<h3>Change unit</h3>
+<p>One change is one worktree, one branch and one MR. A large piece of work is split into several changes.</p>
+<h3>Naming</h3>
+<p>The branch name is <code>change/&lt;id&gt;-&lt;slug&gt;</code>, for example <code>change/c-4f2a-rack-b12</code>.
+The id is short and generated. It is the stable key for the worktree directory, the MR, the lab name and DNS-safe resources.
+The author is metadata, not part of the name, because a second admin, an agent or the sync bot can also work on a change.</p>
+<h3>Sharing</h3>
+<p>Worktrees live on admin laptops. Two admins share a change by push and pull of its branch.
+The UI shows ahead and behind against the remote branch. There is no lock service.</p>
+<h3>Stacks</h3>
+<p>A change can target the branch of one other open change (linear stack). The UI rebases a stack in order.
+When the parent merges, the child retargets to main.</p>
+<h3>Change metadata</h3>
+<p>Git cannot give some data: title, intent, linked lab runs and the stack parent.
+This data lives in <code>.pk/changes/&lt;id&gt;.yaml</code> in the branch. It is forge-neutral, works offline and travels with push.</p>
+<pre>
+# .pk/changes/c-4f2a.yaml
+id: c-4f2a
+title: Add rack B12 workers to raven
+intent: Add 8 worker nodes in rack B12 for batch jobs.
+parent: c-31d0
+labRuns:
+  - c-4f2a/run-3 pass
+</pre>
+<h3>Open changes</h3>
+<p>A change stays open until a human closes it. The change rail must stay usable with many open changes: filter, sort and group.
+See the <a href="mocks/change-rail.html">change rail mock</a>.</p>
+
+<h2 id="lifecycle">5. Change lifecycle</h2>
+<p>The UI derives each state from git, lab runs, the forge and Flux. It stores no state of its own.</p>
+<pre>
+ draft ──> lab ──> review ──> approved ──> merged ──> deployed ──> verified
+   ▲        │        │
+   └─ fail ─┘        └─ behind target: badge + one-click rebase (change or full stack)
+</pre>
+<table>
+<tr><th>State</th><th>Derived from</th></tr>
+<tr><td>draft</td><td>Worktree or branch exists. No MR, or the MR is a draft.</td></tr>
+<tr><td>lab</td><td>A lab run for the branch head is running or failed.</td></tr>
+<tr><td>review</td><td>MR is open and ready. The lab gate is met if policy needs it.</td></tr>
+<tr><td>approved</td><td>MR approvals meet policy.</td></tr>
+<tr><td>merged</td><td>A merge commit with the <code>Pk-Change</code> trailer is on main.</td></tr>
+<tr><td>deployed</td><td>Flux reports the merge commit (or a later one) as applied.</td></tr>
+<tr><td>verified</td><td>Health checks after deploy pass. Empty until observability data is available.</td></tr>
+</table>
+<ul>
+  <li><b>Lab gate.</b> Policy sets per path if a green lab run on the branch head is needed before review. For example, Talos and network paths need one; app paths do not.</li>
+  <li><b>Behind target.</b> The UI shows "behind by N" and offers a one-click rebase. It never rewrites a branch in the background, so a second admin is never surprised.</li>
+</ul>
+
+<h2 id="merge">6. Merge and history</h2>
+<p>Each MR merges as a merge commit with semi-linear history. The branch must be rebased on its target before merge.
+Thus main is a straight line of merge commits, one for each change, and each lab run tests the real result.</p>
+<p>At merge, the change metadata becomes git trailers of the merge commit. The metadata file is deleted before the merge, so main has no <code>.pk/changes/</code> files.
+An auditor lists all changes with <code>git log --merges --format='%(trailers)'</code>.</p>
+<pre>
+Merge change c-4f2a: add rack B12 to raven (!123)
+
+Pk-Change: c-4f2a
+Pk-Intent: add 8 worker nodes in rack B12 for batch jobs
+Pk-Stack-Parent: c-31d0
+Pk-Lab-Run: c-4f2a/run-3 pass
+Pk-Author: dennis
+Pk-Agent: dennis/agent
+Approved-by: ...
+</pre>
+<ul>
+  <li>The trailer format is the contract. The forge mechanism that writes it can change.</li>
+  <li>GitLab merge commit templates cannot read files. Thus platform-kit writes the trailers into the MR description, and the template inserts <code>%{description}</code> and the approvers. A custom forge can build the message from the file directly.</li>
+  <li>The commit that deletes the metadata file is part of the move to "review". A commit after approval can reset the approvals.</li>
+</ul>
+
+<h2 id="policy">7. Policy and access</h2>
+<h3>Policy as data</h3>
+<p><code>.pk/policy.yaml</code> in the state repo is the root of all rights. It lists people, roles, agents and path rules.
+Onboarding is an MR. Only the owner role can approve a change to this file. Keep at least two people in the owner role.</p>
+<pre>
+# .pk/policy.yaml
+roles:
+  owner:          [dennis, anna]
+  platform-admin: [dennis, anna, jonas]
+  app-team/vault: [lena]
+  viewer:         ["*"]
+  auditor:        [audit-1]
+agents:
+  dennis/agent:   { of: dennis, rights: [branch, draft-mr, lab, ready] }
+  sync-bot:       { rights: [branch, draft-mr, ready] }
+paths:
+  - match: control/talos/**
+    write: [platform-admin]
+    approvals: 2
+    lab: required
+  - match: control/inventory/**
+    write: [platform-admin]
+    approvals: 1
+    lab: required
+  - match: control/apps/vault/**
+    write: [platform-admin, app-team/vault]
+    approvals: 1
+  - match: .pk/policy.yaml
+    write: [platform-admin]
+    approve: [owner]
+</pre>
+<h3>Enforcement</h3>
+<pre>
+                        .pk/policy.yaml
+                                │
+            ┌───────────────────┼─────────────────────┬──────────────────┐
+            ▼                   ▼                     ▼                  ▼
+      UI / bench rights   CI policy check      generated GitLab     generated k8s
+      (advice only)       (required job)       approval rules,      RoleBindings
+                                               CODEOWNERS           (OIDC user name)
+</pre>
+<ul>
+  <li>A required CI job checks each MR against the policy: path rights, lab gate, approvals. The forge blocks the merge if it fails.</li>
+  <li>platform-kit generates GitLab approval rules and CODEOWNERS from the policy and syncs them. Nobody edits generated rules by hand.</li>
+  <li>The UI only gives advice. Main is protected, so nobody can bypass the policy by direct push.</li>
+</ul>
+<h3>Identity</h3>
+<p>SSO (OIDC) only proves who a person is. The policy file decides what each person can do. The identity provider needs no groups.</p>
+<h3 id="identities">Non-human identities</h3>
+<ul>
+  <li>The agent of an admin uses its own identity, not the admin identity. It pushes change branches, opens draft MRs, runs labs and can mark a change ready for review. It never approves, merges or pushes to main.</li>
+  <li>The sync bot has the same rights, without labs.</li>
+  <li>Commits and trailers show the agent and the admin it acts for.</li>
+</ul>
+<h3>Cluster access</h3>
+<ul>
+  <li>kube-apiserver uses OIDC. kubelogin gets short tokens from SSO. platform-kit writes the kubeconfig. Admins keep no long-lived static certificates in <code>~/.kube/config</code>.</li>
+  <li>platform-kit generates the k8s RoleBindings from the policy file by OIDC user name.</li>
+  <li><b>Break-glass.</b> A cluster admin certificate is sealed in OpenBao. Any platform admin can get it when SSO or OIDC fails. Each use sends an alert and writes an audit entry. The certificate is rotated after each use.</li>
+</ul>
+
+<h2 id="forge">8. Forge interface</h2>
+<p>The core uses a thin forge interface: MRs, approvals, comments, pipelines and events. GitLab is the first adapter. The custom forge is a second adapter, not a rewrite. No GitLab type leaks into the core.</p>
+
+<h2 id="editor">9. Editor, rendering and secrets</h2>
+<h3>Schema-driven editor</h3>
+<p>The first editor is generic. It edits any repo file through a schema-driven form, on all layers.
+Schemas for repo files are a core contract. Dedicated entity pages (racks, nodes, platform components, apps) come later on top of the same schemas.
+Schemas also mark secret fields and the owner system of each field (see <a href="#sync">org database sync</a>).</p>
+<h3>Rendered diff</h3>
+<p>Rendered manifests are not committed. CI and the bench render main and the branch, and show the object diff on the MR.
+Flux still renders in the cluster. Reviewers and the LLM see final objects, and rebases have no conflicts in generated files.
+The renderer must use the same tool versions as the Flux controllers.</p>
+<h3>Secrets</h3>
+<ul>
+  <li>Talos and bootstrap secrets stay in git, encrypted with SOPS. They must exist before OpenBao runs.</li>
+  <li>App secrets move to OpenBao references over time.</li>
+  <li>The editor has one "secret field" concept for both. It decrypts locally with the admin key, shows secret fields masked, and re-encrypts on save.</li>
+</ul>
+
+<h2 id="llm">10. LLM integration</h2>
+<p>One tool layer serves three surfaces. Each surface starts small.</p>
+<pre>
+              ┌─────────── tool layer (read repo, read changes, draft edits, run lab, ...) ──┐
+ agent  ──MCP─┤                                                                               │
+ chat   ──────┤──> redaction (no secrets) ──> local LLM (completion) + embedder (retrieval)  │
+ advisor──────┤                                                                               │
+              └───────────────────────────────────────────────────────────────────────────────┘
+</pre>
+<ul>
+  <li><b>MCP endpoint.</b> The bench exposes MCP on 127.0.0.1 with a bearer token for each agent. A token lives about 8 hours; the admin approves the agent again each workday.</li>
+  <li><b>Freeform chat.</b> Chat in the UI that can see the project, through the same tools.</li>
+  <li><b>Advisory buttons.</b> Opinionated, retrieval-based help on fixed questions (for example "risks of this change"), like Skyhook/Radar. No freeform input.</li>
+  <li><b>Data boundary.</b> The LLM sees all data except secrets and credentials. A hard redaction filter runs before each call. IPs and serial numbers stay visible.</li>
+  <li><b>Retrieval.</b> The index uses the local Qwen embedder and stays on site.</li>
+  <li><b>Logs.</b> All prompts and answers are kept for N days. The log is a sensitive store: on site, platform admins only, deleted after N days.</li>
+</ul>
+
+<h2 id="labs">11. Labs and live state</h2>
+<h3>Labs</h3>
+<p>Labs come first. A lab runs desired state on emulated hardware. It has two purposes:</p>
+<ul>
+  <li><b>Digital twin.</b> A long-lived lab that follows main. Admins and app teams use it to explore, learn and develop apps and platform parts.</li>
+  <li><b>Change lab.</b> A short-lived lab for one change. It starts at a base ref, applies the change, runs a scenario and writes a report. The lab gate of a path (section 5) needs a green change lab.</li>
+</ul>
+<pre>
+ control/inventory + cabling.yaml + talconfig + .pk/emulation.yaml
+                         │ generate
+                         ▼
+   Topology  (per machine: Redfish sim + qemu | talos-docker | none, NICs on VLAN networks)
+        ▲                                        ▲
+ Lab purpose: twin                        Lab purpose: change
+ follows main, overlays/twin,             base ref + change ref, scenario
+ persistent, nightly snapshot ──────────> (checks, BMC power, sim faults), report
+</pre>
+<h3>Hardware emulation</h3>
+<p>Each real machine maps to three emulated parts:</p>
+<table>
+<tr><th>Part</th><th>Emulator</th></tr>
+<tr><td>BMC</td><td>Go Redfish sim with captured vendor fixtures (for example <code>supermicro-x12</code>, <code>huawei-2288h-v5</code>), with fault injection.</td></tr>
+<tr><td>Machine</td><td><code>qemu</code> (UEFI, disks, Talos install, reboot), <code>talos-docker</code> (fast), or <code>none</code> (BMC only).</td></tr>
+<tr><td>Network</td><td>containerlab builds the VLAN networks, links from <code>cabling.yaml</code> and the routers (FRR). QEMU VMs attach by tap. The uplink is NAT only, never into the real site.</td></tr>
+</table>
+<p><code>.pk/emulation.yaml</code> maps inventory facts (model, role) to emulators and VM sizes. platform-kit generates the Topology from the desired state; nobody writes it by hand. Parts that cannot be emulated (for example InfiniBand) are marked <code>emulate: false</code>.</p>
+<h3>Lab rules</h3>
+<ul>
+  <li><b>Definitions.</b> Labs are derived from desired state (twin and change labs), or written by hand for experiments (<code>.pk/labs/&lt;name&gt;.yaml</code>, inline topology).</li>
+  <li><b>Lab-only differences.</b> A twin uses a kustomize overlay next to the live one (<code>control/overlays/twin</code>) and Flux post-build variables.</li>
+  <li><b>Fidelity.</b> A twin can be scaled (a subset of machines, cheap backends). A change lab can be a full replica where the change needs it (HA, network).</li>
+  <li><b>Provisioning.</b> A switch on each lab: <code>metal</code> boots through the emulated BMCs, vMedia and the Talos install; <code>direct</code> injects the Talos config. Twins default to <code>direct</code>; change labs for inventory and Talos paths use <code>metal</code>.</li>
+  <li><b>Fresh or snapshot.</b> Policy chooses per path. Bare-metal paths get fresh machines; platform and app paths start from the nightly twin snapshot.</li>
+  <li><b>Lab hosts.</b> One lab driver interface, two targets: the laptop for small labs (also air-gapped), and a lab host for full replicas and CI gates. Bridges and taps need root or CAP_NET_ADMIN on the lab host.</li>
+  <li><b>Code.</b> A separate lab Go module holds the sim, the machine backends and the network setup. The metal operator tests and platform-kit both import it.</li>
+</ul>
+<p>See <a href="lab-examples.html">lab configuration examples</a>.</p>
+<h3>Live state</h3>
+<p>The target is a full observability overlay on desired state: Flux status, object diff, metrics, alerts and logs per entity.
+It comes after labs. At the start, platform-kit links to Skyhook/Radar instead of its own views.</p>
+
+<h2 id="sync">12. Org database sync</h2>
+<ul>
+  <li>The first org systems are not known yet. A generic sync adapter interface keeps vendor schemas out of the core.</li>
+  <li>Each field has one owner system. Sync goes both ways. No field has two owners. Schemas mark the owner.</li>
+  <li>The sync bot opens a normal change on a schedule. An admin can also pull org data into an open change.</li>
+  <li>On drift, the field owner wins, and the sync MR shows the diff for review. Drift never changes main without an MR.</li>
+</ul>
+
+<h2 id="security">13. Security model</h2>
+<h3>Trust boundaries</h3>
+<pre>
+ ┌──────────── admin laptop (trusted: admin user) ─────────────────────┐
+ │ agent harness ──127.0.0.1 + bearer token (8 h)──> bench             │
+ │                                       worktrees, SOPS key, kubelogin│
+ └───────────────────────────────────────────────────┬─────────────────┘
+         B1: laptop → site                            │
+ ┌────────────────── site network / VPN ──────────────▼─────────────────┐
+ │ GitLab (CI policy check, generated rules)   LLM (no secrets, log N d)│
+ │ shared service (SSO)                        OpenBao (break-glass)    │
+ │ SSO (identity only)                         clusters (OIDC, Flux)    │
+ └──────────────────────────────────────────────────────────────────────┘
+         B2: repo and forge text → LLM / agent (untrusted text)
+         B3: org DB → sync bot → MR (untrusted data)
+</pre>
+<h3>Assets</h3>
+<table>
+<tr><th>Asset</th><th>Where</th><th>Why it matters</th></tr>
+<tr><td>main of the state repo</td><td>GitLab</td><td>Flux applies it to all clusters.</td></tr>
+<tr><td><code>.pk/policy.yaml</code></td><td>state repo</td><td>Root of all rights in UI, forge and clusters.</td></tr>
+<tr><td>SOPS keys, bootstrap secrets</td><td>laptops, git (encrypted)</td><td>Talos and cluster bootstrap.</td></tr>
+<tr><td>Break-glass certificate</td><td>OpenBao</td><td>Full cluster admin when SSO is down.</td></tr>
+<tr><td>LLM log</td><td>LLM host or bench</td><td>Holds IPs, serial numbers and config for N days.</td></tr>
+<tr><td>Agent and bot tokens</td><td>laptop, CI</td><td>Can push branches and open MRs.</td></tr>
+</table>
+<h3>Threats and controls</h3>
+<table>
+<tr><th>Threat</th><th>Control</th></tr>
+<tr><td>Direct push to main bypasses policy</td><td>Protected main. Merge only through an MR with the required CI policy job.</td></tr>
+<tr><td>Agent approves or merges its own work</td><td>Agent rights exclude approve and merge. Forge rules forbid author approval.</td></tr>
+<tr><td>Prompt injection from repo text, MR comments or org data steers the agent or the advisor</td><td>Treat all repo and forge text as data. UI LLM tools are read-only or make drafts only. A human approves every merge.</td></tr>
+<tr><td>Secret leaks into the LLM or its log</td><td>Hard redaction of secret fields (SOPS fields, OpenBao references, known key patterns) before each call. CI tests the filter.</td></tr>
+<tr><td>A local web page calls the bench</td><td>Bearer token, Origin and Host header checks (against DNS rebinding), no CORS.</td></tr>
+<tr><td>Sync bot imports bad data</td><td>Bot opens normal MRs. Field owner rules apply. A human approves.</td></tr>
+<tr><td>Hand-edited forge rules drift from policy</td><td>A scheduled job compares generated rules with GitLab and alerts on a difference.</td></tr>
+<tr><td>Rendered diff runs untrusted Helm charts in CI</td><td>Render in a sandboxed CI job without cluster credentials or secrets. Pin chart sources.</td></tr>
+<tr><td>Stolen laptop</td><td>No static kube certificates. Short tokens. SOPS key protected by disk encryption and a passphrase or hardware key.</td></tr>
+</table>
+
+<h2 id="open">14. Open questions</h2>
+<ul>
+  <li>Labs: is <code>Lab</code> a file only, or also a CRD? Which differences belong in <code>control/overlays/twin</code>? Do twins get fake org services (asset DB, DNS)?</li>
+  <li>Break-glass when OpenBao is down in the same outage as SSO. Option: an offline copy in a safe.</li>
+  <li>One admin can get break-glass alone; the alert is the only control. Review the alert target.</li>
+  <li>The value of N for LLM log retention.</li>
+  <li>Format and collision rules of the change id.</li>
+  <li>Schema and validation rules of <code>.pk/policy.yaml</code>.</li>
+  <li>Renderer version pinning against the Flux controllers.</li>
+  <li>Shared service write mode (server worktrees) for app teams, later.</li>
+</ul>
+</main>
+</body>
+</html>
