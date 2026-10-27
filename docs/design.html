@@ -238,6 +238,21 @@ paths:
 <p>The first editor is generic. It edits any repo file through a schema-driven form, on all layers.
 Schemas for repo files are a core contract. Dedicated entity pages (racks, nodes, platform components, apps) come later on top of the same schemas.
 Schemas also mark secret fields and the owner system of each field (see <a href="#sync">org database sync</a>).</p>
+<h3>Kind registry</h3>
+<p>A kind is a type of repo content (for example a rack, a node, a cable, a Flux Kustomization). Each kind is a Go package compiled into platform-kit. It registers:</p>
+<ul>
+  <li><b>Schema.</b> Own kinds define Go types. The types generate a JSON Schema with platform-kit extensions (secret, field owner, truth class, references to other objects, UI hints). When the kind is a k8s object, the same types also generate the CRD schema. Third-party kinds (Flux, Cilium) reuse their CRD schema plus a small overlay for UI hints.</li>
+  <li><b>Truth class.</b> One of <i>intent</i> (people write it), <i>generated</i> (render output), <i>asserted</i> (a claim about the physical world, for example a serial number), <i>derived</i> (computed from other data) or <i>imperative-only</i> (no reconciler). Editor, sync, LLM and lab rules use it.</li>
+  <li><b>Apply path.</b> Flux, manual (for example talosctl or an OpenBao configure script) or sync. The UI shows manual apply paths as open steps after merge.</li>
+  <li><b>Hooks.</b> Views, semantic diff, cross-file validation (for example "this cable connects two known ports").</li>
+</ul>
+<pre>
+ repo file ──> kind registry ──match──> kind: schema · truth class · apply path · hooks
+                    │
+                    └── no kind ──> YAML editor (+ CRD schema validation if apiVersion/kind matches)
+</pre>
+<p><b>Schema evolution.</b> Kinds have versions (<code>v1alpha1</code>, <code>v1beta1</code>, <code>v1</code>). Each new version ships a converter from the old one, so the UI reads all old versions (time travel, audit). A migrate bot opens a normal change that moves the repo files to the new version.</p>
+<p><b>Files without a kind.</b> The UI edits them in a plain YAML editor. If a known CRD schema matches their <code>apiVersion</code> and <code>kind</code>, the editor adds validation and completion. Thus the UI is useful for all files from day 1, and each new kind only improves it.</p>
 <h3>Rendered diff</h3>
 <p>Rendered manifests are not committed. CI and the bench render main and the branch, and show the object diff on the MR.
 Flux still renders in the cluster. Reviewers and the LLM see final objects, and rebases have no conflicts in generated files.
