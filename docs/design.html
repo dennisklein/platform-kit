@@ -93,6 +93,21 @@ Content entities (racks, nodes, platform components, apps) plug in later on top 
   <li><b>Shared service.</b> Runs on a server with SSO. It reads main, branches and MRs. It can comment and approve through the forge as the signed-in user. It holds no worktrees and does not write to git.</li>
   <li><b>Network.</b> The bench works on site, over VPN and in air-gapped labs. The LLM and the forge are optional at runtime. Each feature that needs them degrades gracefully.</li>
 </ul>
+<h3>Bench architecture</h3>
+<pre>
+ browser tab (Svelte 5 SPA) ─┐
+ chat panel ─────────────────┼──REST (OpenAPI)──> bench (Go) ──> git, forge, labs, LLM, clusters
+ agent (MCP tools) ──────────┤                      │
+ CLI ────────────────────────┘                      ├── session focus (server side)
+                                                    └── events (SSE) ──> all tabs and clients
+</pre>
+<ul>
+  <li><b>One API.</b> The bench is a Go service with one REST API, described in OpenAPI. The spec generates the typed TypeScript client for the web UI, the CLI commands and the JSON Schemas of the MCP tools. Thus UI, CLI, CI and agents use the same operations and the same rights checks.</li>
+  <li><b>Events.</b> Server-sent events (SSE) stream changes from git, forge, labs and Flux to all clients.</li>
+  <li><b>Web UI.</b> A Svelte 5 single-page app, served by the bench.</li>
+  <li><b>UI state.</b> The server holds the focus of each user session: current change, selected object, open diff. Browser, chat and MCP read and change it, and all tabs follow. The browser keeps the layout (panels, scroll, sizes).</li>
+  <li><b>Agent steering.</b> A setting for each agent: <i>navigate</i> (the agent moves the focus; a presence chip shows who moved it; the admin can undo or pin the view) or <i>suggest</i> (the agent sends a "look here" card; the admin clicks to follow).</li>
+</ul>
 
 <h2 id="change">4. Change model</h2>
 <h3>Change unit</h3>
