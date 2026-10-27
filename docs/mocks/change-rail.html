@@ -130,28 +130,28 @@ const STEPS = [
   ["merged", "main + trailer"], ["deployed", "Flux"], ["verified", "health checks"]
 ];
 const CHANGES = [
-  { id: "c-31d0", slug: "cabling-b12", title: "Add cabling for rack B12", state: "approved", author: "dennis", agent: null, group: "mine",
+  { id: "c-3w9dqp", slug: "cabling-b12", title: "Add cabling for rack B12", state: "approved", author: "dennis", agent: null, group: "mine",
     behind: 3, parent: null, paths: ["control/inventory/cabling.yaml"], lab: "pass", labRun: "run-2", approvals: "1 of 1", mr: "!121",
     intent: "Cable plan for the new rack B12 before nodes are added." },
-  { id: "c-4f2a", slug: "rack-b12", title: "Add rack B12 workers to raven", state: "lab", author: "dennis", agent: "dennis/agent", group: "mine",
-    behind: 3, parent: "c-31d0", paths: ["control/inventory/worker006.yaml", "control/inventory/worker007.yaml", "control/talos/talconfig.yaml"], lab: "running", labRun: "run-3", approvals: "0 of 2", mr: "!123",
+  { id: "c-k7m2qz", slug: "rack-b12", title: "Add rack B12 workers to raven", state: "lab", author: "dennis", agent: "dennis/agent", group: "mine",
+    behind: 3, parent: "c-3w9dqp", paths: ["control/inventory/worker006.yaml", "control/inventory/worker007.yaml", "control/talos/talconfig.yaml"], lab: "running", labRun: "run-3", approvals: "0 of 2", mr: "!123",
     intent: "Add 8 worker nodes in rack B12 for batch jobs." },
-  { id: "c-77e1", slug: "cilium-bgp-peers", title: "Add BGP peers for router1 and router2", state: "labfail", author: "anna", agent: null, group: "shared",
+  { id: "c-7h2exr", slug: "cilium-bgp-peers", title: "Add BGP peers for router1 and router2", state: "labfail", author: "anna", agent: null, group: "shared",
     behind: 0, parent: null, paths: ["control/platform/configs/cilium-bgp.yaml"], lab: "fail", labRun: "run-1", approvals: "0 of 2", mr: "!119",
     intent: "Peer Cilium BGP with both routers for LoadBalancer IPs." },
-  { id: "c-0b9c", slug: "vault-docs-bump", title: "Bump vault-docs site image", state: "review", author: "jonas", agent: null, group: "review",
+  { id: "c-b9cn4t", slug: "vault-docs-bump", title: "Bump vault-docs site image", state: "review", author: "jonas", agent: null, group: "review",
     behind: 0, parent: null, paths: ["control/apps/vault-docs/deployment.yaml"], lab: "n/a", labRun: null, approvals: "0 of 1", mr: "!124",
     intent: "Roll the vault guide site to the new build." },
-  { id: "c-a5e3", slug: "org-sync-serials", title: "Sync serials from asset DB", state: "draft", author: "sync-bot", agent: null, group: "bot",
+  { id: "c-a5e3vm", slug: "org-sync-serials", title: "Sync serials from asset DB", state: "draft", author: "sync-bot", agent: null, group: "bot",
     behind: 0, parent: null, paths: ["control/inventory/infra02.yaml", "control/inventory/worker003.yaml"], lab: "n/a", labRun: null, approvals: "0 of 1", mr: "!125 (draft)",
     intent: "Nightly import: 2 serial numbers differ from the asset DB (asset DB owns the field)." },
-  { id: "c-19f4", slug: "controller-kernel-args", title: "Set kernel args on controllers", state: "deployed", author: "dennis", agent: null, group: "mine",
+  { id: "c-19fyd2", slug: "controller-kernel-args", title: "Set kernel args on controllers", state: "deployed", author: "dennis", agent: null, group: "mine",
     behind: 0, parent: null, paths: ["control/talos/patches/controller.yaml"], lab: "pass", labRun: "run-4", approvals: "2 of 2", mr: "!117",
     intent: "Enable IOMMU on controller1 to controller3." }
 ];
 const LABEL = { draft: "draft", lab: "lab running", labfail: "lab failed", review: "review", approved: "approved", merged: "merged", deployed: "deployed", verified: "verified" };
 const GROUPS = [["mine", "My changes"], ["shared", "Pushed by others"], ["review", "Waiting for my review"], ["bot", "Bot changes"]];
-let current = "c-4f2a", filter = "all";
+let current = "c-k7m2qz", filter = "all";
 
 function stepIndex(s) { return s === "labfail" ? 1 : STEPS.findIndex(x => x[0] === s); }
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }

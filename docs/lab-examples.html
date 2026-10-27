@@ -126,14 +126,14 @@ spec:
 apiVersion: pk/v1alpha1
 kind: Lab
 metadata:
-  name: c-77e1-run-2
+  name: c-7h2exr-run-2
 spec:
   purpose: change
   topology: raven
   fidelity: replica
   from: raven-twin@snapshot                   # start from the twin snapshot
   base:   { ref: main }
-  change: { ref: change/c-77e1-cilium-bgp-peers }
+  change: { ref: change/c-7h2exr-cilium-bgp-peers }
   provision: direct                           # metal for inventory/talos changes
   scenario:
     - name: baseline-healthy
