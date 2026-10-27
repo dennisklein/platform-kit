@@ -268,10 +268,25 @@ Schemas also mark secret fields and the owner system of each field (see <a href=
 </pre>
 <p><b>Schema evolution.</b> Kinds have versions (<code>v1alpha1</code>, <code>v1beta1</code>, <code>v1</code>). Each new version ships a converter from the old one, so the UI reads all old versions (time travel, audit). A migrate bot opens a normal change that moves the repo files to the new version.</p>
 <p><b>Files without a kind.</b> The UI edits them in a plain YAML editor. If a known CRD schema matches their <code>apiVersion</code> and <code>kind</code>, the editor adds validation and completion. Thus the UI is useful for all files from day 1, and each new kind only improves it.</p>
-<h3>Rendered diff</h3>
-<p>Rendered manifests are not committed. CI and the bench render main and the branch, and show the object diff on the MR.
+<h3 id="diff">Diff and impact</h3>
+<p>Rendered manifests are not committed. CI and the bench render main and the branch for each cluster, and compare the two object sets.
 Flux still renders in the cluster. Reviewers and the LLM see final objects, and rebases have no conflicts in generated files.
 The renderer reads the Flux version from the Flux manifests in the repo and uses the matching kustomize and helm libraries. Thus a Flux upgrade MR also shows the render with the new versions.</p>
+<pre>
+ main ──render──> objects per cluster ─┐
+                                       ├──> impact: changed objects, per cluster, per Flux Kustomization
+ branch ─render──> objects per cluster ─┘          │
+                                                   ├──> diff view (semantic | source | rendered)
+                                                   ├──> overlap warning with other open changes
+                                                   └──> risk rating (policy rules + optional advisor)
+</pre>
+<ul>
+  <li><b>Impact unit.</b> The impact of a change is the set of rendered k8s objects that it adds, changes or deletes, per cluster, grouped by Flux Kustomization. Changes with a manual or sync apply path list their open steps next to it.</li>
+  <li><b>Diff view.</b> The review page shows the semantic diff first: the kind hooks describe each change in domain words (for example "worker003: new disk serial", "cilium: 2 new BGP peers"). Tabs show the source diff (the git diff) and the rendered object diff.</li>
+  <li><b>Overlap.</b> When two open changes change the same rendered object, both show a warning with a link to the other change. There is no lock and no block. The second merge rebases and renders again.</li>
+  <li><b>Source map.</b> The bench computes which source file and line make each rendered object, when it renders. Rendered objects carry no extra annotations. Thus a live object, a lab result or a drift alert links back to the file to edit.</li>
+  <li><b>Risk rating.</b> Rules in <code>.pk/policy.yaml</code> rate the impact (for example "a change to a node or to cilium is high", "only an app namespace is low"). The rating sets the required approvals and lab gate. An optional LLM advisor adds a note on the impact card. The note is advisory and never changes the rating.</li>
+</ul>
 <h3>Secrets</h3>
 <ul>
   <li>Talos and bootstrap secrets stay in git, encrypted with SOPS. They must exist before OpenBao runs.</li>
