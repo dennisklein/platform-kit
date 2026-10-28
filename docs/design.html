@@ -159,6 +159,20 @@ See the <a href="mocks/change-rail.html">change rail mock</a>.</p>
   <li><b>Lab gate.</b> Policy sets per path if a green lab run on the branch head is needed before review. For example, Talos and network paths need one; app paths do not.</li>
   <li><b>Behind target.</b> The UI shows "behind by N" and offers a one-click rebase. It never rewrites a branch in the background, so a second admin is never surprised.</li>
 </ul>
+<h3 id="rollout">Clusters and rollout</h3>
+<p><b>Cluster id.</b> Each cluster has a ship name as its id (for example <code>phoenix</code>, <code>defiant</code>, <code>pegasus</code>). The id is in paths, labels, kubeconfig contexts and trailers, and it does not change. The role of a cluster (control, fleet, GPU) is a label, so a cluster can change role without moving files.</p>
+<p><b>Rings.</b> One change merges once. It then rolls out by rings. Each cluster has a ring label (for example <code>lab</code>, <code>canary</code>, <code>prod</code>). The Flux source of each ring follows a ring tag (<code>ring/&lt;name&gt;</code>). platform-kit moves a ring tag forward to a merge commit on main; nothing else writes ring tags.</p>
+<pre>
+ main ──merge──> ring/lab ──gate──> ring/canary ──gate──> ring/prod
+                    │                   │                    │
+                 clusters            clusters             clusters
+                 with ring=lab       ring=canary          ring=prod
+</pre>
+<ul>
+  <li><b>Ring gate.</b> Policy sets per path how a change moves to the next ring: automatic after <i>verified</i> plus a soak time, or a manual click by an approver. For example, app paths move on their own; Talos and network paths wait for a click.</li>
+  <li><b>States per ring.</b> <i>deployed</i> and <i>verified</i> exist for each ring. The change rail shows how far each change has gone.</li>
+  <li><b>Stop and revert.</b> An admin can hold a ring tag at once. The hold stops the rollout to the next rings. Then platform-kit opens a revert change with one click. The revert has a fast path (reduced gates, set by policy). Manual apply steps of the reverted change show as open steps. The hold ends when the revert is deployed or an admin releases it.</li>
+</ul>
 
 <h2 id="merge">6. Merge and history</h2>
 <p>Each MR merges as a merge commit with semi-linear history. The branch must be rebased on its target before merge.
