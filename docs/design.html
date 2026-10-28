@@ -45,6 +45,7 @@
   <li><a href="#llm">LLM integration</a></li>
   <li><a href="#labs">Labs and live state</a></li>
   <li><a href="#sync">Org database sync</a></li>
+  <li><a href="#recovery">Bootstrap and recovery</a></li>
   <li><a href="#security">Security model</a></li>
   <li><a href="#open">Open questions</a></li>
 </ol>
@@ -250,7 +251,7 @@ paths:
   <li>The sync bot has the same rights, without labs.</li>
   <li>Commits and trailers show the agent and the admin it acts for.</li>
 </ul>
-<h3>Cluster access</h3>
+<h3 id="cluster-access">Cluster access</h3>
 <ul>
   <li>kube-apiserver uses OIDC. kubelogin gets short tokens from SSO. platform-kit writes the kubeconfig. Admins keep no long-lived static certificates in <code>~/.kube/config</code>.</li>
   <li>platform-kit generates the k8s RoleBindings from the policy file by OIDC user name.</li>
@@ -382,7 +383,23 @@ It comes after labs. At the start, platform-kit links to Skyhook/Radar instead o
   <li>On drift, the field owner wins, and the sync MR shows the diff for review. Drift never changes main without an MR.</li>
 </ul>
 
-<h2 id="security">13. Security model</h2>
+<h2 id="recovery">13. Bootstrap and recovery</h2>
+<p>Git holds the intent. Data outside git (etcd, OpenBao, PVCs, the LLM log, the shared service state) needs backups. platform-kit makes both visible and tests them with labs.</p>
+<pre>
+ bootstrap recipe (git) ──bench──> new control cluster ──> Flux takes over
+        │
+        └──> same recipe builds twins each night and DR labs on a schedule
+
+ backup kinds (git) ──existing tools──> backups ──DR lab restores──> twin ──> restore report
+</pre>
+<ul>
+  <li><b>Bootstrap recipe.</b> The bench runs a guided recipe from the repo to bring up a new control cluster: talhelper and Talos install, apply the Flux age key, Flux bootstrap. Each step is logged in a bootstrap record. Fleet clusters then come from the control cluster. Twins and DR labs use the same recipe, so it runs every night.</li>
+  <li><b>Backups.</b> Backup jobs are kinds in git (for example etcd snapshot, OpenBao snapshot, PVC backup). Existing tools run them; platform-kit has no backup controller. The UI shows the age of the last backup and of the last restore test for each data store.</li>
+  <li><b>Restore test.</b> A scheduled DR lab restores the latest backups into a twin and runs checks. Its report is the restore test record. A failed or old restore test shows as a badge, like a failed lab.</li>
+  <li><b>Forge outage.</b> Without GitLab, the bench works from local clones: read, edit, run labs. Merges wait for the forge, because there is only one merge path. An urgent fix uses <a href="#cluster-access">break-glass</a> access.</li>
+</ul>
+
+<h2 id="security">14. Security model</h2>
 <h3>Trust boundaries</h3>
 <pre>
  ┌──────────── admin laptop (trusted: admin user) ─────────────────────┐
@@ -423,7 +440,7 @@ It comes after labs. At the start, platform-kit links to Skyhook/Radar instead o
 <tr><td>Stolen laptop</td><td>No static kube certificates. Short tokens. SOPS key protected by disk encryption and a passphrase or hardware key.</td></tr>
 </table>
 
-<h2 id="open">14. Open questions</h2>
+<h2 id="open">15. Open questions</h2>
 <ul>
   <li>Shared service write mode (server worktrees) for app teams. Decide when app team needs are known; the two-mode design keeps it open.</li>
 </ul>
