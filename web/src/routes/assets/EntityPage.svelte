@@ -9,6 +9,7 @@
   import RackElevation from '../../lib/components/assets/RackElevation.svelte';
   import EntityView from '../../lib/components/assets/EntityView.svelte';
   import RefSwitch from '../../lib/components/assets/RefSwitch.svelte';
+  import Icon from '../../lib/components/Icon.svelte';
 
   let { params, query }: { params: Params; query: URLSearchParams } = $props();
 
@@ -26,6 +27,8 @@
   let entity = $state<Entity | null>(null);
   let rack = $state<Rack | null>(null);
   let error = $state<string | null>(null);
+  // Not on main but in the change you work on: an expected state, not an error.
+  let newInChange = $state<string | null>(null);
 
   const rackName = $derived(entity?.references.find((r) => r.kind === 'Rack' && r.exists)?.name);
 
@@ -38,12 +41,21 @@
         }),
       );
       error = null;
+      newInChange = null;
     } catch (e) {
       if (e instanceof ApiError && e.status === 404 && r !== 'main' && !query.has('ref')) {
         fellBack = r;
         return;
       }
       entity = null;
+      newInChange = null;
+      const cid = work.changeId;
+      if (e instanceof ApiError && e.status === 404 && r === 'main' && cid) {
+        const there = await api.GET('/entities/{kind}/{name}', {
+          params: { path: { kind: params.kind, name: params.name }, query: { ref: cid, cluster: pickCluster, path: pickPath } },
+        });
+        if (there.data && ref === r) newInChange = cid;
+      }
       error = errorText(e);
     }
   }
@@ -129,6 +141,14 @@
     {/if}
     {#if entity}
       <EntityView {entity} />
+    {:else if newInChange}
+      <div class="callout">
+        <Icon name="info" size={16} />
+        <span>
+          {params.name} is new in this change; it is not on main yet.
+          <a href={href(`/assets/${encodeURIComponent(params.kind)}/${encodeURIComponent(params.name)}`, { ref: newInChange, pinref: '1' })}>Show it in {newInChange}</a>
+        </span>
+      </div>
     {:else if error}
       <div class="error-box">{error}</div>
     {:else}
