@@ -11,6 +11,7 @@
   import LifecycleChip from '../../lib/change/LifecycleChip.svelte';
   import Track, { type TrackItem } from '../../lib/components/Track.svelte';
   import Icon from '../../lib/components/Icon.svelte';
+  import RiskChip from '../../lib/components/RiskChip.svelte';
   import PresenceChip from '../../lib/components/PresenceChip.svelte';
   import AgentBanner from '../../lib/components/AgentBanner.svelte';
   import OverlapCard from '../../lib/components/OverlapCard.svelte';
@@ -92,7 +93,7 @@
         <div class="row">
           <h1>{c.title}</h1>
           <LifecycleChip change={c} />
-          {#if c.risk}<span class="risk r-{c.risk}">risk: {c.risk}</span>{/if}
+          {#if c.risk}<RiskChip level={c.risk} />{/if}
         </div>
         <div class="meta">
           <span class="mono">{c.branch}</span>
@@ -266,24 +267,6 @@
   }
   .info-text {
     color: var(--info);
-  }
-  .risk {
-    font-size: 11.5px;
-    font-weight: 600;
-    padding: 1px 8px;
-    border-radius: 4px;
-  }
-  .r-high {
-    background: var(--bad-soft);
-    color: var(--bad);
-  }
-  .r-medium {
-    background: var(--warn-soft);
-    color: var(--warn);
-  }
-  .r-low {
-    background: var(--ok-soft);
-    color: var(--ok);
   }
   .intent {
     margin: 0;

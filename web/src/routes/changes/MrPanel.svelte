@@ -56,7 +56,7 @@
   <div class="grid">
     <div class="desc">
       <div class="eyebrow">
-        {#if view === 'merge'}{merged ? 'Merge commit on main' : 'Merge commit preview (trailers)'}{:else if c.description}MR description{:else}MR description, from .pk/changes/{c.id}.yaml{/if}
+        {#if view === 'merge'}{merged ? 'Merge commit on main' : 'Merge commit preview (trailers)'}{:else if c.description}MR description{:else}MR description, from <span class="keep">.pk/changes/{c.id}.yaml</span>{/if}
       </div>
       <div class="msgbox"><TrailerBlock parts={view === 'merge' ? mergeParts(c) : descriptionParts(c)} /></div>
     </div>

@@ -17,6 +17,7 @@
   import { duration, runLabel, shortSha, timeAgo } from '../../lib/change/format';
   import Track, { type TrackItem } from '../../lib/components/Track.svelte';
   import Icon from '../../lib/components/Icon.svelte';
+  import ResultChip from '../../lib/components/ResultChip.svelte';
   import AgentBanner from '../../lib/components/AgentBanner.svelte';
   import Markdown from '../../lib/components/Markdown.svelte';
   import { changeOfRun, consoleLines, elapsed, parseReport, reportStatus } from './labview';
@@ -324,7 +325,7 @@
       </div>
       <div class="titlerow">
         <h1>Change lab · {runLabel(reportRef.run)}</h1>
-        <span class="result r-{reportResult}">{reportResult}</span>
+        <ResultChip result={reportResult} />
         <span class="fromreport"><Icon name="kb" size={14} />from its report</span>
       </div>
       <div class="meta muted">
@@ -405,7 +406,7 @@
 
     {#if report}
       <details class="card fullreport">
-        <summary class="eyebrow">Full report · {report.path}</summary>
+        <summary class="eyebrow">Full report · <span class="keep">{report.path}</span></summary>
         <Markdown source={report.body} path={report.path} dropTitle={report.title} />
       </details>
     {/if}
@@ -444,9 +445,8 @@
       </div>
       <div class="titlerow">
         <h1>Change lab · {runLabel(run.id)}</h1>
-        <span class="result r-{run.result}">
-          {#if running}<span class="pulse"></span>running<span class="clock">{runClock}</span>{:else}{run.result}{/if}
-        </span>
+        <ResultChip result={run.result} />
+        {#if running}<span class="clock" aria-label="running for">{runClock}</span>{/if}
         <span class="grow"></span>
         <span class="muted where">
           lab host {run.host ?? 'local'} · {run.provision ?? 'metal'} provisioning · {run.fresh === false ? 'twin snapshot' : 'fresh machines'}
@@ -483,7 +483,7 @@
 
     <div class="body" class:livefirst={running || streaming}>
       <section class="card scen">
-        <h3 class="eyebrow">Scenario{run.scenario ? ` · ${run.scenario}` : ''}</h3>
+        <h3 class="eyebrow">Scenario{#if run.scenario} · <span class="keep">{run.scenario}</span>{/if}</h3>
         {#each scenario as s (s.name)}
           <button class="sline" class:sel={pinned && selected === s.name} onclick={() => pick(s.name)}>
             <span class="ic st-{s.status}">
@@ -672,37 +672,11 @@
   .select {
     padding: 5px 8px;
   }
-  .result {
-    font: 700 14px var(--sans);
-    padding: 2px 10px;
-    border-radius: 5px;
-    display: inline-flex;
-    gap: 6px;
-    align-items: center;
-  }
   .clock {
     font: 600 13.5px var(--mono);
     font-variant-numeric: tabular-nums;
-    padding-left: 6px;
-    margin-left: 2px;
-    border-left: 1px solid color-mix(in srgb, currentColor 35%, transparent);
-  }
-  .r-pass {
-    background: var(--ok-soft);
-    color: var(--ok);
-  }
-  .r-fail {
-    background: var(--bad-soft);
-    color: var(--bad);
-  }
-  .r-running {
-    background: var(--warn-soft);
     color: var(--warn);
-  }
-  .r-cancelled,
-  .r-unknown {
-    background: var(--panel-2);
-    color: var(--muted);
+    margin-left: -4px;
   }
   .fromreport {
     display: inline-flex;

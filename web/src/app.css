@@ -253,10 +253,13 @@ h1 {
 h2 {
   font-size: var(--fs-h2);
 }
-/* An id inside a section label keeps its case: "IN c-v6jhcj". */
+/* Ids and paths keep their case, also inside an uppercase section label:
+   "SEMANTIC DIFF · c-v6jhcj", "GATES FROM .pk/policy.yaml". */
+.keep {
+  text-transform: none;
+}
 h3 .keep,
 .eyebrow .keep {
-  text-transform: none;
   letter-spacing: 0.02em;
 }
 /* An entity name as the page title keeps the title size (not .mono's). */

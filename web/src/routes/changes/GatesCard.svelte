@@ -46,7 +46,7 @@
 </script>
 
 <div class="card gates">
-  <div class="eyebrow">Gates from .pk/policy.yaml</div>
+  <div class="eyebrow">Gates from <span class="keep">.pk/policy.yaml</span></div>
   <ul>
     <li class="t-{lab.tone}">
       <Icon name="flask" size={17} />

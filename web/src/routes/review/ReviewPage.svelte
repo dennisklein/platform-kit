@@ -21,7 +21,8 @@
   import { events } from '../../lib/stores/events.svelte';
   import { presenceFor } from '../../lib/change/presence.svelte';
   import { timeAgo, shortSha, baseName } from '../../lib/change/format';
-  import StateChip from '../../lib/components/StateChip.svelte';
+  import LifecycleChip from '../../lib/change/LifecycleChip.svelte';
+  import RiskChip from '../../lib/components/RiskChip.svelte';
   import Icon from '../../lib/components/Icon.svelte';
   import OverlapCard from '../../lib/components/OverlapCard.svelte';
   import SemanticDiff from '../../lib/components/SemanticDiff.svelte';
@@ -280,7 +281,6 @@
   const rules = $derived(gates?.matchedRules ?? []);
 
   // A draft whose lab passed on the head: the change page says "lab passed".
-  const labPassed = $derived(!!c && c.state === 'draft' && c.labState === 'pass');
 
   /** A path in parts that may break after each "/", never inside a name. */
   const pathParts = (p: string) => p.split(/(?<=\/)/);
@@ -297,12 +297,8 @@
       <div class="eyebrow">Review · <a href={href(`/changes/${c.id}`)} class="mono">{c.id}</a></div>
       <div class="titlerow">
         <h1>{c.title}</h1>
-        {#if labPassed}
-          <span class="labpass" title="The lab passed on the head. Next: push and mark ready.">lab passed</span>
-        {:else}
-          <StateChip state={c.state} labState={c.labState} />
-        {/if}
-        {#if impact?.risk}<span class="risk r-{impact.risk.level}">risk: {impact.risk.level}</span>{/if}
+        <LifecycleChip change={c} />
+        {#if impact?.risk}<RiskChip level={impact.risk.level} />{/if}
       </div>
       <div class="meta muted">
         <span class="mono">{c.branch}</span>
@@ -475,8 +471,8 @@
         <!-- risk and policy -->
         <section class="card" id="risk">
           <div class="cardhead">
-            <h3 class="eyebrow">Risk from .pk/policy.yaml</h3>
-            {#if impact?.risk}<span class="risk r-{impact.risk.level}">{impact.risk.level}</span>{/if}
+            <h3 class="eyebrow">Risk from <span class="keep">.pk/policy.yaml</span></h3>
+            {#if impact?.risk}<RiskChip level={impact.risk.level} prefix={false} />{/if}
           </div>
           {#if rules.length}
             {#each rules as r (r.name)}
@@ -611,28 +607,6 @@
   h2 .mono {
     font-size: 15px;
     font-weight: 400;
-  }
-  .risk {
-    font: 600 13px var(--sans);
-    border-radius: 5px;
-    padding: 2px 8px;
-    background: var(--panel-2);
-    border: 1px solid var(--line);
-  }
-  .r-high {
-    background: var(--bad-soft);
-    color: var(--bad);
-    border-color: transparent;
-  }
-  .r-medium {
-    background: var(--warn-soft);
-    color: var(--warn);
-    border-color: transparent;
-  }
-  .r-low {
-    background: var(--ok-soft);
-    color: var(--ok);
-    border-color: transparent;
   }
   .cluster {
     display: grid;
@@ -837,16 +811,6 @@
     border-radius: 0;
     background: transparent;
     padding: 14px 0 0;
-  }
-  .labpass {
-    display: inline-flex;
-    align-items: center;
-    font-size: 11.5px;
-    font-weight: 600;
-    padding: 1px 8px;
-    border-radius: 4px;
-    background: var(--ok-soft);
-    color: var(--ok);
   }
   .rule {
     display: flex;
