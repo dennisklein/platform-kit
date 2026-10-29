@@ -2,10 +2,13 @@
   // Commit the saved files of the worktree. "Suggest message" asks the
   // advisor (it reads the staged diff and the intent and writes nothing);
   // the admin edits the message and commits.
+  import { tick } from 'svelte';
   import { api, must, errorText } from '../../lib/api/client';
   import type { AdvisorResult as Result, Change, CommitMessageSuggestion } from '../../lib/api/types';
   import Icon from '../../lib/components/Icon.svelte';
   import AdvisorResult from '../../lib/components/advisor/AdvisorResult.svelte';
+  import AdvisorWorking from '../../lib/components/advisor/AdvisorWorking.svelte';
+  import { RECIPE_TOOLS, minWorkingMs, readingSteps, reducedMotion, typedText } from '../../lib/f/advisor';
   import { toasts } from '../../lib/stores/toasts.svelte';
   import { change as changeStore } from '../../lib/stores/change.svelte';
   import { changes } from '../../lib/stores/changes.svelte';
@@ -32,7 +35,39 @@
   let error = $state<string | null>(null);
   let last = $state<{ sha: string; subject: string } | null>(null);
   let check = $state<Result | null>(null);
+  let checkKey = $state(0);
   let checking = $state(false);
+  // The suggested message is being typed into the box.
+  let typing = $state(false);
+  let checkEl = $state<HTMLElement | null>(null);
+
+  const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
+  const SUGGEST_TOOLS = RECIPE_TOOLS['commit-message'];
+  const CHECK_TOOLS = RECIPE_TOOLS['check-commit'];
+
+  /** Type the suggested message into the box (at once with reduced motion). */
+  async function typeIn(text: string) {
+    if (reducedMotion()) {
+      message = text;
+      return;
+    }
+    typing = true;
+    const start = performance.now();
+    await new Promise<void>((done) => {
+      const step = () => {
+        message = typedText(text, performance.now() - start);
+        if (message.length >= text.length) done();
+        else requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    });
+    typing = false;
+  }
+
+  async function showCheck() {
+    await tick();
+    checkEl?.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'start' });
+  }
 
   // The newest commit of the change (not the metadata one), for "Check this
   // commit" when the page was opened after committing.
@@ -48,14 +83,18 @@
   async function suggest() {
     suggesting = true;
     error = null;
+    message = '';
+    suggested = null;
     try {
-      const s = await must(
-        api.POST('/changes/{id}/commit-message', { params: { path: { id: change.id } }, body: { paths } }),
-      );
+      const [s] = await Promise.all([
+        must(api.POST('/changes/{id}/commit-message', { params: { path: { id: change.id } }, body: { paths } })),
+        sleep(minWorkingMs(readingSteps(SUGGEST_TOOLS).length, reducedMotion())),
+      ]);
       suggested = s;
       suggestedOffline = !!session.status?.llm && !session.status.llm.mock && !session.status.llm.reachable;
       session.noteAnswer(s);
-      message = s.message;
+      suggesting = false;
+      await typeIn(s.message);
       edited = false;
     } catch (e) {
       error = errorText(e);
@@ -89,10 +128,16 @@
 
   async function checkCommit() {
     checking = true;
+    check = null;
+    void showCheck();
     try {
-      check = await must(
-        api.POST('/changes/{id}/advisors/{recipe}', { params: { path: { id: change.id, recipe: 'check-commit' } } }),
-      );
+      const [r] = await Promise.all([
+        must(api.POST('/changes/{id}/advisors/{recipe}', { params: { path: { id: change.id, recipe: 'check-commit' } } })),
+        sleep(minWorkingMs(readingSteps(CHECK_TOOLS).length, reducedMotion())),
+      ]);
+      check = r;
+      checkKey += 1;
+      void showCheck();
     } catch (e) {
       toasts.error('Advisor failed', e);
     } finally {
@@ -109,49 +154,63 @@
 </script>
 
 <div class="commit">
-  <section class="card">
-    <h3 class="eyebrow">Commit message</h3>
-    <div class="msg" class:sug={suggested && !edited}>
-      {#if suggested}
-        <div class="sugline">
-          <Icon name="sparkle" size={15} />
-          {edited ? 'suggested, edited by you' : 'suggested · edit before you commit'}
-          {#if suggested.mock}<span class="tag">built-in</span>{/if}
-          {#if suggested.model !== 'mock'}
-            {@const ml = modelLabel(suggested, suggestedOffline)}
-            <span class="mono small" class:muted={!ml.fallback} class:warn-text={ml.fallback} title={ml.title}>{ml.text}</span>
-          {/if}
-        </div>
+  {#if paths.length === 0 && !message}
+    <section class="card nothing">
+      <h3 class="eyebrow">Commit message</h3>
+      <p class="muted">Nothing to commit. Edit and save a file, then commit it here.</p>
+    </section>
+  {:else}
+    <section class="card">
+      <h3 class="eyebrow">Commit message</h3>
+      <div class="msg" class:sug={(suggested || suggesting) && !edited}>
+        {#if suggesting}
+          <div class="sugline">
+            <AdvisorWorking compact title="Suggest a commit message" tools={SUGGEST_TOOLS} writer="Writing the message" />
+          </div>
+        {:else if suggested}
+          <div class="sugline">
+            <Icon name="sparkle" size={15} />
+            {typing ? 'suggested · typing…' : edited ? 'suggested, edited by you' : 'suggested · edit before you commit'}
+            {#if suggested.mock}<span class="tag">built-in</span>{/if}
+            {#if suggested.model !== 'mock'}
+              {@const ml = modelLabel(suggested, suggestedOffline)}
+              <span class="mono small model" class:fb={ml.fallback} title={ml.title}>{ml.text}</span>
+            {/if}
+          </div>
+        {/if}
+        <textarea
+          class="mono"
+          rows="7"
+          bind:value={message}
+          oninput={() => (edited = true)}
+          onkeydown={onkey}
+          readonly={typing || suggesting}
+          placeholder={suggesting
+            ? 'The advisor reads the staged diff and the intent of the change…'
+            : 'Write a Conventional Commit message: type(scope): what changes.\nOr click Suggest message.'}
+          aria-label="Commit message"
+        ></textarea>
+      </div>
+      {#if subject && !conventional && !typing}
+        <p class="hint warn-text">Use a Conventional Commit subject, for example <code>feat(inventory): …</code>. The CI checks it.</p>
       {/if}
-      <textarea
-        class="mono"
-        rows="7"
-        bind:value={message}
-        oninput={() => (edited = true)}
-        onkeydown={onkey}
-        placeholder="feat(inventory): add cn-035 in GC5A-6Z&#10;&#10;- why, in a few bullets"
-        aria-label="Commit message"
-      ></textarea>
-    </div>
-    {#if subject && !conventional}
-      <p class="hint warn-text">Use a Conventional Commit subject, for example <code>feat(inventory): …</code>. The CI checks it.</p>
-    {/if}
-    {#if error}<div class="error-box">{error}</div>{/if}
-    <div class="row">
-      <button class="btn" onclick={suggest} disabled={suggesting || paths.length === 0}>
-        <Icon name="sparkle" size={15} />{suggesting ? 'Asking…' : suggested ? 'Suggest again' : 'Suggest message'}
-      </button>
-      <button class="btn dark" onclick={commit} disabled={!canCommit}>
-        <Icon name="check" size={15} />{committing ? 'Committing…' : `Commit ${paths.length} file${paths.length === 1 ? '' : 's'}`}
-      </button>
-      <span class="muted small kbd">Ctrl+Enter</span>
-    </div>
-  </section>
+      {#if error}<div class="error-box">{error}</div>{/if}
+      <div class="row">
+        <button class="btn ai" onclick={suggest} disabled={suggesting || typing || paths.length === 0}>
+          <Icon name="sparkle" size={15} />{suggesting ? 'Asking…' : suggested ? 'Suggest again' : 'Suggest message'}
+        </button>
+        <button class="btn dark" onclick={commit} disabled={!canCommit || typing}>
+          <Icon name="check" size={15} />{committing ? 'Committing…' : `Commit ${paths.length} file${paths.length === 1 ? '' : 's'}`}
+        </button>
+        <span class="muted small kbd">Ctrl+Enter</span>
+      </div>
+    </section>
 
-  <div class="callout llm">
-    <Icon name="sparkle" size={18} />
-    <span>The advisor reads the staged diff and the change intent. It writes nothing: the admin edits and commits.</span>
-  </div>
+    <div class="callout llm">
+      <Icon name="sparkle" size={18} />
+      <span>The advisor reads the staged diff and the change intent. It writes nothing: the admin edits and commits.</span>
+    </div>
+  {/if}
 
   {#if paths.length}
     <StagedDiff changeId={change.id} head={change.headSha} {paths} />
@@ -164,14 +223,24 @@
         <span>{last ? '' : 'Last commit '}<span class="mono accent">{shortSha(shown.sha)}</span> {shown.subject}</span>
       </div>
       <div class="row">
-        <button class="btn" onclick={checkCommit} disabled={checking}><Icon name="sparkle" size={15} />{checking ? 'Checking…' : 'Check this commit'}</button>
+        <button class="btn ai" class:on={checking || !!check} aria-pressed={checking || !!check} onclick={checkCommit} disabled={checking}>
+          <Icon name="sparkle" size={15} />{checking ? 'Checking…' : 'Check this commit'}
+        </button>
         <button class="btn" onclick={() => actions.runLab(change.id)} disabled={actions.isBusy(change.id)}><Icon name="flask" size={15} />Run lab</button>
         <button class="btn" onclick={() => actions.push(change.id)} disabled={actions.isBusy(change.id)}>
           <Icon name="upload" size={15} />{change.mr ? 'Push' : 'Push, open draft MR'}
         </button>
         <a class="btn" href={href(`/changes/${change.id}`)}>Back to change</a>
       </div>
-      {#if check}<AdvisorResult result={check} />{/if}
+      <div class="checkres" bind:this={checkEl}>
+        {#if checking}
+          <AdvisorWorking title="Check this commit" tools={CHECK_TOOLS} />
+        {:else if check}
+          {#key checkKey}
+            <AdvisorResult result={check} reveal onRerun={checkCommit} busy={checking} />
+          {/key}
+        {/if}
+      </div>
     </section>
   {/if}
 </div>
@@ -196,14 +265,55 @@
   .msg:focus-within {
     border-color: var(--ink);
   }
+  .msg.sug {
+    border-color: var(--ai-line);
+    box-shadow: inset 3px 0 0 var(--ai-fill);
+  }
   .sugline {
     display: flex;
     gap: 6px;
     align-items: center;
     padding: 10px 14px 0;
-    color: var(--info);
+    color: var(--ai);
     font-weight: 600;
     font-size: 14px;
+    min-width: 0;
+  }
+  .sugline > :global(.line) {
+    flex: 1;
+  }
+  .sugline .model {
+    color: var(--muted);
+    font-weight: 400;
+  }
+  .card.nothing p {
+    margin: 0;
+  }
+  .btn.ai :global(svg) {
+    color: var(--ai);
+  }
+  .btn.ai:hover:not(:disabled) {
+    border-color: var(--ai-line);
+    background: var(--ai-soft);
+  }
+  .btn.ai.on,
+  .btn.ai.on:hover:not(:disabled),
+  .btn.ai.on:disabled {
+    background: var(--ai-fill);
+    border-color: var(--ai-fill);
+    color: var(--ai-on);
+    font-weight: 600;
+    opacity: 1;
+  }
+  .btn.ai.on :global(svg) {
+    color: var(--ai-on);
+  }
+  .checkres {
+    scroll-margin-top: 16px;
+    min-width: 0;
+  }
+  .checkres:empty {
+    display: none;
   }
   .tag {
     font: 600 11px var(--sans);
@@ -240,13 +350,13 @@
     display: flex;
     gap: 12px;
     align-items: center;
-    border-left: 4px solid var(--info);
-    background: var(--panel);
+    border-left: 4px solid var(--ai-fill);
+    background: var(--ai-soft);
     padding: 12px 16px;
     color: var(--ink);
   }
   .callout.llm :global(svg) {
-    color: var(--info);
+    color: var(--ai);
     flex: none;
   }
   .done > .row:first-child :global(svg) {
