@@ -104,7 +104,11 @@
   {#if gates.mergeable}
     <div class="verdict ok"><Icon name="check" size={14} /> All gates met: ready to merge.</div>
   {:else if gates.blockers.length && c.state !== 'draft'}
-    <div class="verdict"><Icon name="info" size={14} /> Before merge: {gates.blockers.join('; ')}</div>
+    <div class="verdict">
+      <Icon name="info" size={14} />
+      <!-- ids such as c-p4x8ma/run-1 do not break at their hyphen -->
+      <span>Before merge: {#each gates.blockers as b, i (i)}{#if i}{'; '}{/if}{#each b.split(/(c-[a-z0-9]{6}(?:\/run-\d+)?)/) as part, j (j)}{#if j % 2}<span class="id">{part}</span>{:else}{part}{/if}{/each}{/each}</span>
+    </div>
   {/if}
 </div>
 
@@ -204,5 +208,8 @@
   }
   .verdict.ok {
     color: var(--ok);
+  }
+  .verdict .id {
+    white-space: nowrap;
   }
 </style>
