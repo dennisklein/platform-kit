@@ -61,7 +61,8 @@ func (w *workspace) labFailures(run *api.LabRun, ref *api.LabRunRef) (fails []st
 }
 
 // reportWhy is the first sentence of the last paragraph of a report, when
-// that paragraph ends the report.
+// that paragraph is prose a person wrote (a generated report ends with
+// where the raw results stay, which explains nothing).
 func reportWhy(content string) string {
 	body := reReportFront.ReplaceAllString(content, "")
 	paras := strings.Split(strings.TrimSpace(body), "\n\n")
@@ -70,7 +71,7 @@ func reportWhy(content string) string {
 	}
 	last := strings.TrimSpace(paras[len(paras)-1])
 	switch {
-	case last == "", strings.HasPrefix(last, "#"), strings.HasPrefix(last, "|"), strings.HasPrefix(last, "-"),
+	case last == "", strings.HasPrefix(last, "Raw results"), strings.HasPrefix(last, "#"), strings.HasPrefix(last, "|"), strings.HasPrefix(last, "-"),
 		strings.HasPrefix(last, "*"), strings.HasPrefix(last, "```"):
 		return ""
 	}
@@ -82,8 +83,9 @@ func reportWhy(content string) string {
 }
 
 // failureText joins failed checks for one sentence: the check family
-// ("bgp: ") goes, and checks that differ in one word merge ("sessions to
-// 10.6.0.3 and 10.6.0.4 not established").
+// ("bgp: ") goes, checks that differ in one value merge ("sessions to
+// 10.6.0.3 and 10.6.0.4 not established"), and a subject said once is not
+// repeated ("cn-040: mgmt has …; data-b has …").
 func failureText(fails []string) string {
 	type group struct {
 		words []string
@@ -108,7 +110,9 @@ func failureText(fails []string) string {
 					at, n = i, n+1
 				}
 			}
-			if n == 1 && (g.at < 0 || g.at == at) {
+			// Only values merge (addresses, numbers): "mgmt and data-b has"
+			// would break the verb.
+			if n == 1 && (g.at < 0 || g.at == at) && hasDigit(ws[at]) && hasDigit(g.words[at]) {
 				g.at = at
 				g.vals = append(g.vals, ws[at])
 				merged = true
@@ -120,6 +124,7 @@ func failureText(fails []string) string {
 		}
 	}
 	var out []string
+	subject := ""
 	for _, g := range groups {
 		if g.at < 0 {
 			out = append(out, strings.Join(g.words, " "))
@@ -133,8 +138,21 @@ func failureText(fails []string) string {
 		}
 		out = append(out, strings.Join(ws, " "))
 	}
+	for i, o := range out {
+		s, rest, ok := strings.Cut(o, ": ")
+		if !ok || strings.Contains(s, " ") {
+			subject = ""
+			continue
+		}
+		if s == subject {
+			out[i] = rest
+		}
+		subject = s
+	}
 	return strings.Join(out, "; ")
 }
+
+func hasDigit(s string) bool { return strings.ContainsAny(s, "0123456789") }
 
 func isLowerWord(s string) bool {
 	for _, r := range s {

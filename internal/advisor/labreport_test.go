@@ -81,9 +81,10 @@ func TestRisksNameTheLabFailures(t *testing.T) {
 
 func TestFailureText(t *testing.T) {
 	for in, want := range map[string]string{
-		"bgp: session to 10.6.0.3 not established|bgp: session to 10.6.0.4 not established": "sessions to 10.6.0.3 and 10.6.0.4 not established",
-		"cn-036: no BGP peering policy selects it":                                          "cn-036: no BGP peering policy selects it",
-		"bgp: session to 10.6.0.3 not established|nodes: cn-035 not Ready":                  "session to 10.6.0.3 not established; cn-035 not Ready",
+		"bgp: session to 10.6.0.3 not established|bgp: session to 10.6.0.4 not established":                                        "sessions to 10.6.0.3 and 10.6.0.4 not established",
+		"cn-036: no BGP peering policy selects it":                                                                                 "cn-036: no BGP peering policy selects it",
+		"bgp: session to 10.6.0.3 not established|nodes: cn-035 not Ready":                                                         "session to 10.6.0.3 not established; cn-035 not Ready",
+		"cn-040: mgmt has ports 1 to 48, not 49|cn-040: data-b has ports 1 to 48, not 49|cn-040: data-a has ports 1 to 48, not 50": "cn-040: mgmt has ports 1 to 48, not 49; data-b has ports 1 to 48, not 49; data-a has ports 1 to 48, not 50",
 		"": "",
 	} {
 		var fails []string
@@ -102,5 +103,8 @@ func TestReportWhy(t *testing.T) {
 	}
 	if got := reportWhy("# T\n\nThe lab emulates only\nthe router 10.6.0.1. Add a peer."); got != "The lab emulates only the router 10.6.0.1." {
 		t.Errorf("why %q", got)
+	}
+	if got := reportWhy("# T\n\nRaw results (steps) stay on the bench in `labs/c/run-1/`."); got != "" {
+		t.Errorf("raw results: %q", got)
 	}
 }
