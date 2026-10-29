@@ -4,7 +4,7 @@
   import { tick } from 'svelte';
   import type { Suggestion } from '../../api/ftypes';
   import { api, must, errorText } from '../../api/client';
-  import { href } from '../../router.svelte';
+  import { href, router } from '../../router.svelte';
   import { reducedMotion, suggestedBy } from '../../f/advisor';
   import UnifiedDiff from '../UnifiedDiff.svelte';
   import Glyph from '../Glyph.svelte';
@@ -22,6 +22,8 @@
   const file = $derived(suggestion.path.split('/').pop());
   const editor = $derived(href(`/changes/${suggestion.changeId}/files`, { path: suggestion.path }));
   const badge = $derived(suggestedBy(suggestion.by));
+  // The editor already shows this file: no link to it.
+  const inEditor = $derived(router.path === `/changes/${suggestion.changeId}/files` && router.query.get('path') === suggestion.path);
 
   async function decide(what: 'accept' | 'reject') {
     busy = what;
@@ -47,7 +49,7 @@
 <div class="sugg s-{suggestion.status}">
   <div class="head">
     <span class="badge"><Glyph name="sparkle" size={13} />{badge}</span>
-    <span class="mono small muted">{suggestion.changeId}</span>
+    <span class="id mono small muted">{suggestion.changeId}</span>
   </div>
   <div class="what">
     Edit in <a href={editor} title={suggestion.path}><strong>{file}</strong></a>{suggestion.title ? `: ${suggestion.title}` : ''}
@@ -62,26 +64,30 @@
       <button class="btn small" disabled={!!busy} onclick={() => decide('reject')}>
         <Glyph name="x" size={13} />Reject
       </button>
-      <a class="btn small ghost open" href={editor} title="Open {suggestion.path} in the editor">
-        <Glyph name="external" size={13} />Open in editor
-      </a>
+      {#if !inEditor}
+        <a class="btn small ghost open" href={editor} title="Open {suggestion.path} in the editor" aria-label="Open in editor">
+          <Glyph name="external" size={13} /><span class="lbl">Open in editor</span>
+        </a>
+      {/if}
     </div>
   {:else if suggestion.status === 'accepted'}
     <div class="done ok-text small" bind:this={doneEl}>
-      <Glyph name="check" size={13} /> Accepted by {suggestion.decidedBy ?? 'you'}. Now it is a normal edit, owned by
-      {suggestion.decidedBy ?? 'you'}.
-      <a href={editor}>Open in editor</a>
+      <Glyph name="check" size={13} />
+      <span>
+        Accepted by {suggestion.decidedBy ?? 'you'}. Now it is a normal edit, owned by {suggestion.decidedBy ?? 'you'}.
+        {#if !inEditor}<a href={editor}>Open in editor</a>{/if}
+      </span>
     </div>
   {:else if suggestion.status === 'rejected'}
     <div class="done muted small" bind:this={doneEl}>
-      <Glyph name="x" size={13} /> Rejected{suggestion.decidedBy ? ` by ${suggestion.decidedBy}` : ''}.
+      <Glyph name="x" size={13} /><span>Rejected{suggestion.decidedBy ? ` by ${suggestion.decidedBy}` : ''}.</span>
     </div>
   {:else}
     <div class="done warn-text small">Stale: the file changed after the suggestion. Ask again.</div>
   {/if}
   {#if error}<div class="error-box">{error}</div>{/if}
   {#if note && suggestion.status === 'pending'}
-    <p class="muted small note">Chat does not commit, run labs or mark ready on its own.</p>
+    <p class="muted small note">Suggestions never commit, run labs or mark ready on their own.</p>
   {/if}
 </div>
 
@@ -90,13 +96,18 @@
     display: grid;
     gap: 6px;
     min-width: 0;
+    container-type: inline-size;
   }
   .head {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
-    gap: 8px;
+    gap: 4px 8px;
     align-items: center;
     font-size: 13px;
+  }
+  .id {
+    white-space: nowrap;
   }
   .badge {
     display: inline-flex;
@@ -158,9 +169,15 @@
   .done {
     display: flex;
     gap: 6px;
-    align-items: baseline;
-    flex-wrap: wrap;
+    align-items: flex-start;
     scroll-margin-bottom: 24px;
+  }
+  .done > :global(svg) {
+    flex: none;
+    margin-top: 2px;
+  }
+  .done > span {
+    min-width: 0;
   }
   .s-accepted .diff {
     border-left-color: var(--ok);
@@ -172,5 +189,14 @@
   }
   .note {
     margin: 0;
+  }
+  /* The narrow side panel: the link becomes an icon button. */
+  @container (max-width: 400px) {
+    .open .lbl {
+      display: none;
+    }
+    .row .open {
+      padding: 4px 8px;
+    }
   }
 </style>
