@@ -1,6 +1,9 @@
 <script lang="ts">
   // Modal dialog with a dimmed backdrop. Escape and backdrop click close it.
   import type { Snippet } from 'svelte';
+  import { fade, scale } from 'svelte/transition';
+  import { cubicOut } from 'svelte/easing';
+  import { ms } from '../f/motion';
   import Icon from './Icon.svelte';
 
   let {
@@ -48,8 +51,16 @@
 
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-  <div class="backdrop" onclick={(e) => e.target === e.currentTarget && close()}>
-    <div class="dialog" role="dialog" aria-modal="true" aria-label={title} bind:this={dialog} style:max-width="{width}px">
+  <div class="backdrop" onclick={(e) => e.target === e.currentTarget && close()} transition:fade={{ duration: ms(140) }}>
+    <div
+      class="dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      bind:this={dialog}
+      style:max-width="{width}px"
+      in:scale={{ start: 0.96, duration: ms(180), easing: cubicOut }}
+    >
       <header>
         {#if icon}<span class="ic"><Icon name={icon} size={20} /></span>{/if}
         <h2>{title}</h2>

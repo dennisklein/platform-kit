@@ -1,6 +1,9 @@
 <script lang="ts">
   // App shell: top bar, dark icon nav, change rail, page, side panel.
   import { onMount } from 'svelte';
+  import { fly } from 'svelte/transition';
+  import { cubicOut } from 'svelte/easing';
+  import { ms } from './lib/f/motion';
   import { routes } from './routes';
   import { router } from './lib/router.svelte';
   import { events } from './lib/stores/events.svelte';
@@ -64,7 +67,9 @@
       {/key}
     </main>
     {#if ui.sideOpen}
-      <SidePanel />
+      <div class="side-col" in:fly={{ x: 24, duration: ms(200), easing: cubicOut }}>
+        <SidePanel />
+      </div>
     {/if}
   </div>
 </div>
@@ -99,6 +104,27 @@
     flex: 1;
     min-width: 0;
     overflow: auto;
+  }
+  .side-col {
+    display: flex;
+    flex: none;
+    min-height: 0;
+  }
+  /* Half a projector (browser next to a terminal): the side panel lies over
+     the page instead of squeezing it. */
+  @media (max-width: 1100px) {
+    .side-col {
+      position: fixed;
+      top: var(--topbar-h);
+      right: 0;
+      bottom: 0;
+      z-index: 40;
+      width: min(var(--side-w), 92vw);
+      box-shadow: -12px 0 32px rgb(0 0 0 / 0.18);
+    }
+    .side-col > :global(*) {
+      width: 100%;
+    }
   }
   /* Projector widths (1280 px at 125 %): a narrower rail. */
   @media (max-width: 1100px) {

@@ -7,6 +7,9 @@
   import { railGroups, railHints, groupCounts, type RailFilter, type RailSort } from '../change/rail';
   import { presenceFor } from '../change/presence.svelte';
   import { shortSha, timeAgo } from '../change/format';
+  import { flip } from 'svelte/animate';
+  import { fade } from 'svelte/transition';
+  import { ms } from '../f/motion';
   import StateChip from './StateChip.svelte';
   import Icon from './Icon.svelte';
 
@@ -95,6 +98,8 @@
       {#each g.items as { c, depth } (c.id)}
         {@const p = presenceFor(c.id, c.presence)}
         <a
+          animate:flip={{ duration: ms(220) }}
+          in:fade={{ duration: ms(180) }}
           class="item"
           class:child={depth > 0}
           style:--depth={depth}
