@@ -106,7 +106,7 @@
   <section class="right">
     <div class="bar">
       <RefSwitch value={ref} changeId={work.changeId} />
-      {#if ref !== 'main'}<span class="muted small">Highlights against the base of {ref}.</span>{/if}
+      {#if ref !== 'main'}<span class="muted small">Changes in {ref} are highlighted against main.</span>{/if}
     </div>
 
     {#if sel && entity}
@@ -126,7 +126,7 @@
 
         {#if highlighted.length}
           <div class="card hl">
-            <h3>In {ref}</h3>
+            <h3>In <span class="keep">{ref}</span></h3>
             {#each highlighted as o (o.name)}
               <button class="row-btn" onclick={() => select(o)}>
                 <span class="tag h-{o.highlight}">{o.highlight}</span>

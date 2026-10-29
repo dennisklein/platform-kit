@@ -84,6 +84,13 @@
           path: isShared(e) ? e.path : undefined,
         });
   const occupantsOf = (r: Rack) => r.occupants.length;
+  // Kinds without an entity view (named by their file, or Talos config):
+  // their links open the file.
+  const FILE_KINDS = new Set(['TalosConfig', 'Policy', 'MilestoneList']);
+  const otherHref = (e: EntitySummary) =>
+    FILE_KINDS.has(e.kind) || (e.path && e.name === e.path)
+      ? href(work.changeId && ref !== 'main' ? `/changes/${ref}/files` : '/files', { path: e.path })
+      : entityHref(e);
 </script>
 
 <div class="page">
@@ -117,7 +124,7 @@
             <strong class="mono">{r.name}</strong>
             <span class="muted small">{r.units}U{r.row ? ` · row ${r.row}` : ''}</span>
           </div>
-          <div class="mini"><RackElevation rack={r} unitPx={5} /></div>
+          <div class="mini"><RackElevation rack={r} unitPx={12} compact /></div>
           <div class="muted small">{occupantsOf(r)} devices · {r.free.length} U free</div>
           {#if r.location}<div class="muted small loc">{r.location}</div>{/if}
         </a>
@@ -161,7 +168,7 @@
       <summary><h3>Other kinds <span class="n">{others.length}</span></h3></summary>
       <div class="others">
         {#each others as e (e.path + e.kind + e.name)}
-          <a href={entityHref(e)} title={e.path}><span class="muted small">{e.kind}</span> <span class="mono">{e.name.split('/').pop()}</span>{#if isShared(e) && e.cluster}<span class="muted small"> · {e.cluster}</span>{/if}</a>
+          <a href={otherHref(e)} title={e.path}><span class="muted small">{e.kind}</span> <span class="mono">{e.name.split('/').pop()}</span>{#if isShared(e) && e.cluster}<span class="muted small"> · {e.cluster}</span>{/if}</a>
         {/each}
       </div>
     </details>
@@ -208,15 +215,18 @@
       padding: 12px 16px 24px;
     }
   }
+  /* Racks as small elevations with names, side by side (slide 9). */
   .racks {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 14px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
   }
   .rackcard {
     display: grid;
-    gap: 6px;
-    padding: 12px;
+    gap: 8px;
+    width: 300px;
+    max-width: 100%;
+    padding: 12px 14px 14px;
     border: 1px solid var(--line);
     border-radius: var(--radius);
     background: var(--panel);
@@ -232,15 +242,7 @@
     align-items: baseline;
   }
   .mini :global(.occ) {
-    font-size: 0;
-    padding: 0;
     pointer-events: none;
-  }
-  .mini :global(.u) {
-    font-size: 0;
-  }
-  .mini :global(.legend) {
-    display: none;
   }
   .loc {
     overflow: hidden;

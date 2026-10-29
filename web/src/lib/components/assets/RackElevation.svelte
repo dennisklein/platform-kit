@@ -18,12 +18,15 @@
     rack,
     selected,
     unitPx = 15,
+    compact = false,
     onselect,
     linkOf,
   }: {
     rack: Rack;
     selected?: string;
     unitPx?: number;
+    /** Overview size: no unit numbers, smaller names. */
+    compact?: boolean;
     onselect?: (o: RackOccupant) => void;
     linkOf?: (o: RackOccupant) => string;
   } = $props();
@@ -41,15 +44,26 @@
       ['jbod', 'JBOD'],
     ].filter(([c]) => rack.occupants.some((o) => occClass(o) === c)),
   );
+  // What the change marks mean, for the occupants this rack has.
+  const marks = $derived(
+    [
+      ['added', '+', 'new'],
+      ['changed', '~', 'changed'],
+      ['deleted', '−', 'removed'],
+      ['conflict', '!', 'conflict'],
+    ].filter(([h]) => rack.occupants.some((o) => o.highlight === h)),
+  );
+  const changeOf = $derived(rack.occupants.find((o) => o.highlight && o.highlight !== 'none' && o.changeId)?.changeId);
+  const hasProblems = $derived(rack.occupants.some((o) => (o.problems?.length ?? 0) > 0));
   const label = (o: RackOccupant) =>
     o.highlight === 'added' ? '+' : o.highlight === 'changed' ? '~' : o.highlight === 'deleted' ? '−' : o.highlight === 'conflict' ? '!' : '';
 </script>
 
-<div class="rackwrap">
-  <div class="frame" style:height="{units * unitPx + 16}px">
+<div class="rackwrap" class:compact>
+  <div class="frame" style:height="{units * unitPx + 22}px">
     <div class="units" aria-hidden="true">
       {#each Array.from({ length: units }, (_, i) => units - i) as u (u)}
-        <span class="u" class:free={!occupied.has(u)} style:height="{unitPx}px">{u % 2 === 0 || unitPx >= 18 ? u : ''}</span>
+        <span class="u" class:free={!occupied.has(u)} style:height="{unitPx}px">{!compact && (u % 2 === 0 || unitPx >= 18) ? u : ''}</span>
       {/each}
     </div>
     <div class="slots" style:height="{units * unitPx}px" style:--u="{unitPx}px">
@@ -62,6 +76,7 @@
           role={linkOf ? 'link' : 'button'}
           class="occ c-{occClass(o)} h-{o.highlight ?? 'none'}"
           class:sel={selected === o.name}
+          class:thin={h < 13}
           class:bad={(o.problems?.length ?? 0) > 0}
           style:top="{top(o)}px"
           style:height="{h}px"
@@ -73,18 +88,22 @@
           onclick={() => onselect?.(o)}
           aria-current={selected === o.name ? 'true' : undefined}
         >
-          <span class="nm">{o.name}</span>
+          {#if h >= 9}<span class="nm">{o.name}</span>{/if}
           {#if o.problems?.length}<span class="warn" aria-label="problems">!</span>{/if}
           {#if label(o)}<span class="mk">{label(o)}</span>{/if}
         </svelte:element>
       {/each}
     </div>
   </div>
-  {#if legend.length}
+  {#if legend.length || marks.length || hasProblems}
     <div class="legend">
       {#each legend as [c, l] (c)}
         <span><i class="sw c-{c}"></i>{l}</span>
       {/each}
+      {#each marks as [h, m, l] (h)}
+        <span class="lm lm-{h}"><b>{m}</b>{l}{h === 'added' && changeOf ? ` in ${changeOf}` : ''}</span>
+      {/each}
+      {#if hasProblems && !marks.some(([h]) => h === 'conflict')}<span class="lm lm-conflict"><b>!</b>problem</span>{/if}
     </div>
   {/if}
 </div>
@@ -96,10 +115,10 @@
   }
   .frame {
     display: grid;
-    grid-template-columns: 22px 1fr;
+    grid-template-columns: 28px 1fr;
     background: #1d2026;
     border-radius: 6px;
-    padding: 8px 10px 8px 4px;
+    padding: 12px 10px 8px 4px;
     border: 1px solid #0d0f12;
     box-shadow: inset 0 0 0 3px #2a2e36;
   }
@@ -107,9 +126,10 @@
     display: flex;
     flex-direction: column;
   }
+  /* Unit numbers readable on a projector ("cn-035 in U6"). */
   .u {
-    font: 9px/1 var(--mono);
-    color: #5d6573;
+    font: 600 11px/1 var(--mono);
+    color: #9aa3b2;
     display: flex;
     align-items: center;
     justify-content: flex-end;
@@ -130,7 +150,7 @@
     padding: 0 8px;
     border: 1px solid transparent;
     border-radius: 2px;
-    font: 500 11px/1 var(--mono);
+    font: 600 12.5px/1 var(--mono);
     color: #eef2f7;
     text-decoration: none;
     text-align: left;
@@ -203,12 +223,38 @@
     outline-offset: 1px;
     z-index: 1;
   }
+  .compact .frame {
+    grid-template-columns: 6px 1fr;
+    padding: 8px 8px 8px 4px;
+  }
+  .compact .occ {
+    font-size: 10.5px;
+    padding: 0 6px;
+    gap: 4px;
+  }
+  .occ.thin {
+    font-size: 9px;
+  }
   .legend {
     display: flex;
     flex-wrap: wrap;
     gap: 4px 12px;
-    font-size: 12px;
+    font-size: 12.5px;
     color: var(--muted);
+  }
+  .lm b {
+    font: 700 13px var(--mono);
+    margin-right: 4px;
+  }
+  .lm-added b {
+    color: var(--ok);
+  }
+  .lm-changed b {
+    color: var(--warn);
+  }
+  .lm-deleted b,
+  .lm-conflict b {
+    color: var(--bad);
   }
   .legend span {
     display: inline-flex;
