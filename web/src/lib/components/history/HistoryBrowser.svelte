@@ -13,6 +13,7 @@
   import SemanticDiff from '../SemanticDiff.svelte';
   import UnifiedDiff from '../UnifiedDiff.svelte';
   import StateChip from '../StateChip.svelte';
+  import ResultChip from '../ResultChip.svelte';
   import Glyph from '../Glyph.svelte';
 
   let { query, sha }: { query: URLSearchParams; sha?: string } = $props();
@@ -127,7 +128,7 @@
               </td>
               <td class="b">{by(e)}</td>
               <td class="l">
-                {#if e.labRun}<span class="lab r-{e.labRun.result}">{e.labRun.result}</span>{:else if e.type === 'break-glass'}<span class="lab r-fail" title="Break-glass use: no lab, an alert">alert</span>{:else}<span class="muted">—</span>{/if}
+                {#if e.labRun}<ResultChip result={e.labRun.result} />{:else if e.type === 'break-glass'}<ResultChip result="alert" title="Break-glass use: no lab, an alert" />{:else}<span class="muted">—</span>{/if}
               </td>
             </tr>
           {:else}
@@ -345,20 +346,6 @@
     border-radius: 4px;
     background: var(--line);
     color: var(--muted);
-  }
-  .lab {
-    font-size: 11.5px;
-    font-weight: 600;
-    padding: 1px 8px;
-    border-radius: 4px;
-  }
-  .r-pass {
-    background: var(--ok-soft);
-    color: var(--ok);
-  }
-  .r-fail {
-    background: var(--bad-soft);
-    color: var(--bad);
   }
   .foot {
     margin: 0;

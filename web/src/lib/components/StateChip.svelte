@@ -24,6 +24,19 @@
     verified: 'verified',
     closed: 'closed',
   };
+
+  const TONE: Record<ChipKind, string> = {
+    draft: 'idle',
+    closed: 'idle',
+    lab: 'warn',
+    labrun: 'warn',
+    labfail: 'bad',
+    review: 'info',
+    approved: 'info',
+    merged: 'ok',
+    deployed: 'ok',
+    verified: 'ok',
+  };
 </script>
 
 <script lang="ts">
@@ -38,58 +51,8 @@
   const text = $derived(label ?? (short && kind === 'labrun' ? 'lab' : LABELS[kind]));
 </script>
 
-<span class="chip s-{kind}" data-state={kind}
-  >{#if kind === 'labrun'}<span class="dot" aria-hidden="true"></span>{/if}{text}</span
+<!-- The box and the colours are the shared .schip in app.css (ResultChip
+     uses the same), so a state looks the same on every page. -->
+<span class="schip tone-{TONE[kind]} s-{kind}" data-state={kind}
+  >{#if kind === 'labrun'}<span class="sdot live" aria-hidden="true"></span>{/if}{text}</span
 >
-
-<style>
-  .chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    font-size: 11.5px;
-    font-weight: 600;
-    line-height: 1.5;
-    padding: 1px 8px;
-    border-radius: 4px;
-    white-space: nowrap;
-    align-self: start;
-  }
-  .dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: currentColor;
-    animation: pulse 1.4s ease-in-out infinite;
-  }
-  @keyframes pulse {
-    50% {
-      opacity: 0.25;
-    }
-  }
-  .s-draft,
-  .s-closed {
-    background: var(--line);
-    color: var(--muted);
-  }
-  .s-lab,
-  .s-labrun {
-    background: var(--warn-soft);
-    color: var(--warn);
-  }
-  .s-labfail {
-    background: var(--bad-soft);
-    color: var(--bad);
-  }
-  .s-review,
-  .s-approved {
-    background: var(--info-soft);
-    color: var(--info);
-  }
-  .s-merged,
-  .s-deployed,
-  .s-verified {
-    background: var(--ok-soft);
-    color: var(--ok);
-  }
-</style>

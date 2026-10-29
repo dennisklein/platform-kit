@@ -4,12 +4,17 @@
   import type { ChangeLink } from '../api/ftypes';
   import { href } from '../router.svelte';
   import { isChangeId, short } from '../f/fmt';
+  import { changes } from '../stores/changes.svelte';
   import StateChip from './StateChip.svelte';
   import Glyph from './Glyph.svelte';
 
   let { change, title = false, to }: { change: ChangeLink; title?: boolean; to?: string } = $props();
 
   const isChange = $derived(isChangeId(change.id));
+  // An open change takes its state from the live list, with the lab result,
+  // so that the chip matches the rail and the top bar ("lab failed").
+  const live = $derived(isChange ? changes.byId(change.id) : undefined);
+  const state = $derived(live?.state ?? change.state);
   const link = $derived(
     to ?? (isChange ? `/changes/${change.id}` : change.sha ? `/history/${change.sha}` : `/history?q=${change.id}`),
   );
@@ -19,7 +24,7 @@
   <Glyph name={isChange ? 'branch' : 'commit'} size={14} />
   <span class="mono id">{isChange ? change.id : short(change.sha ?? change.id)}</span>
   {#if title}<span class="t">{change.title}</span>{/if}
-  {#if change.state}<span class="st"><StateChip state={change.state} /></span>{/if}
+  {#if state}<span class="st"><StateChip {state} labState={live?.labState} /></span>{/if}
 </a>
 
 <style>

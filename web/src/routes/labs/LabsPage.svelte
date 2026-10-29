@@ -10,6 +10,7 @@
   import { events } from '../../lib/stores/events.svelte';
   import { short, ago } from '../../lib/f/fmt';
   import Glyph from '../../lib/components/Glyph.svelte';
+  import ResultChip from '../../lib/components/ResultChip.svelte';
 
   type Topology = components['schemas']['Topology'];
   type LabDefinition = components['schemas']['LabDefinition'];
@@ -108,9 +109,6 @@
     const done = r.steps.filter((s) => s.status !== 'pending' && s.status !== 'running').length;
     const cur = r.steps.find((s) => s.status === 'running');
     return `${cur ? cur.title : 'starting'} · step ${Math.min(done + 1, r.steps.length)} of ${r.steps.length}`;
-  }
-  function tone(r: LabRun) {
-    return r.result === 'pass' ? 'ok' : r.result === 'fail' ? 'bad' : r.result === 'running' ? 'warn' : '';
   }
   function twinHealth(s: Cluster | undefined): { tone: string; label: string } {
     if (!s) return { tone: '', label: 'no fluxsim status' };
@@ -249,7 +247,7 @@
               <td class="mono">
                 <a href={runHref(r)} onclick={(e) => e.stopPropagation()}>{r.id}</a>
               </td>
-              <td><span class="pill {tone(r)}"><span class="dot"></span>{r.result}</span></td>
+              <td><ResultChip result={r.result} /></td>
               <td class="sum">
                 {#if r.result === 'running'}
                   <span class="muted">{progress(r)}</span>
