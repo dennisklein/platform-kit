@@ -13,6 +13,8 @@
   import Markdown from '../../lib/components/Markdown.svelte';
   import Modal from '../../lib/components/Modal.svelte';
   import Glyph from '../../lib/components/Glyph.svelte';
+  import ModelTag from '../../lib/components/ModelTag.svelte';
+  import { GUARD_MODEL } from '../../lib/components/chat/live';
   import { redactedFields } from './redaction';
   import { session } from '../../lib/stores/me.svelte';
 
@@ -122,7 +124,7 @@
     if (m) requestAnimationFrame(() => m.scrollIntoView({ block: 'center', behavior: 'smooth' }));
   }
 
-  const modelName = (e: LlmLogEntry) => (e.mock ? 'built-in' : e.model);
+  const modelName = (e: LlmLogEntry) => (e.model === GUARD_MODEL ? 'built-in · secret guard' : e.mock ? 'built-in' : e.model);
 
   async function exportLog() {
     exporting = true;
@@ -242,7 +244,7 @@
               {#if e.redactions}<span class="red" title="Values the secret filter removed from the prompt"><Glyph name="lock" size={11} /> {e.redactions}</span>{/if}
               {#if e.error}<span class="bad-text" title={e.error}><Glyph name="alert" size={12} /></span>{/if}
               {#if e.rating}<span class="rt {e.rating}"><Glyph name={e.rating === 'up' ? 'thumbs-up' : 'thumbs-down'} size={12} /></span>{/if}
-              <span class="model mono" class:builtin={e.mock} title={e.mock ? 'Built-in model: no model endpoint, answers from project data' : `Model ${e.model}`}>{modelName(e)}</span>
+              <ModelTag text={modelName(e)} title={e.mock ? 'Built-in: no model endpoint, answers from project data' : `Model ${e.model}`} fallback={!e.mock && !!e.error} />
               <span class="who">{e.user}</span>
             </span>
             <Glyph name="chevron" size={12} />
@@ -569,20 +571,6 @@
   }
   .removed code {
     font-size: 12.5px;
-  }
-  .model {
-    font-size: 11.5px;
-    padding: 0 6px;
-    border-radius: 4px;
-    background: var(--panel-2);
-    color: var(--muted);
-    box-shadow: inset 0 0 0 1px var(--line);
-    white-space: nowrap;
-  }
-  .model.builtin {
-    background: var(--ai-soft);
-    color: var(--ai);
-    box-shadow: inset 0 0 0 1px var(--ai-line);
   }
   .answer {
     font-size: 14px;

@@ -538,6 +538,35 @@ button {
   opacity: 0.5;
 }
 
+/* AI actions (advisor recipes, Ask the advisor, Suggest message, Check
+   this commit, lab gaps, chat send): one teal style. aria-pressed (or
+   .solid) fills it: the recipe whose answer is on screen. */
+.btn.ai {
+  background: var(--ai-soft);
+  border-color: var(--ai-line);
+  color: var(--ai);
+  font-weight: 600;
+}
+.btn.ai:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ai-soft) 70%, var(--ai-line));
+  border-color: var(--ai);
+}
+.btn.ai[aria-pressed='true'],
+.btn.ai.solid {
+  background: var(--ai-fill);
+  border-color: var(--ai-fill);
+  color: var(--ai-on);
+}
+.btn.ai[aria-pressed='true']:hover:not(:disabled),
+.btn.ai.solid:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ai-fill) 82%, #000);
+  border-color: color-mix(in srgb, var(--ai-fill) 82%, #000);
+}
+/* The pressed one stays solid while the others wait. */
+.btn.ai[aria-pressed='true']:disabled {
+  opacity: 1;
+}
+
 /* .eyebrow (card header such as "GATES FROM .PK/POLICY.YAML") shares the
    h3 rule above. */
 

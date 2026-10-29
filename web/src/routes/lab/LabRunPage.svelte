@@ -467,7 +467,7 @@
             <Icon name="flask" size={15} />{actions.isBusy(c.id, 'lab') ? 'Starting…' : 'Run lab again'}
           </button>
           <a class="btn" href={href(`/changes/${c.id}`)}><Icon name="branch" size={15} />Change</a>
-          <a class="btn" href={href(`/changes/${c.id}/review`, { advisor: 'lab-gaps' })}><Icon name="sparkle" size={15} />What does the lab not test?</a>
+          <a class="btn ai" href={href(`/changes/${c.id}/review`, { advisor: 'lab-gaps' })}><Icon name="sparkle" size={15} />What does the lab not test?</a>
         {/if}
         {#if runs.length > 1}
           <select class="select" value={run.id} onchange={(e) => openRun(e.currentTarget.value)} aria-label="Run">

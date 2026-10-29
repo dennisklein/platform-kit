@@ -4,6 +4,7 @@
   // seconds so far, shimmer lines and Cancel.
   import { onMount } from 'svelte';
   import Glyph from '../Glyph.svelte';
+  import ModelTag from '../ModelTag.svelte';
   import { session } from '../../stores/me.svelte';
   import { readingSteps, STEP_MS } from '../../f/advisor';
 
@@ -51,7 +52,7 @@
   <div class="line" aria-busy="true" aria-live="polite" aria-label="{title}: working">
     <span class="spin" aria-hidden="true"></span>
     <span class="now">{steps[at]}…</span>
-    <span class="model mono">{builtin ? model : `${model} · ${secs} s`}</span>
+    <span class="secs"><ModelTag text={builtin ? model : `${model} · ${secs} s`} /></span>
   </div>
 {:else}
   <article class="work" aria-busy="true" aria-label="{title}: working">
@@ -59,7 +60,7 @@
       <span class="spark"><Glyph name="sparkle" size={16} /></span>
       <h4>{title}</h4>
       {#if by}<span class="by"><Glyph name="bot" size={13} />asked by {by}</span>{/if}
-      <span class="model mono">{builtin ? model : `${model} · ${secs} s`}</span>
+      <span class="secs"><ModelTag text={builtin ? model : `${model} · ${secs} s`} /></span>
     </header>
     <ol class="steps" aria-live="polite">
       {#each steps as s, i (s)}
@@ -143,13 +144,8 @@
     padding: 2px 9px;
     white-space: nowrap;
   }
-  .model {
-    font-size: 12px;
-    color: var(--ai);
-    border: 1px solid var(--ai-line);
-    border-radius: 4px;
-    padding: 0 6px;
-    white-space: nowrap;
+  .secs {
+    display: inline-flex;
     font-variant-numeric: tabular-nums;
   }
   .steps {

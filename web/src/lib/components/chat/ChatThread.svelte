@@ -14,6 +14,7 @@
   import Thumbs from '../advisor/Thumbs.svelte';
   import Markdown from '../Markdown.svelte';
   import Glyph from '../Glyph.svelte';
+  import ModelTag from '../ModelTag.svelte';
   import { modelLabel, type AnswerLike } from '../../f/llm';
   import { copyText } from '../../f/copy';
   import { closeMarkdown, elapsed, footLabel, offerData, usedTools, type LiveStep } from './live';
@@ -276,7 +277,7 @@
               {/each}
               <div class="foot extra">
                 <Thumbs logId={a.logId} compact note={false} />
-                <span class="model mono" class:warn-text={m.fallback && !a.fallbackReason} title={m.title}>{m.text}</span>
+                <ModelTag text={m.text} title={m.title} fallback={m.fallback} />
                 {#if a.fallbackReason}
                   <span class="why" title="The bench answered from its own data instead"><Glyph name={a.fallbackReason.startsWith('you asked') ? 'zap' : 'clock'} size={11} /> {reason(a.fallbackReason)}</span>
                 {/if}
@@ -337,7 +338,7 @@
         <span>Stop</span>
       </button>
     {:else}
-      <button class="btn small send" disabled={!text.trim()} title="Send (Enter)">
+      <button class="btn small ai solid send" disabled={!text.trim()} title="Send (Enter)">
         <Glyph name="send" size={13} /><span class="sr-only">Send</span>
       </button>
     {/if}
@@ -668,7 +669,6 @@
   }
   /* The model and why labels; in the side panel the footer wraps instead
      of cutting them. */
-  .model,
   .why {
     font-size: 11px;
     color: var(--muted);
@@ -878,16 +878,6 @@
   .ask .btn {
     border-radius: 14px;
     padding: 5px 10px;
-  }
-  .send {
-    background: var(--ai-fill);
-    border-color: var(--ai-fill);
-    color: var(--ai-on);
-  }
-  .send:hover:not(:disabled) {
-    background: var(--ai) !important;
-    border-color: var(--ai) !important;
-    color: var(--ai-on);
   }
   .stop {
     font-weight: 600;

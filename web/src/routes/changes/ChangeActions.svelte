@@ -336,12 +336,4 @@
   .impact .mono {
     font-weight: 600;
   }
-  .actions :global(.btn.ai) {
-    color: var(--ai);
-    border-color: var(--ai-line);
-    background: var(--ai-soft);
-  }
-  .actions :global(.btn.ai:hover:not(:disabled)) {
-    border-color: var(--ai);
-  }
 </style>

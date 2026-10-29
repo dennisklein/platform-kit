@@ -6,6 +6,7 @@
   import { api, must, errorText } from '../../lib/api/client';
   import type { AdvisorResult as Result, Change, CommitMessageSuggestion, Suggestion } from '../../lib/api/types';
   import Icon from '../../lib/components/Icon.svelte';
+  import ModelTag from '../../lib/components/ModelTag.svelte';
   import AdvisorResult from '../../lib/components/advisor/AdvisorResult.svelte';
   import AdvisorWorking from '../../lib/components/advisor/AdvisorWorking.svelte';
   import { RECIPE_TOOLS, minWorkingMs, readingSteps, reducedMotion, typedText } from '../../lib/f/advisor';
@@ -203,14 +204,11 @@
       {/if}
       <div class="msg" class:sug={suggested && !edited} hidden={suggesting}>
         {#if suggested}
+          {@const ml = modelLabel(suggested, suggestedOffline)}
           <div class="sugline">
             <Icon name="sparkle" size={15} />
             {typing ? 'suggested · typing…' : edited ? 'suggested, edited by you' : 'suggested · edit before you commit'}
-            {#if suggested.mock}<span class="tag">built-in</span>{/if}
-            {#if suggested.model !== 'mock'}
-              {@const ml = modelLabel(suggested, suggestedOffline)}
-              <span class="mono small model" class:fb={ml.fallback} title={ml.title}>{ml.text}</span>
-            {/if}
+            <ModelTag text={ml.text} title={ml.title} fallback={ml.fallback} />
           </div>
         {/if}
         <textarea
@@ -256,7 +254,7 @@
         <span>{last ? '' : 'Last commit '}<span class="mono accent">{shortSha(shown.sha)}</span> {shown.subject}</span>
       </div>
       <div class="row">
-        <button class="btn ai" class:on={checking || !!check} aria-pressed={checking || !!check} onclick={checkCommit} disabled={checking}>
+        <button class="btn ai" aria-pressed={checking || !!check} onclick={checkCommit} disabled={checking}>
           <Icon name="sparkle" size={15} />{checking ? 'Checking…' : 'Check this commit'}
         </button>
         <button class="btn" onclick={() => actions.runLab(change.id)} disabled={actions.isBusy(change.id)}><Icon name="flask" size={15} />Run lab</button>
@@ -333,31 +331,8 @@
     flex: none;
     margin-top: 2px;
   }
-  .sugline .model {
-    color: var(--muted);
-    font-weight: 400;
-  }
   .card.nothing p {
     margin: 0;
-  }
-  .btn.ai :global(svg) {
-    color: var(--ai);
-  }
-  .btn.ai:hover:not(:disabled) {
-    border-color: var(--ai-line);
-    background: var(--ai-soft);
-  }
-  .btn.ai.on,
-  .btn.ai.on:hover:not(:disabled),
-  .btn.ai.on:disabled {
-    background: var(--ai-fill);
-    border-color: var(--ai-fill);
-    color: var(--ai-on);
-    font-weight: 600;
-    opacity: 1;
-  }
-  .btn.ai.on :global(svg) {
-    color: var(--ai-on);
   }
   .checkres {
     scroll-margin-top: 16px;
@@ -365,13 +340,6 @@
   }
   .checkres:empty {
     display: none;
-  }
-  .tag {
-    font: 600 11px var(--sans);
-    background: var(--panel);
-    color: var(--muted);
-    border-radius: 4px;
-    padding: 1px 6px;
   }
   textarea {
     border: 0;

@@ -447,8 +447,7 @@
             {#each recipes.length ? recipes : [{ id: 'risks', title: RECIPE_TITLES.risks, question: '' }] as r (r.id)}
               {@const on = lastRecipe === r.id}
               <button
-                class="btn arecipe"
-                class:on
+                class="btn ai"
                 aria-pressed={on}
                 onclick={() => ask(r.id)}
                 disabled={!!running}
@@ -820,39 +819,11 @@
     gap: 8px;
     flex-wrap: wrap;
   }
-  .arecipe :global(svg) {
-    color: var(--ai);
-  }
-  .arecipe:hover:not(:disabled) {
-    border-color: var(--ai-line);
-    background: var(--ai-soft);
-  }
-  /* The recipe asked last: filled, like the deck's chosen recipe. */
-  .arecipe.on,
-  .arecipe.on:hover:not(:disabled),
-  .arecipe.on:disabled {
-    background: var(--ai-fill);
-    border-color: var(--ai-fill);
-    color: var(--ai-on);
-    font-weight: 600;
-    opacity: 1;
-  }
-  .arecipe.on :global(svg) {
-    color: var(--ai-on);
-  }
-  .spin {
+  /* The recipe asked last is pressed (filled, like the deck's chosen
+     recipe); its spinner is the global .spin in the button colour. */
+  .abuttons .spin {
     width: 14px;
     height: 14px;
-    border-radius: 50%;
-    border: 2px solid color-mix(in srgb, var(--ai-on) 40%, transparent);
-    border-top-color: var(--ai-on);
-    animation: spin 0.8s linear infinite;
-    flex: none;
-  }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
   }
   .aresult {
     padding-top: 4px;

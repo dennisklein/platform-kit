@@ -12,6 +12,7 @@
   import SuggestionCard from './SuggestionCard.svelte';
   import CopyButton from '../CopyButton.svelte';
   import Glyph from '../Glyph.svelte';
+  import ModelTag from '../ModelTag.svelte';
 
   let {
     result,
@@ -82,7 +83,7 @@
     <span class="spark"><Glyph name="sparkle" size={16} /></span>
     <h4>{result.title}</h4>
     {#if by}<span class="by" title="An agent asked this through MCP"><Glyph name="bot" size={13} />asked by {by}</span>{/if}
-    <span class="model" class:fallback={ml.fallback} title={modelTitle}>{ml.text}</span>
+    <ModelTag text={ml.text} title={modelTitle} fallback={ml.fallback} />
   </header>
 
   {#if result.fallbackReason}
@@ -129,7 +130,7 @@
       <span class="spacer"></span>
       <CopyButton text={copyText} />
       {#if onRerun}
-        <button type="button" class="btn small" onclick={onRerun} disabled={busy} title="Ask the advisor again">
+        <button type="button" class="btn small ai" onclick={onRerun} disabled={busy} title="Ask the advisor again">
           <Glyph name="refresh" size={12} />Run again
         </button>
       {/if}
@@ -180,20 +181,6 @@
     border-radius: 999px;
     padding: 2px 9px;
     white-space: nowrap;
-  }
-  .model {
-    font: 500 11.5px/1.6 var(--mono);
-    color: var(--ai);
-    border: 1px solid var(--ai-line);
-    border-radius: 4px;
-    padding: 0 6px;
-    white-space: nowrap;
-  }
-  /* The answer came from the project data: say so, without alarm. */
-  .model.fallback {
-    color: var(--muted);
-    border-color: var(--line);
-    background: var(--panel-2);
   }
   .why {
     margin: -2px 0 0;

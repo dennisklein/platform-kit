@@ -5,6 +5,7 @@
   import { session } from '../../lib/stores/me.svelte';
   import ChatThread from '../../lib/components/chat/ChatThread.svelte';
   import Glyph from '../../lib/components/Glyph.svelte';
+  import ModelTag from '../../lib/components/ModelTag.svelte';
 
   let { params, query }: { params: Params; query: URLSearchParams } = $props();
 
@@ -18,7 +19,7 @@
       <header>
         <span class="mark" aria-hidden="true"><Glyph name="sparkle" size={16} /></span>
         <h1>Chat</h1>
-        {#if model}<span class="model mono" title={llm?.mock ? 'No model endpoint: answers come from the project data' : llm?.baseUrl}>{model}</span>{/if}
+        {#if model}<ModelTag text={model} title={llm?.mock ? 'No model endpoint: answers come from the project data' : llm?.baseUrl} />{/if}
       </header>
       <div class="threadwrap"><ChatThread wide /></div>
     </div>
@@ -89,14 +90,6 @@
   }
   h1 {
     margin: 0;
-  }
-  .model {
-    font-size: 12px;
-    padding: 1px 8px;
-    border-radius: 999px;
-    border: 1px solid var(--ai-line);
-    background: var(--ai-soft);
-    color: var(--ai);
   }
   .threadwrap {
     min-height: 0;
