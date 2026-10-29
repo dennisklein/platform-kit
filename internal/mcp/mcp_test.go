@@ -348,11 +348,37 @@ func TestAdviseFollowTagsTheAgent(t *testing.T) {
 	ts := httptest.NewServer(withAgent(h))
 	defer ts.Close()
 	cs := connect(t, ts.URL, "pk_agt_test")
-	if _, err := cs.CallTool(context.Background(), &sdk.CallToolParams{Name: "pk_advise", Arguments: map[string]any{"id": "c-k7m2qz", "recipe": "risks"}}); err != nil {
+	res, err := cs.CallTool(context.Background(), &sdk.CallToolParams{Name: "pk_advise", Arguments: map[string]any{"id": "c-k7m2qz", "recipe": "risks"}})
+	if err != nil {
 		t.Fatal(err)
 	}
 	if got.Route != "/changes/c-k7m2qz/review?advisor=risks&by=dennis%2Fagent" {
 		t.Errorf("route %q", got.Route)
+	}
+	// Built-in mode: the agent reads the same model name as the UI, and no fallback.
+	var out struct {
+		Model    string `json:"model"`
+		Mock     bool   `json:"mock"`
+		Fallback bool   `json:"fallback"`
+		LogID    string `json:"logId"`
+	}
+	if err := json.Unmarshal([]byte(res.Content[0].(*sdk.TextContent).Text), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Model != "built-in" || out.Fallback || !out.Mock || out.LogID != "l1" {
+		t.Errorf("result %+v", out)
+	}
+}
+
+func TestBuiltinModelKeepsModelAnswers(t *testing.T) {
+	tp := toolPlan{Tool: Tool{Name: "pk_advise"}}
+	in := `{"model":"qwen2.5:7b","mock":false,"fallback":true}`
+	if got := string(builtinModel(tp, []byte(in))); got != in {
+		t.Errorf("model answer changed: %s", got)
+	}
+	other := toolPlan{Tool: Tool{Name: "pk_change_get"}}
+	if got := string(builtinModel(other, []byte(`{"mock":true,"model":"mock"}`))); got != `{"mock":true,"model":"mock"}` {
+		t.Errorf("other tool changed: %s", got)
 	}
 }
 

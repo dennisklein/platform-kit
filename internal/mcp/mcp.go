@@ -232,7 +232,7 @@ func (h *Handler) call(ctx context.Context, tp toolPlan, req *sdk.CallToolReques
 	if !ok {
 		return errorResult(fail), nil
 	}
-	text := strings.TrimSpace(string(resp.Body))
+	text := strings.TrimSpace(string(builtinModel(tp, resp.Body)))
 	if text == "" {
 		text = `{"ok":true}`
 	}
@@ -240,6 +240,25 @@ func (h *Handler) call(ctx context.Context, tp toolPlan, req *sdk.CallToolReques
 		text = text[:maxResult] + "\n…(cut: the answer is longer than 256 KiB)"
 	}
 	return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: text}}}, nil
+}
+
+// builtinModel names the model-less mode as the UI does: an advisor or
+// commit-message answer without a model endpoint is "built-in", and it is
+// not a fallback (nothing failed; the bench answers from its data).
+func builtinModel(tp toolPlan, body []byte) []byte {
+	if tp.Name != "pk_advise" && tp.Name != "pk_commit_message" {
+		return body
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(body, &m) != nil || string(m["mock"]) != "true" {
+		return body
+	}
+	m["model"], m["fallback"] = json.RawMessage(`"built-in"`), json.RawMessage("false")
+	out, err := json.Marshal(m)
+	if err != nil {
+		return body
+	}
+	return out
 }
 
 // waitLab polls a running lab run until it ends or LabWait passes.
