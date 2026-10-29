@@ -11,6 +11,7 @@
   import { plural } from '../../lib/change/format';
   import DemoControls from '../../lib/components/DemoControls.svelte';
   import Glyph from '../../lib/components/Glyph.svelte';
+  import PageHeader from '../../lib/components/PageHeader.svelte';
 
   let { params, query }: { params: Params; query: URLSearchParams } = $props();
 
@@ -57,9 +58,7 @@
 </script>
 
 <div class="page">
-  <header>
-    <h1>Settings</h1>
-  </header>
+  <PageHeader title="Settings" />
 
   <div class="cols">
     <div class="col">
@@ -190,9 +189,6 @@
   /* One column that may shrink below its content (phone width). */
   .page {
     grid-template-columns: minmax(0, 1fr);
-  }
-  h1 {
-    margin: 0;
   }
   .cols {
     display: grid;

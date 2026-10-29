@@ -12,6 +12,7 @@
   import { clusterHealth } from '../../lib/f/clusters';
   import DemoControls from '../../lib/components/DemoControls.svelte';
   import Glyph from '../../lib/components/Glyph.svelte';
+  import PageHeader from '../../lib/components/PageHeader.svelte';
 
   let { params, query }: { params: Params; query: URLSearchParams } = $props();
 
@@ -115,19 +116,17 @@
 {/snippet}
 
 <div class="page">
-  <header class="head">
-    <div>
-      <h1>Clusters</h1>
-      <p class="muted small sub">
-        Flux applies main{rings.some((r) => r.following && r.following !== 'main') ? ' through ring tags' : ''} to each cluster.
-        A change is <strong>deployed</strong> when Flux applied it, <strong>verified</strong> when health checks pass.
-      </p>
-    </div>
-    <span class="spacer"></span>
-    <button class="btn small" onclick={() => load()} disabled={loading} title="Reload">
-      {#if loading}<span class="spin"></span>{:else}<Glyph name="refresh" size={13} />{/if} Reload
-    </button>
-  </header>
+  <PageHeader title="Clusters">
+    {#snippet meta()}
+      Flux applies main{rings.some((r) => r.following && r.following !== 'main') ? ' through ring tags' : ''} to each cluster.
+      A change is <strong>deployed</strong> when Flux applied it, <strong>verified</strong> when health checks pass.
+    {/snippet}
+    {#snippet actions()}
+      <button class="btn small" onclick={() => load()} disabled={loading} title="Reload">
+        {#if loading}<span class="spin"></span>{:else}<Glyph name="refresh" size={13} />{/if} Reload
+      </button>
+    {/snippet}
+  </PageHeader>
 
   {#if error}
     <div class="error-box">{error}</div>
@@ -274,18 +273,6 @@
   /* One column that may shrink below its content (phone width). */
   .page {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .head {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-  }
-  h1 {
-    margin: 0;
-  }
-  .sub {
-    margin: 4px 0 0;
-    max-width: 680px;
   }
   h2.eyebrow {
     margin: 0 0 8px;

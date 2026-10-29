@@ -15,6 +15,7 @@
   import CopyButton from '../../lib/components/CopyButton.svelte';
   import Modal from '../../lib/components/Modal.svelte';
   import Glyph from '../../lib/components/Glyph.svelte';
+  import PageHeader from '../../lib/components/PageHeader.svelte';
 
   let { params, query }: { params: Params; query: URLSearchParams } = $props();
 
@@ -197,16 +198,13 @@
 {/snippet}
 
 <div class="page">
-  <header class="head">
-    <div>
-      <a class="small back" href={href('/settings')}>Settings</a>
-      <h1>Agents</h1>
-      <p class="muted small sub">
-        Your agent harness (opencode, Claude Code) works through MCP on this bench with its own identity and a token for
-        today. It can push, open MRs, run labs and mark ready. A person approves every merge.
-      </p>
-    </div>
-  </header>
+  <PageHeader title="Agents">
+    {#snippet eyebrow()}<a href={href('/settings')}>Settings</a>{/snippet}
+    {#snippet meta()}
+      Your agent harness (opencode, Claude Code) works through MCP on this bench with its own identity and a token for
+      today. It can push, open MRs, run labs and mark ready. A person approves every merge.
+    {/snippet}
+  </PageHeader>
 
   {#if error}<div class="error-box">{error}</div>{/if}
 
@@ -382,20 +380,6 @@
     .calls .res {
       grid-column: 2;
     }
-  }
-  .head {
-    display: flex;
-    gap: 12px;
-  }
-  .back {
-    color: var(--muted);
-  }
-  h1 {
-    margin: 2px 0 0;
-  }
-  .sub {
-    margin: 4px 0 0;
-    max-width: 700px;
   }
   h2.eyebrow {
     margin: 0 0 8px;

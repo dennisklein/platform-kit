@@ -10,6 +10,7 @@
   import RefSwitch from '../../lib/components/assets/RefSwitch.svelte';
   import RackElevation from '../../lib/components/assets/RackElevation.svelte';
   import Glyph from '../../lib/components/Glyph.svelte';
+  import PageHeader from '../../lib/components/PageHeader.svelte';
 
   let { params, query }: { params: Params; query: URLSearchParams } = $props();
 
@@ -94,15 +95,15 @@
 </script>
 
 <div class="page">
-  <header class="top">
-    <h1>Assets</h1>
-    <RefSwitch value={ref} changeId={work.changeId} />
-    <span class="spacer"></span>
-    <label class="search">
-      <Glyph name="search" size={15} />
-      <input class="input" placeholder="Filter: cn-03, defiant, worker, firmware=2.4" bind:value={filter} />
-    </label>
-  </header>
+  <PageHeader title="Assets">
+    {#snippet actions()}
+      <RefSwitch value={ref} changeId={work.changeId} />
+      <label class="search">
+        <Glyph name="search" size={15} />
+        <input class="input" placeholder="Filter: cn-03, defiant, worker, firmware=2.4" bind:value={filter} />
+      </label>
+    {/snippet}
+  </PageHeader>
 
   {#if error}<div class="error-box">{error}</div>{/if}
 
@@ -209,12 +210,6 @@
     .overview.split .racks {
       max-width: 632px;
     }
-  }
-  .top {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
   }
   .search {
     display: flex;

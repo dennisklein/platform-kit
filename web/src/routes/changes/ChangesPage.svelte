@@ -15,6 +15,7 @@
   import StateChip from '../../lib/components/StateChip.svelte';
   import Icon from '../../lib/components/Icon.svelte';
   import Glyph from '../../lib/components/Glyph.svelte';
+  import PageHeader from '../../lib/components/PageHeader.svelte';
 
   let { query }: { params: Params; query: URLSearchParams } = $props();
 
@@ -84,9 +85,8 @@
 </script>
 
 <div class="page landing">
-  <header class="head">
-    <div class="titles">
-      <h1>Changes</h1>
+  <PageHeader title="Changes">
+    {#snippet meta()}
       <p class="lead">
         {#if ready}
           {n.open} open: {n.mine} mine, {n.review} waiting for my review. Pick one on the left, or start a new change. The
@@ -97,9 +97,11 @@
           <span class="skel line" aria-label="Loading changes"></span>
         {/if}
       </p>
-    </div>
-    <button class="btn primary big" onclick={() => (ui.newChangeOpen = true)}><Icon name="plus" size={16} /> New change</button>
-  </header>
+    {/snippet}
+    {#snippet actions()}
+      <button class="btn primary big" onclick={() => (ui.newChangeOpen = true)}><Icon name="plus" size={16} /> New change</button>
+    {/snippet}
+  </PageHeader>
 
   <section class="tiles" aria-label="At a glance">
     <div class="tile t-ink">
@@ -189,24 +191,9 @@
 </div>
 
 <style>
-  .head {
-    display: flex;
-    gap: 20px;
-    align-items: flex-end;
-    justify-content: space-between;
-  }
-  .titles {
-    display: grid;
-    gap: 6px;
-    min-width: 0;
-  }
+  /* two lines, so that the tiles do not move when the counts arrive */
   .lead {
-    margin: 0;
-    max-width: 78ch;
-    color: var(--muted);
-    font-size: 14.5px;
-    /* two lines, so that the tiles do not move when the counts arrive */
-    min-height: 3em;
+    min-height: 3.1em;
   }
   .big {
     padding: 7px 14px;

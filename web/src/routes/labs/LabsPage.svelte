@@ -11,6 +11,7 @@
   import { changes } from '../../lib/stores/changes.svelte';
   import { short, ago } from '../../lib/f/fmt';
   import Glyph from '../../lib/components/Glyph.svelte';
+  import PageHeader from '../../lib/components/PageHeader.svelte';
   import ResultChip from '../../lib/components/ResultChip.svelte';
 
   type Topology = components['schemas']['Topology'];
@@ -153,20 +154,18 @@
 </script>
 
 <div class="page">
-  <header class="head">
-    <div>
-      <h1>Labs</h1>
-      <p class="muted small sub">
-        Labs run on emulated hardware. The topology comes from <span class="mono">control/inventory</span>,
-        <span class="mono">control/cabling.yaml</span> and <span class="mono">.pk/emulation.yaml</span>; nobody writes it by hand.
-        A change lab writes its report into the change. Driver: <strong>sim</strong> on this host.
-      </p>
-    </div>
-    <span class="spacer"></span>
-    <button class="btn small" onclick={() => { void load(); void loadTopology(target); }} title="Reload">
-      <Glyph name="refresh" size={13} /> Reload
-    </button>
-  </header>
+  <PageHeader title="Labs">
+    {#snippet meta()}
+      Labs run on emulated hardware. The topology comes from <span class="mono">control/inventory</span>,
+      <span class="mono">control/cabling.yaml</span> and <span class="mono">.pk/emulation.yaml</span>; nobody writes it by hand.
+      A change lab writes its report into the change. Driver: <strong>sim</strong> on this host.
+    {/snippet}
+    {#snippet actions()}
+      <button class="btn small" onclick={() => { void load(); void loadTopology(target); }} title="Reload">
+        <Glyph name="refresh" size={13} /> Reload
+      </button>
+    {/snippet}
+  </PageHeader>
 
   {#if error}
     <div class="error-box">{error}</div>
@@ -371,23 +370,6 @@
     display: grid;
     gap: 20px;
     align-content: start;
-  }
-  .head {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-  }
-  .head .btn {
-    display: inline-flex;
-    gap: 5px;
-    align-items: center;
-  }
-  h1 {
-    margin: 0;
-  }
-  .sub {
-    margin: 4px 0 0;
-    max-width: 720px;
   }
   h2.eyebrow {
     margin: 0 0 8px;

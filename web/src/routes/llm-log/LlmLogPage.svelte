@@ -13,6 +13,7 @@
   import Markdown from '../../lib/components/Markdown.svelte';
   import Modal from '../../lib/components/Modal.svelte';
   import Glyph from '../../lib/components/Glyph.svelte';
+  import PageHeader from '../../lib/components/PageHeader.svelte';
   import ModelTag from '../../lib/components/ModelTag.svelte';
   import { GUARD_MODEL } from '../../lib/components/chat/live';
   import { redactedFields } from './redaction';
@@ -173,19 +174,17 @@
 </script>
 
 <div class="page">
-  <header class="head">
-    <div>
-      <h1>LLM log</h1>
-      <p class="muted small sub">
-        Every model call: the prompt as sent (secrets already removed), the answer, its sources and your rating.
-        Chat, advisors, commit messages and agents over MCP all land here.
-      </p>
-    </div>
-    <span class="spacer"></span>
-    <button class="btn small" onclick={exportLog} disabled={exporting} title="Download all entries as JSON lines (platform admins)">
-      {#if exporting}<span class="spin"></span>{:else}<Glyph name="download" size={13} />{/if} Export
-    </button>
-  </header>
+  <PageHeader title="LLM log">
+    {#snippet meta()}
+      Every model call: the prompt as sent (secrets already removed), the answer, its sources and your rating.
+      Chat, advisors, commit messages and agents over MCP all land here.
+    {/snippet}
+    {#snippet actions()}
+      <button class="btn small" onclick={exportLog} disabled={exporting} title="Download all entries as JSON lines (platform admins)">
+        {#if exporting}<span class="spin"></span>{:else}<Glyph name="download" size={13} />{/if} Export
+      </button>
+    {/snippet}
+  </PageHeader>
 
   <div class="tools">
     <div class="search">
@@ -332,23 +331,6 @@
   /* One column that may shrink below its content (phone width). */
   .page {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .head {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-  }
-  h1 {
-    margin: 0;
-  }
-  .sub {
-    margin: 4px 0 0;
-    max-width: 680px;
-  }
-  .head .btn {
-    display: inline-flex;
-    gap: 5px;
-    align-items: center;
   }
   .tools {
     display: grid;
