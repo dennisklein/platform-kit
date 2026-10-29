@@ -8,6 +8,7 @@
   import { formatPath, getAt, type Path } from '../../lib/change/yamlEdit';
   import { entities, unitInfo } from '../../lib/change/entities.svelte';
   import Icon from '../../lib/components/Icon.svelte';
+  import { href } from '../../lib/router.svelte';
 
   let {
     row,
@@ -72,6 +73,11 @@
   const peer = $derived((row.value ?? {}) as { switch?: string; port?: number });
   const switches = $derived(row.kind === 'port' ? entities.list('Switch', changeId).map((e) => e.name) : []);
 
+  // A port problem shows under the picker, with the node that holds the
+  // port as a link: "port data-a 37 in use by cn-003".
+  const portProblem = $derived(row.kind === 'port' ? mine.find((p) => p.field?.startsWith(field)) : undefined);
+  const portHolder = $derived(portProblem?.message.match(/^(.*in use by )([A-Za-z0-9][\w.-]*)(.*)$/));
+
   const secret = $derived(secrets.find((s) => s.field === field));
 
   // Derived fields (for example the emulation fixture of a node) are not in
@@ -117,6 +123,14 @@
 
   let mapKey = $state('');
 </script>
+
+{#snippet portErr()}
+  {#if portProblem}
+    <span class="err porterr" class:warnt={portProblem.severity !== 'error'}>
+      {#if portHolder}{portHolder[1]}<a href={href(`/assets/Node/${encodeURIComponent(portHolder[2])}`, changeId ? { ref: changeId } : {})}>{portHolder[2]}</a>{portHolder[3]}{:else}{portProblem.message}{/if}
+    </span>
+  {/if}
+{/snippet}
 
 {#snippet control()}
   {#if row.kind === 'text' && ro && derivedText}
@@ -178,7 +192,6 @@
       <span class="tag fit" title={rackInfo?.text} class:ok={rackInfo?.ok && !!loc.rack} class:badt={rackInfo && !rackInfo.ok}>{rackInfo?.text ?? 'rack picker'}</span>
     </span>
   {:else if row.kind === 'port'}
-    {@const portProblem = mine.find((p) => p.field?.startsWith(field))}
     <span class="picker" class:bad={!!portProblem}>
       <select class="bare mono" value={peer.switch ?? ''} disabled={ro} onchange={(e) => onset([...row.path, 'switch'], e.currentTarget.value)} aria-label="Switch">
         {#if !peer.switch}<option value="">switch…</option>{/if}
@@ -187,7 +200,7 @@
       <input class="bare mono num2" type="number" min="1" value={str(peer.port)} readonly={ro} oninput={(e) => setNum([...row.path, 'port'], e.currentTarget.value)} aria-label="Switch port" />
       <span class="spacer"></span>
       {#if portProblem}
-        <span class="tag badt">{portProblem.message.replace(/^port \S+ \d+ /, '')}</span>
+        <span class="tag badt icon" title={portProblem.message}><Icon name="x" size={14} /></span>
       {:else if peer.switch && peer.port}
         <span class="tag ok">port free</span>
       {:else}
@@ -226,7 +239,7 @@
   <div class="list">
     {#each items as it, i (i)}
       {@const sub = rowsOf(root, itemSchema, [...row.path, i], data, 1)}
-      <div class="item" class:bad={problemsAt(problems, `${field}[${i}]`).some((p) => p.severity === 'error')}>
+      <div class="item" data-field="{field}[{i}]" class:bad={problemsAt(problems, `${field}[${i}]`).some((p) => p.severity === 'error')}>
         <div class="item-head">
           <span class="mono iname">{(it as Record<string, unknown>)?.name ?? `#${i + 1}`}</span>
           {#if !ro}
@@ -247,13 +260,14 @@
     {/if}
   </div>
 {:else if inline}
-  <div class="cell" class:wide={row.kind === 'port' || row.kind === 'rack'} title={row.help}>
+  <div class="cell" data-field={field} class:wide={row.kind === 'port' || row.kind === 'rack'} title={row.help}>
     <span class="clabel">{row.label}</span>
     {@render control()}
     {#if errText && row.kind !== 'port'}<span class="err">{errText}</span>{/if}
+    {@render portErr()}
   </div>
 {:else}
-  <div class="row-wrap">
+  <div class="row-wrap" data-field={field}>
     <div class="label" title={row.help}>
       <span>{row.label}{#if row.required}<span class="req" title="required">*</span>{/if}</span>
       <span class="path mono">{field}</span>
@@ -262,6 +276,7 @@
     <div class="ctl">
       {@render control()}
       {#if errText && !(row.kind === 'port')}<span class="err" class:warnt={!bad}>{errText}</span>{/if}
+      {@render portErr()}
       {#if secret?.key}<span class="muted small">key: {secret.key}</span>{/if}
     </div>
   </div>
@@ -480,6 +495,19 @@
   .err.warnt {
     color: var(--warn);
   }
+  .porterr {
+    font-weight: 600;
+    line-height: 1.4;
+  }
+  .porterr a {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .tag.icon {
+    display: inline-flex;
+    flex: none;
+  }
   .map {
     display: grid;
     grid-template-columns: minmax(80px, 160px) minmax(0, 1fr) auto;
@@ -525,6 +553,7 @@
   .cell {
     display: grid;
     gap: 2px;
+    align-content: start;
     min-width: 92px;
     flex: 1 1 110px;
   }

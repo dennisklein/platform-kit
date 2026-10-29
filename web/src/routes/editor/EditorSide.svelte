@@ -28,6 +28,10 @@
   function sev(p: Problem) {
     return p.severity === 'error' ? 0 : p.severity === 'warning' ? 1 : 2;
   }
+  // The count takes the colour of the worst problem: notes alone are not red.
+  const worst = $derived(sorted[0]?.severity ?? 'info');
+  // The change metadata file: not a kind, it moves into the MR at mark ready.
+  const isMeta = $derived(/^\.pk\/changes\/[^/]+\.yaml$/.test(file.path));
   const editorText = $derived(
     !file.kind ? (file.language === 'yaml' ? 'YAML' : file.language) : kind?.own ? 'YAML + form + hooks' : 'YAML + CRD schema',
   );
@@ -37,6 +41,14 @@
   <section class="card">
     <h3 class="eyebrow">Kind registry</h3>
     <dl>
+      {#if isMeta}
+        <dt>file</dt>
+        <dd>change metadata</dd>
+        <dt>editor</dt>
+        <dd>{editorText}</dd>
+        <dt>after</dt>
+        <dd>moves to the MR on mark ready</dd>
+      {:else}
       <dt>kind</dt>
       <dd class="mono">{file.kind ? (kind?.own ? file.kind.name : 'none') : 'none'}</dd>
       <dt>editor</dt>
@@ -55,6 +67,7 @@
         <dt>stored as</dt>
         <dd class="mono warn-text" title="Converted for the editor; saving writes the newest version">{file.convertedFrom}</dd>
       {/if}
+      {/if}
     </dl>
     {#if kind?.views?.length}
       <p class="muted small">Views: {kind.views.join(', ')}</p>
@@ -62,7 +75,7 @@
   </section>
 
   <section class="card">
-    <h3 class="eyebrow">Problems {#if problems.length}<span class="n">{problems.length}</span>{/if}</h3>
+    <h3 class="eyebrow">Problems {#if problems.length}<span class="n s-{worst}" title={worst === 'info' ? 'notes only' : undefined}>{problems.length}</span>{/if}</h3>
     {#if sorted.length === 0}
       <p class="ok-line"><Icon name="check" size={15} /> No problems</p>
     {:else}
@@ -131,6 +144,14 @@
     padding: 0 6px;
     font-size: 10.5px;
     letter-spacing: 0;
+  }
+  .n.s-warning {
+    background: var(--warn);
+  }
+  .n.s-info {
+    background: var(--panel-2);
+    color: var(--muted);
+    box-shadow: inset 0 0 0 1px var(--line);
   }
   dl {
     display: grid;

@@ -17,7 +17,8 @@
     WorktreeStatus,
   } from '../../lib/api/types';
   import { at, fields, type JS } from '../../lib/change/schema';
-  import { readData, setIn, appendIn, deleteIn, type KeyOrder, type Path } from '../../lib/change/yamlEdit';
+  import { readData, setIn, appendIn, deleteIn, formatPath, type KeyOrder, type Path } from '../../lib/change/yamlEdit';
+  import { pathAtLine } from '../../lib/change/yamlPath';
   import { baseName, shortPath, shortSha, timeAgo } from '../../lib/change/format';
   import { change as changeStore } from '../../lib/stores/change.svelte';
   import { changes } from '../../lib/stores/changes.svelte';
@@ -157,6 +158,7 @@
       saveError = null;
       if (f.kind) void loadSchema(f.kind.name, f.kind.version);
       void loadSuggestions();
+      linkLine = qline;
       if (qline) jump(qline);
     } catch (e) {
       file = null;
@@ -195,6 +197,26 @@
     await tick();
     jumpLine = n;
   }
+
+  // A deep link with ?line= (for example a problem link on the node page)
+  // also works in Form mode: the form scrolls to the field of that line
+  // and highlights it. Without a field there, the YAML editor opens.
+  let linkLine = $state(0);
+  let formFocus = $state<{ field: string; seq: number } | null>(null);
+  let focusSeq = 0;
+  $effect(() => {
+    const n = linkLine;
+    // Without a form (no schema yet) the YAML editor shows and takes the line.
+    if (!n || !file || mode !== 'form' || !formAvailable) return;
+    untrack(() => {
+      linkLine = 0;
+      const p = problems.find((x) => x.line === n && x.field);
+      const at = p?.field ?? (parsed?.data ? pathAtLine(text, n) : null);
+      const field = typeof at === 'string' ? at : at ? formatPath(at) : '';
+      if (field && !parsed?.error) formFocus = { field, seq: ++focusSeq };
+      else mode = 'yaml'; // not stored: the next file opens in the chosen mode again
+    });
+  });
 
   // --- save ----------------------------------------------------------------
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
@@ -364,7 +386,11 @@
 
   $effect(() => {
     const n = qline;
-    if (n) untrack(() => jump(n));
+    if (n)
+      untrack(() => {
+        linkLine = n;
+        void jump(n);
+      });
   });
 
   onMount(() => {
@@ -605,6 +631,7 @@
                 {readOnly}
                 changeId={id}
                 secrets={file.secrets}
+                focus={formFocus}
                 {onset}
                 {onappend}
                 {ondelete}
@@ -633,7 +660,10 @@
         <span class="save" class:warn-text={stale || saveError} class:accent={isDirty || saving} title={saveText}>{saveText}</span>
         {#if file?.kind}<span class="muted kindname">{file.kind.name}{file.kind.objectName ? `/${file.kind.objectName}` : ''}</span>{/if}
         <span class="grow"></span>
-        {#if id}<span class="render">render: {renderText ?? 'no change'}</span>{/if}
+        {#if id}
+          <!-- Each save renders the change: the pill flashes when the result changes. -->
+          {#key renderText}<span class="render" class:none={!renderText} title="Render of this change against main">render: <b>{renderText ?? 'no change'}</b></span>{/key}
+        {/if}
       </footer>
     </main>
 
@@ -1012,11 +1042,47 @@
     flex: 0 10 auto;
   }
   .statusline .save {
-    min-width: 6em;
-    flex: 0 1 auto;
+    flex: none;
   }
   .statusline .render {
     flex: none;
+    font-size: 13.5px;
+    padding: 3px 12px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--ink);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-fill) 45%, transparent);
+    animation: renderflash 0.9s ease-out;
+  }
+  .statusline .render b {
+    font-weight: 700;
+  }
+  .statusline .render.none {
+    background: transparent;
+    color: var(--muted);
+    box-shadow: inset 0 0 0 1px var(--line);
+    animation: none;
+  }
+  @keyframes renderflash {
+    0% {
+      background: var(--accent-fill);
+      color: var(--accent-on);
+      transform: scale(1.08);
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .statusline .render {
+      animation: none;
+    }
+  }
+  /* At projector zoom the worktree path goes first: it is on the change page. */
+  @container (max-width: 1500px) {
+    .statusline .wt {
+      display: none;
+    }
   }
   .statusline .grow {
     flex: 1;

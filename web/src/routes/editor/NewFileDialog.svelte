@@ -23,6 +23,15 @@
   const plain = $derived(kind === '');
   const valid = $derived(plain ? /^[\w.-]+(\/[\w.-]+)*$/.test(path.trim()) : /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name.trim()));
 
+  // The kind is preselected: the cursor goes to Name (New file, type
+  // cn-036, Enter). The dialog focuses its first field in a microtask.
+  let nameEl = $state<HTMLInputElement | undefined>(undefined);
+  $effect(() => {
+    if (!open) return;
+    const t = setTimeout(() => (plain ? undefined : nameEl?.focus()), 0);
+    return () => clearTimeout(t);
+  });
+
   async function create(e?: Event) {
     e?.preventDefault();
     if (!valid || busy) return;
@@ -60,7 +69,7 @@
       <input id="nf-path" class="input mono" bind:value={path} placeholder="docs/capacity/defiant.md" />
     {:else}
       <label for="nf-name">Name</label>
-      <input id="nf-name" class="input mono" bind:value={name} placeholder={kind === 'Node' ? 'cn-035' : 'name'} />
+      <input id="nf-name" class="input mono" bind:this={nameEl} bind:value={name} placeholder={kind === 'Node' ? 'for example cn-040' : 'name'} />
       {#if k}
         <p class="hint">Path from the kind: <code>{(k.paths[0] ?? '').replace('*', name || '<name>')}</code>. The skeleton has the schema defaults; the form shows what is missing.</p>
       {/if}
