@@ -19,10 +19,11 @@ func TestLifecycleLabPassBeforePush(t *testing.T) {
 	ch := &Change{}
 	ch.State, ch.LabState, ch.LabRun = Draft, string(LabPass), "c-abcdef/run-1"
 	l := lifecycleOf(ch)
-	if l[Draft].Status != api.LifecycleStepStatusNow || l[Draft].Label != "local" {
+	// The passing lab is the current step; the draft is done.
+	if l[Draft].Status != api.LifecycleStepStatusDone || l[Draft].Label != "local" {
 		t.Errorf("draft: %+v", l[Draft])
 	}
-	if l[Lab].Status != api.LifecycleStepStatusDone || l[Lab].Label != "run-1" {
+	if l[Lab].Status != api.LifecycleStepStatusNow || l[Lab].Label != "run-1" {
 		t.Errorf("lab: %+v", l[Lab])
 	}
 	if l[Review].Status != api.LifecycleStepStatusTodo || l[Review].Label != "no MR" {

@@ -68,9 +68,9 @@ type Meta struct {
 	Title      string      `json:"title" yaml:"title"`
 	Intent     string      `json:"intent,omitempty" yaml:"intent,omitempty"`
 	Author     string      `json:"author" yaml:"author"`
-	Agent      string      `json:"agent" yaml:"agent"`
+	Agent      string      `json:"agent,omitempty" yaml:"agent,omitempty"`
 	Target     string      `json:"target" yaml:"target"`
-	Parent     string      `json:"parent" yaml:"parent"`
+	Parent     string      `json:"parent,omitempty" yaml:"parent,omitempty"`
 	WorkItems  []string    `json:"workItems,omitempty" yaml:"workItems,omitempty"`
 	LabRuns    []LabRunRef `json:"labRuns,omitempty" yaml:"labRuns,omitempty"`
 }

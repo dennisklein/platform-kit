@@ -196,6 +196,15 @@ func LifecycleToAPI(ch *Change) []api.LifecycleStep {
 			cur = i
 		}
 	}
+	// A draft whose lab passed on the head has done the lab step: the
+	// marker moves to "lab" (review is next), not back to "draft".
+	if ch.State == Draft && ch.LabState == string(LabPass) {
+		for i, st := range Lifecycle {
+			if st == Lab {
+				cur = i
+			}
+		}
+	}
 	labRequired := ch.Gates != nil && ch.Gates.LabGate.Required
 	out := make([]api.LifecycleStep, 0, len(Lifecycle))
 	for i, st := range Lifecycle {
