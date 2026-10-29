@@ -93,10 +93,15 @@ test('formatters', () => {
   assert.equal(changeIdOfBranch('change/c-31d0aa-cabling'), 'c-31d0aa');
 });
 
-test('recent own merges follow the open changes in my group, without open hints', () => {
+test('recent own merges get their own group after my changes, without open hints', () => {
   const merged = ch('c-19f4tb', { title: 'Kernel args', state: 'deployed', behindTarget: 4, mergedAt: '2026-10-27T10:05:00Z' });
   const g = railGroups(list, 'all', 'updated', '', [merged]);
-  assert.deepEqual(g[0].items.map((i) => i.c.id), ['c-31d0aa', 'c-k7m2qz', 'c-19f4tb']);
+  assert.deepEqual(g.map((x) => x.key), ['mine', 'merged', 'others', 'review', 'bots']);
+  assert.deepEqual(g[0].items.map((i) => i.c.id), ['c-31d0aa', 'c-k7m2qz']);
+  assert.deepEqual(g[1].items.map((i) => i.c.id), ['c-19f4tb']);
+  // The Mine filter keeps them; only merges, no open changes: the group alone.
+  assert.deepEqual(railGroups(list, 'mine', 'updated', '', [merged]).map((x) => x.key), ['mine', 'merged']);
+  assert.deepEqual(railGroups([], 'all', 'updated', '', [merged]).map((x) => x.key), ['merged']);
   assert.deepEqual(railHints(merged).map((h) => h.text), ['dennis']);
   // Filtered by the search like the open ones; other filters leave it out.
   assert.equal(railGroups(list, 'all', 'updated', 'podinfo', [merged]).some((x) => x.items.some((i) => i.c.id === 'c-19f4tb')), false);

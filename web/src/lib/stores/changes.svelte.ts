@@ -17,6 +17,8 @@ class Changes {
   /** The last fetch or forge poll failed: the list is the local state. */
   forgeOffline = $state(false);
   loading = $state(false);
+  /** The first load came back: counts mean something (no "0 open" flash). */
+  loaded = $state(false);
   error = $state<string | null>(null);
   #timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -68,6 +70,7 @@ class Changes {
       this.main = r.main;
       this.forgeOffline = !!r.forgeOffline;
       this.error = null;
+      this.loaded = true;
     } catch (e) {
       this.error = errorText(e);
     } finally {

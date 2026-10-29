@@ -1,0 +1,54 @@
+// Cluster health and the landing page counts. Pure, tested with node --test.
+
+export interface ClusterLike {
+  reachable?: boolean;
+  failing?: boolean;
+  healthy: boolean;
+  held?: boolean;
+  applied?: { sha: string };
+  verified?: { sha: string };
+  pending?: { sha: string };
+}
+
+export type HealthTone = 'ok' | 'warn' | 'bad' | 'muted';
+export interface Health {
+  tone: HealthTone;
+  label: string;
+}
+
+/** One word for a cluster: healthy, reconciling, verifying, held, failing, unreachable. */
+export function clusterHealth(c: ClusterLike): Health {
+  if (c.reachable === false) return { tone: 'muted', label: 'unreachable' };
+  if (c.failing || !c.healthy) return { tone: 'bad', label: 'failing' };
+  if (c.held) return { tone: 'warn', label: 'held' };
+  if (c.pending && c.pending.sha !== c.applied?.sha) return { tone: 'warn', label: 'reconciling' };
+  if (c.applied && c.verified?.sha !== c.applied.sha) return { tone: 'warn', label: 'verifying' };
+  return { tone: 'ok', label: 'healthy' };
+}
+
+export interface ChangeLike {
+  group: string;
+  labState?: string;
+}
+
+export interface Counts {
+  open: number;
+  mine: number;
+  others: number;
+  review: number;
+  labFailed: number;
+  labRunning: number;
+}
+
+/** Counts for the stat tiles of the Changes page (open changes only). */
+export function changeCounts(list: ChangeLike[]): Counts {
+  const n: Counts = { open: list.length, mine: 0, others: 0, review: 0, labFailed: 0, labRunning: 0 };
+  for (const c of list) {
+    if (c.group === 'mine') n.mine++;
+    else if (c.group === 'review') n.review++;
+    else n.others++;
+    if (c.labState === 'fail') n.labFailed++;
+    else if (c.labState === 'running') n.labRunning++;
+  }
+  return n;
+}

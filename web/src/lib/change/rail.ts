@@ -12,7 +12,7 @@ export interface RailItem {
 }
 
 export interface RailGroup {
-  key: ChangeGroup;
+  key: ChangeGroup | 'merged';
   label: string;
   items: RailItem[];
 }
@@ -98,17 +98,20 @@ export function railGroups(
 ): RailGroup[] {
   const sorted = list.filter((c) => matches(c, query)).sort(compare(sort));
   const merged = recent.filter((c) => matches(c, query) && !list.some((o) => o.id === c.id));
-  return GROUPS.filter((g) => filter === 'all' || g.key === filter)
-    .map((g) => {
-      const inGroup = sorted.filter((c) => c.group === g.key);
-      // A stacked child shows under its parent when both are in the group.
-      const items = stackOrder(inGroup);
-      // My recent merges follow my open changes (rollout to watch).
-      if (g.key === 'mine') for (const c of merged) items.push({ c, depth: 0 });
-      return { ...g, items };
-    })
-    .filter((g) => g.items.length > 0);
+  const out: RailGroup[] = [];
+  for (const g of GROUPS) {
+    if (filter !== 'all' && g.key !== filter) continue;
+    // A stacked child shows under its parent when both are in the group.
+    out.push({ ...g, items: stackOrder(sorted.filter((c) => c.group === g.key)) });
+    // My recent merges get their own group after my open changes (rollout
+    // to watch), so "My changes" counts only open ones.
+    if (g.key === 'mine' && merged.length) out.push({ key: 'merged', label: MERGED_LABEL, items: merged.map((c) => ({ c, depth: 0 })) });
+  }
+  return out.filter((g) => g.items.length > 0);
 }
+
+/** Label of the group of my recent merges. */
+export const MERGED_LABEL = 'My recent merges';
 
 export interface Hint {
   text: string;

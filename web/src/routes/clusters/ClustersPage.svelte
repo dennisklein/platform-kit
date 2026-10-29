@@ -9,6 +9,7 @@
   import { session } from '../../lib/stores/me.svelte';
   import { toasts } from '../../lib/stores/toasts.svelte';
   import { short, ago, endsAt, isChangeId } from '../../lib/f/fmt';
+  import { clusterHealth } from '../../lib/f/clusters';
   import DemoControls from '../../lib/components/DemoControls.svelte';
   import Glyph from '../../lib/components/Glyph.svelte';
 
@@ -61,15 +62,7 @@
   );
   const highlight = $derived(params.id ?? query.get('cluster') ?? undefined);
 
-  type Health = { tone: 'ok' | 'warn' | 'bad' | 'muted'; label: string };
-  function health(c: Cluster): Health {
-    if (c.reachable === false) return { tone: 'muted', label: 'unreachable' };
-    if (c.failing || !c.healthy) return { tone: 'bad', label: 'failing' };
-    if (c.held) return { tone: 'warn', label: 'held' };
-    if (c.pending && c.pending.sha !== c.applied?.sha) return { tone: 'warn', label: 'reconciling' };
-    if (c.applied && c.verified?.sha !== c.applied.sha) return { tone: 'warn', label: 'verifying' };
-    return { tone: 'ok', label: 'healthy' };
-  }
+  const health = (c: Cluster) => clusterHealth(c);
 
   const ringFailing = (r: RingStatus) =>
     (clusters ?? []).some((c) => (r.clusters ?? []).includes(c.id) && c.reachable !== false && (c.failing || !c.healthy));
