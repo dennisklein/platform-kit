@@ -16,18 +16,20 @@
   import Glyph from '../Glyph.svelte';
   import { modelLabel, type AnswerLike } from '../../f/llm';
   import { copyText } from '../../f/copy';
-  import { closeMarkdown, elapsed, stepText, usedTools, type LiveStep } from './live';
-
-  // "from project data" when the bench data answered instead of the model.
-  function answerModel(a: AnswerLike) {
-    const llm = session.status?.llm;
-    return modelLabel(a, !!llm && !llm.mock && !llm.reachable);
-  }
+  import { closeMarkdown, elapsed, footLabel, offerData, usedTools, type LiveStep } from './live';
 
   let { wide = false }: { wide?: boolean } = $props();
 
+  // "from project data" when the bench data answered instead of the model;
+  // "built-in · secret guard" for a refusal; short in the side panel.
+  function answerModel(a: AnswerLike & { refused?: boolean }) {
+    const llm = session.status?.llm;
+    return footLabel(modelLabel(a, !!llm && !llm.mock && !llm.reachable), a, !wide);
+  }
+
   let text = $state('');
   let list: HTMLDivElement | undefined = $state();
+  let flow: HTMLDivElement | undefined = $state();
   let input: HTMLTextAreaElement | undefined = $state();
   /** Answers whose steps are open: the newest one of this visit, and the ones the user opened. */
   let opened = $state<Record<number, boolean>>({});
@@ -37,12 +39,8 @@
   let now = $state(Date.now());
 
   const ctx = $derived(chat.changeId);
-  const examples = $derived([
-    'Why does cn-003 use port 37 on data-a?',
-    ctx ? `What are the risks of ${ctx}?` : 'Which changes are open?',
-    'Add cn-037 to the rack-6z BGP policy',
-    'What is the hubble UI token?',
-  ]);
+  // The three questions of the demo script (docs/demo.html, step 3.3).
+  const examples = ['Why does cn-003 use port 37 on data-a?', 'What is the hubble UI token?', 'Add cn-037 to the rack-6z BGP policy'];
 
   // "qwen2.5:7b" or "built-in" for the thinking line.
   const modelName = $derived.by(() => {
@@ -51,9 +49,13 @@
     return llm.mock ? 'built-in' : llm.model;
   });
 
+  // A model is set (not built-in): a slow answer offers the data answer.
+  const usesModel = $derived(!!session.status?.llm && !session.status.llm.mock);
+
   function send(t = text) {
     if (!t.trim() || chat.busy) return;
     if (chat.send(t)) text = '';
+    stick = true;
     void tick().then(() => scroll(true));
   }
 
@@ -62,17 +64,23 @@
   }
 
   function scroll(force = false) {
-    if (list && (force || nearBottom())) list.scrollTo({ top: list.scrollHeight });
+    if (list && (force || nearBottom())) list.scrollTop = list.scrollHeight;
   }
 
-  // Follow the answer while it grows, unless the user scrolled up.
+  // Follow the answer to its end while it grows (steps, text, then the
+  // sources and the suggestion card with Accept), unless the user scrolled
+  // up. The observer sees every growth, also the staged reveal.
+  let stick = true;
+  function onscroll() {
+    stick = nearBottom();
+  }
   $effect(() => {
-    void chat.entries.length;
-    const last = chat.entries[chat.entries.length - 1];
-    void last?.live?.text.length;
-    void last?.live?.steps.length;
-    const stick = nearBottom();
-    void tick().then(() => stick && scroll(true));
+    if (!flow || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      if (stick) scroll(true);
+    });
+    ro.observe(flow);
+    return () => ro.disconnect();
   });
 
   // The clock of the live answer.
@@ -122,6 +130,7 @@
   }
 
   function regenerate() {
+    stick = true;
     if (chat.regenerate()) void tick().then(() => scroll(true));
   }
 
@@ -151,8 +160,7 @@
         <span class="st" aria-hidden="true">
           {#if s.state === 'running'}<span class="spin"></span>{:else if s.state === 'failed'}<Glyph name="x" size={11} />{:else}<Glyph name="check" size={11} />{/if}
         </span>
-        <span class="lbl">{s.label}</span>
-        {#if s.summary}<span class="sum">→ {s.summary}</span>{/if}
+        <span class="line"><span class="lbl">{s.label}</span>{#if s.summary}<span class="sum">→ {s.summary}</span>{/if}</span>
         <span class="sr-only">{s.state === 'running' ? 'running' : s.state === 'failed' ? 'failed' : 'done'}</span>
       </li>
     {/each}
@@ -175,7 +183,8 @@
     {/if}
   </div>
 
-  <div class="msgs" class:empty={!chat.entries.length} bind:this={list}>
+  <div class="msgs" class:empty={!chat.entries.length} bind:this={list} {onscroll}>
+    <div class="flow" bind:this={flow}>
     {#each chat.entries as e (e.id)}
       {#if e.role === 'user'}
         <div class="q">{e.content}</div>
@@ -197,10 +206,32 @@
               {:else if !l.steps.length}
                 <div class="dots" aria-hidden="true"><span></span><span></span><span></span></div>
               {/if}
+              {#if offerData(l, now, usesModel)}
+                <div class="offer">
+                  <button class="data" onclick={() => chat.answerFromData()} title="Stop waiting for the model and answer from the project data">
+                    <Glyph name="zap" size={12} /><span>Answer from project data now</span>
+                  </button>
+                </div>
+              {/if}
             </div>
           {:else if e.stopped}
+            {@const steps = e.steps ?? []}
             <div class="a stopped">
-              <div class="who"><span class="name">pk assistant</span></div>
+              <div class="who">
+                <span class="name">pk assistant</span>
+                {#if steps.length}
+                  <button
+                    class="used"
+                    aria-expanded={!!opened[e.id]}
+                    onclick={() => (opened = { ...opened, [e.id]: !opened[e.id] })}
+                    title={opened[e.id] ? 'Hide the steps' : 'Show the steps'}
+                  >
+                    {usedTools(steps.length)}
+                    <span class="chev" class:up={opened[e.id]}><Glyph name="chevron" size={11} /></span>
+                  </button>
+                {/if}
+              </div>
+              {#if steps.length && opened[e.id]}{@render stepList(steps, false)}{/if}
               {#if e.content}<div class="txt"><Markdown source={closeMarkdown(e.content)} /></div>{/if}
               <div class="foot">
                 <span class="muted small">Stopped.</span>
@@ -247,7 +278,7 @@
                 <Thumbs logId={a.logId} compact note={false} />
                 <span class="model mono" class:warn-text={m.fallback && !a.fallbackReason} title={m.title}>{m.text}</span>
                 {#if a.fallbackReason}
-                  <span class="why" title="The bench answered from its own data instead"><Glyph name="clock" size={11} /> {reason(a.fallbackReason)}</span>
+                  <span class="why" title="The bench answered from its own data instead"><Glyph name={a.fallbackReason.startsWith('you asked') ? 'zap' : 'clock'} size={11} /> {reason(a.fallbackReason)}</span>
                 {/if}
                 <span class="spacer"></span>
                 <button class="icon" onclick={() => copy(e)} title="Copy the answer" aria-live="polite">
@@ -281,6 +312,7 @@
         </div>
       </div>
     {/each}
+    </div>
   </div>
 
   <form
@@ -345,11 +377,17 @@
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 12px;
     padding: 2px 2px 8px;
     min-height: 0;
   }
-  .wide .msgs {
+  /* The content of the thread; its growth drives the auto-scroll. */
+  .flow {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .wide .flow {
     gap: 16px;
   }
   .wide .msgs.empty {
@@ -503,6 +541,27 @@
     min-width: 0;
     flex: 0 1 auto;
   }
+  .line {
+    display: flex;
+    gap: 6px;
+    min-width: 0;
+  }
+  /* The narrow side panel: a step wraps as text instead of being cut. */
+  .thread:not(.wide) .step {
+    align-items: flex-start;
+  }
+  .thread:not(.wide) .line {
+    display: block;
+    overflow-wrap: anywhere;
+  }
+  .thread:not(.wide) .line .lbl,
+  .thread:not(.wide) .line .sum {
+    white-space: normal;
+    overflow: visible;
+  }
+  .thread:not(.wide) .line .sum {
+    margin-left: 6px;
+  }
   .spin {
     width: 10px;
     height: 10px;
@@ -571,8 +630,25 @@
     gap: 6px;
     align-items: center;
   }
-  .a.stopped {
-    border-style: dashed;
+  /* "Ask from project data now": a slow model need not hold the stage. */
+  .offer {
+    display: flex;
+  }
+  .data {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--ai-line);
+    background: var(--ai-soft);
+    color: var(--ai);
+    border-radius: 999px;
+    padding: 3px 11px 3px 9px;
+    font: 600 12.5px/18px var(--sans);
+    animation: rise 0.25s ease-out both;
+  }
+  .data:hover {
+    border-color: var(--ai);
+    background: var(--panel);
   }
   .srcs {
     display: flex;
@@ -590,7 +666,8 @@
     margin-top: -1px;
     min-width: 0;
   }
-  /* One line, also in the narrow side panel: the labels shorten first. */
+  /* The model and why labels; in the side panel the footer wraps instead
+     of cutting them. */
   .model,
   .why {
     font-size: 11px;
@@ -599,6 +676,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .thread:not(.wide) .foot {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  .thread:not(.wide) .why {
+    white-space: normal;
   }
   .why {
     display: inline-flex;
@@ -738,6 +822,9 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .thread:not(.wide) .chip span:not(.go) {
+    white-space: normal;
+  }
   .wide .chip {
     font-size: 14px;
     padding: 7px 10px 7px 13px;
@@ -851,7 +938,8 @@
       border-color: var(--ai);
     }
     .steps.live .step,
-    .fresh .extra {
+    .fresh .extra,
+    .data {
       animation: none;
     }
     .chev,

@@ -5,7 +5,10 @@ import {
   applyStep,
   closeMarkdown,
   elapsed,
+  footLabel,
   newRequestId,
+  offerData,
+  stopSteps,
   stepText,
   usedTools,
   type LiveStep,
@@ -57,4 +60,36 @@ test('labels', () => {
   assert.equal(elapsed(0, 6400), '6 s');
   assert.equal(elapsed(0, 75000), '1 min 15 s');
   assert.notEqual(newRequestId(), newRequestId());
+});
+
+test('a slow model answer offers the data answer after 8 s, without text', () => {
+  const l = { text: '', startedAt: 0 };
+  assert.equal(offerData(l, 7999, true), false);
+  assert.equal(offerData(l, 8000, true), true);
+  // Built-in answers come fast; text means the model is writing.
+  assert.equal(offerData(l, 9000, false), false);
+  assert.equal(offerData({ ...l, text: 'c-2hd7vw' }, 9000, true), false);
+});
+
+test('a stopped answer keeps its steps; what ran is stopped', () => {
+  const s = stopSteps([{ ...run(1, 'history cn-003'), state: 'ok', summary: '4 merges' }, run(2, "search 'port 37'")]);
+  assert.deepEqual(
+    s.map((x) => [x.state, x.summary]),
+    [
+      ['ok', '4 merges'],
+      ['failed', 'stopped'],
+    ],
+  );
+});
+
+test('model line: secret guard, short built-in label in the side panel', () => {
+  const builtin = { text: 'built-in · from project data', title: 't', fallback: false };
+  assert.equal(footLabel(builtin, { model: 'guard', mock: true }, false).text, 'built-in · secret guard');
+  assert.equal(footLabel(builtin, { model: 'guard' }, true).text, 'built-in · secret guard');
+  assert.equal(footLabel(builtin, { model: 'mock', mock: true }, true).text, 'built-in');
+  assert.equal(footLabel(builtin, { model: 'mock', mock: true }, false).text, 'built-in · from project data');
+  const fb = { text: 'from project data', title: 't', fallback: true };
+  assert.equal(footLabel(fb, { model: 'qwen2.5:7b', fallback: true }, true).text, 'built-in');
+  const model = { text: 'qwen2.5:7b', title: 'Model', fallback: false };
+  assert.equal(footLabel(model, { model: 'qwen2.5:7b' }, true).text, 'qwen2.5:7b');
 });

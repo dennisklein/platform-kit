@@ -284,8 +284,11 @@ on('POST', '/chat', ({ body }) => {
   // The lookups the bench shows as steps of the answer.
   const step = (id: number, tool: string, label: string, summary = '') => ({ id, tool, label, summary, state: 'ok', ms: 40 });
   let steps: any[] = [step(1, 'search', `search '${q.split(/\s+/).slice(0, 3).join(' ')}'`, '4 hits')];
+  // The secret guard answers without a model.
+  let model = 'mock';
   if (/token|secret|password|key\b/.test(q)) {
     a = clone(c.secret);
+    model = 'guard';
     steps = [step(1, 'search', "search 'hubble ui token'", '2 secret values removed')];
   } else if (/^why|port 37|cn-003/.test(q)) {
     a = clone(c.why);
@@ -320,9 +323,11 @@ on('POST', '/chat', ({ body }) => {
   });
   return {
     ...a,
-    model: 'mock',
+    model,
     mock: true,
-    fallback: true,
+    fallback: model !== 'guard',
+    // The asker chose the answer from project data over a slow model.
+    fallbackReason: body?.builtin ? 'you asked for the answer from project data' : undefined,
     logId: e.id,
     steps,
     suggestions: (a.suggestions ?? []).map((s: any) => ({ ...s, logId: e.id })),

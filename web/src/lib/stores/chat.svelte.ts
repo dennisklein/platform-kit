@@ -13,8 +13,10 @@ import {
   applyDelta,
   applyStep,
   newRequestId,
+  stopSteps,
   type DeltaEvent,
   type LiveState,
+  type LiveStep,
   type StepEvent,
 } from '../components/chat/live';
 
@@ -28,6 +30,8 @@ export interface ChatEntry {
   live?: LiveState;
   /** The asker stopped the answer; content is the text so far. */
   stopped?: boolean;
+  /** The steps a stopped answer had taken. */
+  steps?: LiveStep[];
   changeId?: string;
   at: string;
 }
@@ -53,6 +57,8 @@ class ChatStore {
   #n = this.entries.reduce((m, e) => Math.max(m, e.id), 0);
   #abort: AbortController | null = null;
   #liveId = 0;
+  /** The forming answer is dropped and asked again from the project data. */
+  #reask = false;
 
   constructor() {
     events.on<StepEvent>('chat.step', (d) => this.#onLive(d.requestId, (l) => ({ ...l, steps: applyStep(l.steps, d.step) })));
@@ -109,7 +115,18 @@ class ChatStore {
     this.#abort?.abort();
   }
 
-  async #ask(changeId: string | undefined) {
+  /**
+   * Do not wait for a slow model: drop the forming answer and ask the same
+   * question again, answered from the project data (no model call).
+   */
+  answerFromData(): boolean {
+    if (!this.busy || !this.#abort) return false;
+    this.#reask = true;
+    this.#abort.abort();
+    return true;
+  }
+
+  async #ask(changeId: string | undefined, builtin = false) {
     this.#save();
     this.busy = true;
     const messages = this.entries
@@ -136,6 +153,7 @@ class ChatStore {
             changeId,
             requestId,
             path: changeId && focus.current?.changeId === changeId ? focus.current?.path : undefined,
+            builtin: builtin || undefined,
           },
           signal: ctl.signal,
         }),
@@ -144,13 +162,17 @@ class ChatStore {
       session.noteAnswer(answer);
     } catch (e) {
       const live = this.entries.find((x) => x.id === id)?.live;
-      if (ctl.signal.aborted) replace({ content: live?.text ?? '', stopped: true });
+      if (ctl.signal.aborted && this.#reask) this.entries = this.entries.filter((x) => x.id !== id);
+      else if (ctl.signal.aborted) replace({ content: live?.text ?? '', stopped: true, steps: stopSteps(live?.steps ?? []) });
       else replace({ content: '', error: errorText(e) });
     } finally {
+      const again = this.#reask && ctl.signal.aborted;
+      this.#reask = false;
       this.#abort = null;
       this.#liveId = 0;
       this.busy = false;
       this.#save();
+      if (again) void this.#ask(changeId, true);
     }
   }
 

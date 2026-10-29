@@ -84,3 +84,37 @@ export function newRequestId(): string {
   if (c?.randomUUID) return c.randomUUID();
   return `r-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
+
+/** After this long without text, a model answer offers the answer from project data. */
+export const DATA_OFFER_MS = 8000;
+
+/** Offer "Answer from project data now": a model answer that has no text after 8 s. */
+export function offerData(l: Pick<LiveState, 'text' | 'startedAt'>, now: number, model: boolean): boolean {
+  return model && !l.text && now - l.startedAt >= DATA_OFFER_MS;
+}
+
+/** The steps of a stopped answer: what still ran is marked stopped. */
+export function stopSteps(steps: LiveStep[]): LiveStep[] {
+  return steps.map((s) => (s.state === 'running' ? { ...s, state: 'failed', summary: 'stopped' } : s));
+}
+
+/** The model of an answer the secret guard gave (no model call). */
+export const GUARD_MODEL = 'guard';
+
+export interface FootLabel {
+  text: string;
+  title: string;
+  fallback: boolean;
+}
+
+/**
+ * The model line under an answer. The secret guard says so; in the narrow
+ * side panel the built-in label is short ("built-in"), the clock line says
+ * why the data answered.
+ */
+export function footLabel(base: FootLabel, a: { model?: string; mock?: boolean; fallback?: boolean }, short: boolean): FootLabel {
+  if (a.model === GUARD_MODEL)
+    return { text: 'built-in · secret guard', title: 'The secret guard answered: no model saw the question', fallback: false };
+  if (short && (a.mock || base.fallback)) return { ...base, text: 'built-in' };
+  return base;
+}
