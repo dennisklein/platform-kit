@@ -236,6 +236,17 @@ h1 {
 h2 {
   font-size: var(--fs-h2);
 }
+/* An id inside a section label keeps its case: "IN c-v6jhcj". */
+h3 .keep,
+.eyebrow .keep {
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+/* An entity name as the page title keeps the title size (not .mono's). */
+h1.mono {
+  font-size: var(--fs-h1);
+  letter-spacing: 0;
+}
 /* Section labels: h3 and .eyebrow are the same mono label, as in the deck. */
 h3,
 .eyebrow {
