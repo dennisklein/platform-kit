@@ -141,3 +141,27 @@ func TestExplainNeedsAChange(t *testing.T) {
 		t.Error("glossary answered a project question")
 	}
 }
+
+func TestModelAdviseTakesTheIDOfTheQuestion(t *testing.T) {
+	m := &script{steps: []llm.Message{
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{call("1", "advise", map[string]string{"recipe": "risks"})}},
+		{Role: llm.RoleAssistant, Content: "c-p4x8ma has a failed lab."},
+	}}
+	dir := t.TempDir()
+	adv := points{pts: []advisor.Point{{Title: "Lab failed", Text: "run-1 failed.", Severity: advisor.SevRisk}}}
+	s, err := New(Options{Tools: newFake(t), Advisor: adv, LLM: m, Path: filepath.Join(dir, "s.json")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := s.Ask(ctxAs("dennis"), Request{Messages: []Message{{Role: "user", Content: "Is it safe to merge c-p4x8ma?"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	noFailedStep(t, a)
+	if len(a.Steps) == 0 || a.Steps[0].Label != "advise risks c-p4x8ma" {
+		t.Errorf("steps %+v", a.Steps)
+	}
+	if len(a.Sources) == 0 || a.Sources[0].Ref != "c-p4x8ma" {
+		t.Errorf("sources %+v", a.Sources)
+	}
+}

@@ -124,7 +124,7 @@ func (s *Svc) loop(ctx context.Context, p *progress, req Request, a *Answer, ent
 				tc.ID = fmt.Sprintf("call_%d_%d", step, i)
 				m.ToolCalls[i].ID = tc.ID
 			}
-			n := p.begin(tc.Name, toolLabel(tc))
+			n := p.begin(tc.Name, toolLabel(tc, defaultChange(req)))
 			out, summary, failed := s.callTool(ctx, req, tc, a, col)
 			p.end(ctx, n, summary, failed)
 			fmt.Fprintf(&trace, "- %s %s\n", tc.Name, truncate(string(tc.Arguments), 200))
@@ -132,6 +132,26 @@ func (s *Svc) loop(ctx context.Context, p *progress, req Request, a *Answer, ent
 		}
 	}
 	return fmt.Errorf("no answer after %d tool steps", s.o.MaxSteps)
+}
+
+// defaultChange is the change a tool call without an id is about: the one
+// the last question names ("Is it safe to merge c-p4x8ma?"), else the open
+// change. Small models often leave the id out.
+func defaultChange(req Request) string {
+	if m := reChangeID.FindString(lastUser(req)); m != "" {
+		return m
+	}
+	return req.ChangeID
+}
+
+// lastUser is the last question of a request.
+func lastUser(req Request) string {
+	for i := len(req.Messages) - 1; i >= 0; i-- {
+		if req.Messages[i].Role == "user" {
+			return req.Messages[i].Content
+		}
+	}
+	return ""
 }
 
 func truncate(s string, n int) string {
@@ -156,8 +176,9 @@ type toolArgs struct {
 }
 
 // toolLabel is the short line of a tool call: search 'port 37',
-// read bgp-rack-6z.yaml, history cn-003.
-func toolLabel(tc llm.ToolCall) string {
+// read bgp-rack-6z.yaml, history cn-003. def is the change a call without
+// an id is about.
+func toolLabel(tc llm.ToolCall, def string) string {
 	var a toolArgs
 	_ = json.Unmarshal(tc.Arguments, &a)
 	or := func(v, d string) string {
@@ -179,9 +200,9 @@ func toolLabel(tc llm.ToolCall) string {
 	case "entity":
 		l = "entity " + or(a.Kind+"/", "") + a.Name
 	case "change", "impact":
-		l = tc.Name + " " + or(a.ID, "open change")
+		l = tc.Name + " " + or(a.ID, or(def, "open change"))
 	case "advise":
-		l = "advise " + a.Recipe + " " + or(a.ID, "open change")
+		l = "advise " + a.Recipe + " " + or(a.ID, or(def, "open change"))
 	case "suggest_edit":
 		l = "suggest " + shortPath(a.Path)
 	default:
@@ -205,7 +226,7 @@ func (s *Svc) callTool(ctx context.Context, req Request, tc llm.ToolCall, a *Ans
 		if id != "" {
 			return id
 		}
-		return req.ChangeID
+		return defaultChange(req)
 	}
 	switch tc.Name {
 	case "search":
@@ -313,6 +334,7 @@ func (s *Svc) callTool(ctx context.Context, req Request, tc llm.ToolCall, a *Ans
 		if err != nil {
 			return fail(err)
 		}
+		col.read(llm.Source{Label: id, Ref: id, Kind: "change"})
 		type point struct{ Title, Text, Severity string }
 		pts := []point{}
 		for _, pt := range res.Points {
