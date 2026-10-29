@@ -332,3 +332,25 @@ func TestAdviseStepsReadEachSourceOnce(t *testing.T) {
 		t.Errorf("steps %+v", a.Steps)
 	}
 }
+
+// openTwo has two open changes.
+type openTwo struct{ *fake }
+
+func (f openTwo) Changes(ctx context.Context) ([]api.ChangeSummary, error) {
+	return []api.ChangeSummary{
+		{Id: "c-6m1pqd", Title: "Bump podinfo to 6.9", Author: "jonas", State: api.ChangeStateReview},
+		{Id: "c-p4x8ma", Title: "BGP peers for org-a and org-b", Author: "anna", State: api.ChangeStateLab},
+	}, nil
+}
+
+func TestWhichChangeListsOnce(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(Options{Tools: openTwo{newFake(t)}, LLM: llm.NewMock(nil), Path: filepath.Join(dir, "s.json")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := s.Ask(ctxAs("dennis"), Request{Messages: conv("What is the merge order of the open changes?")})
+	if !strings.HasPrefix(a.Text, "Which change do you mean? Open one, or name it in the question.\n\n2 changes are open.") {
+		t.Errorf("%q", a.Text)
+	}
+}

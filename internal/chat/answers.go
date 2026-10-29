@@ -113,7 +113,8 @@ func (s *Svc) changeQuestion(ctx context.Context, p *progress, req Request, q st
 		}
 		a.Text = "Which change do you mean? Open one, or name it in the question."
 		if list := s.openList(ctx, p); list != "" {
-			a.Text += " These are open:\n\n" + list
+			// The list starts with "3 changes are open."
+			a.Text += "\n\n" + list
 		}
 		return true
 	}
