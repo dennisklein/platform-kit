@@ -19,8 +19,6 @@
         <span class="mark" aria-hidden="true"><Glyph name="sparkle" size={16} /></span>
         <h1>Chat</h1>
         {#if model}<span class="model mono" title={llm?.mock ? 'No model endpoint: answers come from the project data' : llm?.baseUrl}>{model}</span>{/if}
-        <span class="spacer"></span>
-        <span class="as">as {session.me?.id ?? '…'}</span>
       </header>
       <div class="threadwrap"><ChatThread wide /></div>
     </div>
@@ -99,9 +97,6 @@
     border: 1px solid var(--ai-line);
     background: var(--ai-soft);
     color: var(--ai);
-  }
-  .as {
-    font-weight: 600;
   }
   .threadwrap {
     min-height: 0;

@@ -195,6 +195,8 @@
     padding: 0 4px;
     border-radius: 4px;
     font-size: 12.5px;
+    /* Long paths wrap inside a narrow bubble instead of overflowing it. */
+    overflow-wrap: anywhere;
   }
   .md :global(pre.code) {
     position: relative;
