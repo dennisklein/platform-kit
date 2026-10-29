@@ -19,7 +19,15 @@
   // Merged changes carry no gates: show the last recorded lab run.
   const lastRun = $derived(c.labRuns.length ? c.labRuns[c.labRuns.length - 1] : undefined);
   const metaMoved = $derived(!!c.mr && !c.mr.draft);
-  const appr = $derived(c.gates?.approvals ?? { have: c.approvals.have, need: c.approvals.need, by: [] });
+  // Merged changes carry no gates: the approvers come from the Approved-by
+  // trailer of the merge commit (approvalsBy).
+  const appr = $derived(
+    c.gates?.approvals ?? {
+      have: c.approvals.have,
+      need: c.approvals.need,
+      by: (c.approvalsBy ?? []).filter((a) => a.counts).map((a) => a.user),
+    },
+  );
   const canReady = $derived(c.local && c.pushed && draft && labOk && !merged);
 
   let view = $state<'description' | 'merge'>('description');
@@ -81,7 +89,7 @@
         <li class:ok={appr.have >= appr.need && appr.need > 0}>
           <Icon name="people" size={16} />
           <span>Approvals {appr.have} of {appr.need}</span>
-          <span class="hint mono">{appr.by.length ? appr.by.join(', ') : 'policy'}</span>
+          <span class="hint mono">{appr.by.length ? appr.by.join(', ') : 'none yet'}</span>
         </li>
       </ul>
       {#if !merged}
