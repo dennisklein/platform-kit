@@ -256,9 +256,6 @@
     gap: 6px;
     min-width: 0;
   }
-  h1 {
-    font-size: 22px;
-  }
   .meta {
     display: flex;
     flex-wrap: wrap;

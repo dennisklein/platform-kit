@@ -201,7 +201,6 @@
     color: var(--muted);
   }
   h1 {
-    font-size: 24px;
     margin: 4px 0 6px;
   }
   .meta {

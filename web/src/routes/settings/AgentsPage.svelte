@@ -392,7 +392,6 @@
   }
   h1 {
     margin: 2px 0 0;
-    font-size: 22px;
   }
   .sub {
     margin: 4px 0 0;

@@ -274,7 +274,6 @@
     display: inline-flex;
   }
   h1 {
-    font-size: 24px;
     font-weight: 600;
     letter-spacing: 0.01em;
   }
