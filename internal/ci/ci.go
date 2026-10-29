@@ -192,8 +192,11 @@ func (c *Checker) Pass(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// Status is the pk/policy status for gates: success with a summary, or
-// failure with the blockers.
+// Status is the pk/policy status for gates: success with a summary;
+// pending while the change only waits (approvals, draft, rebase, a lab
+// run that is not done yet); failure for a failed lab or a path-rights
+// violation. A pending required check blocks the merge like a failure, but
+// the forge shows it as "waiting", not as broken CI.
 func Status(g *policy.Gates, draft bool) forge.CommitStatus {
 	st := forge.CommitStatus{Context: forge.ContextPolicy, State: forge.StatusSuccess}
 	var parts []string
@@ -207,7 +210,6 @@ func Status(g *policy.Gates, draft bool) forge.CommitStatus {
 		}
 		st.Description = "policy gates met: " + strings.Join(parts, "; ")
 	} else {
-		st.State = forge.StatusFailure
 		parts = append(parts, g.Blockers...)
 		if len(parts) == 0 {
 			parts = append(parts, "not mergeable")
@@ -215,12 +217,39 @@ func Status(g *policy.Gates, draft bool) forge.CommitStatus {
 		if draft {
 			parts = append(parts, "draft")
 		}
-		st.Description = "blocked: " + strings.Join(parts, "; ")
+		if failing(g) {
+			st.State = forge.StatusFailure
+			st.Description = "blocked: " + strings.Join(parts, "; ")
+		} else {
+			st.State = forge.StatusPending
+			st.Description = "waiting: " + strings.Join(parts, "; ")
+		}
 	}
 	if len(st.Description) > 240 {
 		st.Description = st.Description[:237] + "..."
 	}
 	return st
+}
+
+// failing reports gates that block for a reason a person must fix in the
+// change: a failed lab, a path-rights violation, or no changed files.
+// Missing approvals, a draft, a rebase and a lab still to run only wait.
+func failing(g *policy.Gates) bool {
+	if !g.PathRights.OK || g.LabGate.Status == "failed" {
+		return true
+	}
+	waiting := 0
+	if g.Approvals.Have < g.Approvals.Need {
+		waiting++
+	}
+	if !g.Rebased.OK {
+		waiting++
+	}
+	if g.LabGate.Required && (g.LabGate.Status == "needed" || g.LabGate.Status == "running") {
+		waiting++
+	}
+	// Every blocker must be one of the waits above.
+	return len(g.Blockers) > waiting
 }
 
 func (c *Checker) check(ctx context.Context, id string, pr forge.PR) error {

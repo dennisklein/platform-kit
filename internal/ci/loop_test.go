@@ -114,7 +114,7 @@ func TestPassPostsPolicyStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	sts := policyStatuses(t, f, ch.HeadSHA)
-	if len(sts) != 1 || sts[0].State != forge.StatusFailure || sts[0].Description != "blocked: approvals 0 of 1" {
+	if len(sts) != 1 || sts[0].State != forge.StatusPending || sts[0].Description != "waiting: approvals 0 of 1" {
 		t.Fatalf("first pass: %+v", sts)
 	}
 	if err := c.Pass(ctx); err != nil {
