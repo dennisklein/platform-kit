@@ -20,7 +20,7 @@
     {#each SOURCES as s (s)}<span class="src">{s}</span>{/each}
   </div>
   <p class="muted small">
-    Indexed on site{mode ? ` (${mode === 'bm25' ? 'BM25 keywords' : 'local embedder'})` : ''}. Chat and advisors read it; live state is not indexed.
+    Indexed locally{mode ? ` (${mode === 'bm25' ? 'BM25 keywords' : 'local embedder'})` : ''}. Chat and advisors read it; live state is not indexed.
   </p>
   {#if related.length}
     <h4>Related</h4>

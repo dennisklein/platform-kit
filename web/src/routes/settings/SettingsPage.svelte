@@ -8,6 +8,7 @@
   import { session } from '../../lib/stores/me.svelte';
   import { ui, type Theme } from '../../lib/stores/ui.svelte';
   import { endsAt, short, ago } from '../../lib/f/fmt';
+  import { plural } from '../../lib/change/format';
   import DemoControls from '../../lib/components/DemoControls.svelte';
   import Glyph from '../../lib/components/Glyph.svelte';
 
@@ -92,7 +93,7 @@
             <button role="radio" aria-checked={ui.theme === t} onclick={() => ui.setTheme(t)}>{label}</button>
           {/each}
         </div>
-        <p class="small muted">Kept in this browser.</p>
+        <p class="small muted">Saved in this browser.</p>
       </section>
 
       <section class="card" aria-label="Agent">
@@ -172,7 +173,7 @@
           </table>
           </div>
           <p class="small muted">
-            {policy.people.length} people, {policy.agents.length} agents, {policy.bots.length} bots.
+            {plural(policy.people.length, 'person', 'people')}, {plural(policy.agents.length, 'agent')}, {plural(policy.bots.length, 'bot')}.
             {#if policy.fastPath?.approvals}Revert fast path: {policy.fastPath.approvals} approval{policy.fastPath.approvals > 1 ? 's' : ''}{policy.fastPath.labGate === false ? ', no lab' : ''}.{/if}
             Agents never approve or merge.
           </p>
