@@ -261,7 +261,7 @@ pk edit cn-035 --change $CH --set 'spec.ports[2].peer.port=38'</code></pre></div
   <li>The rack page with the switch "main | &lt;id&gt;" and "Highlights against the base of &lt;id&gt;". In the rack picture, cn-035 in U6–7 is green, with "!" (a problem) and "+" (new in the change). "IN &lt;ID&gt; added cn-035 U6–7 · worker", PROBLEMS "cn-035 port data-a 37 in use by cn-003".</li>
   <li>cn-035 "Node v1beta1" with the badge "new in &lt;id&gt;" and the red line "port data-a 37 in use by cn-003". INTENT, HARDWARE FACTS with the owner of each field (<i>intent</i>, <i>asset DB</i>, <i>derived</i>). PORTS AND CABLES "1 problem": p2 DATA-0202 data-a 37 "port data-a 37 in use by cn-003".</li>
   <li>SEMANTIC DIFF · &lt;ID&gt;: "+ cn-035: new compute node in GC5A-6Z, U6".</li>
-  <li>With <span class="ui">main</span>: "Node cn-035 not found in main". The node exists only in the change.</li>
+  <li>With <span class="ui">main</span>: a blue note "cn-035 is new in this change; it is not on main yet." with a link back to the change. The node exists only in the change.</li>
   <li>With 38 in the form: "port free" and "No problems". The status line: "saved to worktree just now · Node/cn-035" and the pill "render: defiant +1", which flashes when the render changes.</li>
 </ul>
 <p class="muted">Tell: a kind adds a view, with the same schema as the YAML editor. Each field has one owner. The check across files is the same as in the editor. The diff is in domain words, from the kind hooks.</p>
@@ -351,7 +351,7 @@ pk changes commit $CH --message "feat(inventory): add cn-035 and cn-036 in GC5A-
 <h4>The audience sees</h4>
 <ul class="see">
   <li>After the edit: "render: defiant +2 ~1". The suggested message: <code>feat(cilium): peer cn-035 in rack-6z</code>.</li>
-  <li>The check result (RISK): "BGP policy. cn-036 is in the inventory of this change, in GC5A-6Z, but not in the BGP policy rack-6z. It gets no BGP session. Suggested fix: add 1 line to bgp-rack-6z.yaml." with sources and "Suggested edit in bgp-rack-6z.yaml: Add cn-036 to the BGP policy rack-6z" (<code>+ - cn-036</code>).</li>
+  <li>The check result (RISK): "BGP policy. cn-036 is in the inventory of this change, in GC5A-6Z, but not in the BGP policy rack-6z. It gets no BGP session. Suggested fix: add 1 line to bgp-rack-6z.yaml." with sources, then "Suggested by advisor · check commit" and "Edit in bgp-rack-6z.yaml: Add cn-036 to the BGP policy rack-6z" (<code>+ - cn-036</code>).</li>
   <li>After <span class="ui">Accept</span>: the STAGED DIFF shows <code>+ - cn-036</code>. Then the commit <code>feat(cilium): peer cn-036 in rack-6z</code>. COMMITS 4.</li>
 </ul>
 <p class="muted">The talk shows 2 commits; the live demo has 3 commits plus the opening commit. The accepted fix is a normal edit by dennis.</p>
@@ -426,7 +426,7 @@ pk changes commit $CH --message "feat(cilium): peer cn-036 in rack-6z"</code></p
 </ol>
 <h4>The audience sees</h4>
 <ul class="see">
-  <li>The change page: <i>lab passed</i> next to the title, and the lifecycle at lab (run-1). The buttons <span class="ui">Run lab again</span>, <span class="ui">Impact: defiant +2 ~1</span>, <span class="ui">Ask the advisor about risks</span>, <span class="ui">Push, open draft MR</span>.</li>
+  <li>The change page: <i>lab passed</i> next to the title (the top bar and the rail say the same), and the lifecycle at lab (run-1). The buttons <span class="ui">Run lab again</span>, <span class="ui">Impact: defiant +2 ~1</span>, <span class="ui">Ask the advisor about risks</span>, <span class="ui">Push, open draft MR</span>.</li>
   <li>Impact: "main &lt;sha&gt; → &lt;sha&gt;"; defiant CLUSTER "21 → 23 objects · ring canary"; infra-metal <code>+ Machine/cn-035</code>, <code>+ Machine/cn-036</code>; cilium <code>~ CiliumBGPPeeringPolicy/rack-6z</code>, each with a source link; "pegasus, phoenix: no change".</li>
   <li>Semantic: "cn-035: new compute node in GC5A-6Z, U6", "cn-036: new compute node in GC5A-6Z, U8", "rack-6z: BGP policy selects 2 more nodes", and the new lab report.</li>
   <li>The overlap: "c-p4x8ma (anna) also changes CiliumBGPPeeringPolicy/rack-6z on defiant. BGP peers for org-a and org-b. Both can merge. Whichever merges second is re-rendered on top of the first."</li>
@@ -453,7 +453,7 @@ pk llm run-advisor $CH risks</code></pre></div>
 <ul class="see">
   <li>Before the push, the change page shows MR DESCRIPTION, FROM .PK/CHANGES/&lt;ID&gt;.YAML: the title and the intent, then a TRAILERS block with <code>Pk-Change</code>, <code>Pk-Title</code>, <code>Pk-Intent</code>, <code>Pk-Lab-Run</code>, <code>Pk-Author</code>, <code>Pk-Work-Item</code> (the change, lab run, report and work item are links), and BEFORE REVIEW: "Metadata file moved to the MR — on mark ready".</li>
   <li>After the push: the toast "Pushed 5 commits. Draft MR !13 opened."; under the title "MR !13 draft"; the main button changes to <span class="ui">Mark ready</span>.</li>
-  <li>After <span class="ui">Mark ready</span>: the toast "Ready for review: MR !13. The metadata file moved to the MR description."; state <i>review</i>; the main button changes to a dashed <span class="ui">Merge</span> with a lock and "0 of 2 approvals". Its dialog lists what blocks the merge and shows <span class="ui">Merge (blocked)</span>.</li>
+  <li>After <span class="ui">Mark ready</span>: the toast "Ready for review: MR !13. The metadata file moved to the MR description."; state <i>review</i>, and the lifecycle shows review "!13"; the main button changes to a dashed <span class="ui">Merge</span> with a lock and "0 of 2 approvals". Its dialog lists what blocks the merge and shows <span class="ui">Merge (blocked)</span>.</li>
 </ul>
 <div class="fallback"><h4>If it fails</h4>
 <pre><code>pk changes push-change $CH
@@ -665,7 +665,7 @@ pk history get-history-entry c-2hd7vw</code></pre></div>
 <h4>The audience sees</h4>
 <ul class="see">
   <li>The tool calls in the terminal: <code>pk_change_new</code>, <code>pk_kind_schema</code> or <code>pk_file_new</code>, <code>pk_file_write</code>, <code>pk_commit</code>, <code>pk_lab_run</code>, <code>pk_lab_status</code>, <code>pk_change_approve</code>. The agent can read other files first (for example <code>cn-036.yaml</code>). No permission prompts.</li>
-  <li>The browser opens the new change "Add cn-037 to defiant" (the title from the prompt; if the agent uses other words, use its title in step 3.3), the file <code>cn-037.yaml</code>, then the lab. The commits have the author dennis-agent and the trailers <code>Pk-Agent: dennis-agent</code>, <code>Pk-On-Behalf-Of: dennis</code>; the commit list marks them <i>Pk-Agent</i>.</li>
+  <li>The browser follows the agent: it opens the new change "Add cn-037 to defiant" (the title from the prompt; if the agent uses other words, use its title in step 3.3), then the lab. The commits have the author dennis-agent and the trailers <code>Pk-Agent: dennis-agent</code>, <code>Pk-On-Behalf-Of: dennis</code>; the commit list marks them <i>Pk-Agent</i>.</li>
   <li>The lab fails: nodes Ready 1 of 1, BGP "0 peers up", checks "4 of 6", "cn-037: no BGP peering policy selects it", "Lab gate of control/inventory/** +1 not met". The check is real: rack-6z does not select cn-037.</li>
   <li><code>pk_change_approve</code>: "denied: agents never approve or merge".</li>
   <li>The Agents page shows "Last call just now · pk_change_approve". The rail shows the change with "dennis + agent"; the change page shows "author dennis + dennis-agent".</li>
@@ -685,7 +685,7 @@ pk history get-history-entry c-2hd7vw</code></pre></div>
   <li>Make sure that the change "Add cn-037 to defiant" is open in the browser.</li>
   <li>In the top bar, click the <span class="ui">Side panel</span> icon (right of the theme icon).</li>
   <li>Make sure that the change selector shows "&lt;cn-037 change id&gt; (current)".</li>
-  <li>The empty chat shows 3 example questions. Click <span class="ui">Why does cn-003 use port 37 on data-a?</span>.</li>
+  <li>The empty chat shows 4 example questions. Click <span class="ui">Why does cn-003 use port 37 on data-a?</span>.</li>
   <li>In the text field, type <code>What is the hubble UI token?</code>. Push <kbd>Enter</kbd>.</li>
   <li>Type <code>Add cn-037 to the rack-6z BGP policy</code>. Push <kbd>Enter</kbd>.</li>
   <li>Under the suggested edit, click <span class="ui">Accept</span>.</li>
