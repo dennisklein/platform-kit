@@ -1,6 +1,7 @@
 // Grouping, filtering and sorting of the change rail. Pure functions over
 // ChangeSummary, tested with node --test.
 import type { ChangeGroup, ChangeState, ChangeSummary } from '../api/types';
+import { lifecycleLabel, lifecycleState } from './lifecycle.ts';
 
 export type RailFilter = 'all' | ChangeGroup;
 export type RailSort = 'updated' | 'state' | 'title';
@@ -50,7 +51,8 @@ function compare(sort: RailSort) {
 export function matches(c: ChangeSummary, query: string): boolean {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return true;
-  const hay = [c.id, c.title, c.author, c.agent, c.branch, c.intent, c.state, ...(c.workItems ?? [])]
+  const life = lifecycleLabel(lifecycleState(c));
+  const hay = [c.id, c.title, c.author, c.agent, c.branch, c.intent, c.state, life, ...(c.workItems ?? [])]
     .filter(Boolean)
     .join(' ')
     .toLowerCase();

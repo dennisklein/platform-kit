@@ -5,7 +5,7 @@
   import { events } from '../stores/events.svelte';
   import { ui } from '../stores/ui.svelte';
   import { href, seg } from '../router.svelte';
-  import StateChip from './StateChip.svelte';
+  import LifecycleChip from '../change/LifecycleChip.svelte';
   import Icon from './Icon.svelte';
   import Glyph from './Glyph.svelte';
   import { llmPill } from '../f/llm';
@@ -54,7 +54,7 @@
       <Glyph name="branch" size={15} />
       <span class="cid">{current.id}</span>
       <span class="ctitle">{current.title}</span>
-      <StateChip state={current.state} labState={current.labState} />
+      <LifecycleChip change={current} />
     </a>
   {/if}
 

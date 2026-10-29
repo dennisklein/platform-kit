@@ -8,7 +8,7 @@
   import { changes } from '../../lib/stores/changes.svelte';
   import { presenceFor } from '../../lib/change/presence.svelte';
   import { runLabel, shortSha, timeAgo, plural, tildePath, baseName } from '../../lib/change/format';
-  import StateChip from '../../lib/components/StateChip.svelte';
+  import LifecycleChip from '../../lib/change/LifecycleChip.svelte';
   import Track, { type TrackItem } from '../../lib/components/Track.svelte';
   import Icon from '../../lib/components/Icon.svelte';
   import PresenceChip from '../../lib/components/PresenceChip.svelte';
@@ -52,8 +52,6 @@
   const selectedStep = $derived(c?.lifecycle.find((s) => s.state === selected));
 
   const merged = $derived(c ? ['merged', 'deployed', 'verified'].includes(c.state) : false);
-  // A draft whose lab passed on the head: the lab gate is met, review is next.
-  const labPassed = $derived(!!c && c.state === 'draft' && c.labState === 'pass');
   const agentAuthored = $derived(!!c && (c.authorKind === 'agent' || !!c.agent));
 
   // A merged change has no live impact summary: take it from the impact of
@@ -89,11 +87,7 @@
       <div class="titles">
         <div class="row">
           <h1>{c.title}</h1>
-          {#if labPassed}
-            <span class="labpass" title="The lab passed on the head. Next: push and mark ready.">lab passed</span>
-          {:else}
-            <StateChip state={c.state} labState={c.labState} />
-          {/if}
+          <LifecycleChip change={c} />
           {#if c.risk}<span class="risk r-{c.risk}">risk: {c.risk}</span>{/if}
         </div>
         <div class="meta">
@@ -274,16 +268,6 @@
     font-weight: 600;
     padding: 1px 8px;
     border-radius: 4px;
-  }
-  .labpass {
-    display: inline-flex;
-    align-items: center;
-    font-size: 11.5px;
-    font-weight: 600;
-    padding: 1px 8px;
-    border-radius: 4px;
-    background: var(--ok-soft);
-    color: var(--ok);
   }
   .r-high {
     background: var(--bad-soft);

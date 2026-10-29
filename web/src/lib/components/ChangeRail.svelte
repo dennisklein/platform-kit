@@ -10,7 +10,7 @@
   import { flip } from 'svelte/animate';
   import { fade } from 'svelte/transition';
   import { ms } from '../f/motion';
-  import StateChip from './StateChip.svelte';
+  import LifecycleChip from '../change/LifecycleChip.svelte';
   import Icon from './Icon.svelte';
 
   let { onNew }: { onNew?: () => void } = $props();
@@ -110,7 +110,7 @@
           <span class="title">{c.title}</span>
           <span class="chips">
             {#if p}<span class="agent" title="{p.actor}: {p.text ?? p.tool ?? ''}"><Icon name="bot" size={13} /></span>{/if}
-            <StateChip state={c.state} labState={c.labState} short />
+            <LifecycleChip change={c} short />
           </span>
           <span class="sub">
             <span class="mono id">{c.id}</span>
