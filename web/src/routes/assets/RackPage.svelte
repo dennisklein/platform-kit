@@ -10,6 +10,7 @@
   import EntityView from '../../lib/components/assets/EntityView.svelte';
   import RefSwitch from '../../lib/components/assets/RefSwitch.svelte';
   import Glyph from '../../lib/components/Glyph.svelte';
+  import Icon from '../../lib/components/Icon.svelte';
 
   let { params, query }: { params: Params; query: URLSearchParams } = $props();
 
@@ -33,17 +34,34 @@
 
   const selOcc = $derived(rack?.occupants.find((o) => o.name === sel));
 
+  // The selected device is not on main but in the change you work on: an
+  // expected state, shown as a note, not as an error.
+  let newInChange = $state<string | null>(null);
+  // Only the newest load counts (switching main/change races the rack load).
+  let seq = 0;
+
   async function loadEntity(o: RackOccupant | undefined) {
+    const n = ++seq;
+    newInChange = null;
     if (!o) {
       entity = null;
+      entError = null;
+      const cid = work.changeId;
+      if (sel && rack && ref === 'main' && cid) {
+        const there = await api.GET('/racks/{name}', { params: { path: { name: params.name }, query: { ref: cid } } });
+        if (n === seq && there.data?.occupants.some((x) => x.name === sel)) newInChange = cid;
+      }
       return;
     }
     try {
-      entity = await must(
+      const e = await must(
         api.GET('/entities/{kind}/{name}', { params: { path: { kind: o.kind, name: o.name }, query: refQ } }),
       );
+      if (n !== seq) return;
+      entity = e;
       entError = null;
     } catch (e) {
+      if (n !== seq) return;
       entity = null;
       entError = errorText(e);
     }
@@ -113,6 +131,14 @@
       <EntityView {entity} />
     {:else if sel && entError}
       <div class="error-box">{entError}</div>
+    {:else if sel && newInChange}
+      <div class="callout">
+        <Icon name="info" size={16} />
+        <span>
+          {sel} is new in this change; it is not on main yet.
+          <a href={href(`/assets/racks/${encodeURIComponent(params.name)}`, { sel, ref: newInChange, pinref: '1' })}>Show it in {newInChange}</a>
+        </span>
+      </div>
     {:else if rack}
       <div class="summary">
         <header>
