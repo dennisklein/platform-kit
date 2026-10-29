@@ -167,7 +167,7 @@ echo '{"permissions":{"allow":["mcp__platform-kit"]}}' &gt; ~/pk-agent/.claude/s
 </ol>
 <h4>The audience sees</h4>
 <ul class="see">
-  <li>MY CHANGES: Cabling for GC5A-6Z <i>approved</i> c-31d0aa; Kernel args on control nodes <i>verified</i> c-19f4tb.</li>
+  <li>MY CHANGES: Cabling for GC5A-6Z <i>approved</i> c-31d0aa. MY RECENT MERGES: Kernel args on control nodes <i>verified</i> c-19f4tb.</li>
   <li>PUSHED BY OTHERS: BGP peers for org-a and org-b <i>lab failed</i> c-p4x8ma anna.</li>
   <li>WAITING FOR MY REVIEW: Bump podinfo to 6.9 <i>review</i> c-6m1pqd jonas. BOTS: Sync serials from asset DB <i>draft</i> c-h3sy7n.</li>
   <li>Main page: "4 open: 1 mine, 1 waiting for my review", the button <span class="ui">New change</span> and four tiles: OPEN CHANGES 4 "1 mine · 1 review · 1 other · 1 bot", WAITING FOR MY REVIEW 1, CHANGE LABS "1 failed" (c-p4x8ma), CLUSTERS "3/3 healthy". Then CLUSTERS (defiant, pegasus, phoenix <i>healthy</i>) and RECENTLY MERGED ON MAIN. Footer: <code>main 382f3ac c-19f4tb</code> (on a fresh seed).</li>
@@ -194,7 +194,7 @@ echo '{"permissions":{"allow":["mcp__platform-kit"]}}' &gt; ~/pk-agent/.claude/s
 <ul class="see">
   <li>The dialog text: "Makes a worktree, the branch change/c-······-title and .pk/changes/c-······.yaml."</li>
   <li>The files view of the new change opens with <code>.pk/changes/&lt;id&gt;.yaml</code> (id, title, intent, author dennis, target main, workItems w-114).</li>
-  <li>A toast at the bottom right: "Change &lt;id&gt; created." and, on a second line, "Branch change/&lt;id&gt;-add-cn-035-and-cn-036-to-defiant, worktree /data/worktrees/&lt;id&gt;." The top bar shows the change with <i>draft</i>.</li>
+  <li>A toast at the bottom right: "Change &lt;id&gt; created." and, under it in up to three lines, "Branch change/&lt;id&gt;-add-cn-035-and-cn-036-to-defiant, worktree /data/worktrees/&lt;id&gt;." The top bar shows the change with <i>draft</i>.</li>
 </ul>
 <div class="fallback"><h4>If it fails</h4>
 <pre><code>pk change new "Add cn-035 and cn-036 to defiant" --intent "2 compute nodes for tenants, in GC5A-6Z U6 and U8" --work-item w-114</code></pre>
@@ -259,7 +259,7 @@ pk edit cn-035 --change $CH --set 'spec.ports[2].peer.port=38'</code></pre></div
 </ol>
 <h4>The audience sees</h4>
 <ul class="see">
-  <li>The rack page with the switch "main | &lt;id&gt;" and "Highlights against the base of &lt;id&gt;". In the rack picture, cn-035 in U6–7 is green, with "!" (a problem) and "+" (new in the change). "IN &lt;ID&gt; added cn-035 U6–7 · worker", PROBLEMS "cn-035 port data-a 37 in use by cn-003".</li>
+  <li>The rack page with the switch "main | &lt;id&gt;" and "Changes in &lt;id&gt; are highlighted against main.". In the rack picture, cn-035 in U6–7 is green, with "!" (a problem) and "+" (new in the change). "IN &lt;ID&gt; added cn-035 U6–7 · worker", PROBLEMS "cn-035 port data-a 37 in use by cn-003".</li>
   <li>cn-035 "Node v1beta1" with the badge "new in &lt;id&gt;" and the red line "port data-a 37 in use by cn-003". INTENT, HARDWARE FACTS with the owner of each field (<i>intent</i>, <i>asset DB</i>, <i>derived</i>). PORTS AND CABLES "1 problem": p2 DATA-0202 data-a 37 "port data-a 37 in use by cn-003".</li>
   <li>SEMANTIC DIFF · &lt;ID&gt;: "+ cn-035: new compute node in GC5A-6Z, U6".</li>
   <li>With <span class="ui">main</span>: a blue note "cn-035 is new in this change; it is not on main yet." with a link back to the change. The node exists only in the change.</li>
@@ -533,13 +533,13 @@ pk demo demo-approve --as jonas --change-id $CH</code></pre></div>
 <h4>Do</h4>
 <ol>
   <li>Click <span class="ui">Merge</span>. Read the dialog. Click <span class="ui">Merge</span>.</li>
-  <li>Wait about 10 s. Point to the ROLLOUT card and the lifecycle.</li>
+  <li>Wait about 15–20 s: Flux polls every few seconds, then the 4 Kustomizations get ready. Meanwhile, read the TRAILERS in the Merged card (under MERGE COMMIT ON MAIN) aloud. Then point to the ROLLOUT card and the lifecycle.</li>
 </ol>
 <h4>The audience sees</h4>
 <ul class="see">
   <li>The dialog "Merge &lt;id&gt;" with <code>Merge change &lt;id&gt;: Add cn-035 and cn-036 to defiant (!13)</code>, the intent, <code>Pk-Lab-Run: &lt;id&gt;/run-2 pass …</code>, <code>Pk-Work-Item: w-114</code>, <code>Approved-by: anna, jonas</code>, <code>Reviewed-in: !13</code>.</li>
   <li>State <i>merged</i>, ROLLOUT "Flux is applying" and "Merged into main as &lt;sha&gt;", lifecycle "deployed 0 of 1". The defiant box (canary) lists the steps: "Flux fetched main@&lt;sha&gt;", "Applied 23 objects", "Kustomizations 0 of 4 ready · health checks running", "Verified". Each step gets a check mark when it is done.</li>
-  <li>After about 10 s: state <i>verified</i>, ROLLOUT "verified", "Kustomizations 4 of 4 ready", "Verified: health checks pass", lifecycle "deployed 1 of 1", "verified 1 of 1".</li>
+  <li>After about 15–20 s: state <i>verified</i>, ROLLOUT "verified", "Kustomizations 4 of 4 ready", "Verified: health checks pass", lifecycle "deployed 1 of 1", "verified 1 of 1".</li>
 </ul>
 <p class="muted">Tell: an auditor reads all of it with <code>git log --merges --format='%(trailers)'</code>.</p>
 <div class="fallback"><h4>If it fails</h4>
@@ -619,7 +619,7 @@ pk change list          # merged changes: pk changes get-change $CH</code></pre>
 </ol>
 <h4>The audience sees</h4>
 <ul class="see">
-  <li>One row per change, newest first: the demo change and c-31d0aa on top, then c-19f4tb, c-0b9cfe, c-u7x2bd "anna + agent", c-m1gr8t, c-b7gl4s <i>break-glass</i> with lab <i>alert</i>, c-a5e3vk, c-2hd7vw, c-9kq1mf, f186de7 "chore: initial state". "auditors read the same with git log --merges --format='%(trailers)'".</li>
+  <li>The title "History" and "Merges on main, with their trailers; pick one to travel back in time." Then one row per change, newest first: the demo change and c-31d0aa on top, then c-19f4tb, c-0b9cfe, c-u7x2bd "anna + agent", c-m1gr8t, c-b7gl4s <i>break-glass</i> with lab <i>alert</i>, c-a5e3vk, c-2hd7vw, c-9kq1mf, f186de7 "chore: initial state". "auditors read the same with git log --merges --format='%(trailers)'".</li>
   <li>With the filter: 4 entries (c-u7x2bd, c-m1gr8t, c-2hd7vw, f186de7).</li>
   <li>c-2hd7vw: <i>verified</i>, MR !2, merge <code>d4af128</code> (slide 12); TRAILERS (Pk-Intent "free data-b ports for rack 6Z", Pk-Lab-Run, Approved-by "anna, dennis"); SEMANTIC DIFF "cn-003 p2: data-b 37 to data-a 37".</li>
   <li>"State at d4af128 · read-only", "stored as v1alpha1": the old flat fields <code>rack</code>, <code>unit</code>, <code>height</code>; the converted view shows <code>location</code>.</li>
@@ -666,9 +666,9 @@ pk history get-history-entry c-2hd7vw</code></pre></div>
 <h4>The audience sees</h4>
 <ul class="see">
   <li>The tool calls in the terminal: <code>pk_change_new</code>, <code>pk_kind_schema</code> or <code>pk_file_new</code>, <code>pk_file_write</code>, <code>pk_commit</code>, <code>pk_lab_run</code>, <code>pk_lab_status</code>, <code>pk_change_approve</code>. The agent can read other files first (for example <code>cn-036.yaml</code>). No permission prompts.</li>
-  <li>The browser follows the agent: it opens the new change "Add cn-037 to defiant" (the title from the prompt; if the agent uses other words, use its title in step 3.3), then the lab. The commits have the author dennis-agent and the trailers <code>Pk-Agent: dennis-agent</code>, <code>Pk-On-Behalf-Of: dennis</code>; the commit list marks them <i>Pk-Agent</i>.</li>
+  <li>The browser follows the agent: it opens the new change "Add cn-037 to defiant" (the title from the prompt; if the agent uses other words, use its title in step 3.3), then the lab. A teal banner on top: "dennis/agent via MCP on 127.0.0.1", with <span class="ui">Following</span> and <span class="ui">Pause</span>; the change shows "dennis/agent works here". The commits have the author dennis-agent and the trailers <code>Pk-Agent: dennis-agent</code>, <code>Pk-On-Behalf-Of: dennis</code>; the commit list marks them <i>Pk-Agent</i>.</li>
   <li>The lab fails: nodes Ready 1 of 1, BGP "0 peers up", checks "4 of 6", "cn-037: no BGP peering policy selects it", "Lab gate of control/inventory/** +1 not met". The check is real: rack-6z does not select cn-037.</li>
-  <li><code>pk_change_approve</code>: "denied: agents never approve or merge".</li>
+  <li><code>pk_change_approve</code>: "denied: agents never approve or merge". The banner says "Agent stopped: approving needs a human". The gates show "Approvals 0 of 2" and the OVERLAP card "Approve and merge stay with people".</li>
   <li>The Agents page shows "Last call just now · pk_change_approve". The rail shows the change with "dennis + agent"; the change page shows "author dennis + dennis-agent".</li>
 </ul>
 <p class="muted">An agent can try to fix the BGP policy itself. The prompt says "Change only the node file", so that the chat can do it in step 3.3. If the agent changed the policy anyway, skip the third question in step 3.3.</p>
@@ -695,7 +695,7 @@ pk history get-history-entry c-2hd7vw</code></pre></div>
 </ol>
 <h4>The audience sees</h4>
 <ul class="see">
-  <li>While an answer comes: "pk assistant" with each tool step as it runs (for example "history cn-003 → 4 merges", "read 4 merge diffs → match c-2hd7vw"). When the answer is there, the steps fold into "Used 2 tools" (click it to open them again).</li>
+  <li>While an answer comes: "pk assistant" with each tool step as it runs (for example "history cn-003 → 4 merges", "read 4 merge diffs → match c-2hd7vw"). When the answer is there, the steps stay open under "Used 2 tools"; they fold when the next answer comes (click "Used 2 tools" to open them again).</li>
   <li>Answer 1: "c-2hd7vw moved cn-003 p2 from data-b 37 to data-a 37, to free data-b ports for rack 6Z. Approved by anna and dennis. Merged 2026-09-12, author jonas." Sources: trailer c-2hd7vw, MR !2, and the c-2hd7vw merge in history.</li>
   <li>Answer 2 ("Used 1 tool", on a yellow card, model tag <i>built-in · secret guard</i>): "I cannot see it. Secret fields are removed before each call." with the source <code>helmrelease.yaml</code>.</li>
   <li>Answer 3 ("Used 4 tools": find BGP policies, read bgp-rack-6z.yaml, check inventory cn-037, suggest bgp-rack-6z.yaml → +1 line): "I suggest 1 line in bgp-rack-6z.yaml: it adds cn-037 to rack-6z, so cn-037 gets a BGP session. Review the diff below, then accept or reject it." Then the card "Suggested by chat", "Edit in bgp-rack-6z.yaml: Add cn-037 to the BGP policy rack-6z" with the diff <code>+ - cn-037</code>, <span class="ui">Accept</span>, <span class="ui">Reject</span> and "Suggestions never commit, run labs or mark ready on their own."</li>
@@ -716,14 +716,15 @@ pk lab run $C2 --wait</code></pre></div>
 <div class="body">
 <h4>Do</h4>
 <ol>
+  <li>If the side panel from step 3.3 is still open and makes the page narrow (on a small screen or a half-width browser), close it first: click × in the panel.</li>
   <li>Click <span class="ui">LLM log</span>.</li>
   <li>Click the chat entry <span class="ui">What is the hubble UI token?</span>. Optional: click <span class="ui">Export</span>.</li>
 </ol>
 <h4>The audience sees</h4>
 <ul class="see">
-  <li>"Every model call: the prompt as sent (secrets already removed), the answer, its sources and your rating." Filters with counts for each kind of call that is in the log (all, chat, advisor, commit message, MCP), and the thumbs up and thumbs down counts (1 thumbs up from step 1.9).</li>
+  <li>"Every model call: the prompt as sent (secrets already removed), the answer, its sources and your rating. Chat, advisors, commit messages and agents over MCP all land here." Filters with counts for each kind of call that is in the log (all, chat, advisor, commit message, MCP), and the thumbs up and thumbs down counts (1 thumbs up from step 1.9).</li>
   <li>Each entry with its kind, the question, the start of the answer, a lock with the number of removed values, the model tag (<i>built-in</i>, or <i>built-in · secret guard</i> for the token question, without a model endpoint) and the user.</li>
-  <li>The opened entry: a red box "2 values removed before the call: hubble.ui.auth.token, sops (in helmrelease.yaml)". The prompt scrolls to the first removed value; each one shows as a lock and <code>[redacted]</code>.</li>
+  <li>The opened entry, from its header down, on one screen: a red box "2 values removed before the call: hubble.ui.auth.token, sops (in helmrelease.yaml)", next to it the ANSWER "I cannot see it. Secret fields are removed before each call." with the source <code>helmrelease.yaml</code>. Only the prompt box scrolls, to the removed values (<code>token:</code> and <code>sops:</code> at its end); each one shows as a lock and <code>[redacted]</code>.</li>
 </ul>
 <div class="fallback"><h4>If it fails</h4><p>CLI: <code>pk llm list-llm-log</code>.</p></div>
 </div>
