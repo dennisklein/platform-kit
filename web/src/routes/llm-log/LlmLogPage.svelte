@@ -1,6 +1,7 @@
 <script lang="ts">
   // LLM log: every model call with its redacted prompt, answer, sources and
-  // rating. Search, rate, export (JSON lines) and delete with confirmation.
+  // rating. Search, rate, export (JSON lines) and delete with confirmation
+  // (not on the demo bench).
   import type { Params } from '../../lib/router.svelte';
   import { router, href } from '../../lib/router.svelte';
   import { api, must, errorText, ApiError } from '../../lib/api/client';
@@ -13,6 +14,7 @@
   import Modal from '../../lib/components/Modal.svelte';
   import Glyph from '../../lib/components/Glyph.svelte';
   import { redactedFields } from './redaction';
+  import { session } from '../../lib/stores/me.svelte';
 
   let { params, query }: { params: Params; query: URLSearchParams } = $props();
 
@@ -113,10 +115,11 @@
     };
   }
 
-  /** On open, the prompt box scrolls to the first removed value. */
+  /** On open, the first removed value scrolls to the middle of the screen
+   *  (the prompt box and the page both scroll, so it is not below the fold). */
   function toFirstMark(pre: HTMLElement) {
     const m = pre.querySelector<HTMLElement>('mark');
-    if (m) requestAnimationFrame(() => pre.scrollTo({ top: Math.max(0, m.offsetTop - pre.clientHeight / 2), behavior: 'smooth' }));
+    if (m) requestAnimationFrame(() => m.scrollIntoView({ block: 'center', behavior: 'smooth' }));
   }
 
   const modelName = (e: LlmLogEntry) => (e.mock ? 'built-in' : e.model);
@@ -272,8 +275,7 @@
                       <Glyph name="lock" size={14} />
                       <span>
                         <b>{e.redactions} {e.redactions === 1 ? 'value' : 'values'} removed before the call</b>{#if rm.fields.length}:
-                          {#each rm.fields as f, i (f)}{i ? ', ' : ''}<code>{f}</code>{/each}{/if}{#if rm.files.length}
-                          <span class="muted">(in {rm.files.join(', ')})</span>{/if}
+                          {#each rm.fields as f, i (f)}{i ? ', ' : ''}<code>{f}</code>{/each}{/if}{#if rm.files.length}{' '}<span class="muted">(in {rm.files.join(', ')})</span>{/if}
                       </span>
                     </div>
                   {/if}
@@ -294,7 +296,11 @@
                 <Thumbs logId={e.id} bind:rating={e.rating} note={false} />
                 <span class="small muted">{e.rating ? `rated ${e.rating === 'up' ? 'helpful' : 'not helpful'}` : 'not rated'}</span>
                 <span class="spacer"></span>
-                <button class="btn small danger" onclick={() => askDelete(e)}><Glyph name="trash" size={13} /> Delete</button>
+                <!-- Not on the demo bench: one stray click on a projector
+                     would take an entry away for everyone. -->
+                {#if !session.me?.demo}
+                  <button class="btn small danger" onclick={() => askDelete(e)}><Glyph name="trash" size={13} /> Delete</button>
+                {/if}
               </div>
             </div>
           {/if}
