@@ -127,12 +127,18 @@ func (s *Svc) loadForgeCache() bool {
 	return true
 }
 
-// ForgeOffline reports that the last fetch or forge poll failed: lists
-// and changes come from the local clone and the cached forge state.
+// forgeOfflineAfter is the number of failed refresh rounds in a row after
+// which the forge counts as offline: one slow or dropped request does not
+// turn the top bar pill to "offline".
+const forgeOfflineAfter = 2
+
+// ForgeOffline reports that the fetch or forge poll failed in the last
+// forgeOfflineAfter refresh rounds: lists and changes come from the local
+// clone and the cached forge state.
 func (s *Svc) ForgeOffline() bool {
 	s.fmu.RLock()
 	defer s.fmu.RUnlock()
-	return s.fs.err != nil || s.fetchErr != nil
+	return (s.fs.err != nil || s.fetchErr != nil) && s.forgeFails >= forgeOfflineAfter
 }
 
 // refreshPR updates one pull request in the cache after an own action.
@@ -185,15 +191,23 @@ func (s *Svc) Refresh(ctx context.Context) error {
 		return err
 	}
 	s.mu.Lock()
-	ferr := s.fetchLocked(ctx)
+	fetchErr := s.fetchLocked(ctx)
 	s.fmu.Lock()
-	s.fetchErr = ferr
+	s.fetchErr = fetchErr
 	s.fmu.Unlock()
+	ferr := fetchErr
 	if ferr == nil {
 		ferr = s.updateMainLocked(ctx)
 	}
 	s.mu.Unlock()
 	perr := s.pollForge(ctx)
+	s.fmu.Lock()
+	if fetchErr != nil || perr != nil {
+		s.forgeFails++
+	} else {
+		s.forgeFails = 0
+	}
+	s.fmu.Unlock()
 	s.publishChanges(ctx)
 	if ferr != nil {
 		return ferr

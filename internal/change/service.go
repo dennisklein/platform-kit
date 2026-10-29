@@ -73,10 +73,13 @@ type Svc struct {
 	fs  forgeState
 	// fetchErr is the error of the last fetch (nil when it worked).
 	fetchErr error
-	fsSaved  []byte // last saved forge cache
-	seenMu   sync.Mutex
-	seen     map[string]fp // fingerprints for events
-	mainH    string
+	// forgeFails counts refresh rounds in a row whose fetch or forge poll
+	// failed (0 after one that worked).
+	forgeFails int
+	fsSaved    []byte // last saved forge cache
+	seenMu     sync.Mutex
+	seen       map[string]fp // fingerprints for events
+	mainH      string
 
 	cmu        sync.Mutex
 	gatesCache map[string]gatesEntry
@@ -178,6 +181,7 @@ func (s *Svc) Init(ctx context.Context) error {
 		s.loadForgeCache()
 		s.fmu.Lock()
 		s.fetchErr = err
+		s.forgeFails = forgeOfflineAfter // offline from the start
 		s.fmu.Unlock()
 	}
 	if !s.repo.Exists(ctx, mainRef) {
