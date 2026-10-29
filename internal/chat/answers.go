@@ -40,15 +40,19 @@ func (s *Svc) greet(req Request, a *Answer) {
 // ---------------------------------------------------------------- changes
 
 var (
-	reChangeID  = regexp.MustCompile(`\bc-[a-z0-9]{6}\b`)
-	reMyChange  = regexp.MustCompile(`(?i)\b(my|this|the open|the current|our) change\b`)
-	reOrder     = regexp.MustCompile(`(?i)\bmerge[- ]order\b|\border\b|\bmerge (it |them )?(first|before|after|next)\b|\b(first|next) to merge\b|\bconflicts?\b`)
-	reLabGaps   = regexp.MustCompile(`(?i)\blab\b.*\b(gaps?|miss(es|ing)?|cover(s|age)?|leaves? out|not test)|\b(not|n't) (test|cover)|\buntested\b|\bwhat does the lab\b|\bwhat is not tested\b`)
-	reExplain   = regexp.MustCompile(`(?i)\b(explain|rendered|render|diffs?|objects?)\b`)
-	reRisk      = regexp.MustCompile(`(?i)\b(risks?|risky|safe|safety|dangerous|danger|go wrong|blast radius|worr(y|ied)|careful|watch out)\b|\b(will|would|could|can|does|might) it break\b|\bwhat (could|can|might|would) break\b`)
-	reRuleWord  = regexp.MustCompile(`(?i)\b(rules?|polic(y|ies)|incidents?|break-glass)\b`)
-	reLabWord   = regexp.MustCompile(`(?i)\blabs?\b`)
-	recipeLeads = map[string]string{
+	reChangeID = regexp.MustCompile(`\bc-[a-z0-9]{6}\b`)
+	reMyChange = regexp.MustCompile(`(?i)\b(my|this|the open|the current|our) change\b`)
+	reOrder    = regexp.MustCompile(`(?i)\bmerge[- ]order\b|\border\b|\bmerge (it |them )?(first|before|after|next)\b|\b(first|next) to merge\b|\bconflicts?\b`)
+	reLabGaps  = regexp.MustCompile(`(?i)\blab\b.*\b(gaps?|miss(es|ing)?|cover(s|age)?|leaves? out|not test)|\b(not|n't) (test|cover)|\buntested\b|\bwhat does the lab\b|\bwhat is not tested\b`)
+	reExplain  = regexp.MustCompile(`(?i)\b(rendered|render|diffs?|objects?)\b`)
+	// "explain" alone is a general question ("Explain BGP in one
+	// sentence"); with a change it asks for the rendered diff.
+	reExplainWord = regexp.MustCompile(`(?i)\bexplain\b`)
+	reExplainWhat = regexp.MustCompile(`(?i)\b(change|this|my)\b`)
+	reRisk        = regexp.MustCompile(`(?i)\b(risks?|risky|safe|safety|dangerous|danger|go wrong|blast radius|worr(y|ied)|careful|watch out)\b|\b(will|would|could|can|does|might) it break\b|\bwhat (could|can|might|would) break\b`)
+	reRuleWord    = regexp.MustCompile(`(?i)\b(rules?|polic(y|ies)|incidents?|break-glass)\b`)
+	reLabWord     = regexp.MustCompile(`(?i)\blabs?\b`)
+	recipeLeads   = map[string]string{
 		advisor.MergeOrder:  "Merge order for %s:",
 		advisor.LabGaps:     "What the lab of %s tests, and what it leaves out:",
 		advisor.ExplainDiff: "What %s changes in the rendered objects:",
@@ -62,7 +66,8 @@ func recipeFor(q string) string {
 		return advisor.MergeOrder
 	case reLabGaps.MatchString(q):
 		return advisor.LabGaps
-	case reExplain.MatchString(q):
+	case reExplain.MatchString(q),
+		reExplainWord.MatchString(q) && (reExplainWhat.MatchString(q) || reChangeID.MatchString(q)):
 		return advisor.ExplainDiff
 	case reRisk.MatchString(q) && !reRuleWord.MatchString(q):
 		return advisor.Risks

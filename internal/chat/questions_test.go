@@ -5,7 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/dennisklein/platform-kit/internal/advisor"
 	"github.com/dennisklein/platform-kit/internal/llm"
 )
 
@@ -106,5 +108,36 @@ func TestWhyInsideTheQuestion(t *testing.T) {
 		if !strings.HasPrefix(a.Text, "c-2hd7vw moved cn-003 p2") {
 			t.Errorf("%q: %q", q, a.Text)
 		}
+	}
+}
+
+func TestExplainNeedsAChange(t *testing.T) {
+	for q, want := range map[string]string{
+		"Explain BGP in one sentence":  "",
+		"Explain how Flux works":       "",
+		"Explain this change":          advisor.ExplainDiff,
+		"Explain my change":            advisor.ExplainDiff,
+		"Can you explain c-6m1pqd?":    advisor.ExplainDiff,
+		"What does the rendered diff?": advisor.ExplainDiff,
+	} {
+		if got := recipeFor(q); got != want {
+			t.Errorf("%q: got %q, want %q", q, got, want)
+		}
+	}
+	f := newFake(t)
+	f.hits = []llm.Hit{{Document: llm.Document{Kind: "file", Ref: bgpPath, Title: "rack-6z", Text: seedBGP(t)}}}
+	s, _, _ := newSvc(t, f, llm.NewMock(nil))
+	a, _ := s.Ask(ctxAs("dennis"), ask("Explain BGP in one sentence"))
+	if !strings.HasPrefix(a.Text, "**BGP** (Border Gateway Protocol) is") || !strings.Contains(a.Text, "`bgp-rack-6z.yaml`") {
+		t.Errorf("%q", a.Text)
+	}
+	for _, st := range a.Steps {
+		if st.Tool == "advise" {
+			t.Errorf("explain-diff ran: %+v", a.Steps)
+		}
+	}
+	// A question about the project is no glossary question.
+	if s.glossaryQuestion(ctxAs("dennis"), &progress{now: time.Now, sleep: sleepCtx}, Request{}, "What is the Ceph OSD layout on pegasus?", &Answer{}) {
+		t.Error("glossary answered a project question")
 	}
 }

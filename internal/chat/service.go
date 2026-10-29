@@ -398,7 +398,7 @@ func (s *Svc) mockAnswer(ctx context.Context, p *progress, req Request, q string
 	}
 	for _, intent := range []func(context.Context, *progress, Request, string, *Answer) bool{
 		s.actionRequest, s.writeRequest, s.changeQuestion, s.openChanges, s.recentHistory, s.countQuestion, s.versionQuestion,
-		s.entityQuestion, s.personQuestion,
+		s.entityQuestion, s.personQuestion, s.glossaryQuestion,
 	} {
 		if intent(ctx, p, req, q, a) {
 			return
