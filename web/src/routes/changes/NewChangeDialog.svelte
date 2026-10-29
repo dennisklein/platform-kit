@@ -176,9 +176,9 @@
     padding: 5px 12px;
   }
   .seg button[aria-checked='true'] {
-    background: var(--gsi-navy);
-    border-color: var(--gsi-navy);
-    color: #fff;
+    background: var(--strong-fill);
+    border-color: var(--strong-fill);
+    color: var(--strong-on);
   }
   .items {
     display: flex;

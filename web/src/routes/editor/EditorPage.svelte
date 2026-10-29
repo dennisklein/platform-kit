@@ -969,8 +969,8 @@
     font-size: 14px;
   }
   .seg button.on {
-    background: var(--gsi-navy);
-    color: #fff;
+    background: var(--strong-fill);
+    color: var(--strong-on);
   }
   .bar {
     display: flex;

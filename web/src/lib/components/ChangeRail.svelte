@@ -169,14 +169,9 @@
     color: var(--ink);
   }
   .filter[aria-pressed='true'] {
-    background: var(--gsi-navy);
-    border-color: var(--gsi-navy);
-    color: #fff;
-  }
-  :global(:root[data-theme='dark']) .filter[aria-pressed='true'] {
-    background: var(--accent-fill);
-    border-color: var(--accent-fill);
-    color: var(--accent-on);
+    background: var(--strong-fill);
+    border-color: var(--strong-fill);
+    color: var(--strong-on);
   }
   .new {
     flex: none;

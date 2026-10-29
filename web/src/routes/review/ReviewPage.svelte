@@ -589,16 +589,8 @@
     align-content: start;
   }
   .impact {
-    border-top: 4px solid var(--gsi-navy);
-  }
-  /* Navy is lost on the dark panel: the accent keeps the bar visible. */
-  :global(:root[data-theme='dark']) .impact {
-    border-top-color: var(--accent-fill);
-  }
-  @media (prefers-color-scheme: dark) {
-    :global(:root:not([data-theme='light'])) .impact {
-      border-top-color: var(--accent-fill);
-    }
+    /* navy, and orange in dark where navy is lost on the panel */
+    border-top: 4px solid var(--strong-fill);
   }
   .cardhead {
     display: flex;

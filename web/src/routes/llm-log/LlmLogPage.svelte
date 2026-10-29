@@ -450,12 +450,12 @@
     flex: none;
   }
   .s-chat {
-    background: var(--accent-soft);
-    color: var(--accent);
+    background: var(--ai-soft);
+    color: var(--ai);
   }
   .s-advisor {
-    background: var(--ok-soft);
-    color: var(--ok);
+    background: var(--info-soft);
+    color: var(--info);
   }
   .s-mcp {
     background: var(--warn-soft);

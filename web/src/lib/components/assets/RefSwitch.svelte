@@ -46,7 +46,7 @@
     border-left: 1px solid var(--line-strong);
   }
   button[aria-pressed='true'] {
-    background: var(--gsi-navy);
-    color: #fff;
+    background: var(--strong-fill);
+    color: var(--strong-on);
   }
 </style>

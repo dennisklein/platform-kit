@@ -54,18 +54,8 @@
     font: 500 12px/1.7 var(--mono);
     padding: 0 7px;
     border-radius: 4px;
-    background: var(--grey-100);
-    color: var(--grey-600);
-  }
-  :global(:root[data-theme='dark']) .src {
-    background: var(--line);
-    color: var(--muted);
-  }
-  @media (prefers-color-scheme: dark) {
-    :global(:root:not([data-theme='light'])) .src {
-      background: var(--line);
-      color: var(--muted);
-    }
+    background: var(--badge-bg);
+    color: var(--badge-ink);
   }
   p {
     margin: 0;

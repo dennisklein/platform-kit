@@ -95,6 +95,13 @@
   --ai-on: #ffffff;
   --ai-soft: #e0f2ee;
   --ai-line: #8fcfc0;
+  /* neutral badge and idle chip; components set their own colours on top */
+  --badge-bg: var(--grey-100);
+  --badge-ink: var(--grey-600);
+  /* the strong (next step) button and pressed filters: navy, orange in dark */
+  --strong-fill: var(--gsi-navy);
+  --strong-hover: var(--navy-900);
+  --strong-on: #ffffff;
 
   --sans: 'Arimo', 'Helvetica Neue', Helvetica, Arial, system-ui, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
@@ -151,6 +158,11 @@
     --ai-on: #ffffff;
     --ai-soft: #10302a;
     --ai-line: #1f5a4d;
+    --badge-bg: #373d47;
+    --badge-ink: #c3c9d2;
+    --strong-fill: var(--gsi-orange);
+    --strong-hover: #ffd28a;
+    --strong-on: var(--navy-900);
     color-scheme: dark;
   }
 }
@@ -185,6 +197,11 @@
   --ai-on: #ffffff;
   --ai-soft: #10302a;
   --ai-line: #1f5a4d;
+  --badge-bg: #373d47;
+  --badge-ink: #c3c9d2;
+  --strong-fill: var(--gsi-orange);
+  --strong-hover: #ffd28a;
+  --strong-on: var(--navy-900);
   color-scheme: dark;
 }
 
@@ -426,13 +443,9 @@ button {
   font-weight: 600;
   padding: 0 6px;
   border-radius: 4px;
-  background: var(--grey-100);
-  color: var(--grey-600);
+  background: var(--badge-bg);
+  color: var(--badge-ink);
   white-space: nowrap;
-}
-:root[data-theme='dark'] .badge {
-  background: var(--line);
-  color: var(--muted);
 }
 
 .chip-filter {
@@ -505,21 +518,24 @@ button {
   border: 0;
 }
 
-/* dark primary button (the deck's main action style) */
+/* dark primary button (the deck's main action style); orange in dark */
 .btn.dark {
-  background: var(--gsi-navy);
-  border-color: var(--gsi-navy);
-  color: #fff;
+  background: var(--strong-fill);
+  border-color: var(--strong-fill);
+  color: var(--strong-on);
   font-weight: 600;
 }
 .btn.dark:hover:not(:disabled) {
-  background: var(--navy-900);
-  border-color: var(--navy-900);
+  background: var(--strong-hover);
+  border-color: var(--strong-hover);
 }
-:root[data-theme='dark'] .btn.dark {
-  background: var(--accent-fill);
-  border-color: var(--accent-fill);
-  color: var(--accent-on);
+/* A disabled main action is a plain faded button, never a muddy fill. */
+.btn.dark:disabled,
+.btn.primary:disabled {
+  background: var(--panel);
+  border-color: var(--line-strong);
+  color: var(--ink);
+  opacity: 0.5;
 }
 
 /* .eyebrow (card header such as "GATES FROM .PK/POLICY.YAML") shares the
@@ -613,8 +629,8 @@ button {
   vertical-align: middle;
 }
 .schip.tone-idle {
-  background: var(--grey-100);
-  color: var(--grey-600);
+  background: var(--badge-bg);
+  color: var(--badge-ink);
 }
 .schip.tone-warn {
   background: var(--warn-soft);
@@ -645,16 +661,6 @@ button {
 @keyframes pk-pulse {
   50% {
     opacity: 0.25;
-  }
-}
-:root[data-theme='dark'] .schip.tone-idle {
-  background: var(--line);
-  color: var(--muted);
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .schip.tone-idle {
-    background: var(--line);
-    color: var(--muted);
   }
 }
 

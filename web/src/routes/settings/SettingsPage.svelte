@@ -41,7 +41,7 @@
           {
             name: 'LLM',
             ok: st.llm.reachable,
-            detail: st.llm.mock ? 'built-in analysis (no PK_LLM_BASE_URL)' : `${st.llm.model}${st.llm.baseUrl ? ` at ${st.llm.baseUrl}` : ''}${st.llm.embedModel ? ` · embeddings ${st.llm.embedModel}` : ''}`,
+            detail: st.llm.mock ? 'built-in analysis · no LLM endpoint set' : `${st.llm.model}${st.llm.baseUrl ? ` at ${st.llm.baseUrl}` : ''}${st.llm.embedModel ? ` · embeddings ${st.llm.embedModel}` : ''}`,
           },
           { name: st.flux.name, ok: st.flux.reachable, detail: st.flux.detail ?? st.flux.url ?? '' },
         ]
@@ -264,8 +264,8 @@
     border-left: 1px solid var(--line);
   }
   .seg button[aria-checked='true'] {
-    background: var(--gsi-navy);
-    color: #fff;
+    background: var(--strong-fill);
+    color: var(--strong-on);
   }
   .agent {
     display: flex;
@@ -329,12 +329,19 @@
   .rules td {
     vertical-align: top;
   }
+  .rules td:first-child {
+    white-space: nowrap;
+  }
   .rules .badge {
     margin-left: 6px;
   }
   .risk-high {
     background: var(--bad-soft);
     color: var(--bad);
+  }
+  .risk-medium {
+    background: var(--warn-soft);
+    color: var(--warn);
   }
   .risk-low {
     background: var(--ok-soft);
