@@ -91,13 +91,25 @@ func (keepSuggestions) AddSuggestion(_ context.Context, s advisor.Suggestion) (*
 // RefusalText is the answer to a question about a secret value.
 const RefusalText = "I cannot see it. Secret fields are removed before each call."
 
+// GuardModel is the model of an answer the secret guard gave: no model saw
+// the question (the UI says "built-in · secret guard").
+const GuardModel = "guard"
+
+// BuiltinReason is the fallback reason when the asker chose the answer from
+// the project data instead of waiting for the model.
+const BuiltinReason = "you asked for the answer from project data"
+
 var (
 	reSecretWord = regexp.MustCompile(`(?i)\b(token|password|passwd|secret|api[- ]?key|private[- ]key|credential|passphrase|sops key|age key)s?\b`)
 	reAskValue   = regexp.MustCompile(`(?i)\b(what|which|show|tell|give|print|reveal|read|value|decrypt|display|dump|leak|copy)\b`)
 )
 
-// IsSecretQuestion reports a question that asks for a secret value.
+// IsSecretQuestion reports a question that asks for a secret value, also
+// in German, French or Spanish.
 func IsSecretQuestion(q string) bool {
+	if en, lang := toEnglish(q); lang != "" {
+		q = en
+	}
 	return reSecretWord.MatchString(q) && reAskValue.MatchString(q)
 }
 
@@ -118,12 +130,18 @@ func (s *Svc) Ask(ctx context.Context, req Request) (*Answer, error) {
 
 	switch {
 	case IsSecretQuestion(q):
+		// The guard answers; no model sees the question.
 		p.pace = true
-		ans.Text, ans.Refused = RefusalText, true
+		ans.Text, ans.Refused, ans.Model = RefusalText, true, GuardModel
 		s.secretContext(ctx, p, q, ans, &entry)
 	case ans.Mock:
 		p.pace = true
 		ans.Fallback = true
+		s.mockAnswer(ctx, p, req, q, ans)
+	case req.Builtin:
+		p.pace = true
+		ans.Fallback, ans.FallbackReason = true, BuiltinReason
+		entry.Error = "answered from project data on request (no model call)"
 		s.mockAnswer(ctx, p, req, q, ans)
 	default:
 		dctx, cancel := context.WithTimeout(ctx, s.o.Deadline)
@@ -151,6 +169,9 @@ func (s *Svc) Ask(ctx context.Context, req Request) (*Answer, error) {
 			ans.Text, ans.Sources, ans.Suggestions = "", []llm.Source{}, []advisor.Suggestion{}
 			ans.Fallback, ans.FallbackReason = true, reason
 			s.mockAnswer(ctx, p, req, q, ans)
+		} else {
+			// The scripted intents never depend on the model.
+			s.backstop(ctx, p, req, q, ans)
 		}
 	}
 	if ctx.Err() != nil {
@@ -158,6 +179,8 @@ func (s *Svc) Ask(ctx context.Context, req Request) (*Answer, error) {
 	}
 	if !p.streamed {
 		p.typeOut(ctx, ans.Text)
+	} else if p.extra != "" {
+		p.text(p.extra)
 	}
 	p.flush()
 	ans.Steps = p.snapshot()
@@ -182,6 +205,85 @@ func (s *Svc) Ask(ctx context.Context, req Request) (*Answer, error) {
 	}
 	ans.Suggestions = stored
 	return ans, nil
+}
+
+// backstop checks a model answer to the scripted questions against the
+// data: "why … cn-003" must name the merge that explains it, and "add cn-037
+// to the rack-6z BGP policy" must come with a suggested edit. When the model
+// missed it, the deterministic answer is added, with its step and sources.
+func (s *Svc) backstop(ctx context.Context, p *progress, req Request, q string, a *Answer) {
+	if s.o.Tools == nil {
+		return
+	}
+	silent := &progress{now: s.now, sleep: s.sleep}
+	switch {
+	case reAddToPolicy.MatchString(q) && len(advisor.EntityNames(q)) > 0:
+		if len(a.Suggestions) > 0 || req.ChangeID == "" {
+			return
+		}
+		d := &Answer{Sources: []llm.Source{}}
+		s.policyEdit(ctx, silent, req, q, d)
+		if len(d.Suggestions) == 0 {
+			return
+		}
+		sg := d.Suggestions[0]
+		p.quick(ctx, "suggest_edit", "suggest "+shortPath(sg.Path), "+"+plural(addedLines(sg.Before, sg.After), "line", "lines"))
+		a.Suggestions = append(a.Suggestions, d.Suggestions...)
+		s.addExtra(p, a, d)
+	case reWhy.MatchString(q) && len(advisor.EntityNames(q)) > 0:
+		d := &Answer{Sources: []llm.Source{}}
+		if !s.whyFromHistory(ctx, silent, q, advisor.EntityNames(q), d) || len(d.Sources) == 0 {
+			return
+		}
+		id := d.Sources[0].Ref // the trailer of the merge
+		if strings.Contains(a.Text, id) {
+			// The model named it: its sources come first.
+			a.Sources = append(d.Sources, a.Sources...)
+			a.Sources = dedupSources(a.Sources, 4)
+			return
+		}
+		p.quick(ctx, "history", "check history "+strings.Join(advisor.EntityNames(q), ", "), "match "+id)
+		d.Text = "From the merge history: " + d.Text
+		s.addExtra(p, a, d)
+	}
+}
+
+// addExtra appends a data answer to a model answer: its text as a new
+// paragraph and its sources first.
+func (s *Svc) addExtra(p *progress, a, d *Answer) {
+	if d.Text == "" {
+		return
+	}
+	sep := "\n\n"
+	if a.Text == "" {
+		sep = ""
+	}
+	a.Text += sep + d.Text
+	p.extra += sep + d.Text
+	a.Sources = dedupSources(append(d.Sources, a.Sources...), 4)
+}
+
+// dedupSources drops repeats and keeps at most n.
+func dedupSources(in []llm.Source, n int) []llm.Source {
+	out := []llm.Source{}
+	for _, src := range in {
+		dup := false
+		for _, o := range out {
+			if o.Kind == src.Kind && o.Label == src.Label {
+				dup = true
+				break
+			}
+		}
+		if !dup && len(out) < n {
+			out = append(out, src)
+		}
+	}
+	return out
+}
+
+// addedLines counts the lines an edit adds.
+func addedLines(before, after string) int {
+	return max(strings.Count(after, "\n")-strings.Count(before, "\n"), 1)
 }
 
 func (s *Svc) logEntry(ctx context.Context, e llm.LogEntry) string {
@@ -242,31 +344,60 @@ var (
 	reNumber      = regexp.MustCompile(`\b\d{1,3}\b`)
 )
 
-// mockAnswer answers from the bench data: known intents first (greeting,
-// policy edit, why, a change, open changes, history, an entity), else the
-// best passage of the index.
+// mockAnswer answers from the bench data: a question in another language
+// is read in English; then a prompt injection, a greeting, small talk; then
+// known intents (policy edit, delete, fix, why, a change, an action, open
+// changes, history, counts, versions, an entity, a person, an edit), else
+// the best passage of the index.
 func (s *Svc) mockAnswer(ctx context.Context, p *progress, req Request, q string, a *Answer) {
-	if isGreeting(q) {
+	if en, lang := toEnglish(q); lang != "" {
+		q = en
+		defer func() {
+			if a.Text != "" {
+				a.Text = "_You asked in " + lang + ". I answer in English, the language of the project data._\n\n" + a.Text
+			}
+		}()
+	}
+	switch {
+	case isInjection(q):
+		s.injection(ctx, p, req, a)
+		return
+	case isGreeting(q):
 		s.greet(req, a)
 		return
-	}
-	if reAddToPolicy.MatchString(q) && len(advisor.EntityNames(q)) > 0 {
-		s.policyEdit(ctx, p, req, q, a)
+	case isOffTopic(q):
+		s.offTopic(req, q, a)
 		return
 	}
-	if names := advisor.EntityNames(q); reWhy.MatchString(q) && len(names) > 0 {
-		if s.whyFromHistory(ctx, p, q, names, a) {
+	q = resolveFollowUp(req.Messages, q)
+	names := advisor.EntityNames(q)
+	switch {
+	case reRemoveReq.MatchString(q) && len(names) > 0:
+		if s.removeRequest(ctx, p, req, q, a) {
+			return
+		}
+	case reAddToPolicy.MatchString(q) && len(names) > 0:
+		s.policyEdit(ctx, p, req, q, a)
+		return
+	case reFixReq.MatchString(q):
+		if s.fixRequest(ctx, p, req, q, a) {
+			return
+		}
+	}
+	if reWhy.MatchString(q) && len(names) > 0 {
+		if s.whyFromHistory(ctx, p, q, names, a) || s.whyNew(ctx, p, req, names, a) {
 			return
 		}
 	}
 	for _, intent := range []func(context.Context, *progress, Request, string, *Answer) bool{
-		s.changeQuestion, s.openChanges, s.recentHistory, s.entityQuestion, s.personQuestion,
+		s.actionRequest, s.writeRequest, s.changeQuestion, s.openChanges, s.recentHistory, s.countQuestion, s.versionQuestion,
+		s.entityQuestion, s.personQuestion,
 	} {
 		if intent(ctx, p, req, q, a) {
 			return
 		}
 	}
-	s.retrieval(ctx, p, q, a)
+	s.retrieval(ctx, p, req, q, a)
 }
 
 // whyFromHistory answers "why does cn-003 ..." from merge trailers and the
@@ -283,14 +414,13 @@ func (s *Svc) whyFromHistory(ctx context.Context, p *progress, q string, names [
 	}
 	var best *cand
 	for _, name := range names {
-		var entries []api.HistoryEntry
-		if err := p.do(ctx, "history", "history "+name, func() (string, error) {
-			var err error
-			entries, err = s.o.Tools.History(ctx, api.ListHistoryParams{Entity: name, Limit: 20})
-			return plural(len(entries), "merge", "merges"), err
-		}); err != nil || len(entries) == 0 {
+		// A name without merges (new in a change) is no step.
+		entries, err := s.o.Tools.History(ctx, api.ListHistoryParams{Entity: name, Limit: 20})
+		if err != nil || len(entries) == 0 {
 			continue
 		}
+		hn := p.begin("history", "history "+name)
+		p.end(ctx, hn, plural(len(entries), "merge", "merges"), false)
 		n := p.begin("history_entry", fmt.Sprintf("read %s", plural(min(len(entries), 10), "merge diff", "merge diffs")))
 		var nameBest *cand
 		for i, h := range entries {
@@ -358,7 +488,7 @@ func (s *Svc) whyFromHistory(ctx context.Context, p *progress, q string, names [
 	}
 	text := fmt.Sprintf("%s %s", change, what)
 	if h.Intent != "" {
-		text += ", to " + lowerFirst(strings.TrimSuffix(h.Intent, "."))
+		text += intentClause(h.Intent)
 	}
 	text += "."
 	if len(h.ApprovedBy) > 0 {
@@ -388,50 +518,48 @@ func describeMove(l api.SemanticLine) string {
 	if m := reFromTo.FindStringSubmatch(l.Text); m != nil && len(advisor.PortsInText(l.Text)) > 0 {
 		return fmt.Sprintf("moved %s from %s to %s", l.Subject, m[1], m[2])
 	}
+	if l.Op == api.OpAdd || strings.HasPrefix(l.Text, "new ") {
+		return fmt.Sprintf("added %s (%s)", l.Subject, strings.TrimPrefix(l.Text, "added "))
+	}
+	if l.Op == api.OpDelete {
+		return fmt.Sprintf("removed %s", l.Subject)
+	}
 	return fmt.Sprintf("changed %s: %s", l.Subject, l.Text)
+}
+
+// reNounIntent is an intent that names a thing ("2 compute nodes for
+// tenants") rather than a goal ("free data-b ports").
+var reNounIntent = regexp.MustCompile(`(?i)^(\d+|a|an|the|one|two|three|new|more)\b`)
+
+// intentClause joins an intent to a sentence: ", to free data-b ports" or
+// ". The intent: 2 compute nodes for tenants".
+func intentClause(intent string) string {
+	intent = strings.TrimSuffix(strings.TrimSpace(intent), ".")
+	if reNounIntent.MatchString(intent) {
+		return ". The intent: " + intent
+	}
+	return ", to " + lowerFirst(intent)
 }
 
 // policyEdit answers "add cn-037 to the rack-6z BGP policy" with a
 // suggested edit in the open change.
 func (s *Svc) policyEdit(ctx context.Context, p *progress, req Request, q string, a *Answer) {
-	names := advisor.EntityNames(q)
 	if req.ChangeID == "" {
 		a.Text = "Open a change first. I make edits only as suggestions in a change."
 		return
 	}
-	want := ""
-	if m := rePolicyName.FindStringSubmatch(q); m != nil && !strings.EqualFold(m[1], "bgp") && !strings.EqualFold(m[1], "the") {
-		want = m[1]
-	}
-	nodes, err := s.o.Tools.Tree(ctx, req.ChangeID)
-	if err != nil {
+	s.suggestPolicyAdd(ctx, p, req, advisor.EntityNames(q), policyNameIn(q), a)
+}
+
+// suggestPolicyAdd suggests adding nodes to a BGP policy of the change
+// (want: the policy or rack name, or "" when the change has one policy).
+func (s *Svc) suggestPolicyAdd(ctx context.Context, p *progress, req Request, names []string, want string, a *Answer) bool {
+	if _, err := s.o.Tools.Tree(ctx, req.ChangeID); err != nil {
 		a.Text = "I cannot read the files of " + req.ChangeID + ": " + err.Error()
-		return
+		return false
 	}
 	step := p.begin("search", "find BGP policies in "+req.ChangeID)
-	var found []advisor.BGPPolicy
-	var walk func([]api.FileNode)
-	walk = func(ns []api.FileNode) {
-		for _, n := range ns {
-			walk(n.Children)
-			if n.Type != api.FileNodeTypeFile || !strings.HasPrefix(n.Path, "clusters/") || !(strings.HasSuffix(n.Path, ".yaml") || strings.HasSuffix(n.Path, ".yml")) {
-				continue
-			}
-			if n.Kind != "CiliumBGPPeeringPolicy" && !(n.Kind == "" && strings.Contains(n.Path, "/cilium/")) {
-				continue
-			}
-			fc, err := s.o.Tools.ReadFile(ctx, req.ChangeID, n.Path)
-			if err != nil {
-				continue
-			}
-			for _, p := range advisor.ParseBGP(n.Path, fc.Content) {
-				if want == "" || strings.EqualFold(p.Name, want) || strings.EqualFold(p.Rack, want) {
-					found = append(found, p)
-				}
-			}
-		}
-	}
-	walk(nodes)
+	found, _ := s.findPolicies(ctx, req.ChangeID, want)
 	{
 		var ns []string
 		for _, f := range found {
@@ -449,7 +577,7 @@ func (s *Svc) policyEdit(ctx context.Context, p *progress, req Request, q string
 		} else {
 			a.Text = "Which policy? Name it, for example \"the rack-6z BGP policy\"."
 		}
-		return
+		return false
 	}
 	if len(found) > 1 {
 		var ns []string
@@ -457,7 +585,7 @@ func (s *Svc) policyEdit(ctx context.Context, p *progress, req Request, q string
 			ns = append(ns, p.Name)
 		}
 		a.Text = fmt.Sprintf("More than one BGP policy matches: %s. Name one.", joinAnd(ns))
-		return
+		return false
 	}
 	pol := found[0]
 	var fc *api.FileContent
@@ -470,13 +598,13 @@ func (s *Svc) policyEdit(ctx context.Context, p *progress, req Request, q string
 		return fmt.Sprintf("%d nodes selected", len(pol.Hostnames)), nil
 	}); err != nil {
 		a.Text = "I cannot read " + pol.Path + ": " + err.Error()
-		return
+		return false
 	}
 	addSource(a, llm.Source{Label: shortPath(pol.Path), Ref: pol.Path, Kind: "file"})
 	after, err := advisor.AddHostnames(fc.Content, pol.Name, names)
 	if err != nil {
 		a.Text = "I cannot edit the policy: " + err.Error()
-		return
+		return false
 	}
 	var already []string
 	for _, n := range names {
@@ -485,8 +613,8 @@ func (s *Svc) policyEdit(ctx context.Context, p *progress, req Request, q string
 		}
 	}
 	if after == fc.Content {
-		a.Text = fmt.Sprintf("%s %s in %s already.", joinAnd(already), isAre(len(already)), pol.Name)
-		return
+		a.Text = fmt.Sprintf("%s %s in %s already, so there is nothing to add.", joinAnd(already), isAre(len(already)), pol.Name)
+		return false
 	}
 	var add []string
 	for _, n := range names {
@@ -519,6 +647,7 @@ func (s *Svc) policyEdit(ctx context.Context, p *progress, req Request, q string
 		ChangeID: req.ChangeID, Path: pol.Path, Before: fc.Content, After: after,
 		Title: fmt.Sprintf("Add %s to the BGP policy %s", joinAnd(add), pol.Name),
 	})
+	return true
 }
 
 // secretContext retrieves the context a model call for a secret question

@@ -95,8 +95,12 @@ func changeRef(req Request, q string) (id string, named bool) {
 func (s *Svc) changeQuestion(ctx context.Context, p *progress, req Request, q string, a *Answer) bool {
 	id, named := changeRef(req, q)
 	recipe := recipeFor(q)
-	if !named && recipe == "" && !reMyChange.MatchString(q) {
+	approval := (reAskApproval.MatchString(q) || reAskMerged.MatchString(q)) && len(advisor.EntityNames(q)) == 0
+	if !named && recipe == "" && !reMyChange.MatchString(q) && !(approval && id != "") {
 		return false
+	}
+	if approval && id != "" {
+		return s.approvals(ctx, p, req, id, a)
 	}
 	if id == "" {
 		if recipe == "" {
@@ -158,13 +162,16 @@ func (s *Svc) advise(ctx context.Context, p *progress, req Request, id, recipe s
 				risky++
 			}
 		}
+		notes := len(res.Points) - risky
 		switch {
 		case len(res.Points) == 0:
 			fmt.Fprintf(&b, "I see no risks in %s.", who)
 		case risky == 0:
-			fmt.Fprintf(&b, "I see no blocking risk in %s. To check:", who)
-		default:
+			fmt.Fprintf(&b, "I see no blocking risk in %s, and %s to check:", who, plural(notes, "note", "notes"))
+		case notes == 0:
 			fmt.Fprintf(&b, "I see %s in %s:", plural(risky, "risk", "risks"), who)
+		default:
+			fmt.Fprintf(&b, "I see %s and %s in %s:", plural(risky, "risk", "risks"), plural(notes, "note", "notes"), who)
 		}
 	default:
 		fmt.Fprintf(&b, recipeLeads[recipe], who)
@@ -327,6 +334,9 @@ func (s *Svc) labLine(ctx context.Context, p *progress, ch *api.Change, a *Answe
 			text += " " + why
 		}
 		return text
+	case api.LabStateNone, "":
+		// A merged change from the history has no lab state of this bench.
+		return ""
 	}
 	return short + ": " + string(ch.LabState) + "."
 }
@@ -554,7 +564,7 @@ func entityCandidates(q string) ([]string, map[string][]string) {
 // defiant", "what is pegasus?".
 var reAboutName = regexp.MustCompile(`(?i)^\s*(tell me about|what is|what's|describe|show me|show|info on|about)\s+(the\s+)?(cluster\s+)?([a-z][a-z0-9-]{2,})(\s+cluster)?\s*[?.!]?\s*$`)
 
-func (s *Svc) entityQuestion(ctx context.Context, p *progress, _ Request, q string, a *Answer) bool {
+func (s *Svc) entityQuestion(ctx context.Context, p *progress, req Request, q string, a *Answer) bool {
 	if reHowTo.MatchString(q) {
 		return false
 	}
@@ -568,28 +578,90 @@ func (s *Svc) entityQuestion(ctx context.Context, p *progress, _ Request, q stri
 		w := strings.ToLower(m[4])
 		names, kinds[w] = []string{w}, []string{"Cluster", "HelmRelease", "Kustomization"}
 	}
+	// The selected change first (a node can be new there), then main.
+	refs := []string{""}
+	if req.ChangeID != "" {
+		refs = []string{req.ChangeID, ""}
+	}
 	for i, name := range names {
 		if i >= 3 {
 			break
 		}
 		var e *api.Entity
-		for _, k := range kinds[name] {
-			if got, err := s.o.Tools.Entity(ctx, k, name, ""); err == nil && got != nil {
-				e = got
+		for _, ref := range refs {
+			for _, k := range kinds[name] {
+				if got, err := s.o.Tools.Entity(ctx, k, name, ref); err == nil && got != nil && got.Name != "" {
+					e = got
+					break
+				}
+			}
+			if e != nil {
 				break
 			}
 		}
 		if e == nil {
 			continue
 		}
-		p.quick(ctx, "entity", "entity "+e.Kind+"/"+e.Name, fieldCount(e))
-		s.renderEntity(e, q, a)
+		where := ""
+		if req.ChangeID != "" && e.Change.Id == req.ChangeID && e.Change.Status == api.FileChangeAdded {
+			where = req.ChangeID
+		}
+		sum := fieldCount(e)
+		if where != "" {
+			sum = e.Kind + " · new in " + where
+		}
+		p.quick(ctx, "entity", "entity "+e.Kind+"/"+e.Name, sum)
+		s.renderEntity(e, q, where, a)
 		if e.Kind == "Switch" {
 			s.switchPorts(ctx, p, e, a)
 		}
 		return true
 	}
+	// A node name that is nowhere: say so, with the names that exist.
+	if ns := advisor.EntityNames(q); len(ns) > 0 {
+		return s.unknownEntity(ctx, p, req, ns[0], a)
+	}
 	return false
+}
+
+// unknownEntity answers a question about a name that is not in the
+// inventory of the change or of main.
+func (s *Svc) unknownEntity(ctx context.Context, p *progress, req Request, name string, a *Answer) bool {
+	ref := req.ChangeID
+	if ref == "" {
+		ref = "main"
+	}
+	var have []string
+	_ = p.do(ctx, "search", "find "+name+" in the inventory", func() (string, error) {
+		tree, err := s.o.Tools.Tree(ctx, ref)
+		if err != nil {
+			return "", err
+		}
+		prefix := name[:strings.Index(name, "-")+1]
+		var walk func([]api.FileNode)
+		walk = func(ns []api.FileNode) {
+			for _, n := range ns {
+				walk(n.Children)
+				base := strings.TrimSuffix(shortPath(n.Path), ".yaml")
+				if n.Type == api.FileNodeTypeFile && strings.HasPrefix(n.Path, "control/inventory/") && strings.HasPrefix(base, prefix) {
+					have = append(have, base)
+				}
+			}
+		}
+		walk(tree)
+		return "not found", nil
+	})
+	where := "on main"
+	if req.ChangeID != "" {
+		where = "in your change **" + req.ChangeID + "** or on main"
+	}
+	a.Text = fmt.Sprintf("I find no **%s** %s.", name, where)
+	if len(have) > 0 {
+		sort.Strings(have)
+		a.Text += fmt.Sprintf(" The inventory has %s.", nameRange(have))
+	}
+	a.Text += " To add it, ask me \"Add " + name + " to the inventory\" for the steps."
+	return true
 }
 
 var commonWord = map[string]bool{}
@@ -620,13 +692,13 @@ func fieldCount(e *api.Entity) string {
 var reWhich = regexp.MustCompile(`(?i)\b(which|list|what)\b`)
 
 // renderEntity writes a short description of an entity.
-func (s *Svc) renderEntity(e *api.Entity, q string, a *Answer) {
+func (s *Svc) renderEntity(e *api.Entity, q, newIn string, a *Answer) {
 	var b strings.Builder
-	fmt.Fprintf(&b, "**%s** is a %s", e.Name, kindWords(e.Kind))
-	if e.Cluster != "" && e.Kind != "Cluster" {
-		fmt.Fprintf(&b, " in cluster %s", e.Cluster)
+	lead := entityLead(e)
+	b.WriteString(lead.text)
+	if newIn != "" {
+		fmt.Fprintf(&b, " It is new in your change **%s** and not on main yet.", newIn)
 	}
-	b.WriteString(".")
 	shown := 0
 	for _, f := range e.Fields {
 		if shown >= 8 {
@@ -634,7 +706,7 @@ func (s *Svc) renderEntity(e *api.Entity, q string, a *Answer) {
 		}
 		d := fieldDisplay(f)
 		if d == "" || f.Label == "Labels" || f.Label == "Id" || (e.Kind == "WorkItem" && strings.HasSuffix(d, " items")) ||
-			(f.Field == "spec.cluster" && e.Cluster != "") {
+			(f.Field == "spec.cluster" && e.Cluster != "") || lead.used[f.Field] {
 			continue
 		}
 		owner := ""
@@ -685,6 +757,9 @@ func (s *Svc) renderEntity(e *api.Entity, q string, a *Answer) {
 	}
 	a.Text = b.String()
 	addSource(a, llm.Source{Label: e.Name, Ref: e.Kind + "/" + e.Name, Kind: "entity"})
+	if newIn != "" {
+		addSource(a, llm.Source{Label: newIn, Ref: newIn, Kind: "change"})
+	}
 	for i, art := range e.Backlinks.Articles {
 		if i >= 2 {
 			break
@@ -864,19 +939,28 @@ var reHowTo = regexp.MustCompile(`(?i)^\s*how (do|can|should|would|to)\b`)
 var reHow = regexp.MustCompile(`(?i)^\s*how\b|\bsteps?\b|\bprocedure\b|\bwhat do i (do|need)\b|\brunbook\b`)
 
 // retrieval answers with the best passage of the best hit, and lists the
-// other hits as sources.
-func (s *Svc) retrieval(ctx context.Context, p *progress, q string, a *Answer) {
+// related hits as sources. A hit that shares no word with the question is
+// no answer.
+func (s *Svc) retrieval(ctx context.Context, p *progress, req Request, q string, a *Answer) {
 	var hits []llm.Hit
 	err := p.do(ctx, "search", "search "+quoteQ(q), func() (string, error) {
 		var err error
 		hits, err = s.o.Tools.Search(ctx, q, 5)
 		return plural(len(hits), "hit", "hits"), err
 	})
+	nothing := "I found nothing about that in the project: not in the state repo, the KB, the merge history, the MR discussions or the lab reports.\n\nI answer best questions like these:\n" + examples(req, 3)
 	if err != nil || len(hits) == 0 {
-		a.Text = "I found nothing about that in the KB, the history, the MRs or the lab reports. Ask about a node (cn-003), a change (c-p4x8ma) or a task (\"How do I add a node?\")."
+		a.Text = nothing
 		return
 	}
+	ct := contentTerms(q)
+	related := func(h llm.Hit) int { return overlap(ct, h.Title+" "+h.Ref+" "+h.Text) }
 	top := pickHit(hits, q)
+	match := related(top)
+	if len(ct) > 0 && match == 0 {
+		a.Text = nothing
+		return
+	}
 	p.quick(ctx, "read_file", "read "+hitSource(top).Label, "")
 	switch top.Kind {
 	case "trailer":
@@ -892,12 +976,41 @@ func (s *Svc) retrieval(ctx context.Context, p *progress, q string, a *Answer) {
 	case "kb":
 		a.Text = kbAnswer(top, q)
 	default:
-		a.Text = fileAnswer(top, q)
+		a.Text = fileAnswer(top, ct)
+	}
+	if len(ct) >= 2 && match*2 < len(ct) {
+		a.Text = "I found no direct answer. The closest record: " + lowerLead(a.Text)
 	}
 	addSource(a, hitSource(top))
 	for _, h := range hits {
-		addSource(a, hitSource(h))
+		if len(a.Sources) >= 4 {
+			break
+		}
+		if related(h) > 0 {
+			addSource(a, hitSource(h))
+		}
 	}
+}
+
+// contentTerms are the words of a question that carry its topic.
+func contentTerms(q string) map[string]bool {
+	out := map[string]bool{}
+	for _, t := range llm.Tokenize(q) {
+		if commonWord[t] || len(t) < 2 {
+			continue
+		}
+		out[t] = true
+	}
+	return out
+}
+
+// lowerLead lower-cases the first letter of a text unless it is Markdown
+// or a name.
+func lowerLead(s string) string {
+	if s == "" || !(s[0] >= 'A' && s[0] <= 'Z') {
+		return s
+	}
+	return lowerFirst(s)
 }
 
 // pickHit chooses the hit to answer from among the first three: its rank,
@@ -973,7 +1086,7 @@ func trailerAnswer(h llm.Hit) string {
 		id = h.Ref
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Change **%s**, *%s*, matches best.", id, title)
+	fmt.Fprintf(&b, "From the merge history: change **%s**, *%s*.", id, title)
 	if in := t["Pk-Intent"]; in != "" {
 		fmt.Fprintf(&b, " Its intent: %s", endSentence(lowerFirst(in)))
 	}
@@ -1032,7 +1145,7 @@ func mrAnswer(h llm.Hit, q string) string {
 	}
 	title := strings.TrimPrefix(h.Title, "MR "+h.Ref+" ")
 	var b strings.Builder
-	fmt.Fprintf(&b, "The discussion in **MR %s**, *%s*, matches best.", h.Ref, title)
+	fmt.Fprintf(&b, "From the discussion in **MR %s**, *%s*:", h.Ref, title)
 	if intent != "" {
 		b.WriteString(" " + endSentence(upperFirst(firstSentences(intent, 2, 240))))
 	}
@@ -1151,31 +1264,17 @@ func kbAnswer(h llm.Hit, q string) string {
 	return b.String()
 }
 
-func fileAnswer(h llm.Hit, q string) string {
+// fileAnswer says what a file defines in one or two sentences, from its
+// fields; never the whole file.
+func fileAnswer(h llm.Hit, terms map[string]bool) string {
 	path := h.Path
 	if path == "" {
 		path = h.Ref
 	}
-	lines := strings.Split(strings.TrimRight(h.Text, "\n"), "\n")
-	terms := termSet(q)
-	bestAt, bestScore := 0, -1
-	const win = 10
-	for i := range lines {
-		score := 0
-		for j := i; j < len(lines) && j < i+win; j++ {
-			score += overlap(terms, lines[j])
-		}
-		if score > bestScore {
-			bestAt, bestScore = i, score
-		}
+	if sum, ok := fileSummary(path, h.Text, terms); ok {
+		return sum + fmt.Sprintf(" Source: `%s` on main.", path)
 	}
-	end := min(bestAt+win, len(lines))
-	snippet := strings.Join(lines[bestAt:end], "\n")
-	lang := ""
-	if strings.HasSuffix(path, ".yaml") || strings.HasSuffix(path, ".yml") {
-		lang = "yaml"
-	}
-	return fmt.Sprintf("The file **%s** matches best (`%s`, from line %d):\n\n```%s\n%s\n```", shortPath(path), path, bestAt+1, lang, snippet)
+	return fmt.Sprintf("The file `%s` on main matches best. Open it from the source below.", path)
 }
 
 // ---------------------------------------------------------------- Markdown helpers
@@ -1441,12 +1540,11 @@ func (s *Svc) personQuestion(ctx context.Context, p *progress, _ Request, q stri
 		return false
 	}
 	who := strings.ToLower(m[1])
-	if commonWord[who] {
+	if commonWord[who] || strings.ContainsAny(who, "0123456789") || len(advisor.EntityNames(who)) > 0 {
 		return false
 	}
 	var open []api.ChangeSummary
 	var authored, approved []api.HistoryEntry
-	n := p.begin("history", "changes of "+who)
 	if all, err := s.o.Tools.Changes(ctx); err == nil {
 		for _, c := range all {
 			if c.Author == who {
@@ -1471,10 +1569,10 @@ func (s *Svc) personQuestion(ctx context.Context, p *progress, _ Request, q stri
 		}
 	}
 	if len(open)+len(authored)+len(approved) == 0 {
-		p.end(ctx, n, "nothing found", true)
+		// Not a person of this project: no step.
 		return false
 	}
-	p.end(ctx, n, plural(len(open)+len(authored), "change", "changes"), false)
+	p.quick(ctx, "history", "changes of "+who, plural(len(open)+len(authored), "change", "changes"))
 	var b strings.Builder
 	fmt.Fprintf(&b, "**%s** works on this project:", who)
 	if len(open) > 0 {

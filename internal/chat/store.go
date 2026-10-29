@@ -109,7 +109,7 @@ func (s *Svc) Get(ctx context.Context, id string) (*advisor.Suggestion, error) {
 }
 
 // AddSuggestion stores a pending suggestion. The same pending edit of the
-// same file is kept once.
+// same file is kept once; the surface that suggested it last owns it.
 func (s *Svc) AddSuggestion(ctx context.Context, sg advisor.Suggestion) (*advisor.Suggestion, error) {
 	if sg.ChangeID == "" || sg.Path == "" {
 		return nil, errors.New("a suggestion needs a change and a path")
@@ -120,6 +120,15 @@ func (s *Svc) AddSuggestion(ctx context.Context, sg advisor.Suggestion) (*adviso
 	s.st.mu.Lock()
 	for _, old := range s.st.m {
 		if old.Status == advisor.StatusPending && old.ChangeID == sg.ChangeID && old.Path == sg.Path && old.After == sg.After && old.Before == sg.Before {
+			// The surface that suggests it again owns it now (the card says
+			// "Suggested by chat" in a chat answer).
+			if sg.By != "" && sg.By != old.By {
+				old.By, old.LogID = sg.By, sg.LogID
+				if sg.Title != "" {
+					old.Title = sg.Title
+				}
+				_ = s.st.save()
+			}
 			c := *old
 			s.st.mu.Unlock()
 			return &c, nil

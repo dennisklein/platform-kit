@@ -80,6 +80,7 @@ func (s *Svc) loop(ctx context.Context, p *progress, req Request, a *Answer, ent
 	tools := loopTools(req.ChangeID != "")
 	streamer, _ := s.o.LLM.(llm.Streamer)
 	var trace strings.Builder
+	col := &sourceSet{}
 	for step := 0; step < s.o.MaxSteps; step++ {
 		cctx, cancel := context.WithTimeout(ctx, s.o.Timeout)
 		lreq := llm.Request{Messages: msgs, Tools: tools, Temperature: 0.2, MaxTokens: 1500}
@@ -104,6 +105,8 @@ func (s *Svc) loop(ctx context.Context, p *progress, req Request, a *Answer, ent
 			if a.Text == "" {
 				return errors.New("empty answer")
 			}
+			// Sources: what the answer used; the rest stays in the steps.
+			a.Sources = col.pick(a.Text, 4)
 			if trace.Len() > 0 {
 				entry.Prompt += "\n\ntools:\n" + trace.String()
 			}
@@ -121,7 +124,7 @@ func (s *Svc) loop(ctx context.Context, p *progress, req Request, a *Answer, ent
 				m.ToolCalls[i].ID = tc.ID
 			}
 			n := p.begin(tc.Name, toolLabel(tc))
-			out, summary, failed := s.callTool(ctx, req, tc, a)
+			out, summary, failed := s.callTool(ctx, req, tc, a, col)
 			p.end(ctx, n, summary, failed)
 			fmt.Fprintf(&trace, "- %s %s\n", tc.Name, truncate(string(tc.Arguments), 200))
 			msgs = append(msgs, llm.Message{Role: llm.RoleTool, ToolCallID: tc.ID, Name: tc.Name, Content: "<data>\n" + truncate(out, 8000) + "\n</data>"})
@@ -188,7 +191,7 @@ func toolLabel(tc llm.ToolCall) string {
 
 // callTool runs one tool and returns its result as text, a short summary
 // for the step and whether it failed.
-func (s *Svc) callTool(ctx context.Context, req Request, tc llm.ToolCall, a *Answer) (out, summary string, failed bool) {
+func (s *Svc) callTool(ctx context.Context, req Request, tc llm.ToolCall, a *Answer, col *sourceSet) (out, summary string, failed bool) {
 	var args toolArgs
 	if err := json.Unmarshal(tc.Arguments, &args); err != nil {
 		return toJSON(map[string]string{"error": "arguments are not JSON: " + err.Error()}), "bad arguments", true
@@ -213,7 +216,7 @@ func (s *Svc) callTool(ctx context.Context, req Request, tc llm.ToolCall, a *Ans
 		res := []hit{}
 		for _, h := range hits {
 			res = append(res, hit{h.Kind, h.Ref, h.Title, h.Snippet})
-			addSource(a, hitSource(h))
+			col.hit(hitSource(h))
 		}
 		return toJSON(res), plural(len(hits), "hit", "hits"), false
 	case "read_file":
@@ -228,7 +231,7 @@ func (s *Svc) callTool(ctx context.Context, req Request, tc llm.ToolCall, a *Ans
 		if err != nil {
 			return fail(err)
 		}
-		addSource(a, llm.Source{Label: shortPath(args.Path), Ref: args.Path, Kind: "file"})
+		col.read(llm.Source{Label: shortPath(args.Path), Ref: args.Path, Kind: "file"})
 		return toJSON(map[string]any{"path": fc.Path, "ref": ref, "content": fc.Content, "problems": fc.Problems}),
 			plural(strings.Count(fc.Content, "\n"), "line", "lines"), false
 	case "history":
@@ -236,9 +239,9 @@ func (s *Svc) callTool(ctx context.Context, req Request, tc llm.ToolCall, a *Ans
 		if err != nil {
 			return fail(err)
 		}
-		for i, e := range entries {
-			if i < 3 && e.Change != "" {
-				addSource(a, llm.Source{Label: "trailer " + e.Change, Ref: e.Change, Kind: "trailer"})
+		for _, e := range entries {
+			if e.Change != "" {
+				col.hit(llm.Source{Label: "trailer " + e.Change, Ref: e.Change, Kind: "trailer"})
 			}
 		}
 		return toJSON(entries), plural(len(entries), "merge", "merges"), false
@@ -248,10 +251,10 @@ func (s *Svc) callTool(ctx context.Context, req Request, tc llm.ToolCall, a *Ans
 			return fail(err)
 		}
 		if d.Entry.Change != "" {
-			addSource(a, llm.Source{Label: "trailer " + d.Entry.Change, Ref: d.Entry.Change, Kind: "trailer"})
+			col.read(llm.Source{Label: "trailer " + d.Entry.Change, Ref: d.Entry.Change, Kind: "trailer"})
 		}
 		if d.Entry.Mr != "" {
-			addSource(a, llm.Source{Label: "MR " + d.Entry.Mr, Ref: d.Entry.Mr, Kind: "mr"})
+			col.hit(llm.Source{Label: "MR " + d.Entry.Mr, Ref: d.Entry.Mr, Kind: "mr"})
 		}
 		d.Files = nil // the semantic diff says enough and keeps the prompt short
 		sum := d.Entry.Title
@@ -264,7 +267,7 @@ func (s *Svc) callTool(ctx context.Context, req Request, tc llm.ToolCall, a *Ans
 		if err != nil {
 			return fail(err)
 		}
-		addSource(a, llm.Source{Label: e.Name, Ref: e.Kind + "/" + e.Name, Kind: "entity"})
+		col.read(llm.Source{Label: e.Name, Ref: e.Kind + "/" + e.Name, Kind: "entity"})
 		return toJSON(e), fieldCount(e), false
 	case "change":
 		id := changeOr(args.ID)
@@ -275,7 +278,7 @@ func (s *Svc) callTool(ctx context.Context, req Request, tc llm.ToolCall, a *Ans
 		if err != nil {
 			return fail(err)
 		}
-		addSource(a, llm.Source{Label: id, Ref: id, Kind: "change"})
+		col.read(llm.Source{Label: id, Ref: id, Kind: "change"})
 		ch.Lifecycle = nil
 		return toJSON(ch), stateWords(ch.State), false
 	case "impact":
@@ -287,7 +290,7 @@ func (s *Svc) callTool(ctx context.Context, req Request, tc llm.ToolCall, a *Ans
 		if err != nil {
 			return fail(err)
 		}
-		addSource(a, llm.Source{Label: "impact", Ref: id, Kind: "impact"})
+		col.read(llm.Source{Label: "impact", Ref: id, Kind: "impact"})
 		for ci := range imp.Clusters {
 			for ki := range imp.Clusters[ci].Kustomizations {
 				for oi := range imp.Clusters[ci].Kustomizations[ki].Objects {
@@ -314,7 +317,7 @@ func (s *Svc) callTool(ctx context.Context, req Request, tc llm.ToolCall, a *Ans
 		for _, pt := range res.Points {
 			pts = append(pts, point{pt.Title, pt.Text, string(pt.Severity)})
 			for _, src := range pt.Sources {
-				addSource(a, src)
+				col.hit(src)
 			}
 		}
 		a.Suggestions = append(a.Suggestions, res.Suggestions...)
@@ -349,4 +352,49 @@ func (s *Svc) callTool(ctx context.Context, req Request, tc llm.ToolCall, a *Ans
 		return toJSON(map[string]string{"result": "suggested; the admin sees the diff in the editor and decides"}), "diff ready", false
 	}
 	return fail(fmt.Errorf("unknown tool %s", tc.Name))
+}
+
+// sourceSet collects the sources of a tool loop: what a read-type tool
+// returned (a file, a merge, an entity, a change) and search hits.
+type sourceSet struct {
+	reads, hits []llm.Source
+}
+
+func (c *sourceSet) read(src llm.Source) { c.reads = append(c.reads, src) }
+func (c *sourceSet) hit(src llm.Source)  { c.hits = append(c.hits, src) }
+
+// pick returns the sources an answer used, at most n: first the ones its
+// text names, then the other reads. Search hits it does not name stay in
+// the steps.
+func (c *sourceSet) pick(text string, n int) []llm.Source {
+	var named, rest []llm.Source
+	for _, src := range c.reads {
+		if namedIn(text, src) {
+			named = append(named, src)
+		} else {
+			rest = append(rest, src)
+		}
+	}
+	for _, src := range c.hits {
+		if namedIn(text, src) {
+			named = append(named, src)
+		}
+	}
+	return dedupSources(append(named, rest...), n)
+}
+
+// namedIn reports whether text names a source: its ref (c-2hd7vw, !2, a
+// path), its label without the kind word, or a file name without .yaml.
+func namedIn(text string, src llm.Source) bool {
+	t := strings.ToLower(text)
+	has := func(s string) bool {
+		s = strings.ToLower(strings.TrimSpace(s))
+		return len(s) >= 2 && strings.Contains(t, s)
+	}
+	label := src.Label
+	if _, rest, ok := strings.Cut(label, " "); ok && (src.Kind == "trailer" || src.Kind == "mr" || src.Kind == "history" || src.Kind == "lab") {
+		label = rest
+	}
+	base := shortPath(src.Ref)
+	return has(src.Ref) || has(label) || (src.Kind != "mr" && has(strings.TrimSuffix(strings.TrimSuffix(base, ".yaml"), ".md")))
 }

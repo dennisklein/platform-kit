@@ -55,6 +55,8 @@ type progress struct {
 	pending  strings.Builder
 	flushed  time.Time
 	streamed bool // text went out since the last reset
+	// extra is text the bench adds after a streamed model answer.
+	extra string
 }
 
 func (s *Svc) newProgress(ctx context.Context, requestID string) *progress {
