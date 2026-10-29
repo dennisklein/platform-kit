@@ -77,7 +77,11 @@
 
 <div class="page">
   {#if change.error && !c}
-    <div class="error-box">Change {params.id}: {change.error}</div>
+    {#if /not found/i.test(change.error)}
+      <div class="error-box">Change {params.id} not found. <a href={href('/changes')}>All changes</a></div>
+    {:else}
+      <div class="error-box">Change {params.id}: {change.error}</div>
+    {/if}
   {:else if !c}
     <div class="muted">Loading {params.id}…</div>
   {:else}
