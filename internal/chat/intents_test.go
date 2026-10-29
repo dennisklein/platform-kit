@@ -315,8 +315,9 @@ func TestGuardModelAndBuiltinFlag(t *testing.T) {
 	if !a.Fallback || a.FallbackReason != BuiltinReason || !strings.HasPrefix(a.Text, "c-2hd7vw moved cn-003 p2") {
 		t.Fatalf("%+v", a)
 	}
+	// Logged as answered from project data: no failed model call.
 	e, _ := log.Get(context.Background(), a.LogID)
-	if !strings.Contains(e.Error, "on request") {
+	if e.Error != "" || e.Model != OnRequestModel {
 		t.Errorf("log %+v", e)
 	}
 }

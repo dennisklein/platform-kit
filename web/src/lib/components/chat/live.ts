@@ -101,6 +101,21 @@ export function stopSteps(steps: LiveStep[]): LiveStep[] {
 /** The model of an answer the secret guard gave (no model call). */
 export const GUARD_MODEL = 'guard';
 
+/** The model of a log entry the asker had answered from the project data
+ *  ("Answer from project data now"): no model call, none failed. */
+export const ON_REQUEST_MODEL = 'project-data';
+
+/** A log entry answered from project data on request (older entries
+ *  recorded it as an error of the model call). */
+export function answeredOnRequest(e: { model?: string; error?: string }): boolean {
+  return e.model === ON_REQUEST_MODEL || !!e.error?.startsWith('answered from project data on request');
+}
+
+/** A log entry whose model call failed (not one answered on request). */
+export function modelCallFailed(e: { model?: string; error?: string }): boolean {
+  return !!e.error && !answeredOnRequest(e);
+}
+
 export interface FootLabel {
   text: string;
   title: string;

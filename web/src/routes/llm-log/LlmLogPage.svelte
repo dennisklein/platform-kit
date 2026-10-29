@@ -15,7 +15,7 @@
   import Glyph from '../../lib/components/Glyph.svelte';
   import PageHeader from '../../lib/components/PageHeader.svelte';
   import ModelTag from '../../lib/components/ModelTag.svelte';
-  import { GUARD_MODEL } from '../../lib/components/chat/live';
+  import { GUARD_MODEL, answeredOnRequest, modelCallFailed } from '../../lib/components/chat/live';
   import { redactedFields } from './redaction';
   import { session } from '../../lib/stores/me.svelte';
 
@@ -125,7 +125,12 @@
     if (m) requestAnimationFrame(() => m.scrollIntoView({ block: 'center', behavior: 'smooth' }));
   }
 
-  const modelName = (e: LlmLogEntry) => (e.model === GUARD_MODEL ? 'built-in · secret guard' : e.mock ? 'built-in' : e.model);
+  const onRequest = answeredOnRequest;
+  const failed = modelCallFailed;
+  const modelName = (e: LlmLogEntry) =>
+    e.model === GUARD_MODEL ? 'built-in · secret guard' : onRequest(e) ? 'built-in · on request' : e.mock ? 'built-in' : e.model;
+  const modelTitle = (e: LlmLogEntry) =>
+    onRequest(e) ? 'Answered from project data on request; no model call' : e.mock ? 'Built-in: no model endpoint, answers from project data' : `Model ${e.model}`;
 
   async function exportLog() {
     exporting = true;
@@ -232,7 +237,7 @@
       {#each shown as e (e.id)}
         {@const isOpen = !!open[e.id]}
         {@const qq = question(e)}
-        <li class="entry" class:open={isOpen} class:err={!!e.error}>
+        <li class="entry" class:open={isOpen} class:err={failed(e)}>
           <button class="row" onclick={() => toggle(e.id)} aria-expanded={isOpen}>
             <span class="when" title={dateTime(e.time)}>{ago(e.time)}</span>
             <span class="badge s-{e.surface}">{e.surface === 'commit-message' ? 'commit msg' : e.surface}{e.recipe && e.recipe !== e.surface ? ` · ${e.recipe}` : ''}</span>
@@ -241,9 +246,9 @@
             </span>
             <span class="meta">
               {#if e.redactions}<span class="red" title="Values the secret filter removed from the prompt"><Glyph name="lock" size={11} /> {e.redactions}</span>{/if}
-              {#if e.error}<span class="bad-text" title={e.error}><Glyph name="alert" size={12} /></span>{/if}
+              {#if failed(e)}<span class="bad-text" title={e.error}><Glyph name="alert" size={12} /></span>{/if}
               {#if e.rating}<span class="rt {e.rating}"><Glyph name={e.rating === 'up' ? 'thumbs-up' : 'thumbs-down'} size={12} /></span>{/if}
-              <ModelTag text={modelName(e)} title={e.mock ? 'Built-in: no model endpoint, answers from project data' : `Model ${e.model}`} fallback={!e.mock && !!e.error} />
+              <ModelTag text={modelName(e)} title={modelTitle(e)} fallback={!e.mock && failed(e)} />
               <span class="who">{e.user}</span>
             </span>
             <Glyph name="chevron" size={12} />
@@ -254,7 +259,7 @@
                 <div><dt>id</dt><dd class="mono">{e.id}</dd></div>
                 <div><dt>time</dt><dd>{dateTime(e.time)}</dd></div>
                 <div><dt>user</dt><dd>{e.user}</dd></div>
-                <div><dt>model</dt><dd class="mono">{e.mock ? 'built-in (no model endpoint)' : e.model}</dd></div>
+                <div><dt>model</dt><dd class="mono">{onRequest(e) ? 'built-in (on request, no model call)' : e.mock ? 'built-in (no model endpoint)' : e.model}</dd></div>
                 {#if e.durationMs != null}<div><dt>took</dt><dd>{duration(e.durationMs)}</dd></div>{/if}
                 {#if e.changeId}
                   <div>
@@ -264,8 +269,10 @@
                 {/if}
                 <div><dt>redacted</dt><dd>{e.redactions ? `${e.redactions} value${e.redactions > 1 ? 's' : ''}` : 'none'}</dd></div>
               </dl>
-              {#if e.error}
+              {#if failed(e)}
                 <div class="callout warn"><Glyph name="alert" size={14} /> <span>The model call failed ({e.error}); the answer comes from the deterministic findings.</span></div>
+              {:else if onRequest(e)}
+                <div class="callout"><Glyph name="book" size={14} /> <span>Answered from project data on request; no model call.</span></div>
               {/if}
               <div class="cols">
                 <section>

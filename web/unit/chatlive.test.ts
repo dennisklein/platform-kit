@@ -1,11 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  answeredOnRequest,
   applyDelta,
   applyStep,
   closeMarkdown,
   elapsed,
   footLabel,
+  modelCallFailed,
   newRequestId,
   offerData,
   stopSteps,
@@ -92,4 +94,18 @@ test('model line: secret guard, short built-in label in the side panel', () => {
   assert.equal(footLabel(fb, { model: 'qwen2.5:7b', fallback: true }, true).text, 'built-in');
   const model = { text: 'qwen2.5:7b', title: 'Model', fallback: false };
   assert.equal(footLabel(model, { model: 'qwen2.5:7b' }, true).text, 'qwen2.5:7b');
+});
+
+test('llm log: an answer from project data on request is no failed model call', () => {
+  const onRequest = { model: 'project-data' };
+  assert.equal(answeredOnRequest(onRequest), true);
+  assert.equal(modelCallFailed(onRequest), false);
+  // Older entries recorded it as an error of the model call.
+  const legacy = { model: 'qwen2.5:7b', error: 'answered from project data on request (no model call)' };
+  assert.equal(answeredOnRequest(legacy), true);
+  assert.equal(modelCallFailed(legacy), false);
+  const slow = { model: 'qwen2.5:7b', error: 'model too slow (25s): context deadline exceeded' };
+  assert.equal(answeredOnRequest(slow), false);
+  assert.equal(modelCallFailed(slow), true);
+  assert.equal(modelCallFailed({ model: 'qwen2.5:7b' }), false);
 });

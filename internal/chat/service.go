@@ -99,6 +99,11 @@ const GuardModel = "guard"
 // the project data instead of waiting for the model.
 const BuiltinReason = "you asked for the answer from project data"
 
+// OnRequestModel is the model of a log entry the asker chose to have
+// answered from the project data: no model call was made, and none failed
+// (the LLM log says so in a neutral note).
+const OnRequestModel = "project-data"
+
 var (
 	reSecretWord = regexp.MustCompile(`(?i)\b(token|password|passwd|secret|api[- ]?key|private[- ]key|credential|passphrase|sops key|age key)s?\b`)
 	reAskValue   = regexp.MustCompile(`(?i)\b(what|which|show|tell|give|print|reveal|read|value|decrypt|display|dump|leak|copy)\b`)
@@ -141,7 +146,6 @@ func (s *Svc) Ask(ctx context.Context, req Request) (*Answer, error) {
 	case req.Builtin:
 		p.pace = true
 		ans.Fallback, ans.FallbackReason = true, BuiltinReason
-		entry.Error = "answered from project data on request (no model call)"
 		s.mockAnswer(ctx, p, req, q, ans)
 	default:
 		dctx, cancel := context.WithTimeout(ctx, s.o.Deadline)
@@ -185,6 +189,10 @@ func (s *Svc) Ask(ctx context.Context, req Request) (*Answer, error) {
 	p.flush()
 	ans.Steps = p.snapshot()
 	entry.Model = ans.Model
+	if req.Builtin && !ans.Mock && ans.Model != GuardModel {
+		// Not the model's answer, and no failed call.
+		entry.Model = OnRequestModel
+	}
 	entry.Answer = ans.Text
 	entry.Sources = ans.Sources
 	entry.DurationMs = max(s.now().Sub(start).Milliseconds(), 1)
