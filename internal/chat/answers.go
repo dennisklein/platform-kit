@@ -105,7 +105,7 @@ func (s *Svc) changeQuestion(ctx context.Context, p *progress, req Request, q st
 		return false
 	}
 	if approval && id != "" {
-		return s.approvals(ctx, p, req, id, a)
+		return s.approvals(ctx, p, req, id, q, a)
 	}
 	if id == "" {
 		if recipe == "" {
@@ -120,11 +120,84 @@ func (s *Svc) changeQuestion(ctx context.Context, p *progress, req Request, q st
 	if recipe != "" && s.o.Advisor != nil {
 		return s.advise(ctx, p, req, id, recipe, a)
 	}
+	// "Why did its lab fail?": the lab, not the whole brief again.
+	if recipe == "" && reLabResultQ.MatchString(q) && !reBriefAsk.MatchString(q) && !reAction.MatchString(q) {
+		return s.labAnswer(ctx, p, id, a)
+	}
 	ok := s.changeBrief(ctx, p, req, id, q, a)
 	if m := reAction.FindStringSubmatch(q); m != nil && ok {
 		a.Text = fmt.Sprintf("I cannot %s: I only read and suggest edits, people decide. This is where %s stands:\n\n", strings.ToLower(m[1]), id) + a.Text
 	}
 	return ok
+}
+
+// reBriefAsk asks for the whole change ("What does c-p4x8ma change and why
+// did its lab fail?").
+var reBriefAsk = regexp.MustCompile(`(?i)\bwhat (is|does)\b.*\b(change|do)\b|\btell me about\b|\bdescribe\b|\bsummar\w+`)
+
+// reLabResultQ asks how the lab of a change went.
+var reLabResultQ = regexp.MustCompile(`(?i)\blabs?\b.*\b(fail\w*|pass\w*|red|green|results?|broke\w*|status|state|go|went|say|says)\b|\b(fail\w*|pass\w*|broke\w*)\b.*\blabs?\b`)
+
+// labAnswer says how the newest lab run of a change went: its failed
+// checks and the explanation of its report.
+func (s *Svc) labAnswer(ctx context.Context, p *progress, id string, a *Answer) bool {
+	var ch *api.Change
+	if err := p.do(ctx, "change", "change "+id, func() (string, error) {
+		var err error
+		ch, err = s.o.Tools.Change(ctx, id)
+		if err != nil {
+			return "not found", err
+		}
+		return stateWords(ch.State), nil
+	}); err != nil || ch == nil {
+		a.Text = fmt.Sprintf("I find no change %s. Check the id on the Changes page.", id)
+		return true
+	}
+	addSource(a, llm.Source{Label: id, Ref: id, Kind: "change"})
+	run := ch.LabRun
+	if run == "" && len(ch.LabRuns) > 0 {
+		run = ch.LabRuns[len(ch.LabRuns)-1].Run
+	}
+	if run == "" {
+		a.Text = fmt.Sprintf("**%s** has no lab run yet.", id)
+		return true
+	}
+	short := run
+	if i := strings.LastIndex(run, "/"); i >= 0 {
+		short = run[i+1:]
+	}
+	addSource(a, llm.Source{Label: "lab " + short, Ref: run, Kind: "lab"})
+	who := fmt.Sprintf("Lab %s of **%s**", short, id)
+	switch ch.LabState {
+	case api.LabStatePass:
+		a.Text = who + " passed on the head of the branch."
+	case api.LabStateRunning:
+		a.Text = who + " is running."
+	case api.LabStateFail:
+		fails, why, report := s.labFailures(ctx, p, ch)
+		if report != "" {
+			addSource(a, llm.Source{Label: shortPath(report), Ref: report, Kind: "kb"})
+		}
+		text := who + " failed"
+		if len(fails) > 0 {
+			text += ": " + strings.Join(fails, "; ")
+		}
+		text += "."
+		if why != "" {
+			text += " " + why
+		}
+		a.Text = text
+	default:
+		a.Text = fmt.Sprintf("%s: %s.", who, labStateWords(ch.LabState))
+	}
+	return true
+}
+
+func labStateWords(st api.LabState) string {
+	if st == "" || st == api.LabStateNone {
+		return "no result on record"
+	}
+	return string(st)
 }
 
 var reAction = regexp.MustCompile(`(?i)\b(?:can|could|would|will|please)\b.*\b(merge|approve|commit|push|close|deploy|revert|rebase|run the lab)\b`)

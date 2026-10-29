@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dennisklein/platform-kit/internal/advisor"
+	"github.com/dennisklein/platform-kit/internal/api"
 	"github.com/dennisklein/platform-kit/internal/llm"
 )
 
@@ -163,5 +165,56 @@ func TestModelAdviseTakesTheIDOfTheQuestion(t *testing.T) {
 	}
 	if len(a.Sources) == 0 || a.Sources[0].Ref != "c-p4x8ma" {
 		t.Errorf("sources %+v", a.Sources)
+	}
+}
+
+type storyFake struct{ *fake }
+
+func (f storyFake) Change(ctx context.Context, id string) (*api.Change, error) {
+	switch id {
+	case "c-p4x8ma":
+		return &api.Change{Id: id, Title: "BGP peers for org-a and org-b", Author: "anna", State: api.ChangeStateLab, LabState: api.LabStateFail,
+			LabRun: "c-p4x8ma/run-1", Intent: "Peer rack 6Z with the org-a and org-b routers"}, nil
+	case "c-2hd7vw":
+		ch := &api.Change{Id: id, Title: "Move cn-003 to data-a 37", Author: "jonas", State: api.ChangeStateVerified,
+			MergedAt: time.Date(2026, 9, 12, 10, 15, 0, 0, time.UTC)}
+		ch.Mr.Number = 2
+		ch.ApprovalsBy = []api.Approval{{User: "anna", Counts: true}, {User: "dennis", Counts: true}}
+		return ch, nil
+	}
+	return f.fake.Change(ctx, id)
+}
+
+func (f storyFake) LabRuns(ctx context.Context, id string) ([]api.LabRun, error) {
+	if id == "c-p4x8ma" {
+		return []api.LabRun{{Id: "c-p4x8ma/run-1", Failures: []string{"session to 10.6.0.3 not established"}}}, nil
+	}
+	return nil, nil
+}
+
+func storySvc(t *testing.T) *Svc {
+	dir := t.TempDir()
+	s, err := New(Options{Tools: storyFake{newFake(t)}, LLM: llm.NewMock(nil), Path: filepath.Join(dir, "s.json")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func TestFollowUpsAnswerTheNarrowerQuestion(t *testing.T) {
+	s := storySvc(t)
+	ctx := ctxAs("dennis")
+	first, _ := s.Ask(ctx, Request{Messages: conv("What is c-p4x8ma?")})
+	lab, _ := s.Ask(ctx, Request{Messages: conv("What is c-p4x8ma?", first.Text, "Why did its lab fail?")})
+	if lab.Text != "Lab run-1 of **c-p4x8ma** failed: session to 10.6.0.3 not established." || lab.Text == first.Text {
+		t.Errorf("lab %q", lab.Text)
+	}
+	who, _ := s.Ask(ctx, Request{Messages: conv("Who approved c-2hd7vw?")})
+	when, _ := s.Ask(ctx, Request{Messages: conv("Who approved c-2hd7vw?", who.Text, "And when was it merged?")})
+	if !strings.HasPrefix(who.Text, "anna and dennis approved **c-2hd7vw**") {
+		t.Errorf("who %q", who.Text)
+	}
+	if when.Text != "**c-2hd7vw** (*Move cn-003 to data-a 37*) was merged on **2026-09-12** in MR !2; jonas wrote it." {
+		t.Errorf("when %q", when.Text)
 	}
 }

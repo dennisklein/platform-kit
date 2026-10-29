@@ -240,6 +240,7 @@ var (
 	reFollowLead  = regexp.MustCompile(`(?i)^\s*(and|but|so|also|then)\b`)
 	rePronoun     = regexp.MustCompile(`(?i)\b(it|its|it's|that|they|them|their|he|she|him|her)\b`)
 	reAskApproval = regexp.MustCompile(`(?i)\b(approv\w*|reviewed|reviewers?|signed off|sign-off)\b`)
+	reAskWhen     = regexp.MustCompile(`(?i)^\s*(?:and|so|but|ok|okay)?[\s,]*when\b`)
 	reAskMerged   = regexp.MustCompile(`(?i)^\s*(?:and\s+)?(who|when)\b.*\b(merged?|made|wrote|authored|created|changed)\b`)
 )
 
@@ -319,7 +320,7 @@ func resolveFollowUp(msgs []Message, q string) string {
 
 // approvals answers "who approved c-2hd7vw?" and "who can approve my
 // change?".
-func (s *Svc) approvals(ctx context.Context, p *progress, req Request, id string, a *Answer) bool {
+func (s *Svc) approvals(ctx context.Context, p *progress, req Request, id, q string, a *Answer) bool {
 	var ch *api.Change
 	if err := p.do(ctx, "change", "change "+id, func() (string, error) {
 		var err error
@@ -344,6 +345,27 @@ func (s *Svc) approvals(ctx context.Context, p *progress, req Request, id string
 		who += " (*" + ch.Title + "*)"
 	}
 	var b strings.Builder
+	merged := ch.State == api.ChangeStateMerged || ch.State == api.ChangeStateDeployed || ch.State == api.ChangeStateVerified
+	// "And when was it merged?": the date first, not the approvals again.
+	if reAskWhen.MatchString(q) && !reAskApproval.MatchString(q) {
+		if merged && !ch.MergedAt.IsZero() {
+			fmt.Fprintf(&b, "%s was merged on **%s**", who, ch.MergedAt.Format("2006-01-02"))
+			if mr != "" {
+				b.WriteString(" in " + mr)
+			}
+			if ch.Author != "" {
+				b.WriteString("; " + ch.Author + " wrote it")
+			}
+			b.WriteString(".")
+			a.Text = b.String()
+			return true
+		}
+		if !merged {
+			fmt.Fprintf(&b, "%s is not merged yet: it is %s, with %d of %d approvals.", who, stateWords(ch.State), len(by), max(ch.Approvals.Need, ch.Gates.Approvals.Need))
+			a.Text = b.String()
+			return true
+		}
+	}
 	switch ch.State {
 	case api.ChangeStateMerged, api.ChangeStateDeployed, api.ChangeStateVerified:
 		if len(by) > 0 {
