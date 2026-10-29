@@ -162,6 +162,8 @@ Reload the browser tab after a reset.
 
 Go 1.24 (`GOTOOLCHAIN=local`), Node 22, npm, Docker.
 
+With [mise](https://mise.jdx.dev), `mise install` gets Go, Node and jq at the versions in `mise.toml`, and each make target below is also a mise task (`mise run build`, `mise run test`, `mise run up`, …; `mise tasks` lists them). `mise run dev` starts `run` and `web-dev` together. Docker is not managed by mise.
+
 | Target | What it does |
 |---|---|
 | `make gen` | Go server, Go client and TS types from `api/openapi.yaml` (run it after each change to the spec) |

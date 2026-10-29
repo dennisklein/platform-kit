@@ -1,0 +1,141 @@
+# platform-kit: tools and tasks for mise (https://mise.jdx.dev).
+#
+#   mise install          # Go, Node and jq at the versions below
+#   mise run up           # demo stack in Docker on http://127.0.0.1:8080
+#   mise run dev          # bench from source on :8090 + Vite on :5173
+#   mise tasks            # list all tasks
+#
+# Docker (Docker Desktop or Docker Engine with the compose plugin) is not
+# managed by mise; the demo stack and `run` need it.
+
+[tools]
+go = "1.24.7"   # matches the toolchain line in go.mod
+node = "22"     # web unit tests need --experimental-strip-types (22.6+)
+jq = "1.7"      # scripts/e2e.sh, scripts/llm-check.sh
+
+[env]
+GOTOOLCHAIN = "local"
+CGO_ENABLED = "0"
+# make run / dev: the bench from source on this port (the compose bench keeps 8080)
+RUN_PORT = "8090"
+
+# --- setup and build -------------------------------------------------------
+
+[tasks.deps]
+description = "Download Go modules and install the web dependencies"
+run = ["go mod download", "npm ci --prefix web"]
+sources = ["go.sum", "web/package-lock.json"]
+outputs = ["web/node_modules/.package-lock.json"]
+
+[tasks.gen]
+description = "Generate the Go server, Go client and TS types from api/openapi.yaml"
+depends = ["deps"]
+run = [
+  "go generate ./internal/api/... ./pkg/client/...",
+  "npm run --prefix web gen",
+]
+
+[tasks.web]
+description = "Build the SPA into web/dist (embedded by the Go binary)"
+depends = ["deps"]
+run = "npm run --prefix web build"
+
+[tasks.build]
+description = "Build bin/pk with the SPA embedded"
+depends = ["web"]
+run = "go build -trimpath -ldflags \"-s -w -X main.version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)\" -o bin/pk ./cmd/pk"
+
+# --- checks ----------------------------------------------------------------
+
+[tasks.vet]
+description = "go vet"
+run = "go vet ./..."
+
+[tasks."test:go"]
+description = "Go tests"
+run = "go test ./..."
+
+[tasks."test:web"]
+description = "Web unit tests and the svelte type check"
+depends = ["deps"]
+run = ["npm run --prefix web test:unit", "npm run --prefix web check"]
+
+[tasks.test]
+description = "All tests and checks"
+depends = ["vet", "test:go", "test:web"]
+
+[tasks.e2e]
+description = "The demo flow through the API against the compose stack, then the UI smoke test"
+run = "./scripts/e2e.sh"
+
+# --- demo stack (Docker) ---------------------------------------------------
+
+[tasks.preflight]
+description = "Check that the ports of bench, Gitea and fluxsim are free"
+run = "./scripts/preflight-ports.sh"
+
+[tasks.up]
+description = "Build the image and start the demo stack on http://127.0.0.1:8080"
+depends = ["preflight"]
+run = "docker compose up -d --build --wait"
+
+[tasks.down]
+description = "Stop the demo stack; keep its data"
+run = "docker compose down"
+
+[tasks.reset]
+description = "Rehearsal reset: rebuild the forge state; the stack keeps running"
+run = "docker compose run --rm forge-init forge-init --reset"
+
+[tasks.fresh]
+description = "Delete all demo data (forge, bench, LLM log, agent tokens) and start again"
+run = [
+  "docker compose down -v",
+  "./scripts/preflight-ports.sh",
+  "docker compose up -d --build --wait",
+]
+
+[tasks.status]
+description = "Containers and bench status (forge, LLM, Flux, main)"
+run = ["docker compose ps", "docker compose exec -T bench pk me get-status"]
+
+[tasks.logs]
+description = "Follow the logs of bench, ci and fluxsim"
+run = "docker compose logs -f --tail 50 bench ci fluxsim"
+
+[tasks.llm-check]
+description = "Test the LLM endpoint (PK_LLM_BASE_URL) from inside the bench container"
+run = "./scripts/llm-check.sh"
+
+# --- development -----------------------------------------------------------
+
+[tasks.run]
+description = "Bench from source on 127.0.0.1:$RUN_PORT, with Gitea, ci and fluxsim from compose"
+depends = ["build"]
+run = """
+set -e
+mkdir -p .data
+docker compose up -d gitea forge-init ci fluxsim
+docker compose cp forge-init:/creds/forge.json .data/forge.json
+PK_DEMO=1 PK_DATA="$PWD/.data" PK_ADDR="127.0.0.1:$RUN_PORT" \
+PK_ALLOWED_HOSTS=localhost:5173,127.0.0.1:5173 \
+PK_FORGE_URL="http://127.0.0.1:${PK_FORGE_PORT:-3000}" PK_FORGE_CREDENTIALS="$PWD/.data/forge.json" \
+PK_FLUX_URL="http://127.0.0.1:${PK_FLUX_PORT:-8081}" \
+exec bin/pk bench
+"""
+
+[tasks.web-dev]
+description = "Vite dev server on http://localhost:5173 with hot reload, against the bench of `run`"
+depends = ["deps"]
+run = "PK_BENCH_URL=${PK_BENCH_URL:-http://127.0.0.1:$RUN_PORT} npm run --prefix web dev"
+
+[tasks.dev]
+description = "run + web-dev in parallel (open http://localhost:5173)"
+depends = ["run", "web-dev"]
+
+[tasks.clean]
+description = "Remove bin/, .data/ and the SPA build"
+run = [
+  "rm -rf bin .data",
+  "find web/dist -mindepth 1 ! -name .gitkeep -exec rm -rf {} +",
+]
