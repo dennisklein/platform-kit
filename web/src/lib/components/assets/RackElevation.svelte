@@ -182,7 +182,7 @@
     background: #0b5cad;
   }
   .c-storage {
-    background: #00806a;
+    background: var(--rack-storage);
   }
   .c-control {
     background: #6a4fb3;
@@ -232,8 +232,14 @@
     padding: 0 6px;
     gap: 4px;
   }
+  /* A 1U device in the compact view is 10 px high: a line box as high as
+     the device, and a clip margin, keep the descenders of "mgmt" and
+     "cp-03" whole. */
   .occ.thin {
     font-size: 9px;
+    line-height: 10px;
+    overflow: clip;
+    overflow-clip-margin: 2px;
   }
   .legend {
     display: flex;

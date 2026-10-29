@@ -116,6 +116,7 @@
     </div>
   {/if}
 
+  <div class="overview" class:split={racks.length > 0}>
   {#if racks.length}
     <section class="racks">
       {#each racks as r (r.name)}
@@ -132,6 +133,7 @@
     </section>
   {/if}
 
+  <div class="tables">
   {#each byKind.filter(([k]) => k !== 'Rack') as [kind, xs] (kind)}
     <section class="section tsec">
       <h3>{KIND_LABEL[kind] ?? kind} <span class="n">{xs.length}</span></h3>
@@ -173,6 +175,8 @@
       </div>
     </details>
   {/if}
+  </div>
+  </div>
 
   {#if loading && !list.length}<p class="empty">Loading…</p>{/if}
   {#if !loading && !error && !byKind.length && !others.length}<p class="empty">No assets match “{filter}”.</p>{/if}
@@ -185,10 +189,26 @@
   }
   .page {
     min-width: 0;
-    padding: 16px 20px 32px;
+    container-type: inline-size;
+  }
+  /* Racks on the left, the tables beside them when the page is wide; one
+     column below that. */
+  .overview,
+  .tables {
     display: grid;
     gap: 14px;
     align-content: start;
+    min-width: 0;
+  }
+  @container (min-width: 1100px) {
+    .overview.split {
+      grid-template-columns: auto minmax(0, 1fr);
+      align-items: start;
+      gap: 20px;
+    }
+    .overview.split .racks {
+      max-width: 632px;
+    }
   }
   .top {
     display: flex;
@@ -209,11 +229,6 @@
   .tsec {
     min-width: 0;
     overflow-x: auto;
-  }
-  @media (max-width: 640px) {
-    .page {
-      padding: 12px 16px 24px;
-    }
   }
   /* Racks as small elevations with names, side by side (slide 9). */
   .racks {

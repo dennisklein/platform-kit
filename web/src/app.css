@@ -98,6 +98,9 @@
   /* neutral badge and idle chip; components set their own colours on top */
   --badge-bg: var(--grey-100);
   --badge-ink: var(--grey-600);
+  /* rack fill for storage: not a state colour and not the AI teal (the
+     rack drawing is dark in both themes, so one value serves both) */
+  --rack-storage: #a8437a;
   /* the strong (next step) button and pressed filters: navy, orange in dark */
   --strong-fill: var(--gsi-navy);
   --strong-hover: var(--navy-900);
