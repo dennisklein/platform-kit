@@ -17,6 +17,7 @@
   import ModelTag from '../../lib/components/ModelTag.svelte';
   import { GUARD_MODEL, answeredOnRequest, modelCallFailed } from '../../lib/components/chat/live';
   import { redactedFields } from './redaction';
+  import { entryNeedsScroll, promptScrollTop } from './markscroll';
   import { session } from '../../lib/stores/me.svelte';
 
   let { params, query }: { params: Params; query: URLSearchParams } = $props();
@@ -118,11 +119,27 @@
     };
   }
 
-  /** On open, the first removed value scrolls to the middle of the screen
-   *  (the prompt box and the page both scroll, so it is not below the fold). */
+  /** On open, only the prompt box scrolls to the removed values. The page
+   *  scrolls only to show the entry from its header, so the red box, the
+   *  [redacted] chips and the answer are on one screen. */
   function toFirstMark(pre: HTMLElement) {
-    const m = pre.querySelector<HTMLElement>('mark');
-    if (m) requestAnimationFrame(() => m.scrollIntoView({ block: 'center', behavior: 'smooth' }));
+    const id = requestAnimationFrame(() => {
+      const marks = [...pre.querySelectorAll<HTMLElement>('mark')];
+      if (marks.length) {
+        pre.scrollTop = promptScrollTop(
+          marks.map((m) => ({ top: m.offsetTop, height: m.offsetHeight })),
+          pre.clientHeight,
+          pre.scrollHeight,
+        );
+      }
+      const entry = pre.closest<HTMLElement>('.entry');
+      const view = (pre.closest('main') ?? document.documentElement).getBoundingClientRect();
+      const r = entry?.getBoundingClientRect();
+      if (entry && r && entryNeedsScroll(r, { top: Math.max(0, view.top), bottom: Math.min(innerHeight, view.bottom) })) {
+        entry.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      }
+    });
+    return () => cancelAnimationFrame(id);
   }
 
   const onRequest = answeredOnRequest;
@@ -406,6 +423,7 @@
   }
   .entry.open {
     background: color-mix(in srgb, var(--accent-soft) 35%, var(--panel));
+    scroll-margin-top: 8px;
   }
   .row {
     display: flex;
