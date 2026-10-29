@@ -9,7 +9,10 @@
 # LLM: PK_LLM_BASE_URL (OpenAI compatible, for example
 # http://host.docker.internal:11434/v1 for Ollama on this machine),
 # PK_LLM_MODEL, PK_LLM_API_KEY, PK_LLM_EMBED_MODEL, PK_LLM_TIMEOUT (one
-# model call, Go duration, default 45s). Unset: mock model.
+# model call, Go duration, default 45s). Unset: built-in analysis.
+# A slow model: PK_CHAT_DEADLINE (chat answer, default 25s) and
+# PK_ADVISOR_DEADLINE (advisor phrasing, default 12s); after them the bench
+# answers from its project data.
 # Times: PK_TZ (default Europe/Berlin).
 # Rehearsal reset: docker compose run --rm forge-init forge-init --reset
 # Demo logins in Gitea: dennis, anna, jonas, mara, vera / pk-demo-2026.
@@ -127,6 +130,8 @@ services:
       PK_LLM_API_KEY: ${PK_LLM_API_KEY:-}
       PK_LLM_EMBED_MODEL: ${PK_LLM_EMBED_MODEL:-}
       PK_LLM_TIMEOUT: ${PK_LLM_TIMEOUT:-}
+      PK_CHAT_DEADLINE: ${PK_CHAT_DEADLINE:-}
+      PK_ADVISOR_DEADLINE: ${PK_ADVISOR_DEADLINE:-}
       PK_LAB_SPEED: ${PK_LAB_SPEED:-1}
     ports:
       - "127.0.0.1:${PK_BENCH_PORT:-8080}:8080"

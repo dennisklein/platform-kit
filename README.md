@@ -30,6 +30,21 @@ After a `git pull`, rebuild the image: `docker compose up -d --build` (plain `up
 
 The CLI is in the image: `docker compose exec bench pk change list` (try `alias pk='docker compose exec -T bench pk'`).
 
+## Screenshots
+
+The demo story of [docs/demo.html](docs/demo.html), taken from a bench at 1536×864 (a 1920 px projector at 125 % zoom):
+
+| | |
+|---|---|
+| [Changes landing and rail](docs/screenshots/01-changes-rail.png) | [New change dialog](docs/screenshots/02-new-change-dialog.png) |
+| [Node form with a port in use](docs/screenshots/03-node-form-port-in-use.png) | [Asset view of the change](docs/screenshots/04-asset-view-change-diff.png) |
+| [Suggested commit message](docs/screenshots/05-commit-suggested-message.png) | [Check this commit, suggested edit](docs/screenshots/06-check-commit-suggested-edit.png) |
+| [Change lab, pass](docs/screenshots/07-change-lab-pass.png) | [Review: impact and semantic diff](docs/screenshots/08-review-impact-semantic-diff.png) |
+| [Merge dialog with trailers](docs/screenshots/09-merge-dialog-trailers.png) | [Rollout, verified](docs/screenshots/10-rollout-verified.png) |
+| [History and time travel](docs/screenshots/11-history-time-travel.png) | [Agent change and chat suggestion](docs/screenshots/12-chat-suggested-edit.png) |
+
+![The change lab of the demo change: steps, scenario, result and the live console](docs/screenshots/07-change-lab-pass.png)
+
 ## What is real and what is simulated
 
 | Part | In this demo |
@@ -51,7 +66,7 @@ The CLI is in the image: `docker compose exec bench pk change list` (try `alias 
 
 ## LLM setup
 
-Without configuration the bench uses its **built-in analysis**: answers come from the same deterministic findings in the project data, phrased by templates. The top bar shows "LLM built-in", and each answer is marked "built-in · from project data".
+Without configuration the bench uses its **built-in analysis**: answers come from the same deterministic findings in the project data, phrased by templates. The top bar shows "LLM built-in". Advisor results and suggested commit messages carry the tag "built-in · from project data", chat answers the tag "built-in" ("built-in · secret guard" when the answer is a refusal to show a secret). With a model endpoint the same tags show the model name.
 
 For a real model, give the bench an OpenAI-compatible endpoint before `up`:
 
@@ -62,6 +77,8 @@ For a real model, give the bench an OpenAI-compatible endpoint before `up`:
 | `PK_LLM_API_KEY` | bearer token, if the endpoint needs one |
 | `PK_LLM_EMBED_MODEL` | optional embedding model; without it retrieval uses BM25 keywords |
 | `PK_LLM_TIMEOUT` | longest time for one model call, as a Go duration (default `45s`); after a failed call the bench answers from its data for 30 s |
+| `PK_CHAT_DEADLINE` | longest time for one chat answer from the model (default `25s`); after it the chat answers from the project data. After 8 s without text the chat also offers **Answer from project data now** |
+| `PK_ADVISOR_DEADLINE` | longest time for the model to phrase an advisor result or a commit message (default `12s`); after it the advisor shows its deterministic findings |
 
 `host.docker.internal` is the machine that runs Docker (compose maps it with `host-gateway`, so it works on macOS and Linux).
 
@@ -80,6 +97,8 @@ make llm-check              # lists the models and asks for one answer from insi
 ```
 
 The bench removes secrets before each call (SOPS values, schema secret fields, private keys, tokens). Every call goes to the LLM log (page "LLM log"). On a model error the advisors fall back to their deterministic findings.
+
+A slow model on the projector: a small local model can need 20 s or more for a chat answer with tool calls. Set `PK_CHAT_DEADLINE=15s` and `PK_ADVISOR_DEADLINE=8s` in `.env` for a shorter wait, or click **Answer from project data now** under a waiting answer.
 
 ## Agent setup (MCP)
 
