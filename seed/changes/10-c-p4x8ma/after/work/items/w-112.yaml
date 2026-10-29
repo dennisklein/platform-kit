@@ -1,0 +1,10 @@
+apiVersion: work.pk.io/v1alpha1
+kind: WorkItem
+id: w-112
+title: BGP peers for org-a and org-b
+milestone: defiant-ready
+owner: anna
+assets: [GC5A-6Z]
+changes: [c-p4x8ma]
+kb: []
+notes: Org routers 10.6.0.3 and 10.6.0.4 announce tenant prefixes.

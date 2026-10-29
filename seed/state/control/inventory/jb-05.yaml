@@ -1,0 +1,66 @@
+# Disk shelf of sn-05. Slot numbers: kb/hardware/jbod-slot-numbers.md
+apiVersion: inventory.pk.io/v1beta1
+kind: Jbod
+metadata:
+  name: jb-05
+spec:
+  attachedTo: sn-05
+  location:
+    rack: GC5A-6Y
+    unit: 22
+    size: 4
+  model: Western Digital Ultrastar Data60
+  serial: USWSJ03924EZ0012
+  drawers:
+    - id: 0
+      slots:
+        - {slot: 0, state: ok, serial: WD-ZR000K00}
+        - {slot: 1, state: ok, serial: WD-ZR001K07}
+        - {slot: 2, state: ok, serial: WD-ZR002K14}
+        - {slot: 3, state: ok, serial: WD-ZR003K21}
+        - {slot: 4, state: ok, serial: WD-ZR004K28}
+        - {slot: 5, state: ok, serial: WD-ZR005K35}
+        - {slot: 6, state: ok, serial: WD-ZR006K42}
+        - {slot: 7, state: ok, serial: WD-ZR007K49}
+        - {slot: 8, state: ok, serial: WD-ZR008K56}
+        - {slot: 9, state: ok, serial: WD-ZR009K63}
+        - {slot: 10, state: ok, serial: WD-ZR010K70}
+        - {slot: 11, state: ok, serial: WD-ZR011K77}
+        - {slot: 12, state: ok, serial: WD-ZR012K84}
+        - {slot: 13, state: ok, serial: WD-ZR013K91}
+        - {slot: 14, state: ok, serial: WD-ZR014K01}
+        - {slot: 15, state: ok, serial: WD-ZR015K08}
+        - {slot: 16, state: ok, serial: WD-ZR016K15}
+        - {slot: 17, state: ok, serial: WD-ZR017K22}
+        - {slot: 18, state: ok, serial: WD-ZR018K29}
+        - {slot: 19, state: ok, serial: WD-ZR019K36}
+        - {slot: 20, state: ok, serial: WD-ZR020K43}
+        - {slot: 21, state: ok, serial: WD-ZR021K50}
+        - {slot: 22, state: ok, serial: WD-ZR022K57}
+        - {slot: 23, state: ok, serial: WD-ZR023K64}
+    - id: 1
+      slots:
+        - {slot: 0, state: ok, serial: WD-ZR100K31}
+        - {slot: 1, state: ok, serial: WD-ZR101K38}
+        - {slot: 2, state: ok, serial: WD-ZR102K45}
+        - {slot: 3, state: ok, serial: WD-ZR103K52}
+        - {slot: 4, state: ok, serial: WD-ZR104K59}
+        - {slot: 5, state: ok, serial: WD-ZR105K66}
+        - {slot: 6, state: ok, serial: WD-ZR106K73}
+        - {slot: 7, state: ok, serial: WD-ZR107K80}
+        - {slot: 8, state: ok, serial: WD-ZR108K87}
+        - {slot: 9, state: ok, serial: WD-ZR109K94}
+        - {slot: 10, state: ok, serial: WD-ZR110K04}
+        - {slot: 11, state: ok, serial: WD-ZR111K11}
+        - {slot: 12, state: ok, serial: WD-ZR112K18}
+        - {slot: 13, state: ok, serial: WD-ZR113K25}
+        - {slot: 14, state: ok, serial: WD-ZR114K32}
+        - {slot: 15, state: ok, serial: WD-ZR115K39}
+        - {slot: 16, state: ok, serial: WD-ZR116K46}
+        - {slot: 17, state: ok, serial: WD-ZR117K53}
+        - {slot: 18, state: ok, serial: WD-ZR118K60}
+        - {slot: 19, state: ok, serial: WD-ZR119K67}
+        - {slot: 20, state: ok, serial: WD-ZR120K74}
+        - {slot: 21, state: ok, serial: WD-ZR121K81}
+        - {slot: 22, state: ok, serial: WD-ZR122K88}
+        - {slot: 23, state: ok, serial: WD-ZR123K95}

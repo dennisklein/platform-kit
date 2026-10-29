@@ -1,0 +1,10 @@
+apiVersion: work.pk.io/v1alpha1
+kind: WorkItem
+id: w-108
+title: Cabling for GC5A-6Z
+milestone: defiant-ready
+owner: dennis
+assets: [data-a, data-b]
+changes: [c-31d0aa]
+kb: []
+notes: Second spine uplinks before the rack fills.

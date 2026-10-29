@@ -1,0 +1,14 @@
+id: c-0b9cfe
+title: "Bump podinfo to 6.8"
+intent: "podinfo 6.8.0 for the new readiness endpoint"
+author: jonas
+date: "2026-10-21T09:10:00Z"
+merged: true
+mergedAt: "2026-10-21T11:45:00Z"
+mergedBy: jonas
+approvedBy: [dennis]
+workItems: []
+commits:
+  - message: "feat(podinfo): bump to 6.8.0"
+    files:
+      - clusters/defiant/apps/podinfo/deployment.yaml

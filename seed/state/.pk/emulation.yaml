@@ -1,0 +1,21 @@
+# Maps hardware models to emulators. platform-kit generates the lab topology
+# from control/inventory, control/cabling.yaml and this file.
+apiVersion: pk/v1alpha1
+kind: EmulationProfile
+metadata:
+  name: default
+spec:
+  machines:
+    - match: { model: "Supermicro SYS-*" }
+      bmc: { fixture: supermicro-x12 }
+      machine: { backend: qemu, cpus: 2, memoryMiB: 8192, firmware: ovmf }
+    - match: { model: "Huawei 2288H V5" }
+      bmc: { fixture: huawei-2288h-v5 }        # OEM VmmControl path
+      machine: { backend: qemu, cpus: 2, memoryMiB: 8192, firmware: ovmf }
+  networks:
+    mgmt:   { vlan: 1034, ipv6: { prefix: "fd00:1034::/64", ra: true, dhcpv6: ledger } }
+    data-a: { vlan: 1035, ipv4: { cidr: 10.6.0.0/24 }, routers: [10.6.0.1] }
+    data-b: { vlan: 1036, ipv4: { cidr: 10.6.1.0/24 }, routers: [10.6.1.1] }
+    ib:     { emulate: false }                  # no HCA in QEMU
+  substrate: containerlab
+  uplink: nat                                   # never route into the real site

@@ -1,0 +1,25 @@
+apiVersion: ceph.rook.io/v1
+kind: CephCluster
+metadata:
+  name: pegasus
+  namespace: rook-ceph
+spec:
+  cephVersion:
+    image: quay.io/ceph/ceph:v19.2.3
+  dataDirHostPath: /var/lib/rook
+  mon:
+    count: 3
+    allowMultiplePerNode: true
+  mgr:
+    count: 2
+  dashboard:
+    enabled: true
+  storage:
+    useAllNodes: false
+    useAllDevices: false
+    nodes:
+      - name: sn-05
+        # jb-05 disks; slot numbers in kb/hardware/jbod-slot-numbers.md
+        deviceFilter: "^sd[a-z]+$"
+        config:
+          osdsPerDevice: "1"

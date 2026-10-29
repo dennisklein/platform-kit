@@ -1,0 +1,28 @@
+apiVersion: cilium.io/v2alpha1
+kind: CiliumBGPPeeringPolicy
+metadata:
+  name: rack-6z
+  labels:
+    inventory.pk.io/rack: GC5A-6Z
+spec:
+  nodeSelector:
+    matchExpressions:
+      - key: kubernetes.io/hostname
+        operator: In
+        values:
+          - cn-025
+          - cn-026
+          - cn-027
+          - cn-028
+          - cn-029
+          - cn-030
+          - cn-031
+          - cn-032
+          - cn-033
+          - cn-034
+  virtualRouters:
+    - localASN: 64512
+      exportPodCIDR: true
+      neighbors:
+        - peerAddress: 10.6.0.1/32
+          peerASN: 65000
