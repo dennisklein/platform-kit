@@ -1,0 +1,89 @@
+// Server-side focus: the change, file and view this user works on. All
+// tabs, the chat and agents follow it. Pages call focus.set() when the user
+// opens something; focus.changed events update it from other tabs/agents.
+import { untrack } from 'svelte';
+import { api, must } from '../api/client';
+import type { Focus, FocusUpdate, Presence } from '../api/types';
+import { events } from './events.svelte';
+import { router } from '../router.svelte';
+
+class FocusStore {
+  current = $state<Focus | null>(null);
+  /** Last presence per actor (agents working in the bench). */
+  presence = $state<Record<string, Presence>>({});
+  /** A focus move that an agent suggests; the UI asks before it follows. */
+  suggestion = $state<Presence | null>(null);
+  /** Follow focus.changed from other tabs and agents by navigating. */
+  follow = $state(true);
+
+  #pending: FocusUpdate | null = null;
+  #timer: ReturnType<typeof setTimeout> | undefined;
+
+  start() {
+    void this.load();
+    events.on<Focus>('focus.changed', (f) => this.#apply(f));
+    events.on<Presence>('presence', (p) => {
+      this.presence = { ...this.presence, [p.actor]: p };
+      if (p.suggest) this.suggestion = p;
+    });
+  }
+
+  async load() {
+    try {
+      this.current = await must(api.GET('/focus'));
+    } catch {
+      this.current = null;
+    }
+  }
+
+  #apply(f: Focus) {
+    const before = this.current;
+    this.current = f;
+    if (!this.follow || !f.route) return;
+    // Only follow moves made elsewhere (another tab, an agent).
+    if (f.route !== router.current && f.route !== before?.route) {
+      router.navigate(f.route);
+    }
+  }
+
+  /**
+   * Move the focus. The update replaces the focus (fields left out are
+   * cleared, except pinned), so send all that the user looks at. Calls are
+   * debounced (250 ms) and merged, so pages can call it on every navigation
+   * and cursor move. Safe to call in an $effect: it does not track state.
+   */
+  set(u: FocusUpdate) {
+    untrack(() => {
+      const pinned = u.pinned ?? this.#pending?.pinned ?? this.current?.pinned;
+      this.#pending = { ...(this.#pending ?? {}), ...u, pinned };
+    });
+    clearTimeout(this.#timer);
+    this.#timer = setTimeout(() => void this.#flush(), 250);
+  }
+
+  async #flush() {
+    const body = this.#pending;
+    this.#pending = null;
+    if (!body) return;
+    try {
+      this.current = await must(api.PUT('/focus', { body }));
+    } catch (e) {
+      console.warn('focus', e);
+    }
+  }
+
+  /** Accept a suggested move of an agent. */
+  acceptSuggestion() {
+    const s = this.suggestion?.suggest;
+    this.suggestion = null;
+    if (!s) return;
+    if (s.route) router.navigate(s.route);
+    this.set(s);
+  }
+
+  dismissSuggestion() {
+    this.suggestion = null;
+  }
+}
+
+export const focus = new FocusStore();

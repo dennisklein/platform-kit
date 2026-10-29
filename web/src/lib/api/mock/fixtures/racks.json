@@ -1,0 +1,562 @@
+{
+ "GC5A-6Z": {
+  "main": {
+   "free": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47
+   ],
+   "location": "GSI Green Cube, level 5, room A (compute for defiant)",
+   "name": "GC5A-6Z",
+   "occupants": [
+    {
+     "category": "compute",
+     "cluster": "defiant",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cn-025",
+     "role": "worker",
+     "size": 2,
+     "unit": 10
+    },
+    {
+     "category": "compute",
+     "cluster": "defiant",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cn-026",
+     "role": "worker",
+     "size": 2,
+     "unit": 12
+    },
+    {
+     "category": "compute",
+     "cluster": "defiant",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cn-027",
+     "role": "worker",
+     "size": 2,
+     "unit": 14
+    },
+    {
+     "category": "compute",
+     "cluster": "defiant",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cn-028",
+     "role": "worker",
+     "size": 2,
+     "unit": 16
+    },
+    {
+     "category": "compute",
+     "cluster": "defiant",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cn-029",
+     "role": "worker",
+     "size": 2,
+     "unit": 18
+    },
+    {
+     "category": "compute",
+     "cluster": "defiant",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cn-030",
+     "role": "worker",
+     "size": 2,
+     "unit": 20
+    },
+    {
+     "category": "compute",
+     "cluster": "defiant",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cn-031",
+     "role": "worker",
+     "size": 2,
+     "unit": 22
+    },
+    {
+     "category": "compute",
+     "cluster": "defiant",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cn-032",
+     "role": "worker",
+     "size": 2,
+     "unit": 24
+    },
+    {
+     "category": "compute",
+     "cluster": "defiant",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cn-033",
+     "role": "worker",
+     "size": 2,
+     "unit": 26
+    },
+    {
+     "category": "compute",
+     "cluster": "defiant",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cn-034",
+     "role": "worker",
+     "size": 2,
+     "unit": 28
+    }
+   ],
+   "path": "control/inventory/racks/gc5a-6z.yaml",
+   "row": "6",
+   "units": 47
+  },
+  "change": {
+   "free": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47
+   ],
+   "location": "GSI Green Cube, level 5, room A (compute for defiant)",
+   "name": "GC5A-6Z",
+   "occupants": [
+    {
+     "category": "compute",
+     "changeId": "c-k7m2qz",
+     "cluster": "defiant",
+     "highlight": "added",
+     "kind": "Node",
+     "name": "cn-035",
+     "role": "worker",
+     "size": 2,
+     "unit": 6
+    },
+    {
+     "category": "compute",
+     "changeId": "c-k7m2qz",
+     "cluster": "defiant",
+     "highlight": "added",
+     "kind": "Node",
+     "name": "cn-036",
+     "role": "worker",
+     "size": 2,
+     "unit": 8
+    },
+    {
+     "category": "compute",
+     "cluster": "defiant",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cn-025",
+     "role": "worker",
+     "size": 2,
+     "unit": 10
+    },
+    {
+     "category": "compute",
+     "cluster": "defiant",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cn-026",
+     "role": "worker",
+     "size": 2,
+     "unit": 12
+    },
+    {
+     "category": "compute",
+     "cluster": "defiant",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cn-027",
+     "role": "worker",
+     "size": 2,
+     "unit": 14
+    },
+    {
+     "category": "compute",
+     "cluster": "defiant",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cn-028",
+     "role": "worker",
+     "size": 2,
+     "unit": 16
+    },
+    {
+     "category": "compute",
+     "cluster": "defiant",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cn-029",
+     "role": "worker",
+     "size": 2,
+     "unit": 18
+    },
+    {
+     "category": "compute",
+     "cluster": "defiant",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cn-030",
+     "role": "worker",
+     "size": 2,
+     "unit": 20
+    },
+    {
+     "category": "compute",
+     "cluster": "defiant",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cn-031",
+     "role": "worker",
+     "size": 2,
+     "unit": 22
+    },
+    {
+     "category": "compute",
+     "cluster": "defiant",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cn-032",
+     "role": "worker",
+     "size": 2,
+     "unit": 24
+    },
+    {
+     "category": "compute",
+     "cluster": "defiant",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cn-033",
+     "role": "worker",
+     "size": 2,
+     "unit": 26
+    },
+    {
+     "category": "compute",
+     "cluster": "defiant",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cn-034",
+     "role": "worker",
+     "size": 2,
+     "unit": 28
+    }
+   ],
+   "path": "control/inventory/racks/gc5a-6z.yaml",
+   "ref": "c-k7m2qz",
+   "row": "6",
+   "units": 47
+  }
+ },
+ "GC5A-6Y": {
+  "main": {
+   "free": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    26,
+    27,
+    28,
+    29,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44
+   ],
+   "location": "GSI Green Cube, level 5, room A (control, storage and row switches)",
+   "name": "GC5A-6Y",
+   "occupants": [
+    {
+     "category": "control",
+     "cluster": "phoenix",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cp-01",
+     "role": "control",
+     "size": 1,
+     "unit": 10
+    },
+    {
+     "category": "control",
+     "cluster": "phoenix",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cp-02",
+     "role": "control",
+     "size": 1,
+     "unit": 11
+    },
+    {
+     "category": "control",
+     "cluster": "phoenix",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cp-03",
+     "role": "control",
+     "size": 1,
+     "unit": 12
+    },
+    {
+     "category": "storage",
+     "cluster": "pegasus",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "sn-05",
+     "role": "storage",
+     "size": 2,
+     "unit": 20
+    },
+    {
+     "category": "jbod",
+     "highlight": "none",
+     "kind": "Jbod",
+     "name": "jb-05",
+     "role": "jbod",
+     "size": 4,
+     "unit": 22
+    },
+    {
+     "category": "compute",
+     "cluster": "defiant",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cn-003",
+     "role": "worker",
+     "size": 2,
+     "unit": 30
+    },
+    {
+     "category": "network",
+     "highlight": "none",
+     "kind": "Switch",
+     "name": "mgmt",
+     "role": "switch",
+     "size": 1,
+     "unit": 45
+    },
+    {
+     "category": "network",
+     "highlight": "none",
+     "kind": "Switch",
+     "name": "data-a",
+     "role": "switch",
+     "size": 1,
+     "unit": 46
+    },
+    {
+     "category": "network",
+     "highlight": "none",
+     "kind": "Switch",
+     "name": "data-b",
+     "role": "switch",
+     "size": 1,
+     "unit": 47
+    }
+   ],
+   "path": "control/inventory/racks/gc5a-6y.yaml",
+   "row": "6",
+   "units": 47
+  },
+  "change": {
+   "free": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    26,
+    27,
+    28,
+    29,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44
+   ],
+   "location": "GSI Green Cube, level 5, room A (control, storage and row switches)",
+   "name": "GC5A-6Y",
+   "occupants": [
+    {
+     "category": "control",
+     "cluster": "phoenix",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cp-01",
+     "role": "control",
+     "size": 1,
+     "unit": 10
+    },
+    {
+     "category": "control",
+     "cluster": "phoenix",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cp-02",
+     "role": "control",
+     "size": 1,
+     "unit": 11
+    },
+    {
+     "category": "control",
+     "cluster": "phoenix",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cp-03",
+     "role": "control",
+     "size": 1,
+     "unit": 12
+    },
+    {
+     "category": "storage",
+     "cluster": "pegasus",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "sn-05",
+     "role": "storage",
+     "size": 2,
+     "unit": 20
+    },
+    {
+     "category": "jbod",
+     "highlight": "none",
+     "kind": "Jbod",
+     "name": "jb-05",
+     "role": "jbod",
+     "size": 4,
+     "unit": 22
+    },
+    {
+     "category": "compute",
+     "cluster": "defiant",
+     "highlight": "none",
+     "kind": "Node",
+     "name": "cn-003",
+     "role": "worker",
+     "size": 2,
+     "unit": 30
+    },
+    {
+     "category": "network",
+     "highlight": "none",
+     "kind": "Switch",
+     "name": "mgmt",
+     "role": "switch",
+     "size": 1,
+     "unit": 45
+    },
+    {
+     "category": "network",
+     "highlight": "none",
+     "kind": "Switch",
+     "name": "data-a",
+     "role": "switch",
+     "size": 1,
+     "unit": 46
+    },
+    {
+     "category": "network",
+     "highlight": "none",
+     "kind": "Switch",
+     "name": "data-b",
+     "role": "switch",
+     "size": 1,
+     "unit": 47
+    }
+   ],
+   "path": "control/inventory/racks/gc5a-6y.yaml",
+   "ref": "c-k7m2qz",
+   "row": "6",
+   "units": 47
+  }
+ }
+}

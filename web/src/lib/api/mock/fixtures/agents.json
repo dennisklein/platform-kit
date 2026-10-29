@@ -1,0 +1,26 @@
+[
+ {
+  "active": false,
+  "actsFor": "dennis",
+  "can": [
+   "push",
+   "open-mr",
+   "run-lab",
+   "mark-ready"
+  ],
+  "id": "dennis-agent",
+  "mode": "navigate"
+ },
+ {
+  "active": false,
+  "actsFor": "anna",
+  "can": [
+   "push",
+   "open-mr",
+   "run-lab",
+   "mark-ready"
+  ],
+  "id": "anna-agent",
+  "mode": "navigate"
+ }
+]

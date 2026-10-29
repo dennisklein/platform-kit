@@ -1,0 +1,745 @@
+{
+ "kb/hardware/jbod-slot-numbers.md": {
+  "body": "# JBOD drawers: slot numbers\n\njb-05 is a Western Digital Ultrastar Data60 shelf with two drawers. In\n`jb-05.yaml` drawers and slots count from 0, as in the enclosure firmware.\n\n| Drawer | Slots | Front label | Linux device order |\n| --- | --- | --- | --- |\n| 0 (top) | 0 to 23 | A01 to A24 | sda to sdx |\n| 1 (bottom) | 0 to 23 | B01 to B24 | sdy to sdav |\n\n- The front label counts from 1. Slot 17 in drawer 1 is label **B18**.\n- Rows of 6 slots run from the front to the back of the drawer.\n- `sg_ses --page=aes /dev/sg<N>` shows the slot of a device. Device names can\n  change after a reboot; the slot and the serial do not.\n- A blinking amber LED means the operator holds the slot for replacement.\n",
+  "changes": [],
+  "citedBy": [
+   {
+    "author": "dennis",
+    "date": "2026-08-24T10:00:00Z",
+    "id": "f186de7",
+    "sha": "f186de7acaf3c57ae419a1c7dc403f8bf8a8a586",
+    "title": "chore: initial state"
+   }
+  ],
+  "entities": [
+   {
+    "exists": true,
+    "field": "entities[0]",
+    "kind": "Jbod",
+    "name": "jb-05",
+    "path": "control/inventory/jb-05.yaml"
+   }
+  ],
+  "frontMatter": {
+   "entities": [
+    "jb-05"
+   ],
+   "tags": [
+    "hardware",
+    "disk"
+   ],
+   "title": "JBOD drawers: slot numbers",
+   "type": "reference"
+  },
+  "lastChange": {
+   "author": "dennis",
+   "date": "2026-08-24T10:00:00Z",
+   "id": "f186de7",
+   "sha": "f186de7acaf3c57ae419a1c7dc403f8bf8a8a586",
+   "title": "chore: initial state"
+  },
+  "path": "kb/hardware/jbod-slot-numbers.md",
+  "problems": [],
+  "title": "JBOD drawers: slot numbers",
+  "type": "reference"
+ },
+ "kb/incidents/2026-10-02-break-glass.md": {
+  "body": "# Incident 2026-10-02: break-glass\n\n## Summary\n\nOn 2026-10-02 at 07:40 the SSO provider returned errors after a certificate\nexpired. Nobody could log in to defiant with kubelogin. A tenant job queue\nwas stuck and needed a node drain. jonas used the break-glass certificate\nfrom OpenBao at 08:05.\n\n## Timeline\n\n| Time | Event |\n| --- | --- |\n| 07:40 | SSO token endpoint returns 500. kubelogin fails for all admins. |\n| 07:55 | Tenant reports stuck jobs on cn-031. |\n| 08:05 | jonas reads the break-glass certificate from OpenBao. Alert to all owners and platform admins. |\n| 08:12 | cn-031 drained and rebooted. Jobs run again. |\n| 09:30 | SSO certificate renewed. kubelogin works. |\n| 10:10 | Break-glass certificate rotated in OpenBao. |\n\n## Follow-up\n\n- The SSO certificate now has a renewal alert 14 days before expiry.\n- The break-glass use is recorded in the merge commit of c-b7gl4s with the\n  trailer `Pk-Break-Glass: openbao-cert 2026-10-02`.\n",
+  "changes": [
+   {
+    "author": "jonas",
+    "date": "2026-10-02T13:05:00Z",
+    "id": "c-b7gl4s",
+    "sha": "ce8a2da82f3673da8bd5e08c8191565475d2ab12",
+    "state": "verified",
+    "title": "Record break-glass use on 2026-10-02"
+   }
+  ],
+  "citedBy": [
+   {
+    "author": "jonas",
+    "date": "2026-10-02T13:05:00Z",
+    "id": "c-b7gl4s",
+    "mr": "!4",
+    "sha": "ce8a2da82f3673da8bd5e08c8191565475d2ab12",
+    "state": "verified",
+    "title": "Record break-glass use on 2026-10-02"
+   }
+  ],
+  "entities": [
+   {
+    "exists": true,
+    "field": "entities[0]",
+    "kind": "",
+    "name": "phoenix",
+    "path": "control/talos/phoenix/talconfig.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[1]",
+    "kind": "",
+    "name": "defiant",
+    "path": "control/talos/defiant/talconfig.yaml"
+   }
+  ],
+  "frontMatter": {
+   "changes": [
+    "c-b7gl4s"
+   ],
+   "entities": [
+    "phoenix",
+    "defiant"
+   ],
+   "tags": [
+    "break-glass",
+    "openbao",
+    "sso"
+   ],
+   "title": "Incident 2026-10-02: break-glass",
+   "type": "incident"
+  },
+  "lastChange": {
+   "author": "jonas",
+   "date": "2026-10-02T13:05:00Z",
+   "id": "c-b7gl4s",
+   "mr": "!4",
+   "sha": "ce8a2da82f3673da8bd5e08c8191565475d2ab12",
+   "state": "verified",
+   "title": "Record break-glass use on 2026-10-02"
+  },
+  "path": "kb/incidents/2026-10-02-break-glass.md",
+  "problems": [],
+  "title": "Incident 2026-10-02: break-glass",
+  "type": "incident"
+ },
+ "kb/labs/c-19f4tb-run-1.md": {
+  "body": "# Lab report c-19f4tb/run-1\n\nResult: **pass**. Driver sim, host local, provisioning metal, fresh machines.\n\n## Steps\n\n| Step | Detail | Result |\n| --- | --- | --- |\n| topology | phoenix control nodes | pass |\n| BMC | Redfish sim | pass |\n| install | Talos, kernel args | pass |\n| join | phoenix | pass |\n| checks | scenario | pass |\n| report | written | pass |\n\n## Checks\n\n- pass: nodes Ready: 3 of 3\n- pass: kernel args: intel_iommu=on iommu=pt on cp-01..cp-03\n- pass: etcd: 3 of 3 members healthy after rolling reboot\n",
+  "changes": [
+   {
+    "author": "dennis",
+    "date": "2026-10-27T10:05:00Z",
+    "id": "c-19f4tb",
+    "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+    "state": "verified",
+    "title": "Kernel args on control nodes"
+   }
+  ],
+  "citedBy": [
+   {
+    "author": "dennis",
+    "date": "2026-10-27T10:05:00Z",
+    "id": "c-19f4tb",
+    "mr": "!8",
+    "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+    "state": "verified",
+    "title": "Kernel args on control nodes"
+   }
+  ],
+  "entities": [
+   {
+    "exists": true,
+    "field": "entities[0]",
+    "kind": "Node",
+    "name": "cp-01",
+    "path": "control/inventory/cp-01.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[1]",
+    "kind": "Node",
+    "name": "cp-02",
+    "path": "control/inventory/cp-02.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[2]",
+    "kind": "Node",
+    "name": "cp-03",
+    "path": "control/inventory/cp-03.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[3]",
+    "kind": "",
+    "name": "phoenix",
+    "path": "control/talos/phoenix/talconfig.yaml"
+   }
+  ],
+  "frontMatter": {
+   "changes": [
+    "c-19f4tb"
+   ],
+   "entities": [
+    "cp-01",
+    "cp-02",
+    "cp-03",
+    "phoenix"
+   ],
+   "result": "pass",
+   "run": "c-19f4tb/run-1",
+   "title": "Lab report c-19f4tb/run-1",
+   "type": "lab-report"
+  },
+  "lastChange": {
+   "author": "dennis",
+   "date": "2026-10-27T10:05:00Z",
+   "id": "c-19f4tb",
+   "mr": "!8",
+   "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+   "state": "verified",
+   "title": "Kernel args on control nodes"
+  },
+  "path": "kb/labs/c-19f4tb-run-1.md",
+  "problems": [],
+  "title": "Lab report c-19f4tb/run-1",
+  "type": "lab-report"
+ },
+ "kb/labs/c-2hd7vw-run-1.md": {
+  "body": "# Lab report c-2hd7vw/run-1\n\nResult: **pass**. Driver sim, host local, provisioning metal, fresh machines.\n\n## Steps\n\n| Step | Detail | Result |\n| --- | --- | --- |\n| topology | generate from inventory and cabling | pass |\n| BMC | Redfish sim | pass |\n| install | Talos | pass |\n| join | defiant | pass |\n| BGP | peers up | pass |\n| checks | scenario | pass |\n| report | written | pass |\n\n## Checks\n\n- pass: nodes Ready: 11 of 11\n- pass: cn-003: p1 data-b 9, p2 data-a 37\n- pass: fault: data-b link down, cn-003 traffic via data-a\n",
+  "changes": [
+   {
+    "author": "jonas",
+    "date": "2026-09-12T10:15:00Z",
+    "id": "c-2hd7vw",
+    "sha": "5749a4974305012471330d39ecb142e1f0cce87b",
+    "state": "verified",
+    "title": "Move cn-003 to data-a 37"
+   }
+  ],
+  "citedBy": [
+   {
+    "author": "jonas",
+    "date": "2026-09-12T10:15:00Z",
+    "id": "c-2hd7vw",
+    "mr": "!2",
+    "sha": "5749a4974305012471330d39ecb142e1f0cce87b",
+    "state": "verified",
+    "title": "Move cn-003 to data-a 37"
+   }
+  ],
+  "entities": [
+   {
+    "exists": true,
+    "field": "entities[0]",
+    "kind": "Node",
+    "name": "cn-003",
+    "path": "control/inventory/cn-003.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[1]",
+    "kind": "Switch",
+    "name": "data-a",
+    "path": "control/inventory/switches/data-a.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[2]",
+    "kind": "Switch",
+    "name": "data-b",
+    "path": "control/inventory/switches/data-b.yaml"
+   }
+  ],
+  "frontMatter": {
+   "changes": [
+    "c-2hd7vw"
+   ],
+   "entities": [
+    "cn-003",
+    "data-a",
+    "data-b"
+   ],
+   "result": "pass",
+   "run": "c-2hd7vw/run-1",
+   "title": "Lab report c-2hd7vw/run-1",
+   "type": "lab-report"
+  },
+  "lastChange": {
+   "author": "jonas",
+   "date": "2026-09-12T10:15:00Z",
+   "id": "c-2hd7vw",
+   "mr": "!2",
+   "sha": "5749a4974305012471330d39ecb142e1f0cce87b",
+   "state": "verified",
+   "title": "Move cn-003 to data-a 37"
+  },
+  "path": "kb/labs/c-2hd7vw-run-1.md",
+  "problems": [],
+  "title": "Lab report c-2hd7vw/run-1",
+  "type": "lab-report"
+ },
+ "kb/labs/c-9kq1mf-run-1.md": {
+  "body": "# Lab report c-9kq1mf/run-1\n\nResult: **pass**. Driver sim, host local, provisioning metal, fresh machines.\n\n## Steps\n\n| Step | Detail | Result |\n| --- | --- | --- |\n| topology | generate from inventory and cabling | pass |\n| BMC | Redfish sim | pass |\n| install | Talos | pass |\n| join | defiant | pass |\n| BGP | peers up | pass |\n| checks | scenario | pass |\n| report | written | pass |\n\n## Checks\n\n- pass: nodes Ready: 11 of 11\n- pass: bgp: established, 10 of 10 nodes of GC5A-6Z selected by rack-6z\n- pass: bmc: power cycle cn-030, back in 3m 05s\n- pass: fault: data-b link down, traffic via data-a\n",
+  "changes": [
+   {
+    "author": "dennis",
+    "date": "2026-09-03T09:40:00Z",
+    "id": "c-9kq1mf",
+    "sha": "7b9e667bcb2ae27a0f417ffbdaab96eb4f2f4dc0",
+    "state": "verified",
+    "title": "Add rack GC5A-6Z compute nodes"
+   }
+  ],
+  "citedBy": [
+   {
+    "author": "dennis",
+    "date": "2026-09-03T09:40:00Z",
+    "id": "c-9kq1mf",
+    "mr": "!1",
+    "sha": "7b9e667bcb2ae27a0f417ffbdaab96eb4f2f4dc0",
+    "state": "verified",
+    "title": "Add rack GC5A-6Z compute nodes"
+   }
+  ],
+  "entities": [
+   {
+    "exists": true,
+    "field": "entities[0]",
+    "kind": "Rack",
+    "name": "GC5A-6Z",
+    "path": "control/inventory/racks/gc5a-6z.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[1]",
+    "kind": "Node",
+    "name": "cn-025",
+    "path": "control/inventory/cn-025.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[2]",
+    "kind": "Node",
+    "name": "cn-026",
+    "path": "control/inventory/cn-026.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[3]",
+    "kind": "Node",
+    "name": "cn-027",
+    "path": "control/inventory/cn-027.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[4]",
+    "kind": "Node",
+    "name": "cn-028",
+    "path": "control/inventory/cn-028.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[5]",
+    "kind": "Node",
+    "name": "cn-029",
+    "path": "control/inventory/cn-029.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[6]",
+    "kind": "Node",
+    "name": "cn-030",
+    "path": "control/inventory/cn-030.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[7]",
+    "kind": "Node",
+    "name": "cn-031",
+    "path": "control/inventory/cn-031.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[8]",
+    "kind": "Node",
+    "name": "cn-032",
+    "path": "control/inventory/cn-032.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[9]",
+    "kind": "Node",
+    "name": "cn-033",
+    "path": "control/inventory/cn-033.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[10]",
+    "kind": "Node",
+    "name": "cn-034",
+    "path": "control/inventory/cn-034.yaml"
+   }
+  ],
+  "frontMatter": {
+   "changes": [
+    "c-9kq1mf"
+   ],
+   "entities": [
+    "GC5A-6Z",
+    "cn-025",
+    "cn-026",
+    "cn-027",
+    "cn-028",
+    "cn-029",
+    "cn-030",
+    "cn-031",
+    "cn-032",
+    "cn-033",
+    "cn-034"
+   ],
+   "result": "pass",
+   "run": "c-9kq1mf/run-1",
+   "title": "Lab report c-9kq1mf/run-1",
+   "type": "lab-report"
+  },
+  "lastChange": {
+   "author": "dennis",
+   "date": "2026-09-03T09:40:00Z",
+   "id": "c-9kq1mf",
+   "mr": "!1",
+   "sha": "7b9e667bcb2ae27a0f417ffbdaab96eb4f2f4dc0",
+   "state": "verified",
+   "title": "Add rack GC5A-6Z compute nodes"
+  },
+  "path": "kb/labs/c-9kq1mf-run-1.md",
+  "problems": [],
+  "title": "Lab report c-9kq1mf/run-1",
+  "type": "lab-report"
+ },
+ "kb/labs/c-u7x2bd-run-1.md": {
+  "body": "# Lab report c-u7x2bd/run-1\n\nResult: **pass**. Driver sim, host local, provisioning metal, fresh machines.\n\n## Steps\n\n| Step | Detail | Result |\n| --- | --- | --- |\n| topology | generate from inventory and cabling | pass |\n| BMC | Redfish sim | pass |\n| install | Talos | pass |\n| join | defiant | pass |\n| BGP | peers up | pass |\n| checks | scenario | pass |\n| report | written | pass |\n\n## Checks\n\n- pass: nodes Ready: 11 of 11\n- pass: bmc: firmware 2.4 reported by Redfish sim on 11 of 11\n- pass: bmc: power cycle cn-025, back in 3m 12s\n",
+  "changes": [
+   {
+    "author": "anna",
+    "date": "2026-10-14T10:30:00Z",
+    "id": "c-u7x2bd",
+    "sha": "dc624fbb59415b58557d42f5454f24dc8cfac0d1",
+    "state": "verified",
+    "title": "Firmware 2.4 on compute nodes"
+   }
+  ],
+  "citedBy": [
+   {
+    "author": "anna",
+    "date": "2026-10-14T10:30:00Z",
+    "id": "c-u7x2bd",
+    "mr": "!6",
+    "sha": "dc624fbb59415b58557d42f5454f24dc8cfac0d1",
+    "state": "verified",
+    "title": "Firmware 2.4 on compute nodes"
+   }
+  ],
+  "entities": [
+   {
+    "exists": true,
+    "field": "entities[0]",
+    "kind": "Node",
+    "name": "cn-003",
+    "path": "control/inventory/cn-003.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[1]",
+    "kind": "Node",
+    "name": "cn-025",
+    "path": "control/inventory/cn-025.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[2]",
+    "kind": "Node",
+    "name": "cn-026",
+    "path": "control/inventory/cn-026.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[3]",
+    "kind": "Node",
+    "name": "cn-027",
+    "path": "control/inventory/cn-027.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[4]",
+    "kind": "Node",
+    "name": "cn-028",
+    "path": "control/inventory/cn-028.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[5]",
+    "kind": "Node",
+    "name": "cn-029",
+    "path": "control/inventory/cn-029.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[6]",
+    "kind": "Node",
+    "name": "cn-030",
+    "path": "control/inventory/cn-030.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[7]",
+    "kind": "Node",
+    "name": "cn-031",
+    "path": "control/inventory/cn-031.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[8]",
+    "kind": "Node",
+    "name": "cn-032",
+    "path": "control/inventory/cn-032.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[9]",
+    "kind": "Node",
+    "name": "cn-033",
+    "path": "control/inventory/cn-033.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[10]",
+    "kind": "Node",
+    "name": "cn-034",
+    "path": "control/inventory/cn-034.yaml"
+   }
+  ],
+  "frontMatter": {
+   "changes": [
+    "c-u7x2bd"
+   ],
+   "entities": [
+    "cn-003",
+    "cn-025",
+    "cn-026",
+    "cn-027",
+    "cn-028",
+    "cn-029",
+    "cn-030",
+    "cn-031",
+    "cn-032",
+    "cn-033",
+    "cn-034"
+   ],
+   "result": "pass",
+   "run": "c-u7x2bd/run-1",
+   "title": "Lab report c-u7x2bd/run-1",
+   "type": "lab-report"
+  },
+  "lastChange": {
+   "author": "anna",
+   "date": "2026-10-14T10:30:00Z",
+   "id": "c-u7x2bd",
+   "mr": "!6",
+   "sha": "dc624fbb59415b58557d42f5454f24dc8cfac0d1",
+   "state": "verified",
+   "title": "Firmware 2.4 on compute nodes"
+  },
+  "path": "kb/labs/c-u7x2bd-run-1.md",
+  "problems": [],
+  "title": "Lab report c-u7x2bd/run-1",
+  "type": "lab-report"
+ },
+ "kb/runbooks/add-node.md": {
+  "body": "# Add a compute node to a cluster\n\nA compute node is one file in `control/inventory/`. The bench renders it into\na `Machine` for its cluster, and the metal operator installs Talos on it.\n\n## Steps\n\n1. Open a change and link the work item:\n\n   ```\n   pk change new \"Add cn-035 to defiant\" --intent \"compute node for tenants\" --work-item w-114\n   ```\n\n2. Add the node from kind **Node** (Files, New file). Set the cluster, the\n   role and the rack location. A 2U node at unit 6 fills units 6 and 7.\n3. Cable the ports. The form shows the free ports of `mgmt`, `data-a` and\n   `data-b`. Use one port on `data-a` and one on `data-b`, so the node keeps\n   traffic when one data switch fails. The bench checks that each switch port\n   is free and each cable id is unique.\n4. Add the node to the BGP peering policy of its rack\n   (`clusters/<cluster>/infra/cilium/bgp-<rack>.yaml`). A node that no policy\n   selects gets no routes. The advisor \"Check this commit\" finds a missing node.\n5. Run the change lab. The inventory path needs a green lab on the head of\n   the branch. The default scenario installs Talos through the emulated BMC,\n   joins the node, checks BGP and takes `data-b` down.\n6. Mark ready. Two platform admins approve. Merge.\n\n## Checks after merge\n\n- The change shows `deployed` when Flux applied the merge commit on the\n  cluster, and `verified` when the node is Ready and BGP is up.\n- The work item moves to done.\n",
+  "changes": [],
+  "citedBy": [
+   {
+    "author": "dennis",
+    "date": "2026-08-24T10:00:00Z",
+    "id": "f186de7",
+    "sha": "f186de7acaf3c57ae419a1c7dc403f8bf8a8a586",
+    "title": "chore: initial state"
+   }
+  ],
+  "entities": [
+   {
+    "exists": true,
+    "field": "entities[0]",
+    "kind": "Rack",
+    "name": "GC5A-6Z",
+    "path": "control/inventory/racks/gc5a-6z.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[1]",
+    "kind": "",
+    "name": "defiant",
+    "path": "control/talos/defiant/talconfig.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[2]",
+    "kind": "Switch",
+    "name": "data-a",
+    "path": "control/inventory/switches/data-a.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[3]",
+    "kind": "Switch",
+    "name": "data-b",
+    "path": "control/inventory/switches/data-b.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[4]",
+    "kind": "Switch",
+    "name": "mgmt",
+    "path": "control/inventory/switches/mgmt.yaml"
+   }
+  ],
+  "frontMatter": {
+   "entities": [
+    "GC5A-6Z",
+    "defiant",
+    "data-a",
+    "data-b",
+    "mgmt"
+   ],
+   "tags": [
+    "inventory",
+    "bgp",
+    "labs"
+   ],
+   "title": "Add a compute node to a cluster",
+   "type": "runbook"
+  },
+  "lastChange": {
+   "author": "dennis",
+   "date": "2026-08-24T10:00:00Z",
+   "id": "f186de7",
+   "sha": "f186de7acaf3c57ae419a1c7dc403f8bf8a8a586",
+   "title": "chore: initial state"
+  },
+  "path": "kb/runbooks/add-node.md",
+  "problems": [],
+  "title": "Add a compute node to a cluster",
+  "type": "runbook"
+ },
+ "kb/runbooks/replace-failed-disk.md": {
+  "body": "# Replace a failed disk in a storage node\n\nUse this runbook when Ceph marks an OSD on sn-05 as down and the disk is in\njb-05. The desired state of each slot is in `control/inventory/jb-05.yaml`.\n\n## Before you start\n\n- Find the OSD and its device: `ceph osd tree down` and\n  `ceph device ls-by-host sn-05`.\n- Map the device to a drawer and a slot with\n  [JBOD drawers: slot numbers](../hardware/jbod-slot-numbers.md).\n- Check that the cluster is healthy apart from this OSD: `ceph health detail`.\n  Do not start when placement groups are already degraded for another reason.\n\n## Steps\n\n1. Open a change:\n\n   ```\n   pk change new \"Replace disk jb-05 slot 17\" --intent \"OSD down on sn-05, disk in drawer 1 slot 17\"\n   ```\n\n2. Set the slot to `replace`:\n\n   ```\n   pk edit jb-05 --set drawers[1].slots[17].state=replace\n   ```\n\n3. Run the change lab, mark the change ready and get one approval.\n4. Merge. The storage operator drains the OSD and marks it out. Wait until\n   `ceph -s` shows no misplaced objects.\n5. Replace the disk. The slot LED blinks amber while the operator holds it.\n6. The asset DB sync opens a change with the new serial. Review it, then set\n   the slot back to `ok` in the same change.\n\n## After the replacement\n\n- Ceph backfills the new OSD. This takes about 6 h for a 20 TB disk.\n- Add a line to the incident log if more than one disk failed in a week.\n",
+  "changes": [],
+  "citedBy": [
+   {
+    "author": "dennis",
+    "date": "2026-08-24T10:00:00Z",
+    "id": "f186de7",
+    "sha": "f186de7acaf3c57ae419a1c7dc403f8bf8a8a586",
+    "title": "chore: initial state"
+   }
+  ],
+  "entities": [
+   {
+    "exists": true,
+    "field": "entities[0]",
+    "kind": "Node",
+    "name": "sn-05",
+    "path": "control/inventory/sn-05.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[1]",
+    "kind": "Jbod",
+    "name": "jb-05",
+    "path": "control/inventory/jb-05.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[2]",
+    "kind": "Cluster",
+    "name": "pegasus",
+    "path": "clusters/pegasus/cluster.yaml"
+   }
+  ],
+  "frontMatter": {
+   "entities": [
+    "sn-05",
+    "jb-05",
+    "pegasus"
+   ],
+   "tags": [
+    "ceph",
+    "storage",
+    "disk"
+   ],
+   "title": "Replace a failed disk in a storage node",
+   "type": "runbook"
+  },
+  "lastChange": {
+   "author": "dennis",
+   "date": "2026-08-24T10:00:00Z",
+   "id": "f186de7",
+   "sha": "f186de7acaf3c57ae419a1c7dc403f8bf8a8a586",
+   "title": "chore: initial state"
+  },
+  "path": "kb/runbooks/replace-failed-disk.md",
+  "problems": [],
+  "title": "Replace a failed disk in a storage node",
+  "type": "runbook"
+ },
+ "kb/storage/ceph-osd-layout-pegasus.md": {
+  "body": "# Ceph OSD layout on pegasus\n\npegasus runs Ceph with Rook. One storage node, sn-05, holds the OSDs of the\njb-05 disk shelf. The CephCluster is in\n`clusters/pegasus/infra/rook-ceph/cephcluster.yaml`.\n\n## Layout\n\n| Item | Value |\n| --- | --- |\n| Storage node | sn-05 (Huawei 2288H V5), GC5A-6Y U20 |\n| Disk shelf | jb-05, 2 drawers with 24 slots each, SAS to sn-05 |\n| OSDs | one OSD per disk, 48 OSDs |\n| Failure domain | `osd` (single node; host failure domain comes with sn-06) |\n| Pools | `rbd-tenants` (replica 3), `cephfs-data` (EC 4+2) |\n\n## Decisions\n\n- One OSD per disk. NVMe for WAL/DB is not in the shelf, so each OSD keeps\n  its own WAL and DB on the spinning disk. Write latency is acceptable for\n  the batch workloads on defiant.\n- The failure domain stays `osd` until a second storage node exists. A host\n  failure takes the pool down; the backups on tape cover this.\n- Slot state lives in git (`jb-05.yaml`). A disk replacement is a normal\n  change, see [Replace a failed disk](../runbooks/replace-failed-disk.md).\n",
+  "changes": [],
+  "citedBy": [
+   {
+    "author": "dennis",
+    "date": "2026-08-24T10:00:00Z",
+    "id": "f186de7",
+    "sha": "f186de7acaf3c57ae419a1c7dc403f8bf8a8a586",
+    "title": "chore: initial state"
+   }
+  ],
+  "entities": [
+   {
+    "exists": true,
+    "field": "entities[0]",
+    "kind": "Cluster",
+    "name": "pegasus",
+    "path": "clusters/pegasus/cluster.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[1]",
+    "kind": "Node",
+    "name": "sn-05",
+    "path": "control/inventory/sn-05.yaml"
+   },
+   {
+    "exists": true,
+    "field": "entities[2]",
+    "kind": "Jbod",
+    "name": "jb-05",
+    "path": "control/inventory/jb-05.yaml"
+   }
+  ],
+  "frontMatter": {
+   "entities": [
+    "pegasus",
+    "sn-05",
+    "jb-05"
+   ],
+   "tags": [
+    "ceph",
+    "storage"
+   ],
+   "title": "Ceph OSD layout on pegasus",
+   "type": "design"
+  },
+  "lastChange": {
+   "author": "dennis",
+   "date": "2026-08-24T10:00:00Z",
+   "id": "f186de7",
+   "sha": "f186de7acaf3c57ae419a1c7dc403f8bf8a8a586",
+   "title": "chore: initial state"
+  },
+  "path": "kb/storage/ceph-osd-layout-pegasus.md",
+  "problems": [],
+  "title": "Ceph OSD layout on pegasus",
+  "type": "design"
+ }
+}
