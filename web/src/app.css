@@ -696,12 +696,20 @@ button {
   }
 }
 
-/* Motion: Svelte transitions read lib/f/motion.ts; CSS transitions stop here. */
+/* Motion: Svelte transitions read lib/f/motion.ts; CSS transitions and
+   animations (Track rings, pulses, shimmer, carets) stop here. A spinner
+   still says "working": it turns slowly instead of standing still. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
+  }
+  .spin {
+    animation-duration: 2.4s !important;
+    animation-iteration-count: infinite !important;
   }
 }
