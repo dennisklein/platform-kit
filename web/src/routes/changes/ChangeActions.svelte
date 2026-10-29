@@ -6,6 +6,7 @@
   import { router, seg } from '../../lib/router.svelte';
   import Icon from '../../lib/components/Icon.svelte';
   import Modal from '../../lib/components/Modal.svelte';
+  import { tick } from 'svelte';
   import { mergeParts } from './trailers';
   import TrailerBlock from './TrailerBlock.svelte';
 
@@ -30,6 +31,60 @@
   let confirmClose = $state(false);
   let more = $state(false);
 
+  // One row, never wrapped on a wide screen: when the buttons do not fit,
+  // the secondary ones move into the "…" menu, least needed first. The
+  // next step (the dark button) never moves.
+  type Secondary = 'worktree' | 'lab' | 'impact';
+  const secondary = $derived<Secondary[]>(
+    open
+      ? [
+          ...(c.local ? (['worktree'] as const) : []),
+          ...(c.local && step !== 'lab' ? (['lab'] as const) : []),
+          ...(impactText ? (['impact'] as const) : []),
+        ]
+      : [],
+  );
+  let level = $state(0);
+  let wrap = $state(false);
+  let row = $state<HTMLElement | null>(null);
+  const moved = (k: Secondary) => secondary.slice(0, level).includes(k);
+
+  async function fit() {
+    if (!row) return;
+    level = 0;
+    wrap = false;
+    await tick();
+    while (row && row.scrollWidth > row.clientWidth + 1 && level < secondary.length) {
+      level++;
+      await tick();
+    }
+    if (row && row.scrollWidth > row.clientWidth + 1) wrap = true;
+  }
+
+  $effect(() => {
+    // Refit when the buttons change (state, busy, lab) or the row resizes.
+    void secondary.length;
+    void step;
+    void busy;
+    void c.state;
+    void c.behindTarget;
+    void c.dirty;
+    void c.labState;
+    void fit();
+  });
+  $effect(() => {
+    if (!row) return;
+    let w = row.clientWidth;
+    const ro = new ResizeObserver(() => {
+      if (row && row.clientWidth !== w) {
+        w = row.clientWidth;
+        void fit();
+      }
+    });
+    ro.observe(row);
+    return () => ro.disconnect();
+  });
+
   const files = (q?: Record<string, string>) => {
     const s = new URLSearchParams(q).toString();
     router.navigate(`/changes/${seg(c.id)}/files${s ? '?' + s : ''}`);
@@ -45,7 +100,7 @@
   }
 </script>
 
-<div class="actions">
+<div class="actions" class:wrap bind:this={row}>
   {#if open}
     {#if c.dirty}
       <button class={['btn', step === 'commit' && 'dark']} onclick={() => files({ commit: '1' })}>
@@ -63,7 +118,7 @@
         {#if busy === 'checkout'}<span class="spin"></span>{:else}<Icon name="folder" size={15} />{/if} Check out
       </button>
     {/if}
-    {#if c.local}
+    {#if c.local && !moved('lab')}
       <button
         class={['btn', step === 'lab' && 'dark']}
         disabled={!!busy || c.labState === 'running'}
@@ -74,13 +129,13 @@
         {c.labState === 'running' ? 'Lab running' : c.labRuns.length ? 'Run lab again' : 'Run lab'}
       </button>
     {/if}
-    {#if impactText}
+    {#if impactText && !moved('impact')}
       <a class="btn impact" href={`#/changes/${seg(c.id)}/review`} title="What the change does to the rendered clusters">
         <Icon name="hexagon" size={15} /> Impact: <span class="mono">{impactText}</span>
       </a>
     {/if}
     <a class="btn ai" href={`#/changes/${seg(c.id)}/review?advisor=risks`}><Icon name="sparkle" size={15} /> Ask the advisor about risks</a>
-    {#if c.local}
+    {#if c.local && !moved('worktree')}
       <button class="btn" onclick={() => files()} title={c.worktree ? `${c.worktree} (click: open files, the path is copied)` : 'Open the files'} onclickcapture={copyPath}>
         <Icon name="folder" size={15} /> Open worktree
       </button>
@@ -126,6 +181,17 @@
       {#if more}
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
         <div class="menu" onclick={() => (more = false)}>
+          {#if moved('lab')}
+            <button disabled={!!busy || c.labState === 'running'} onclick={() => actions.runLab(c.id)}>
+              <Icon name="flask" size={14} /> {c.labState === 'running' ? 'Lab running' : c.labRuns.length ? 'Run lab again' : 'Run lab'}
+            </button>
+          {/if}
+          {#if moved('impact')}
+            <a href={`#/changes/${seg(c.id)}/review`}><Icon name="hexagon" size={14} /> Impact: <span class="mono">{impactText}</span></a>
+          {/if}
+          {#if moved('worktree')}
+            <button onclick={() => files()} onclickcapture={copyPath}><Icon name="folder" size={14} /> Open worktree</button>
+          {/if}
           {#if c.mr}<a href={c.mr.url} target="_blank" rel="noreferrer"><Icon name="external" size={14} /> Open MR !{c.mr.number} in the forge</a>{/if}
           {#if c.worktree}<button onclick={copyPath}><Icon name="copy" size={14} /> Copy worktree path</button>{/if}
           <button class="danger" onclick={() => (confirmClose = true)}><Icon name="close" size={14} /> Close change</button>
@@ -193,8 +259,16 @@
   .actions {
     display: flex;
     gap: 8px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
+    min-width: 0;
+  }
+  .actions > :global(*) {
+    flex: none;
+  }
+  /* Narrow (side by side with a terminal): wrap when even the short row does not fit. */
+  .actions.wrap {
+    flex-wrap: wrap;
   }
   .actions :global(.btn) {
     padding: 6px 13px;
