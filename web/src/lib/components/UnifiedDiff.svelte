@@ -43,14 +43,14 @@
     user-select: none;
   }
   .op-add {
-    background: color-mix(in srgb, var(--ok) 15%, var(--panel));
+    background: color-mix(in srgb, var(--ok) 19%, var(--panel));
     box-shadow: inset 3px 0 var(--ok);
   }
   .op-add .mark {
     color: var(--ok);
   }
   .op-del {
-    background: color-mix(in srgb, var(--bad) 13%, var(--panel));
+    background: color-mix(in srgb, var(--bad) 16%, var(--panel));
     box-shadow: inset 3px 0 var(--bad);
   }
   .op-del .mark {
@@ -58,14 +58,14 @@
   }
   .w {
     color: inherit;
-    border-radius: 3px;
-    padding: 0 1px;
+    font-weight: 700;
+    border-radius: 2px;
   }
   .op-add .w {
-    background: color-mix(in srgb, var(--ok) 38%, var(--panel));
+    background: color-mix(in srgb, var(--ok) 42%, var(--panel));
   }
   .op-del .w {
-    background: color-mix(in srgb, var(--bad) 32%, var(--panel));
+    background: color-mix(in srgb, var(--bad) 36%, var(--panel));
   }
   .op-hunk,
   .op-head {
