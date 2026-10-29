@@ -21,6 +21,6 @@ test('change counts for the landing tiles', () => {
     { group: 'review', labState: 'pass' },
   ]);
   assert.deepEqual(n, { open: 5, mine: 2, others: 1, review: 1, bots: 1, labFailed: 1, labRunning: 1 });
-  assert.equal(openBreakdown(n), '2 mine · 1 to review · 1 by others · 1 by a bot');
+  assert.equal(openBreakdown(n), '2 mine · 1 review · 1 other · 1 bot');
   assert.equal(openBreakdown(changeCounts([{ group: 'mine' }])), '1 mine');
 });

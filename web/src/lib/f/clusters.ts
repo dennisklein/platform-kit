@@ -58,8 +58,9 @@ export function changeCounts(list: ChangeLike[]): Counts {
 /** The subtitle of the open-changes tile: the parts add up to the total. */
 export function openBreakdown(n: Counts): string {
   const parts = [`${n.mine} mine`];
-  if (n.review) parts.push(`${n.review} to review`);
-  if (n.others) parts.push(`${n.others} by others`);
-  if (n.bots) parts.push(`${n.bots} by ${n.bots === 1 ? 'a bot' : 'bots'}`);
+  // Short words: the line must fit a quarter of the projector width.
+  if (n.review) parts.push(`${n.review} review`);
+  if (n.others) parts.push(`${n.others} ${n.others === 1 ? 'other' : 'others'}`);
+  if (n.bots) parts.push(`${n.bots} ${n.bots === 1 ? 'bot' : 'bots'}`);
   return parts.join(' · ');
 }

@@ -186,7 +186,7 @@
 
   {#if entity.semantic?.length}
     <section class="card sem">
-      <h3>Semantic diff{#if ref} · <span class="keep">{ref}</span>{/if}</h3>
+      <h3>Semantic diff{#if ref}{' · '}<span class="keep">{ref}</span>{/if}</h3>
       <SemanticDiff lines={entity.semantic} fileHref={(l) => (l.path ? fileRoute(l.path, l.line) : undefined)} />
     </section>
   {/if}

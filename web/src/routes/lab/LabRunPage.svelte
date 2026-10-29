@@ -483,7 +483,7 @@
 
     <div class="body" class:livefirst={running || streaming}>
       <section class="card scen">
-        <h3 class="eyebrow">Scenario{#if run.scenario} · <span class="keep">{run.scenario}</span>{/if}</h3>
+        <h3 class="eyebrow">Scenario{#if run.scenario}{' · '}<span class="keep">{run.scenario}</span>{/if}</h3>
         {#each scenario as s (s.name)}
           <button class="sline" class:sel={pinned && selected === s.name} onclick={() => pick(s.name)}>
             <span class="ic st-{s.status}">
