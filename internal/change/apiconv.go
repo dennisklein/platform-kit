@@ -225,10 +225,10 @@ func LifecycleToAPI(ch *Change) []api.LifecycleStep {
 		}
 		switch st {
 		case Draft:
+			// The MR number goes on the review dot: under "draft" it read
+			// as "draft !13" after mark ready.
 			switch {
-			case ch.MR != nil:
-				step.Label = fmt.Sprintf("!%d", ch.MR.Number)
-			case ch.Pushed:
+			case ch.MR != nil, ch.Pushed:
 				step.Label = "pushed"
 			default:
 				step.Label = "local"
@@ -262,10 +262,12 @@ func LifecycleToAPI(ch *Change) []api.LifecycleStep {
 			}
 		case Review:
 			switch {
-			case ch.MR != nil && !ch.MR.Draft, i < cur:
+			case ch.MR != nil && (!ch.MR.Draft || i < cur):
+				step.Label = fmt.Sprintf("!%d", ch.MR.Number)
+			case i < cur:
 				step.Label = "ready"
 			case ch.MR != nil:
-				step.Label = "draft MR"
+				step.Label = fmt.Sprintf("draft !%d", ch.MR.Number)
 			default:
 				step.Label = "no MR"
 			}

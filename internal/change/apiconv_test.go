@@ -39,7 +39,7 @@ func TestLifecycleLabFail(t *testing.T) {
 	if l[Lab].Status != api.LifecycleStepStatusFail {
 		t.Errorf("lab: %+v", l[Lab])
 	}
-	if l[Draft].Label != "!7" || l[Review].Label != "draft MR" {
+	if l[Draft].Label != "pushed" || l[Review].Label != "draft !7" {
 		t.Errorf("labels: %+v %+v", l[Draft], l[Review])
 	}
 }
@@ -69,6 +69,10 @@ func TestLifecycleLabStaleAfterRebase(t *testing.T) {
 	}
 	if l[Draft].Status != api.LifecycleStepStatusDone || l[Review].Status != api.LifecycleStepStatusNow {
 		t.Errorf("draft %+v review %+v", l[Draft], l[Review])
+	}
+	// After mark ready nothing says "draft !12".
+	if l[Draft].Label != "pushed" || l[Review].Label != "!12" {
+		t.Errorf("labels after mark ready: %+v %+v", l[Draft], l[Review])
 	}
 	// Not required: the old run is only noted.
 	ch.Gates.LabGate.Required = false
