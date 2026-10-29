@@ -16,6 +16,12 @@
 
   const SHELL = /^(pk|kubectl|ceph|talosctl|flux|git|docker|curl|helm|cilium)\b/;
 
+  // A copy button on each code block; one click handler on the article
+  // copies the code without the shell prompts.
+  const COPY_ICON =
+    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 9h11v11H9zM5 15H4V4h11v1"/></svg>';
+  const COPY_BUTTON = `<button type="button" class="cpy" data-copy title="Copy" aria-label="Copy code">${COPY_ICON}<span>Copy</span></button>`;
+
   function makeMarked(base: string): Marked {
     return new Marked({
       gfm: true,
@@ -31,7 +37,7 @@
             .split('\n')
             .map((l) => (shell && l.trim() ? `<span class="prompt">$ </span>${esc(l)}` : esc(l)))
             .join('\n');
-          return `<pre class="code${shell ? ' shell' : ''}"${lang ? ` data-lang="${esc(lang)}"` : ''}><code>${body}</code></pre>`;
+          return `<pre class="code${shell ? ' shell' : ''}"${lang ? ` data-lang="${esc(lang)}"` : ''}>${COPY_BUTTON}<code>${body}</code></pre>`;
         },
         link({ href, title, tokens }: Tokens.Link) {
           const inner = this.parser.parseInline(tokens);
@@ -54,6 +60,7 @@
   // Markdown of a KB article, rendered without raw HTML. Entity names in the
   // text become chips that link to the entity (with ok/missing status).
   import type { EntityRef } from '../api/ftypes';
+  import { copyText } from '../f/copy';
 
   let {
     source,
@@ -114,6 +121,25 @@
     }
   });
 
+  // Copy the code of a block (the "$ " prompts are not part of it).
+  async function onclick(ev: MouseEvent) {
+    const btn = (ev.target as HTMLElement | null)?.closest<HTMLButtonElement>('button[data-copy]');
+    const code = btn?.parentElement?.querySelector('code');
+    if (!btn || !code) return;
+    ev.preventDefault();
+    const c = code.cloneNode(true) as HTMLElement;
+    c.querySelectorAll('.prompt').forEach((p) => p.remove());
+    const ok = await copyText(c.textContent ?? '');
+    const label = btn.querySelector('span');
+    if (!label) return;
+    label.textContent = ok ? 'Copied' : 'Select and copy';
+    btn.classList.toggle('ok', ok);
+    setTimeout(() => {
+      label.textContent = 'Copy';
+      btn.classList.remove('ok');
+    }, 1600);
+  }
+
   function chip(e: EntityRef): HTMLAnchorElement {
     const a = document.createElement('a');
     a.className = `ent${e.exists ? '' : ' missing'}`;
@@ -125,7 +151,8 @@
 </script>
 
 {#key html}
-  <div class="md" bind:this={el}>{@html html}</div>
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the copy buttons inside are buttons) -->
+  <div class="md" bind:this={el} {onclick}>{@html html}</div>
 {/key}
 
 <style>
@@ -170,6 +197,7 @@
     font-size: 12.5px;
   }
   .md :global(pre.code) {
+    position: relative;
     margin: 6px 0 12px;
     background: var(--gsi-navy);
     color: #e7e9ee;
@@ -177,6 +205,42 @@
     border-radius: 6px;
     padding: 12px 16px;
     font-size: 13px;
+    /* Long commands wrap instead of running out of the box. */
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .md :global(pre.code code) {
+    display: block;
+    padding-right: 64px;
+  }
+  .md :global(.cpy) {
+    position: absolute;
+    top: 7px;
+    right: 7px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: 1px solid #454b58;
+    background: #2a2f39;
+    color: #c9ccd2;
+    border-radius: 5px;
+    padding: 2px 7px;
+    font: 500 11.5px/1.4 var(--sans);
+    opacity: 0.75;
+    transition: opacity 0.15s;
+  }
+  .md :global(pre.code:hover .cpy),
+  .md :global(.cpy:focus-visible) {
+    opacity: 1;
+  }
+  .md :global(.cpy:hover) {
+    background: #343a46;
+    color: #fff;
+  }
+  .md :global(.cpy.ok) {
+    color: #8bc97a;
+    border-color: #5c8a4f;
+    opacity: 1;
   }
   .md :global(.prompt) {
     color: var(--gsi-orange);
