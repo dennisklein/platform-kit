@@ -481,7 +481,7 @@
       <Track {items} selectable bind:selected={() => (pinned || running || run?.result === 'fail' ? selected : undefined), (k) => pick(k)} />
     </section>
 
-    <div class="body">
+    <div class="body" class:livefirst={running || streaming}>
       <section class="card scen">
         <h3 class="eyebrow">Scenario{run.scenario ? ` · ${run.scenario}` : ''}</h3>
         {#each scenario as s (s.name)}
@@ -781,6 +781,12 @@
     .console {
       min-height: 360px;
     }
+    /* Side by side with a terminal: while the run is running the live
+       console comes first, so the output is on screen. */
+    .body.livefirst .console {
+      order: -1;
+      max-height: 60vh;
+    }
   }
   .sline {
     display: grid;
@@ -847,12 +853,11 @@
     padding: 5px 0;
     font-size: 15px;
   }
+  /* Values wrap rather than being cut: a failed check names the node. */
   .right {
     text-align: right;
     justify-self: end;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: break-word;
     max-width: 100%;
   }
   .trailer {
