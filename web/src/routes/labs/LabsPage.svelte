@@ -486,6 +486,10 @@
   .runs .sum {
     max-width: 520px;
   }
+  /* Run ids and lab times stay whole; the summary takes the wrapping. */
+  .runs td.mono {
+    white-space: nowrap;
+  }
   .toph {
     display: flex;
     align-items: center;
