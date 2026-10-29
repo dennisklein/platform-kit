@@ -238,7 +238,7 @@ func addSource(a *Answer, src llm.Source) {
 var (
 	reAddToPolicy = regexp.MustCompile(`(?i)\b(add|select|peer|include|put)\b.*\bpolic(y|ies)\b`)
 	rePolicyName  = regexp.MustCompile(`(?i)\b(?:the\s+)?([a-z0-9][a-z0-9-]*[a-z0-9])\s+(?:bgp\s+)?(?:peering\s+)?polic(?:y|ies)\b`)
-	reWhy         = regexp.MustCompile(`(?i)^\s*(why|when|who|how come)\b`)
+	reWhy         = regexp.MustCompile(`(?i)^\s*(?:(?:so|and|but|ok|okay|then|hi|hey)\b[\s,]*)*(why|when|who|how come)\b`)
 	reNumber      = regexp.MustCompile(`\b\d{1,3}\b`)
 )
 

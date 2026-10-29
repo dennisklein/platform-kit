@@ -148,6 +148,11 @@ func TestMockWhy(t *testing.T) {
 	if e.Surface != llm.SurfaceChat || e.User != "dennis" || !strings.Contains(e.Prompt, "cn-003") {
 		t.Errorf("log %+v", e)
 	}
+	// A spoken lead-in does not change the answer.
+	b, err := s.Ask(ctxAs("dennis"), ask("So, why does cn-003 use port 37 on data-a?"))
+	if err != nil || !strings.HasPrefix(b.Text, want) {
+		t.Fatalf("lead-in: %q %v", b.Text, err)
+	}
 }
 
 func TestSecretRefused(t *testing.T) {
