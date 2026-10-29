@@ -124,3 +124,68 @@ export function parseUnified(text: string): { op: DiffOp | '@' | 'h'; text: stri
     return { op: ' ' as const, text: l.startsWith(' ') ? l.slice(1) : l };
   });
 }
+
+/** A piece of a changed line; changed pieces are highlighted. */
+export interface Seg {
+  text: string;
+  changed: boolean;
+}
+
+const isWord = (c: string | undefined) => c !== undefined && /[\p{L}\p{N}_]/u.test(c);
+
+/**
+ * The changed part of a line pair, as a common head, the changed middle and
+ * a common tail. The middle grows to whole words ("47" and "48", not "7" and
+ * "8"). Null when the lines share too little to be one edited line.
+ */
+export function wordSegs(oldLine: string, newLine: string): { a: Seg[]; b: Seg[] } | null {
+  if (oldLine === newLine) return null;
+  const max = Math.min(oldLine.length, newLine.length);
+  let p = 0;
+  while (p < max && oldLine[p] === newLine[p]) p++;
+  let s = 0;
+  while (s < max - p && oldLine[oldLine.length - 1 - s] === newLine[newLine.length - 1 - s]) s++;
+  // Grow the middle to word boundaries on both sides.
+  while (p > 0 && isWord(oldLine[p - 1]) && (isWord(oldLine[p]) || isWord(newLine[p]))) p--;
+  const lastA = (k: number) => oldLine[oldLine.length - k];
+  const lastB = (k: number) => newLine[newLine.length - k];
+  while (s > 0 && isWord(lastA(s)) && (isWord(lastA(s + 1)) || isWord(lastB(s + 1)))) s--;
+  const common = p + s;
+  // Mostly different: a highlight would only add noise.
+  if (common < 2 || common < 0.35 * Math.max(oldLine.length, newLine.length)) return null;
+  const segs = (line: string): Seg[] =>
+    [
+      { text: line.slice(0, p), changed: false },
+      { text: line.slice(p, line.length - s), changed: true },
+      { text: line.slice(line.length - s), changed: false },
+    ].filter((x) => x.text !== '');
+  return { a: segs(oldLine), b: segs(newLine) };
+}
+
+/**
+ * Word highlights for a diff: each run of removed lines is paired, line by
+ * line, with the run of added lines that follows it. The map holds the
+ * segments of each paired line by its index.
+ */
+export function wordHighlights(lines: { op: string; text: string }[]): Map<number, Seg[]> {
+  const out = new Map<number, Seg[]>();
+  let i = 0;
+  while (i < lines.length) {
+    if (lines[i].op !== '-') {
+      i++;
+      continue;
+    }
+    const del = i;
+    while (i < lines.length && lines[i].op === '-') i++;
+    const add = i;
+    while (i < lines.length && lines[i].op === '+') i++;
+    const pairs = Math.min(add - del, i - add);
+    for (let k = 0; k < pairs; k++) {
+      const w = wordSegs(lines[del + k].text, lines[add + k].text);
+      if (!w) continue;
+      out.set(del + k, w.a);
+      out.set(add + k, w.b);
+    }
+  }
+  return out;
+}
