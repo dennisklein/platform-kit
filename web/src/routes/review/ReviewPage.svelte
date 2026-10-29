@@ -3,7 +3,7 @@
   // Kustomization, with links to the source lines), the diff as semantic,
   // source or rendered view, overlaps, the risk with the policy rules that
   // matched, the gates, and the advisor buttons (LLM, advisory only).
-  import { onMount, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import type { Params } from '../../lib/router.svelte';
   import { href, router } from '../../lib/router.svelte';
   import { api, must, errorText } from '../../lib/api/client';
@@ -27,6 +27,8 @@
   import SemanticDiff from '../../lib/components/SemanticDiff.svelte';
   import UnifiedDiff from '../../lib/components/UnifiedDiff.svelte';
   import AdvisorResult from '../../lib/components/advisor/AdvisorResult.svelte';
+  import AdvisorWorking from '../../lib/components/advisor/AdvisorWorking.svelte';
+  import { RECIPE_TITLES, RECIPE_TOOLS, minWorkingMs, readingSteps, reducedMotion } from '../../lib/f/advisor';
   import AgentBanner from '../../lib/components/AgentBanner.svelte';
   import ChangeActions from '../changes/ChangeActions.svelte';
   import GatesCard from '../changes/GatesCard.svelte';
@@ -48,8 +50,13 @@
   let diffs = $state<Partial<Record<DiffViewKind, Diff>>>({});
   let diffError = $state<string | null>(null);
   let recipes = $state<AdvisorRecipe[]>([]);
-  let results = $state<Result[]>([]);
-  let running = $state<string | null>(null);
+  // Answers, newest first; key remounts the card (and its reveal) on a new run.
+  let results = $state<{ key: number; r: Result; by?: string }[]>([]);
+  let nextKey = 0;
+  // The recipe that runs now, with what it reads and who asked.
+  let running = $state<{ recipe: string; title: string; tools: string[]; by?: string; ctl: AbortController } | null>(null);
+  // The recipe asked last: its button stays pressed.
+  let lastRecipe = $state<string | null>(null);
   let advisorError = $state<string | null>(null);
   let openObjects = $state(new Set<string>());
 
@@ -123,34 +130,80 @@
     });
   });
 
-  // ?advisor=risks runs that recipe once (the "Ask advisor: risks" button).
-  let autoRan = '';
+  // Answers belong to one change.
+  let resultsOf = '';
   $effect(() => {
-    const r = query.get('advisor');
-    const key = `${id}:${r}`;
-    if (r && autoRan !== key) {
-      autoRan = key;
-      untrack(() => void ask(r));
+    if (resultsOf !== id) {
+      resultsOf = id;
+      untrack(() => {
+        running?.ctl.abort();
+        running = null;
+        results = [];
+        lastRecipe = null;
+        advisorError = null;
+      });
     }
   });
 
-  async function ask(recipe: string) {
-    running = recipe;
+  // ?advisor=risks runs that recipe once (the "Ask advisor: risks" button,
+  // or an agent's pk_advise with &by=dennis/agent).
+  let autoRan = '';
+  $effect(() => {
+    const r = query.get('advisor');
+    const by = query.get('by') ?? undefined;
+    const key = `${id}:${r}:${by ?? ''}`;
+    if (r && autoRan !== key) {
+      autoRan = key;
+      untrack(() => void ask(r, by));
+    }
+  });
+
+  const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
+
+  /** Bring the advisor card to the top of the page, where the answer comes. */
+  async function showAdvisor() {
+    await tick();
+    document.getElementById('advisor')?.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'start' });
+  }
+
+  async function ask(recipe: string, by?: string) {
+    running?.ctl.abort();
+    const rec = recipes.find((x) => x.id === recipe);
+    const tools = rec?.tools ?? RECIPE_TOOLS[recipe] ?? [];
+    const ctl = new AbortController();
+    const cid = id;
+    running = { recipe, title: rec?.title ?? RECIPE_TITLES[recipe] ?? recipe, tools, by, ctl };
+    lastRecipe = recipe;
     advisorError = null;
+    void showAdvisor();
+    // The working card stays long enough to read what the advisor reads.
+    const min = minWorkingMs(readingSteps(tools).length, reducedMotion());
     try {
-      const r = await must(api.POST('/changes/{id}/advisors/{recipe}', { params: { path: { id, recipe } } }));
-      results = [r, ...results.filter((x) => x.recipe !== recipe)];
+      const [r] = await Promise.all([
+        must(api.POST('/changes/{id}/advisors/{recipe}', { params: { path: { id: cid, recipe } }, signal: ctl.signal })),
+        sleep(min),
+      ]);
+      if (ctl.signal.aborted || cid !== id) return;
+      results = [{ key: ++nextKey, r, by }, ...results.filter((x) => x.r.recipe !== recipe)];
+      void showAdvisor();
     } catch (e) {
+      if (ctl.signal.aborted || cid !== id) return;
       advisorError = errorText(e);
     } finally {
-      running = null;
+      if (running?.ctl === ctl) running = null;
     }
+  }
+
+  function cancelAsk() {
+    running?.ctl.abort();
+    running = null;
   }
 
   function setView(v: DiffViewKind) {
     const q = new URLSearchParams(query);
     q.set('tab', v);
     q.delete('advisor');
+    q.delete('by');
     router.replace(`/changes/${id}/review?${q}`);
   }
 
@@ -158,6 +211,15 @@
   const changedClusters = $derived((impact?.clusters ?? []).filter((x) => x.kustomizations.some((k) => k.objects.length)));
   const quiet = $derived((impact?.clusters ?? []).filter((x) => !x.kustomizations.some((k) => k.objects.length)).map((x) => x.cluster));
   const SYM: Record<string, string> = { add: '+', change: '~', delete: '−' };
+  function opCounts(cl: Impact['clusters'][number]): { op: string; n: number }[] {
+    const n: Record<string, number> = { add: 0, change: 0, delete: 0 };
+    for (const k of cl.kustomizations) for (const o of k.objects) n[o.op] = (n[o.op] ?? 0) + 1;
+    return ['add', 'change', 'delete'].filter((op) => n[op] > 0).map((op) => ({ op, n: n[op] }));
+  }
+  /** Level of a risk reason ("A change to a node is high.") for its icon colour. */
+  function reasonLevel(reason: string): string {
+    return /\b(high|medium|low)\b/i.exec(reason)?.[1].toLowerCase() ?? impact?.risk.level ?? 'medium';
+  }
 
   function srcHref(o: { source?: { path: string; line?: number } }): string | undefined {
     if (!o.source?.path) return undefined;
@@ -255,7 +317,10 @@
                 <div class="clname">
                   <span class="mono strong">{cl.cluster}</span>
                   <span class="eyebrow">cluster</span>
-                  <span class="muted small">{cl.objectsBase} → {cl.objectsHead} objects{cl.ring ? ` · ring ${cl.ring}` : ''}</span>
+                  <span class="counts" aria-label="Object changes">
+                    {#each opCounts(cl) as x (x.op)}<span class="cnt op-{x.op}">{SYM[x.op]}{x.n}</span>{/each}
+                  </span>
+                  <span class="objs">{cl.objectsBase} → {cl.objectsHead} objects{cl.ring ? ` · ring ${cl.ring}` : ''}</span>
                 </div>
                 <div class="ks">
                   {#each cl.kustomizations.filter((k) => k.objects.length) as k (k.name)}
@@ -352,23 +417,36 @@
         {/if}
 
         <!-- advisor -->
-        <section class="card advisor" id="advisor">
+        <section class="card advisor" id="advisor" class:tall={!!running || results.length > 0}>
           <div class="cardhead">
             <h2><Icon name="sparkle" size={18} /> Advisor</h2>
             <span class="muted small">LLM notes, advisory only. They do not change the rating or the gates.</span>
           </div>
           <div class="abuttons">
-            {#each recipes as r (r.id)}
-              <button class="btn" onclick={() => ask(r.id)} disabled={!!running} title={r.question}>
-                <Icon name="sparkle" size={14} />{running === r.id ? 'Asking…' : r.title}
+            {#each recipes.length ? recipes : [{ id: 'risks', title: RECIPE_TITLES.risks, question: '' }] as r (r.id)}
+              {@const on = lastRecipe === r.id}
+              <button
+                class="btn arecipe"
+                class:on
+                aria-pressed={on}
+                onclick={() => ask(r.id)}
+                disabled={!!running}
+                title={r.question || undefined}
+              >
+                {#if running?.recipe === r.id}<span class="spin" aria-hidden="true"></span>{:else}<Icon name="sparkle" size={14} />{/if}{r.title}
               </button>
-            {:else}
-              <button class="btn" onclick={() => ask('risks')} disabled={!!running}><Icon name="sparkle" size={14} />Risks of this change</button>
             {/each}
           </div>
           {#if advisorError}<div class="error-box">{advisorError}</div>{/if}
-          {#each results as r (r.recipe)}
-            <div class="aresult"><AdvisorResult result={r} showReading /></div>
+          {#if running}
+            <div class="aresult">
+              <AdvisorWorking title={running.title} tools={running.tools} by={running.by} onCancel={cancelAsk} />
+            </div>
+          {/if}
+          {#each results.filter((x) => x.r.recipe !== running?.recipe) as x (x.key)}
+            <div class="aresult" id="advisor-result-{x.r.recipe}">
+              <AdvisorResult result={x.r} showReading reveal by={x.by} onRerun={() => ask(x.r.recipe)} busy={!!running} />
+            </div>
           {/each}
         </section>
       </div>
@@ -382,7 +460,7 @@
           </div>
           {#if rules.length}
             {#each rules as r (r.name)}
-              <div class="rule">
+              <div class="rule lv-{r.risk}">
                 <Icon name="shield" size={17} />
                 <div>
                   <div>Policy rule <strong>{r.name}</strong>: risk {r.risk}.</div>
@@ -395,7 +473,7 @@
             {/each}
           {/if}
           {#each objectReasons as r, i (i)}
-            <div class="rule">
+            <div class="rule lv-{reasonLevel(r.reason)}">
               <Icon name="shield" size={17} />
               <div>
                 <div>{r.reason[0].toUpperCase() + r.reason.slice(1)}.</div>
@@ -428,6 +506,9 @@
     display: grid;
     gap: 18px;
     align-content: start;
+    /* The columns follow the room of the page, not the window: the side
+       panel and the rail take room too. */
+    container: review / inline-size;
   }
   .head .eyebrow a {
     text-transform: none;
@@ -466,9 +547,15 @@
     gap: 16px;
     min-width: 0;
   }
-  @media (max-width: 1500px) {
+  @container review (max-width: 1000px) {
     .grid {
       grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  @container review (min-width: 640px) and (max-width: 1000px) {
+    .sidecol {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      align-items: start;
     }
   }
   .card {
@@ -479,6 +566,15 @@
   }
   .impact {
     border-top: 4px solid var(--gsi-navy);
+  }
+  /* Navy is lost on the dark panel: the accent keeps the bar visible. */
+  :global(:root[data-theme='dark']) .impact {
+    border-top-color: var(--accent-fill);
+  }
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme='light'])) .impact {
+      border-top-color: var(--accent-fill);
+    }
   }
   .cardhead {
     display: flex;
@@ -529,15 +625,28 @@
   }
   .clname {
     display: flex;
-    gap: 10px;
+    gap: 12px;
     align-items: baseline;
+    flex-wrap: wrap;
   }
   .clname .eyebrow {
     margin: 0;
   }
   .strong {
     font-weight: 700;
-    font-size: 17px;
+    font-size: 20px;
+  }
+  .counts {
+    display: inline-flex;
+    gap: 12px;
+  }
+  .cnt {
+    font: 700 28px/1 var(--mono);
+    letter-spacing: -0.02em;
+  }
+  .objs {
+    font-size: 16px;
+    color: var(--ink);
   }
   .ks {
     border-left: 3px solid var(--line);
@@ -676,22 +785,61 @@
     gap: 10px;
   }
   .advisor {
-    border-left: 4px solid var(--info);
+    border-left: 4px solid var(--ai-fill);
+    scroll-margin-top: 12px;
+  }
+  /* Room to scroll the card to the top while the advisor works and after. */
+  .advisor.tall {
+    min-height: calc(100vh - var(--topbar-h) - 40px);
   }
   .advisor h2 {
     font-size: 18px;
   }
   .advisor h2 :global(svg) {
-    color: var(--info);
+    color: var(--ai);
   }
   .abuttons {
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
   }
+  .arecipe :global(svg) {
+    color: var(--ai);
+  }
+  .arecipe:hover:not(:disabled) {
+    border-color: var(--ai-line);
+    background: var(--ai-soft);
+  }
+  /* The recipe asked last: filled, like the deck's chosen recipe. */
+  .arecipe.on,
+  .arecipe.on:hover:not(:disabled),
+  .arecipe.on:disabled {
+    background: var(--ai-fill);
+    border-color: var(--ai-fill);
+    color: var(--ai-on);
+    font-weight: 600;
+    opacity: 1;
+  }
+  .arecipe.on :global(svg) {
+    color: var(--ai-on);
+  }
+  .spin {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid color-mix(in srgb, var(--ai-on) 40%, transparent);
+    border-top-color: var(--ai-on);
+    animation: spin 0.8s linear infinite;
+    flex: none;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
   .aresult {
-    border-top: 1px solid var(--line);
-    padding-top: 12px;
+    padding-top: 4px;
+    min-width: 0;
   }
   .rule {
     display: flex;
@@ -700,9 +848,15 @@
     font-size: 14.5px;
   }
   .rule > :global(svg) {
-    color: var(--bad);
+    color: var(--warn);
     flex: none;
     margin-top: 2px;
+  }
+  .rule.lv-high > :global(svg) {
+    color: var(--bad);
+  }
+  .rule.lv-low > :global(svg) {
+    color: var(--ok);
   }
   .paths {
     color: var(--muted);
