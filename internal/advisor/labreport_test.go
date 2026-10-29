@@ -59,7 +59,12 @@ func TestRisksNameTheLabFailures(t *testing.T) {
 		if lab == nil {
 			t.Fatalf("%s: no lab point in\n%s", recipe, pointTexts(res.Points))
 		}
-		if lab.Text != p4Want {
+		want := p4Want
+		if recipe == LabGaps {
+			// The "Lab gap" point names what the lab emulates.
+			want = "run-1 failed: sessions to 10.6.0.3 and 10.6.0.4 not established."
+		}
+		if lab.Text != want {
 			t.Errorf("%s: text %q", recipe, lab.Text)
 		}
 		var kinds []string

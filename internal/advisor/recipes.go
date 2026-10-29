@@ -516,6 +516,15 @@ func (e *Engine) labGapsRecipe(w *workspace) ([]finding, error) {
 	}
 	gaps := e.labGaps(w)
 	if g, ok := w.emulationGap(run, ref); ok {
+		// The gap names what the lab emulates: the "Lab failed" point
+		// need not say it again.
+		if _, why, _ := w.labFailures(run, ref); failClause(why) != "" {
+			for i := range gaps {
+				if gaps[i].Title == "Lab failed" {
+					gaps[i].Text = strings.Replace(gaps[i].Text, "; "+failClause(why), "", 1)
+				}
+			}
+		}
 		gaps = append(gaps, g)
 	}
 	sortFindings(gaps)
