@@ -6,9 +6,18 @@
   import { router, seg } from '../../lib/router.svelte';
   import Icon from '../../lib/components/Icon.svelte';
   import Modal from '../../lib/components/Modal.svelte';
-  import { mergePreview } from './trailers';
+  import { mergeParts } from './trailers';
+  import TrailerBlock from './TrailerBlock.svelte';
 
   let { c }: { c: Change } = $props();
+
+  // Merge waits for the gates. The button stays clickable: its dialog says why.
+  const blocked = $derived(!!c.gates && !c.gates.mergeable);
+  const blockers = $derived(c.gates?.blockers ?? []);
+  const approvalsLeft = $derived(
+    c.gates && c.gates.approvals.have < c.gates.approvals.need ? `${c.gates.approvals.have} of ${c.gates.approvals.need} approvals` : '',
+  );
+  const impactText = $derived(c.impact && c.impact.added + c.impact.changed + c.impact.deleted > 0 ? c.impact.text : '');
 
   const step = $derived(nextStep(c));
   const busy = $derived(actions.busy[c.id]);
@@ -62,10 +71,15 @@
         title={c.dirty ? 'The lab tests the committed head' : 'Run the change lab on the head'}
       >
         {#if busy === 'lab' || c.labState === 'running'}<span class="spin"></span>{:else}<Icon name="flask" size={15} />{/if}
-        {c.labState === 'running' ? 'Lab running' : c.labRuns.length ? 'Lab again' : 'Run lab'}
+        {c.labState === 'running' ? 'Lab running' : c.labRuns.length ? 'Run lab again' : 'Run lab'}
       </button>
     {/if}
-    <a class="btn" href={`#/changes/${seg(c.id)}/review?advisor=risks`}><Icon name="sparkle" size={15} /> Ask advisor: risks</a>
+    {#if impactText}
+      <a class="btn impact" href={`#/changes/${seg(c.id)}/review`} title="What the change does to the rendered clusters">
+        <Icon name="hexagon" size={15} /> Impact: <span class="mono">{impactText}</span>
+      </a>
+    {/if}
+    <a class="btn ai" href={`#/changes/${seg(c.id)}/review?advisor=risks`}><Icon name="sparkle" size={15} /> Ask the advisor about risks</a>
     {#if c.local}
       <button class="btn" onclick={() => files()} title={c.worktree ? `${c.worktree} (click: open files, the path is copied)` : 'Open the files'} onclickcapture={copyPath}>
         <Icon name="folder" size={15} /> Open worktree
@@ -88,13 +102,16 @@
       </button>
     {/if}
     {#if c.state === 'review' || c.state === 'approved'}
+      <!-- Blocked: still clickable, the dialog tells why. -->
       <button
-        class={['btn', step === 'merge' && 'dark']}
+        class={['btn', step === 'merge' && 'dark', blocked && 'blocked']}
         disabled={!!busy || isAgent}
+        aria-disabled={blocked}
         onclick={() => (confirmMerge = true)}
-        title={c.gates?.mergeable ? 'Merge with a merge commit and trailers' : (c.gates?.blockers ?? []).join('; ')}
+        title={blocked ? `Not mergeable yet: ${blockers.join('; ')}` : 'Merge with a merge commit and trailers'}
       >
-        {#if busy === 'merge'}<span class="spin"></span>{:else}<Icon name="merge" size={15} />{/if} Merge
+        {#if busy === 'merge'}<span class="spin"></span>{:else}<Icon name={blocked ? 'lock' : 'merge'} size={15} />{/if} Merge
+        {#if blocked && approvalsLeft}<span class="why">{approvalsLeft}</span>{/if}
       </button>
     {/if}
   {/if}
@@ -118,22 +135,32 @@
   {/if}
 </div>
 
-<Modal bind:open={confirmMerge} title="Merge {c.id}" icon="merge" width={680}>
-  {#if c.gates && !c.gates.mergeable}
-    <div class="callout bad"><Icon name="warning" size={16} /><div><b>Not mergeable yet.</b> {(c.gates.blockers ?? []).join('; ')}</div></div>
+<Modal bind:open={confirmMerge} title="Merge {c.id}" icon="merge" width={760}>
+  {#if blocked}
+    <div class="callout bad">
+      <Icon name="lock" size={16} />
+      <div>
+        <b>Not mergeable yet.</b>
+        {#if blockers.length === 1}{blockers[0]}.{:else}
+          <ul class="blockers">{#each blockers as b (b)}<li>{b}</li>{/each}</ul>
+        {/if}
+      </div>
+    </div>
   {/if}
   <p class="muted small">Merge commit on {c.target}, with the trailer block an auditor reads with <code>git log --merges</code>:</p>
-  <pre class="preview">{mergePreview(c)}</pre>
+  <TrailerBlock parts={mergeParts(c)} />
   {#snippet footer()}
     <button class="btn" onclick={() => (confirmMerge = false)}>Cancel</button>
     <button
       class="btn dark"
+      disabled={blocked}
       onclick={() => {
         confirmMerge = false;
         void actions.merge(c.id);
       }}
     >
-      <Icon name="merge" size={15} /> Merge
+      <Icon name={blocked ? 'lock' : 'merge'} size={15} />
+      {blocked ? 'Merge (blocked)' : 'Merge'}
     </button>
   {/snippet}
 </Modal>
@@ -211,8 +238,36 @@
   .menu .danger {
     color: var(--bad);
   }
-  .preview {
-    font-size: 12.5px;
-    white-space: pre-wrap;
+  .blockers {
+    margin: 4px 0 0;
+    padding-left: 18px;
+  }
+  /* Merge before the gates are met: visible, but plainly not the next step. */
+  .actions :global(.btn.blocked) {
+    border-style: dashed;
+    color: var(--muted);
+    background: transparent;
+  }
+  .why {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+    padding-left: 6px;
+    margin-left: 2px;
+    border-left: 1px solid var(--line-strong);
+  }
+  .actions :global(.btn.impact) {
+    border-color: color-mix(in srgb, var(--accent-fill) 55%, var(--line));
+  }
+  .impact .mono {
+    font-weight: 600;
+  }
+  .actions :global(.btn.ai) {
+    color: var(--ai);
+    border-color: var(--ai-line);
+    background: var(--ai-soft);
+  }
+  .actions :global(.btn.ai:hover:not(:disabled)) {
+    border-color: var(--ai);
   }
 </style>

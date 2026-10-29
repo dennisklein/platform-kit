@@ -17,6 +17,7 @@
   import ChangeActions from './ChangeActions.svelte';
   import GatesCard from './GatesCard.svelte';
   import MrPanel from './MrPanel.svelte';
+  import RolloutCard from './RolloutCard.svelte';
   import { api, must } from '../../lib/api/client';
   import type { ImpactSummary } from '../../lib/api/types';
 
@@ -51,6 +52,8 @@
   const selectedStep = $derived(c?.lifecycle.find((s) => s.state === selected));
 
   const merged = $derived(c ? ['merged', 'deployed', 'verified'].includes(c.state) : false);
+  // A draft whose lab passed on the head: the lab gate is met, review is next.
+  const labPassed = $derived(!!c && c.state === 'draft' && c.labState === 'pass');
   const agentAuthored = $derived(!!c && (c.authorKind === 'agent' || !!c.agent));
 
   // A merged change has no live impact summary: take it from the impact of
@@ -86,7 +89,11 @@
       <div class="titles">
         <div class="row">
           <h1>{c.title}</h1>
-          <StateChip state={c.state} labState={c.labState} />
+          {#if labPassed}
+            <span class="labpass" title="The lab passed on the head. Next: push and mark ready.">lab passed</span>
+          {:else}
+            <StateChip state={c.state} labState={c.labState} />
+          {/if}
           {#if c.risk}<span class="risk r-{c.risk}">risk: {c.risk}</span>{/if}
         </div>
         <div class="meta">
@@ -125,29 +132,11 @@
       {/if}
     </section>
 
-    <div class="cols">
+    <div class="cols" class:wide={merged}>
       {#if c.gates}
         <GatesCard {c} gates={c.gates} />
       {:else if merged}
-        <section class="card">
-          <div class="eyebrow">Rollout</div>
-          <p class="small merged-line">
-            Merged into {c.target}{#if c.mergeSha}{' '}as <a class="mono" href={href(`/history/${c.mergeSha}`)}>{shortSha(c.mergeSha)}</a>{/if}{#if c.mergedAt}, {timeAgo(c.mergedAt)}{/if}.
-          </p>
-          <ul class="runs">
-            {#each c.rollout ?? [] as r (r.cluster)}
-              <li>
-                <b>{r.cluster}</b>
-                {#if r.ring}<span class="muted small">{r.ring}</span>{/if}
-                <span class="res r-{r.verified ? 'pass' : r.deployed ? 'running' : 'none'}">{r.verified ? 'verified' : r.deployed ? 'deployed' : 'pending'}</span>
-                {#if r.sha}<span class="mono muted small">{shortSha(r.sha)}</span>{/if}
-                {#if r.at}<span class="muted small">{timeAgo(r.at)}</span>{/if}
-              </li>
-            {:else}
-              <li class="muted small">No cluster reports yet. Flux applies the merge commit next.</li>
-            {/each}
-          </ul>
-        </section>
+        <RolloutCard {c} />
       {:else if c.state === 'closed'}
         <div class="card muted small">Closed without merge. Gates are not evaluated.</div>
       {:else}
@@ -289,6 +278,16 @@
     padding: 1px 8px;
     border-radius: 4px;
   }
+  .labpass {
+    display: inline-flex;
+    align-items: center;
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 1px 8px;
+    border-radius: 4px;
+    background: var(--ok-soft);
+    color: var(--ok);
+  }
   .r-high {
     background: var(--bad-soft);
     color: var(--bad);
@@ -318,8 +317,13 @@
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 16px;
   }
+  /* After the merge the rollout is the story: it gets the wider column. */
+  .cols.wide {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  }
   @media (max-width: 1100px) {
-    .cols {
+    .cols,
+    .cols.wide {
       grid-template-columns: 1fr;
     }
   }
@@ -413,9 +417,6 @@
   }
   .wt {
     margin-top: 10px;
-  }
-  .merged-line {
-    margin: 6px 0 0;
   }
   .runs li {
     display: flex;

@@ -85,8 +85,8 @@
     </li>
     <li class="t-{gates.pathRights.ok ? 'ok' : 'bad'}">
       <Icon name={gates.pathRights.ok ? 'check' : 'x'} size={17} />
-      <span class="what">Path rights: {writers || c.author}</span>
-      <span class="hint mono">{gates.pathRights.ok ? 'policy ok' : 'not allowed'}</span>
+      <span class="what">Write access: {writers || c.author}</span>
+      <span class="hint mono">{gates.pathRights.ok ? 'allowed by policy' : 'not allowed'}</span>
       {#each gates.pathRights.details.filter((d) => !d.ok) as d (d.path + d.who)}
         <span class="sub bad">{d.who} may not write {d.path}{d.rule ? ` (rule ${d.rule})` : ''}{d.message ? `: ${d.message}` : ''}</span>
       {/each}

@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Other open changes touch the same rendered objects. No lock, no block.
+  // Other open changes touch the same rendered objects. Both can merge.
   import type { Overlap } from '../api/types';
   import { href, seg } from '../router.svelte';
   import Icon from './Icon.svelte';
@@ -19,7 +19,7 @@
         <a href={href(`/changes/${seg(o.change)}`)}><b>{o.change}</b></a> ({o.by}) also changes
         {#each o.objects as ob, i (i)}{i ? ', ' : ''}<code class="obj">{objName(ob)}</code>{/each}
         on {[...new Set(o.objects.map((x) => x.cluster))].join(', ')}.
-        <div class="muted small">{o.title ?? ''} · No lock, no block: the second merge renders again.</div>
+        <div class="muted small">{o.title ? `${o.title}. ` : ''}Both can merge. Whichever merges second is re-rendered on top of the first.</div>
       {/if}
     </div>
   </div>

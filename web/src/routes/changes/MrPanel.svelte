@@ -5,7 +5,8 @@
   import { actions } from '../../lib/change/actions.svelte';
   import { runLabel, shortSha } from '../../lib/change/format';
   import Icon from '../../lib/components/Icon.svelte';
-  import { descriptionPreview, mergePreview } from './trailers';
+  import { descriptionParts, mergeParts } from './trailers';
+  import TrailerBlock from './TrailerBlock.svelte';
 
   let { c }: { c: Change } = $props();
 
@@ -47,9 +48,9 @@
   <div class="grid">
     <div class="desc">
       <div class="eyebrow">
-        {#if view === 'merge'}Merge commit preview (trailers){:else if c.description}MR description{:else}MR description, from .pk/changes/{c.id}.yaml{/if}
+        {#if view === 'merge'}{merged ? 'Merge commit on main' : 'Merge commit preview (trailers)'}{:else if c.description}MR description{:else}MR description, from .pk/changes/{c.id}.yaml{/if}
       </div>
-      <pre>{view === 'merge' ? mergePreview(c) : descriptionPreview(c)}</pre>
+      <div class="msgbox"><TrailerBlock parts={view === 'merge' ? mergeParts(c) : descriptionParts(c)} /></div>
     </div>
     <div class="check">
       <div class="eyebrow">{merged ? 'Done' : 'Before review'}</div>
@@ -162,13 +163,10 @@
     gap: 8px;
     align-content: start;
   }
-  pre {
-    background: var(--panel);
-    font-size: 13px;
-    line-height: 1.65;
-    white-space: pre-wrap;
-    border-color: var(--line-strong);
-    padding: 12px 16px;
+  .msgbox {
+    border: 1px solid var(--line);
+    border-radius: var(--radius-s);
+    padding: 12px 14px;
   }
   ul {
     list-style: none;
