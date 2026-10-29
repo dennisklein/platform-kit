@@ -1254,9 +1254,11 @@ export interface components {
          *     - flux.updated: Cluster
          *     - presence: Presence
          *     - suggestion.created: Suggestion
+         *     - chat.step: ChatStepEvent (only to the person who asked)
+         *     - chat.delta: ChatDeltaEvent (only to the person who asked)
          * @enum {string}
          */
-        EventType: "change.created" | "change.updated" | "lab.step" | "lab.finished" | "render.updated" | "focus.changed" | "forge.updated" | "forge.reset" | "flux.updated" | "presence" | "suggestion.created";
+        EventType: "change.created" | "change.updated" | "lab.step" | "lab.finished" | "render.updated" | "focus.changed" | "forge.updated" | "forge.reset" | "flux.updated" | "presence" | "suggestion.created" | "chat.step" | "chat.delta";
         Event: {
             /** Format: int64 */
             id: number;
@@ -2384,6 +2386,39 @@ export interface components {
             /** @description File open in the editor */
             path?: string;
             messages: components["schemas"]["ChatMessage"][];
+            /** @description Client id of this question. With it, the bench streams the progress of the answer to the asking person as chat.step and chat.delta events with the same requestId. The response is the full answer either way. */
+            requestId?: string;
+        };
+        ChatStep: {
+            /** @description Number of the step in the answer, from 1 */
+            id: number;
+            /** @description search, read_file, history, history_entry, entity, change, impact, advise, suggest_edit, model */
+            tool: string;
+            /** @description Short line, for example search 'port 37' or read bgp-rack-6z.yaml */
+            label: string;
+            /** @description What the step found, for example 4 merges */
+            summary?: string;
+            /**
+             * @description running, ok (finished) or failed
+             * @enum {string}
+             */
+            state: "running" | "ok" | "failed";
+            /**
+             * Format: int64
+             * @description Duration of the step
+             */
+            ms?: number;
+        };
+        ChatStepEvent: {
+            requestId: string;
+            step: components["schemas"]["ChatStep"];
+        };
+        ChatDeltaEvent: {
+            requestId: string;
+            /** @description Text to append to the answer */
+            text: string;
+            /** @description Drop the text so far before appending (the model changed course, or the bench answers from data instead) */
+            reset?: boolean;
         };
         ChatAnswer: {
             text: string;
@@ -2395,6 +2430,10 @@ export interface components {
             mock: boolean;
             /** @description The answer comes from the bench data, not from a model: no LLM endpoint is set (mock) or the model call failed or gave no usable answer */
             fallback: boolean;
+            /** @description Why the bench answered from data although a model is set, for example the model took longer than 25 s */
+            fallbackReason?: string;
+            /** @description The lookups the answer made, in order */
+            steps?: components["schemas"]["ChatStep"][];
             logId: string;
         };
         Suggestion: {

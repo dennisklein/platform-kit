@@ -23,7 +23,16 @@ const (
 	FluxUpdated       Type = "flux.updated"       // data: api.Cluster
 	Presence          Type = "presence"           // data: api.Presence
 	SuggestionCreated Type = "suggestion.created" // data: api.Suggestion
+	// ChatStep and ChatDelta are the live progress of one chat answer, for
+	// the person who asked (PublishTo).
+	ChatStep  Type = "chat.step"  // data: api.ChatStepEvent
+	ChatDelta Type = "chat.delta" // data: api.ChatDeltaEvent
 )
+
+// Transient reports event types that only matter while they happen: the hub
+// sends them live but keeps them out of the replay history, so a streamed
+// answer does not push the state events out of it.
+func (t Type) Transient() bool { return t == ChatStep || t == ChatDelta }
 
 // Event is one published event.
 type Event struct {
@@ -91,9 +100,11 @@ func (h *Hub) PublishTo(audience string, t Type, data any) {
 	defer h.mu.Unlock()
 	h.nextID++
 	ev := Event{ID: h.nextID, Type: t, Time: h.now().UTC(), Audience: audience, Data: data}
-	h.history = append(h.history, ev)
-	if len(h.history) > historySize {
-		h.history = h.history[len(h.history)-historySize:]
+	if !t.Transient() {
+		h.history = append(h.history, ev)
+		if len(h.history) > historySize {
+			h.history = h.history[len(h.history)-historySize:]
+		}
 	}
 	for s := range h.subs {
 		if !visible(ev, s.principal) {

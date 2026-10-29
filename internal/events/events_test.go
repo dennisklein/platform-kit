@@ -37,3 +37,22 @@ func TestHubDropsSlowSubscriber(t *testing.T) {
 		t.Fatalf("got %d events before close, want %d", n, chanSize)
 	}
 }
+
+func TestHubKeepsTransientEventsOutOfReplay(t *testing.T) {
+	h := NewHub()
+	live, cancel := h.Subscribe("dennis", 0)
+	defer cancel()
+	h.PublishTo("dennis", ChatDelta, "a")
+	h.PublishTo("dennis", ChatStep, "b")
+	h.Publish(ChangeCreated, "c")
+	for _, want := range []Type{ChatDelta, ChatStep, ChangeCreated} {
+		if ev := <-live; ev.Type != want {
+			t.Fatalf("live: got %s, want %s", ev.Type, want)
+		}
+	}
+	replay, cancel2 := h.Subscribe("dennis", 1)
+	defer cancel2()
+	if ev := <-replay; ev.Type != ChangeCreated || ev.ID != 3 {
+		t.Fatalf("replay: got %+v, want only change.created", ev)
+	}
+}

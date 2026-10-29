@@ -264,6 +264,27 @@ func (e ChatMessageRole) Valid() bool {
 	}
 }
 
+// Defines values for ChatStepState.
+const (
+	ChatStepStateFailed  ChatStepState = "failed"
+	ChatStepStateOk      ChatStepState = "ok"
+	ChatStepStateRunning ChatStepState = "running"
+)
+
+// Valid indicates whether the value is a known member of the ChatStepState enum.
+func (e ChatStepState) Valid() bool {
+	switch e {
+	case ChatStepStateFailed:
+		return true
+	case ChatStepStateOk:
+		return true
+	case ChatStepStateRunning:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DiffViewKind.
 const (
 	DiffViewKindRendered DiffViewKind = "rendered"
@@ -1554,14 +1575,20 @@ type ChangeSummary struct {
 // ChatAnswer defines model for ChatAnswer.
 type ChatAnswer struct {
 	// Fallback The answer comes from the bench data, not from a model: no LLM endpoint is set (mock) or the model call failed or gave no usable answer
-	Fallback bool   `json:"fallback"`
-	LogId    string `json:"logId"`
-	Mock     bool   `json:"mock"`
-	Model    string `json:"model"`
+	Fallback bool `json:"fallback"`
+
+	// FallbackReason Why the bench answered from data although a model is set, for example the model took longer than 25 s
+	FallbackReason string `json:"fallbackReason,omitempty,omitzero"`
+	LogId          string `json:"logId"`
+	Mock           bool   `json:"mock"`
+	Model          string `json:"model"`
 
 	// Refused The answer refuses (for example a secret)
-	Refused     bool         `json:"refused,omitempty,omitzero"`
-	Sources     []Source     `json:"sources"`
+	Refused bool     `json:"refused,omitempty,omitzero"`
+	Sources []Source `json:"sources"`
+
+	// Steps The lookups the answer made, in order
+	Steps       []ChatStep   `json:"steps,omitempty,omitzero"`
 	Suggestions []Suggestion `json:"suggestions"`
 	Text        string       `json:"text"`
 }
@@ -1582,7 +1609,34 @@ type ChatRequest struct {
 
 	// Path File open in the editor
 	Path string `json:"path,omitempty,omitzero"`
+
+	// RequestId Client id of this question. With it, the bench streams the progress of the answer to the asking person as chat.step and chat.delta events with the same requestId. The response is the full answer either way.
+	RequestId string `json:"requestId,omitempty,omitzero"`
 }
+
+// ChatStep defines model for ChatStep.
+type ChatStep struct {
+	// Id Number of the step in the answer, from 1
+	Id int `json:"id"`
+
+	// Label Short line, for example search 'port 37' or read bgp-rack-6z.yaml
+	Label string `json:"label"`
+
+	// Ms Duration of the step
+	Ms int64 `json:"ms,omitempty,omitzero"`
+
+	// State running, ok (finished) or failed
+	State ChatStepState `json:"state"`
+
+	// Summary What the step found, for example 4 merges
+	Summary string `json:"summary,omitempty,omitzero"`
+
+	// Tool search, read_file, history, history_entry, entity, change, impact, advise, suggest_edit, model
+	Tool string `json:"tool"`
+}
+
+// ChatStepState running, ok (finished) or failed
+type ChatStepState string
 
 // Cluster defines model for Cluster.
 type Cluster struct {

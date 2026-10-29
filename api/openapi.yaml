@@ -1481,6 +1481,8 @@ components:
         - flux.updated: Cluster
         - presence: Presence
         - suggestion.created: Suggestion
+        - chat.step: ChatStepEvent (only to the person who asked)
+        - chat.delta: ChatDeltaEvent (only to the person who asked)
       enum:
         - change.created
         - change.updated
@@ -1493,6 +1495,8 @@ components:
         - flux.updated
         - presence
         - suggestion.created
+        - chat.step
+        - chat.delta
     Event:
       type: object
       required: [id, type, time, data]
@@ -2685,6 +2689,37 @@ components:
         changeId: { type: string }
         path: { type: string, description: File open in the editor }
         messages: { type: array, items: { $ref: "#/components/schemas/ChatMessage" } }
+        requestId:
+          type: string
+          maxLength: 64
+          description: >-
+            Client id of this question. With it, the bench streams the progress
+            of the answer to the asking person as chat.step and chat.delta
+            events with the same requestId. The response is the full answer
+            either way.
+    ChatStep:
+      type: object
+      required: [id, tool, label, state]
+      properties:
+        id: { type: integer, description: "Number of the step in the answer, from 1" }
+        tool: { type: string, description: "search, read_file, history, history_entry, entity, change, impact, advise, suggest_edit, model" }
+        label: { type: string, description: "Short line, for example search 'port 37' or read bgp-rack-6z.yaml" }
+        summary: { type: string, description: "What the step found, for example 4 merges" }
+        state: { type: string, enum: [running, ok, failed], description: "running, ok (finished) or failed" }
+        ms: { type: integer, format: int64, description: Duration of the step }
+    ChatStepEvent:
+      type: object
+      required: [requestId, step]
+      properties:
+        requestId: { type: string }
+        step: { $ref: "#/components/schemas/ChatStep" }
+    ChatDeltaEvent:
+      type: object
+      required: [requestId, text]
+      properties:
+        requestId: { type: string }
+        text: { type: string, description: Text to append to the answer }
+        reset: { type: boolean, description: "Drop the text so far before appending (the model changed course, or the bench answers from data instead)" }
     ChatAnswer:
       type: object
       required: [text, sources, suggestions, model, mock, fallback, logId]
@@ -2696,6 +2731,8 @@ components:
         model: { type: string }
         mock: { type: boolean }
         fallback: { type: boolean, description: "The answer comes from the bench data, not from a model: no LLM endpoint is set (mock) or the model call failed or gave no usable answer" }
+        fallbackReason: { type: string, description: "Why the bench answered from data although a model is set, for example the model took longer than 25 s" }
+        steps: { type: array, items: { $ref: "#/components/schemas/ChatStep" }, description: "The lookups the answer made, in order" }
         logId: { type: string }
     Suggestion:
       type: object
