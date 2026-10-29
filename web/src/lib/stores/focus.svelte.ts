@@ -15,6 +15,13 @@ class FocusStore {
   suggestion = $state<Presence | null>(null);
   /** Follow focus.changed from other tabs and agents by navigating. */
   follow = $state(true);
+  /**
+   * The last move an agent made, for the "Following dennis/agent" cue.
+   * followed: the screen moved with it (false while following is paused).
+   */
+  lastMove = $state<{ by: string; route: string; at: number; followed: boolean } | null>(null);
+  /** Agent banners on the page: they show the follow state, so the floating cue steps back. */
+  banners = $state(0);
 
   #pending: FocusUpdate | null = null;
   #timer: ReturnType<typeof setTimeout> | undefined;
@@ -39,11 +46,43 @@ class FocusStore {
   #apply(f: Focus) {
     const before = this.current;
     this.current = f;
-    if (!this.follow || !f.route) return;
+    if (!f.route) return;
     // Only follow moves made elsewhere (another tab, an agent).
-    if (f.route !== router.current && f.route !== before?.route) {
-      router.navigate(f.route);
+    if (f.route === router.current || f.route === before?.route) return;
+    const agent = this.#agentName(f.by);
+    if (agent) this.lastMove = { by: agent, route: f.route, at: Date.now(), followed: this.follow };
+    if (this.follow) router.navigate(f.route);
+  }
+
+  /** "dennis/agent" when an agent moved the focus, else undefined (another tab). */
+  #agentName(by: string | undefined): string | undefined {
+    if (!by) return undefined;
+    const p = this.presence[by];
+    if (p) return p.kind === 'human' ? undefined : p.actsFor ? `${p.actsFor}/agent` : p.actor;
+    const m = /^(.+)-agent$/.exec(by);
+    return m ? `${m[1]}/agent` : undefined;
+  }
+
+  /** Stop moving the screen with agents (the cue offers Resume). */
+  pause() {
+    this.follow = false;
+  }
+
+  /** Follow again, and go where the agent is now. */
+  resume() {
+    this.follow = true;
+    const r = this.current?.route;
+    if (this.lastMove && !this.lastMove.followed && r && r !== router.current) {
+      this.lastMove = { ...this.lastMove, followed: true, at: Date.now() };
+      router.navigate(r);
     }
+  }
+
+  /** Go where the agent is, once, while following stays paused. */
+  look() {
+    const r = this.lastMove?.route;
+    if (r && r !== router.current) router.navigate(r);
+    this.lastMove = null;
   }
 
   /**

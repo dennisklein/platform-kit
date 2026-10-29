@@ -15,6 +15,7 @@
   import NotFound from './routes/NotFound.svelte';
   import Toasts from './lib/components/Toasts.svelte';
   import NewChangeDialog from './routes/changes/NewChangeDialog.svelte';
+  import FollowCue from './lib/components/FollowCue.svelte';
 
   onMount(() => {
     ui.applyTheme();
@@ -70,6 +71,7 @@
 
 <NewChangeDialog bind:open={ui.newChangeOpen} />
 <Toasts />
+<FollowCue />
 
 <style>
   .shell {

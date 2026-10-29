@@ -38,6 +38,27 @@ export function callArgs(c: Pick<McpCall, 'text' | 'tool'>): string {
   return c.tool && t.startsWith(c.tool) ? t.slice(c.tool.length).trim() : t;
 }
 
+/** A UI route in words, for "Following dennis/agent → review of c-k7m2qz". */
+export function routeLabel(route: string): string {
+  const [path, qs = ''] = route.split('?', 2);
+  const q = new URLSearchParams(qs);
+  const file = (q.get('path') ?? '').split('/').pop();
+  let m = /^\/changes\/(c-[a-z0-9]+)(?:\/(review|files|lab|history))?\/?$/.exec(path);
+  if (m) {
+    const [, id, view] = m;
+    if (!view) return `change ${id}`;
+    if (view === 'files') return file ? `${file} in ${id}` : `files of ${id}`;
+    if (view === 'review' && q.get('advisor')) return `review of ${id} · advisor`;
+    return `${view} of ${id}`;
+  }
+  m = /^\/assets\/racks\/([^/]+)$/.exec(path);
+  if (m) return `rack ${decodeURIComponent(m[1])}`;
+  m = /^\/assets\/([^/]+)\/([^/]+)$/.exec(path);
+  if (m) return `${decodeURIComponent(m[1])} ${decodeURIComponent(m[2])}`;
+  if (path === '/kb/article') return file ? `knowledge: ${file}` : 'knowledge';
+  return path.replace(/^\//, '') || 'home';
+}
+
 /** The reason without its "denied: " lead, capitalized: "Agents never approve or merge". */
 export function reasonText(reason: string | undefined): string {
   const r = (reason ?? '').replace(/^denied:\s*/i, '').trim();

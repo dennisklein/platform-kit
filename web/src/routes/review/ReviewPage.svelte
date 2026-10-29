@@ -147,14 +147,25 @@
 
   // ?advisor=risks runs that recipe once (the "Ask advisor: risks" button,
   // or an agent's pk_advise with &by=dennis/agent).
+  // The parameters go from the URL once the run starts, so a reload does
+  // not ask again and the next pk_advise moves the screen again.
   let autoRan = '';
   $effect(() => {
     const r = query.get('advisor');
     const by = query.get('by') ?? undefined;
     const key = `${id}:${r}:${by ?? ''}`;
-    if (r && autoRan !== key) {
+    if (!r) {
+      autoRan = '';
+    } else if (autoRan !== key) {
       autoRan = key;
-      untrack(() => void ask(r, by));
+      untrack(() => {
+        void ask(r, by);
+        const q = new URLSearchParams(query);
+        q.delete('advisor');
+        q.delete('by');
+        const rest = q.toString();
+        router.replace(`/changes/${id}/review${rest ? `?${rest}` : ''}`);
+      });
     }
   });
 

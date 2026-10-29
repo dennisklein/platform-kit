@@ -8,6 +8,7 @@
   import { session } from '../../lib/stores/me.svelte';
   import { events } from '../../lib/stores/events.svelte';
   import { mcpCalls } from '../../lib/stores/mcpcalls.svelte';
+  import { reasonText } from '../../lib/f/mcp';
   import { toasts } from '../../lib/stores/toasts.svelte';
   import { endsAt, ago, clock, dateTime } from '../../lib/f/fmt';
   import { approveBody, newTokenBody, HOURS } from '../../lib/f/agents';
@@ -291,7 +292,11 @@
             <span class="t muted" title={dateTime(c.at)}>{clock(c.at)}</span>
             <span class="who">{c.actor}</span>
             <span class="txt">{c.text}</span>
-            <span class="res">{#if c.failed}<Glyph name="x" size={12} /> {c.reason}{:else}<Glyph name="check" size={12} /> ok{/if}</span>
+            <span class="res"
+              >{#if c.failed}<Glyph name={c.denied ? 'lock' : 'x'} size={12} /> {c.denied ? 'denied' : 'failed'}{c.reason && c.reason !== 'failed'
+                  ? `: ${reasonText(c.reason)}`
+                  : ''}{:else}<Glyph name="check" size={12} /> ok{/if}</span
+            >
           </li>
         {/each}
       </ol>

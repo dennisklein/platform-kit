@@ -14,6 +14,8 @@
   import { duration, runLabel, shortSha, timeAgo } from '../../lib/change/format';
   import Track, { type TrackItem } from '../../lib/components/Track.svelte';
   import Icon from '../../lib/components/Icon.svelte';
+  import AgentBanner from '../../lib/components/AgentBanner.svelte';
+  import { presenceFor } from '../../lib/change/presence.svelte';
 
   let { params, query }: { params: Params; query: URLSearchParams } = $props();
 
@@ -31,6 +33,8 @@
   const changeId = $derived(run?.changeId ?? changeParam);
   $effect(() => change.use(changeId ?? null));
   const c = $derived(changeId && change.data?.id === changeId ? change.data : null);
+  // An agent at work on this change (its lab run, a denied approve).
+  const agentPresence = $derived(presenceFor(changeId ?? undefined, c?.presence));
 
   async function loadRuns() {
     if (!changeId) return;
@@ -194,6 +198,7 @@
 </script>
 
 <div class="page lab">
+  {#if agentPresence}<AgentBanner presence={agentPresence} />{/if}
   {#if error}
     <div class="error-box">{error}</div>
   {:else if !run}
