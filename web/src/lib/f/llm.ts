@@ -21,7 +21,12 @@ export function offlineReason(detail?: string): string {
 
 export function llmPill(st: LlmStatusLike | undefined): { label: string; tone: '' | 'ok' | 'warn'; title: string } {
   if (!st) return { label: 'LLM', tone: '', title: '' };
-  if (st.mock) return { label: 'LLM mock', tone: st.reachable ? 'ok' : 'warn', title: 'Deterministic mock model (no PK_LLM_BASE_URL)' };
+  if (st.mock)
+    return {
+      label: 'LLM built-in',
+      tone: st.reachable ? 'ok' : 'warn',
+      title: "No model endpoint (PK_LLM_BASE_URL): answers come from the bench's own analysis of the repo, history and labs",
+    };
   const at = `${st.model}${st.baseUrl ? ` at ${st.baseUrl}` : ''}`;
   if (!st.reachable) return { label: 'LLM offline', tone: 'warn', title: `${at}: ${offlineReason(st.detail)}. Answers use the deterministic findings.` };
   return { label: `LLM ${st.model}`, tone: 'ok', title: st.detail ?? at };
@@ -41,11 +46,11 @@ export interface AnswerLike {
  * the fallback.
  */
 export function modelLabel(a: AnswerLike, offline = false): { text: string; title: string; fallback: boolean } {
-  if (a.mock) return { text: 'mock model', title: 'Deterministic mock model (no LLM configured)', fallback: false };
+  if (a.mock) return { text: 'built-in · from project data', title: "No model endpoint: the bench's own analysis of the repo, history and labs", fallback: false };
   const fb = a.fallback ?? (offline || /fallback|offline/i.test(a.model ?? ''));
   if (fb)
     return {
-      text: 'LLM offline · answer from data',
+      text: 'from project data',
       title: `${a.model ?? 'the model'} did not answer (or gave no usable answer); this is the bench's own answer from its data`,
       fallback: true,
     };

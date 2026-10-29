@@ -116,7 +116,7 @@
         <div class="sugline">
           <Icon name="sparkle" size={15} />
           {edited ? 'suggested, edited by you' : 'suggested · edit before you commit'}
-          {#if suggested.mock}<span class="tag">mock LLM</span>{/if}
+          {#if suggested.mock}<span class="tag">built-in</span>{/if}
           {#if suggested.model !== 'mock'}
             {@const ml = modelLabel(suggested, suggestedOffline)}
             <span class="mono small" class:muted={!ml.fallback} class:warn-text={ml.fallback} title={ml.title}>{ml.text}</span>

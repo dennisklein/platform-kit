@@ -40,7 +40,7 @@
           {
             name: 'LLM',
             ok: st.llm.reachable,
-            detail: st.llm.mock ? 'mock model (no PK_LLM_BASE_URL)' : `${st.llm.model}${st.llm.baseUrl ? ` at ${st.llm.baseUrl}` : ''}${st.llm.embedModel ? ` · embeddings ${st.llm.embedModel}` : ''}`,
+            detail: st.llm.mock ? 'built-in analysis (no PK_LLM_BASE_URL)' : `${st.llm.model}${st.llm.baseUrl ? ` at ${st.llm.baseUrl}` : ''}${st.llm.embedModel ? ` · embeddings ${st.llm.embedModel}` : ''}`,
           },
           { name: st.flux.name, ok: st.flux.reachable, detail: st.flux.detail ?? st.flux.url ?? '' },
         ]

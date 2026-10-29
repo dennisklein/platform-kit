@@ -231,7 +231,7 @@
                 <div><dt>id</dt><dd class="mono">{e.id}</dd></div>
                 <div><dt>time</dt><dd>{dateTime(e.time)}</dd></div>
                 <div><dt>user</dt><dd>{e.user}</dd></div>
-                <div><dt>model</dt><dd class="mono">{e.model}{e.mock ? ' (mock)' : ''}</dd></div>
+                <div><dt>model</dt><dd class="mono">{e.mock ? 'built-in (no model endpoint)' : e.model}</dd></div>
                 {#if e.durationMs != null}<div><dt>took</dt><dd>{duration(e.durationMs)}</dd></div>{/if}
                 {#if e.changeId}
                   <div>

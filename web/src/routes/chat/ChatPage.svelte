@@ -24,7 +24,7 @@
   <aside class="about">
     <section class="card">
       <h3>Model</h3>
-      <p class="mono">{llm ? (llm.mock ? 'mock model (no PK_LLM_BASE_URL)' : llm.model) : '…'}</p>
+      <p class="mono">{llm ? (llm.mock ? 'built-in analysis (no model endpoint)' : llm.model) : '…'}</p>
       {#if llm?.baseUrl}<p class="muted small mono">{llm.baseUrl}</p>{/if}
       {#if llm?.embedModel}<p class="muted small">Embeddings: <span class="mono">{llm.embedModel}</span></p>{/if}
     </section>
