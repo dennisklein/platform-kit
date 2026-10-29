@@ -1,10 +1,13 @@
 <script lang="ts">
-  // Toasts sit top right, under the top bar: away from the editor status
-  // line, the gates card and the advisor buttons the demo points at.
+  // Toasts sit bottom right, just above the editor status line: away from
+  // the header actions, the agent banner and the status line itself. With
+  // the side panel open they move left of it, so the chat composer stays
+  // free.
   import { flip } from 'svelte/animate';
   import { fade, fly } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import { toasts } from '../stores/toasts.svelte';
+  import { ui } from '../stores/ui.svelte';
   import { ms } from '../f/motion';
   import Icon from './Icon.svelte';
 
@@ -35,13 +38,13 @@
   });
 </script>
 
-<div class="toasts" aria-live="polite">
+<div class="toasts" class:side={ui.sideOpen} aria-live="polite">
   {#each toasts.list as t (t.id)}
     <div
       class="toast t-{t.tone}"
       role={t.tone === 'bad' ? 'alert' : 'status'}
       animate:flip={{ duration: ms(200) }}
-      in:fly={{ y: -10, duration: ms(200), easing: cubicOut }}
+      in:fly={{ y: 10, duration: ms(200), easing: cubicOut }}
       out:fade={{ duration: ms(140) }}
     >
       <span class="ic"><Icon name={ICON[t.tone]} size={16} /></span>
@@ -58,13 +61,19 @@
 <style>
   .toasts {
     position: fixed;
-    top: calc(var(--topbar-h) + 10px);
+    /* the editor status line is 36 px high */
+    bottom: 48px;
     right: 16px;
     display: grid;
+    align-content: end;
     gap: 8px;
     z-index: 60;
     width: min(380px, calc(100vw - 32px));
     pointer-events: none;
+  }
+  .toasts.side {
+    right: calc(var(--side-w) + 16px);
+    width: min(380px, calc(100vw - var(--side-w) - var(--nav-w) - 32px));
   }
   .toast {
     pointer-events: auto;
@@ -113,18 +122,20 @@
   .text {
     font-weight: 600;
   }
-  /* Short: one line of detail (long paths are in the tooltip). Errors show
+  /* Short: two lines of detail (the rest is in the tooltip). Errors show
      all of it. */
   .detail {
     color: var(--muted);
     font-size: 12.5px;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
   }
   .detail.full {
-    white-space: normal;
-    overflow-wrap: anywhere;
+    display: block;
   }
   a {
     font-size: 12.5px;
