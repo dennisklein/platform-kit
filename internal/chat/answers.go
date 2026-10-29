@@ -1018,7 +1018,7 @@ func lowerLead(s string) string {
 // trailer says why, a runbook says how, a KB article explains).
 func pickHit(hits []llm.Hit, q string) llm.Hit {
 	terms := termSet(q)
-	why, how := reWhy.MatchString(q), reHow.MatchString(q)
+	why, how := isWhy(q), reHow.MatchString(q)
 	best, bestScore := hits[0], -1
 	for i, h := range hits[:min(len(hits), 3)] {
 		score := 3 - i + min(overlap(terms, h.Title), 3)

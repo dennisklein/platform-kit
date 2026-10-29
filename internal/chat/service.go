@@ -230,7 +230,7 @@ func (s *Svc) backstop(ctx context.Context, p *progress, req Request, q string, 
 		p.quick(ctx, "suggest_edit", "suggest "+shortPath(sg.Path), "+"+plural(addedLines(sg.Before, sg.After), "line", "lines"))
 		a.Suggestions = append(a.Suggestions, d.Suggestions...)
 		s.addExtra(p, a, d)
-	case reWhy.MatchString(q) && len(advisor.EntityNames(q)) > 0:
+	case isWhy(q) && len(advisor.EntityNames(q)) > 0:
 		d := &Answer{Sources: []llm.Source{}}
 		if !s.whyFromHistory(ctx, silent, q, advisor.EntityNames(q), d) || len(d.Sources) == 0 {
 			return
@@ -341,8 +341,15 @@ var (
 	reAddToPolicy = regexp.MustCompile(`(?i)\b(add|select|peer|include|put)\b.*\bpolic(y|ies)\b`)
 	rePolicyName  = regexp.MustCompile(`(?i)\b(?:the\s+)?([a-z0-9][a-z0-9-]*[a-z0-9])\s+(?:bgp\s+)?(?:peering\s+)?polic(?:y|ies)\b`)
 	reWhy         = regexp.MustCompile(`(?i)^\s*(?:(?:so|and|but|ok|okay|then|hi|hey)\b[\s,]*)*(why|when|who|how come)\b`)
-	reNumber      = regexp.MustCompile(`\b\d{1,3}\b`)
+	// reWhyInside is "why" or "how come" anywhere in a question: "Can you
+	// tell me why cn-003 uses port 37?".
+	reWhyInside = regexp.MustCompile(`(?i)(?:^|[\s,:;(])(why|how come)\b`)
+	reNumber    = regexp.MustCompile(`\b\d{1,3}\b`)
 )
+
+// isWhy reports a question that asks why (or who or when, as its first
+// word): with an entity name it gets the answer from the merge history.
+func isWhy(q string) bool { return reWhy.MatchString(q) || reWhyInside.MatchString(q) }
 
 // mockAnswer answers from the bench data: a question in another language
 // is read in English; then a prompt injection, a greeting, small talk; then
@@ -384,7 +391,7 @@ func (s *Svc) mockAnswer(ctx context.Context, p *progress, req Request, q string
 			return
 		}
 	}
-	if reWhy.MatchString(q) && len(names) > 0 {
+	if isWhy(q) && len(names) > 0 {
 		if s.whyFromHistory(ctx, p, q, names, a) || s.whyNew(ctx, p, req, names, a) {
 			return
 		}

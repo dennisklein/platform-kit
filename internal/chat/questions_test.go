@@ -93,3 +93,18 @@ func TestFileAnswerNamesTheQuestion(t *testing.T) {
 		t.Errorf("talconfig: %v %q", ok, got)
 	}
 }
+
+func TestWhyInsideTheQuestion(t *testing.T) {
+	s, _, _ := newSvc(t, newFake(t), llm.NewMock(nil))
+	for _, q := range []string{
+		"Can you tell me why cn-003 uses port 37 on data-a?",
+		"Do you know why cn-003 is on data-a 37?",
+		"A slow question: why does cn-003 use port 37?",
+		"How come cn-003 is on data-a 37?",
+	} {
+		a, _ := s.Ask(ctxAs("dennis"), ask(q))
+		if !strings.HasPrefix(a.Text, "c-2hd7vw moved cn-003 p2") {
+			t.Errorf("%q: %q", q, a.Text)
+		}
+	}
+}
