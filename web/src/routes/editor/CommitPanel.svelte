@@ -4,7 +4,7 @@
   // the admin edits the message and commits.
   import { tick } from 'svelte';
   import { api, must, errorText } from '../../lib/api/client';
-  import type { AdvisorResult as Result, Change, CommitMessageSuggestion } from '../../lib/api/types';
+  import type { AdvisorResult as Result, Change, CommitMessageSuggestion, Suggestion } from '../../lib/api/types';
   import Icon from '../../lib/components/Icon.svelte';
   import AdvisorResult from '../../lib/components/advisor/AdvisorResult.svelte';
   import AdvisorWorking from '../../lib/components/advisor/AdvisorWorking.svelte';
@@ -40,6 +40,11 @@
   // The suggested message is being typed into the box.
   let typing = $state(false);
   let checkEl = $state<HTMLElement | null>(null);
+  // An accepted suggestion of "Check this commit": its file is staged now,
+  // so the panel shows the commit form; one line keeps the outcome in view.
+  let accepted = $state<{ title: string; file: string } | null>(null);
+  let acceptedEl = $state<HTMLElement | null>(null);
+  let suggestCtl: AbortController | null = null;
 
   const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
   const SUGGEST_TOOLS = RECIPE_TOOLS['commit-message'];
@@ -81,15 +86,19 @@
   const canCommit = $derived(paths.length > 0 && subject.length > 0 && !committing);
 
   async function suggest() {
+    suggestCtl?.abort();
+    const ctl = new AbortController();
+    suggestCtl = ctl;
     suggesting = true;
     error = null;
     message = '';
     suggested = null;
     try {
       const [s] = await Promise.all([
-        must(api.POST('/changes/{id}/commit-message', { params: { path: { id: change.id } }, body: { paths } })),
+        must(api.POST('/changes/{id}/commit-message', { params: { path: { id: change.id } }, body: { paths }, signal: ctl.signal })),
         sleep(minWorkingMs(readingSteps(SUGGEST_TOOLS).length, reducedMotion())),
       ]);
+      if (ctl.signal.aborted) return;
       suggested = s;
       suggestedOffline = !!session.status?.llm && !session.status.llm.mock && !session.status.llm.reachable;
       session.noteAnswer(s);
@@ -97,10 +106,26 @@
       await typeIn(s.message);
       edited = false;
     } catch (e) {
-      error = errorText(e);
+      if (!ctl.signal.aborted) error = errorText(e);
     } finally {
-      suggesting = false;
+      if (suggestCtl === ctl) {
+        suggesting = false;
+        suggestCtl = null;
+      }
     }
+  }
+
+  function cancelSuggest() {
+    suggestCtl?.abort();
+    suggestCtl = null;
+    suggesting = false;
+  }
+
+  async function onDecided(sg: Suggestion) {
+    if (sg.status !== 'accepted') return;
+    accepted = { title: sg.title || 'the suggested edit', file: sg.path.split('/').pop() ?? sg.path };
+    await tick();
+    acceptedEl?.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'nearest' });
   }
 
   async function commit() {
@@ -116,6 +141,7 @@
       message = '';
       suggested = null;
       check = null;
+      accepted = null;
       changeStore.later('commit', 50);
       changes.later(50);
       oncommitted();
@@ -129,6 +155,7 @@
   async function checkCommit() {
     checking = true;
     check = null;
+    accepted = null;
     void showCheck();
     try {
       const [r] = await Promise.all([
@@ -154,20 +181,28 @@
 </script>
 
 <div class="commit">
+  {#if accepted}
+    <p class="accepted" bind:this={acceptedEl} role="status">
+      <Icon name="check" size={15} />
+      <span><strong>Accepted:</strong> {accepted.title} in <span class="mono">{accepted.file}</span>, now staged below.</span>
+    </p>
+  {/if}
   {#if paths.length === 0 && !message}
-    <section class="card nothing">
-      <h3 class="eyebrow">Commit message</h3>
-      <p class="muted">Nothing to commit. Edit and save a file, then commit it here.</p>
-    </section>
+    {#if !shown}
+      <!-- The worktree column says "Nothing to commit"; this says how. -->
+      <section class="card nothing">
+        <h3 class="eyebrow">Commit message</h3>
+        <p class="muted">Save an edit in Files, then tick it on the left to commit it here.</p>
+      </section>
+    {/if}
   {:else}
     <section class="card">
       <h3 class="eyebrow">Commit message</h3>
-      <div class="msg" class:sug={(suggested || suggesting) && !edited}>
-        {#if suggesting}
-          <div class="sugline">
-            <AdvisorWorking compact title="Suggest a commit message" tools={SUGGEST_TOOLS} writer="Writing the message" />
-          </div>
-        {:else if suggested}
+      {#if suggesting}
+        <AdvisorWorking title="Suggest a commit message" tools={SUGGEST_TOOLS} writer="Writing the message" onCancel={cancelSuggest} />
+      {/if}
+      <div class="msg" class:sug={suggested && !edited} hidden={suggesting}>
+        {#if suggested}
           <div class="sugline">
             <Icon name="sparkle" size={15} />
             {typing ? 'suggested · typing…' : edited ? 'suggested, edited by you' : 'suggested · edit before you commit'}
@@ -185,9 +220,7 @@
           oninput={() => (edited = true)}
           onkeydown={onkey}
           readonly={typing || suggesting}
-          placeholder={suggesting
-            ? 'The advisor reads the staged diff and the intent of the change…'
-            : 'Write a Conventional Commit message: type(scope): what changes.\nOr click Suggest message.'}
+          placeholder={'Write a Conventional Commit message: type(scope): what changes.\nOr click Suggest message.'}
           aria-label="Commit message"
         ></textarea>
       </div>
@@ -197,7 +230,7 @@
       {#if error}<div class="error-box">{error}</div>{/if}
       <div class="row">
         <button class="btn ai" onclick={suggest} disabled={suggesting || typing || paths.length === 0}>
-          <Icon name="sparkle" size={15} />{suggesting ? 'Asking…' : suggested ? 'Suggest again' : 'Suggest message'}
+          <Icon name="sparkle" size={15} />{suggested ? 'Suggest again' : 'Suggest message'}
         </button>
         <button class="btn dark" onclick={commit} disabled={!canCommit || typing}>
           <Icon name="check" size={15} />{committing ? 'Committing…' : `Commit ${paths.length} file${paths.length === 1 ? '' : 's'}`}
@@ -237,7 +270,7 @@
           <AdvisorWorking title="Check this commit" tools={CHECK_TOOLS} />
         {:else if check}
           {#key checkKey}
-            <AdvisorResult result={check} reveal onRerun={checkCommit} busy={checking} />
+            <AdvisorResult result={check} reveal onRerun={checkCommit} busy={checking} {onDecided} />
           {/key}
         {/if}
       </div>
@@ -279,8 +312,26 @@
     font-size: 14px;
     min-width: 0;
   }
-  .sugline > :global(.line) {
-    flex: 1;
+  .msg[hidden] {
+    display: none;
+  }
+  .accepted {
+    margin: 0;
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    padding: 10px 14px;
+    border: 1px solid var(--ai-line);
+    border-left: 4px solid var(--ok);
+    border-radius: var(--radius);
+    background: var(--panel);
+    font-size: 14.5px;
+    scroll-margin-top: 16px;
+  }
+  .accepted :global(svg) {
+    color: var(--ok);
+    flex: none;
+    margin-top: 2px;
   }
   .sugline .model {
     color: var(--muted);

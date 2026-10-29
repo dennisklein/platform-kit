@@ -19,6 +19,7 @@
     reveal = false,
     by,
     onRerun,
+    onDecided,
     busy = false,
   }: {
     result: AdvisorResult;
@@ -31,6 +32,8 @@
     onRerun?: () => void;
     /** A run of this recipe is in progress. */
     busy?: boolean;
+    /** A suggestion of this answer was accepted or rejected. */
+    onDecided?: (s: Suggestion) => void;
   } = $props();
 
   let rating = $state<'up' | 'down' | undefined>(undefined);
@@ -109,7 +112,7 @@
 
   <div class="rest" class:in={rest}>
     {#each suggestions as s, i (s.id)}
-      <div class="sg"><SuggestionCard bind:suggestion={suggestions[i]} note={false} /></div>
+      <div class="sg"><SuggestionCard bind:suggestion={suggestions[i]} note={false} {onDecided} /></div>
     {/each}
 
     {#if result.note}<p class="note">{result.note}</p>{/if}
