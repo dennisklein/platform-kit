@@ -49,6 +49,12 @@
   --nav-active: var(--gsi-orange);
   --shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 4px 16px rgb(0 0 0 / 0.06);
   --code-bg: var(--grey-50);
+  /* AI surfaces (advisors, chat, agents): the deck's LLM teal */
+  --ai: #00775f;
+  --ai-fill: var(--teal);
+  --ai-on: #ffffff;
+  --ai-soft: #e0f2ee;
+  --ai-line: #8fcfc0;
 
   --sans: 'Arimo', 'Helvetica Neue', Helvetica, Arial, system-ui, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
@@ -88,6 +94,11 @@
     --nav-ink: #9ba3ae;
     --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 16px rgb(0 0 0 / 0.3);
     --code-bg: #15181d;
+    --ai: #4fd1b2;
+    --ai-fill: #1aa88a;
+    --ai-on: #ffffff;
+    --ai-soft: #10302a;
+    --ai-line: #1f5a4d;
     color-scheme: dark;
   }
 }
@@ -117,6 +128,11 @@
   --nav-ink: #9ba3ae;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 16px rgb(0 0 0 / 0.3);
   --code-bg: #15181d;
+  --ai: #4fd1b2;
+  --ai-fill: #1aa88a;
+  --ai-on: #ffffff;
+  --ai-soft: #10302a;
+  --ai-line: #1f5a4d;
   color-scheme: dark;
 }
 
