@@ -505,7 +505,7 @@
             </label>
           </li>
         {:else}
-          <li class="muted empty">Nothing to commit. Edit files first.</li>
+          <li class="muted empty">Nothing to commit.</li>
         {/each}
       </ul>
       <div class="colhead"><span class="eyebrow">Commits</span><span class="muted small">{ch.commits.length}</span></div>

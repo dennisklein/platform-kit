@@ -190,7 +190,8 @@
   {/if}
   {#if paths.length === 0 && !message}
     {#if !shown}
-      <!-- The worktree column says "Nothing to commit"; this says how. -->
+      <!-- The worktree column says "Nothing to commit."; this says how,
+           without saying it again. -->
       <section class="card nothing">
         <h3 class="eyebrow">Commit message</h3>
         <p class="muted">Save an edit in Files, then tick it on the left to commit it here.</p>

@@ -93,10 +93,10 @@
 <Modal bind:open title="New change" icon="branch" width={720}>
   <form id="new-change" class="form" onsubmit={create}>
     <label for="nc-title">Title</label>
-    <input id="nc-title" class="input mono" bind:value={title} placeholder="What changes, in a few words" maxlength="120" required />
+    <input id="nc-title" class="input" bind:value={title} placeholder="What changes, in a few words" maxlength="120" required />
 
     <label for="nc-intent">Intent</label>
-    <input id="nc-intent" class="input mono" bind:value={intent} placeholder="Why: the intent that reviewers and auditors read" />
+    <input id="nc-intent" class="input" bind:value={intent} placeholder="Why: the intent that reviewers and auditors read" />
 
     <span class="lab">Target</span>
     <div class="row">
@@ -144,10 +144,11 @@
 </Modal>
 
 <style>
-  /* Placeholders are hints, not values: they must not look typed. */
+  /* Title and intent are prose: typed in the sans font, placeholders in
+     the muted colour. */
   .form :global(.input::placeholder) {
-    font-family: var(--sans);
-    font-style: italic;
+    color: var(--muted);
+    opacity: 0.8;
   }
   .form {
     display: grid;
