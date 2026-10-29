@@ -12,6 +12,7 @@
   import Markdown from '../../lib/components/Markdown.svelte';
   import Modal from '../../lib/components/Modal.svelte';
   import Glyph from '../../lib/components/Glyph.svelte';
+  import { redactedFields } from './redaction';
 
   let { params, query }: { params: Params; query: URLSearchParams } = $props();
 
@@ -102,6 +103,23 @@
 
   /** Prompt split around the redaction marker, for highlighting. */
   const parts = (s: string) => s.split(/(\[redacted\])/g);
+
+  /** "hubble.ui.auth.token, sops" from helmrelease.yaml: what the filter removed. */
+  function removedText(e: LlmLogEntry): { fields: string[]; files: string[] } {
+    const r = redactedFields(e.prompt);
+    return {
+      fields: [...new Set(r.map((x) => x.field))],
+      files: [...new Set(r.map((x) => x.file).filter((x): x is string => !!x))].map((f) => f.split('/').pop() ?? f),
+    };
+  }
+
+  /** On open, the prompt box scrolls to the first removed value. */
+  function toFirstMark(pre: HTMLElement) {
+    const m = pre.querySelector<HTMLElement>('mark');
+    if (m) requestAnimationFrame(() => pre.scrollTo({ top: Math.max(0, m.offsetTop - pre.clientHeight / 2), behavior: 'smooth' }));
+  }
+
+  const modelName = (e: LlmLogEntry) => (e.mock ? 'built-in' : e.model);
 
   async function exportLog() {
     exporting = true;
@@ -221,6 +239,7 @@
               {#if e.redactions}<span class="red" title="Values the secret filter removed from the prompt"><Glyph name="lock" size={11} /> {e.redactions}</span>{/if}
               {#if e.error}<span class="bad-text" title={e.error}><Glyph name="alert" size={12} /></span>{/if}
               {#if e.rating}<span class="rt {e.rating}"><Glyph name={e.rating === 'up' ? 'thumbs-up' : 'thumbs-down'} size={12} /></span>{/if}
+              <span class="model mono" class:builtin={e.mock} title={e.mock ? 'Built-in model: no model endpoint, answers from project data' : `Model ${e.model}`}>{modelName(e)}</span>
               <span class="who">{e.user}</span>
             </span>
             <Glyph name="chevron" size={12} />
@@ -247,7 +266,18 @@
               <div class="cols">
                 <section>
                   <h3 class="eyebrow">Prompt as sent</h3>
-                  <pre class="prompt">{#each parts(e.prompt) as p, i (i)}{#if p === '[redacted]'}<mark>{p}</mark>{:else}{p}{/if}{/each}</pre>
+                  {#if e.redactions}
+                    {@const rm = removedText(e)}
+                    <div class="removed">
+                      <Glyph name="lock" size={14} />
+                      <span>
+                        <b>{e.redactions} {e.redactions === 1 ? 'value' : 'values'} removed before the call</b>{#if rm.fields.length}:
+                          {#each rm.fields as f, i (f)}{i ? ', ' : ''}<code>{f}</code>{/each}{/if}{#if rm.files.length}
+                          <span class="muted">(in {rm.files.join(', ')})</span>{/if}
+                      </span>
+                    </div>
+                  {/if}
+                  <pre class="prompt" {@attach toFirstMark}>{#each parts(e.prompt) as p, i (i)}{#if p === '[redacted]'}<mark title="Removed by the secret filter before the call"><Glyph name="lock" size={11} />{p}</mark>{:else}{p}{/if}{/each}</pre>
                 </section>
                 <section>
                   <h3 class="eyebrow">Answer</h3>
@@ -497,18 +527,57 @@
     margin: 0;
   }
   .prompt {
+    position: relative;
     margin: 0;
-    max-height: 320px;
+    max-height: 55vh;
     overflow: auto;
     white-space: pre-wrap;
-    font-size: 12px;
-    line-height: 1.5;
+    font-size: 12.5px;
+    line-height: 1.55;
   }
+  /* A removed secret: the proof of the redaction, visible from afar. */
   .prompt mark {
-    background: var(--warn-soft);
-    color: var(--warn);
-    border-radius: 3px;
-    padding: 0 2px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: var(--bad-soft);
+    color: var(--bad);
+    font-weight: 700;
+    border-radius: 4px;
+    padding: 0 5px;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bad) 45%, transparent);
+  }
+  .removed {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    font-size: 13px;
+    padding: 7px 10px;
+    border-radius: 6px;
+    background: var(--bad-soft);
+    color: var(--ink);
+  }
+  .removed > :global(svg) {
+    color: var(--bad);
+    flex: none;
+    margin-top: 2px;
+  }
+  .removed code {
+    font-size: 12.5px;
+  }
+  .model {
+    font-size: 11.5px;
+    padding: 0 6px;
+    border-radius: 4px;
+    background: var(--panel-2);
+    color: var(--muted);
+    box-shadow: inset 0 0 0 1px var(--line);
+    white-space: nowrap;
+  }
+  .model.builtin {
+    background: var(--ai-soft);
+    color: var(--ai);
+    box-shadow: inset 0 0 0 1px var(--ai-line);
   }
   .answer {
     font-size: 14px;
