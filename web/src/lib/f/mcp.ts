@@ -64,3 +64,27 @@ export function reasonText(reason: string | undefined): string {
   const r = (reason ?? '').replace(/^denied:\s*/i, '').trim();
   return r ? r[0].toUpperCase() + r.slice(1) : '';
 }
+
+/** How long the banner stays red after a denied call. */
+export const DENIED_MS = 15_000;
+
+/** Milliseconds the red denied state has left for a call made at `at` (0: over). */
+export function deniedLeft(at: string, now: number, ms = DENIED_MS): number {
+  const t = Date.parse(at);
+  if (!Number.isFinite(t)) return ms;
+  return Math.max(0, t + ms - now);
+}
+
+/** The calm line after a denial: "Agent stopped: merging needs a human". */
+export function stoppedText(c: Pick<McpCall, 'tool'>): string {
+  if (c.tool === 'pk_change_merge') return 'Agent stopped: merging needs a human';
+  if (c.tool === 'pk_change_approve') return 'Agent stopped: approving needs a human';
+  return `Agent stopped: the bench refused ${c.tool ?? 'the call'}`;
+}
+
+type CallKey = Pick<McpCall, 'actor' | 'at' | 'text' | 'tool'>;
+
+/** The same call seen twice (recalled after a reload, then again on a reconnect). */
+export function sameCall(a: CallKey, b: CallKey): boolean {
+  return a.actor === b.actor && a.at === b.at && a.tool === b.tool && a.text === b.text;
+}

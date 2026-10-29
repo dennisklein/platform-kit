@@ -20,8 +20,10 @@ class FocusStore {
    * followed: the screen moved with it (false while following is paused).
    */
   lastMove = $state<{ by: string; route: string; at: number; followed: boolean } | null>(null);
-  /** Agent banners on the page: they show the follow state, so the floating cue steps back. */
+  /** Agent banners in view: they show the follow state, so the floating cue steps back. */
   banners = $state(0);
+  /** Agent banners in view per change: they show a denial, so no toast repeats it. */
+  bannerChanges = $state<Record<string, number>>({});
 
   #pending: FocusUpdate | null = null;
   #timer: ReturnType<typeof setTimeout> | undefined;
@@ -29,10 +31,28 @@ class FocusStore {
   start() {
     void this.load();
     events.on<Focus>('focus.changed', (f) => this.#apply(f));
-    events.on<Presence>('presence', (p) => {
-      this.presence = { ...this.presence, [p.actor]: p };
-      if (p.suggest) this.suggestion = p;
+    events.on<Presence>('presence', (p, ev) => {
+      const prev = this.presence[p.actor];
+      // A recall after a reload never replaces newer presence.
+      if (!ev.replay || !prev || prev.at <= p.at) this.presence = { ...this.presence, [p.actor]: p };
+      if (p.suggest && !ev.replay) this.suggestion = p;
     });
+  }
+
+  /** An agent banner of a change came into view (+1) or left it (-1). */
+  bannerSeen(changeId: string | undefined, d: 1 | -1) {
+    this.banners = Math.max(0, this.banners + d);
+    if (!changeId) return;
+    const n = Math.max(0, (this.bannerChanges[changeId] ?? 0) + d);
+    const next = { ...this.bannerChanges };
+    if (n) next[changeId] = n;
+    else delete next[changeId];
+    this.bannerChanges = next;
+  }
+
+  /** An agent banner of this change is in view. */
+  bannerOn(changeId: string | undefined): boolean {
+    return !!changeId && (this.bannerChanges[changeId] ?? 0) > 0;
   }
 
   async load() {

@@ -8,6 +8,8 @@ export interface BenchEvent<T = unknown> {
   type: EventType;
   time: string;
   data: T;
+  /** Recalled on connect (the recent MCP calls), not live. */
+  replay?: boolean;
 }
 
 type Handler = (data: any, ev: BenchEvent) => void;
