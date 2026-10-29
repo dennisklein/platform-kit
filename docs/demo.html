@@ -229,7 +229,7 @@ echo '{"permissions":{"allow":["mcp__platform-kit"]}}' &gt; ~/pk-agent/.claude/s
 <h4>The audience sees</h4>
 <ul class="see">
   <li>While fields are empty, PROBLEMS lists them (for example "line 6: spec.cluster is empty: the node is in no cluster"). Each field shows its schema path and owner badge (<i>asset-db</i>, <i>derived</i>). <span class="ui">Emulation</span> fills itself: "qemu + Redfish sim supermicro-x12".</li>
-  <li>With data-a 37: the p2 row turns red with "in use by cn-003". PROBLEMS: "line 19: spec.ports[2].peer.port port data-a 37 in use by cn-003". The tree shows a problem count on cn-003.yaml too.</li>
+  <li>With data-a 37: the p2 peer turns red, and under it the line "port data-a 37 in use by cn-003", with cn-003 as a link to the node. PROBLEMS: "line 19: spec.ports[2].peer.port port data-a 37 in use by cn-003". The tree shows a problem count on cn-003.yaml too.</li>
 </ul>
 <p class="muted">Tell: the form comes from the Node schema; the check is across files (cn-003 holds data-a 37 since change c-2hd7vw). Each save renders the change.</p>
 <div class="fallback"><h4>If it fails</h4>
@@ -253,7 +253,7 @@ pk edit cn-035 --change $CH --set 'spec.ports[2].peer.port=38'</code></pre></div
   <li>In the rack picture, click <span class="ui">cn-035</span> (green, at U6).</li>
   <li>Point to "new in &lt;id&gt;", the p2 row and the SEMANTIC DIFF card.</li>
   <li>Optional: in the switch at the top, click <span class="ui">main</span>, then click the change id again.</li>
-  <li>In the red line under the title, click <span class="ui">cn-035.yaml:19</span> (the line of the p2 peer port). The editor opens the file of the change.</li>
+  <li>In the red line under the title, click <span class="ui">cn-035.yaml:19</span> (the line of the p2 peer port). The editor opens the file of the change. In the form, it scrolls to the p2 peer and highlights it.</li>
   <li>If the editor shows YAML, click <span class="ui">Form</span>. In the p2 row, change the peer port to <code>38</code>.</li>
 </ol>
 <h4>The audience sees</h4>
@@ -262,7 +262,7 @@ pk edit cn-035 --change $CH --set 'spec.ports[2].peer.port=38'</code></pre></div
   <li>cn-035 "Node v1beta1" with the badge "new in &lt;id&gt;" and the red line "port data-a 37 in use by cn-003". INTENT, HARDWARE FACTS with the owner of each field (<i>intent</i>, <i>asset DB</i>, <i>derived</i>). PORTS AND CABLES "1 problem": p2 DATA-0202 data-a 37 "port data-a 37 in use by cn-003".</li>
   <li>SEMANTIC DIFF · &lt;ID&gt;: "+ cn-035: new compute node in GC5A-6Z, U6".</li>
   <li>With <span class="ui">main</span>: "Node cn-035 not found in main". The node exists only in the change.</li>
-  <li>With 38 in the form: "port free" and "No problems". The status line: "saved to worktree just now · Node/cn-035 · render: defiant +1".</li>
+  <li>With 38 in the form: "port free" and "No problems". The status line: "saved to worktree just now · Node/cn-035" and the pill "render: defiant +1", which flashes when the render changes.</li>
 </ul>
 <p class="muted">Tell: a kind adds a view, with the same schema as the YAML editor. Each field has one owner. The check across files is the same as in the editor. The diff is in domain words, from the kind hooks.</p>
 <div class="fallback"><h4>If it fails</h4>
@@ -325,7 +325,7 @@ pk edit cn-036 --change $CH --set spec.cluster=defiant --set spec.location.rack=
 <h4>The audience sees</h4>
 <ul class="see">
   <li>WORKTREE with the 2 files checked, and the STAGED DIFF of cn-035.yaml and cn-036.yaml.</li>
-  <li>The message, marked "suggested · edit before you commit" and the model name (<i>mock LLM</i> without a model):<br><code>feat(inventory): add cn-035 and cn-036 in GC5A-6Z</code>, with the bullets "2 compute nodes for defiant, U6 and U8" and "bmc and data ports on mgmt, data-a and data-b".</li>
+  <li>The message, marked "suggested · edit before you commit" and the model name (<i>built-in</i> without a model endpoint):<br><code>feat(inventory): add cn-035 and cn-036 in GC5A-6Z</code>, with the bullets "2 compute nodes for defiant, U6 and U8" and "bmc and data ports on mgmt, data-a and data-b".</li>
   <li>The note: "The advisor reads the staged diff and the change intent. It writes nothing: the admin edits and commits."</li>
   <li>After the commit: COMMITS 2, "Nothing to commit. Edit files first.", and the buttons <span class="ui">Check this commit</span>, <span class="ui">Run lab</span>, <span class="ui">Push, open draft MR</span>.</li>
 </ul>
@@ -404,7 +404,8 @@ pk changes commit $CH --message "feat(cilium): peer cn-036 in rack-6z"</code></p
 <ul class="see">
   <li>The change page first: lifecycle draft · lab · review · approved · merged · deployed · verified; GATES FROM .PK/POLICY.YAML with "Green lab on branch head — no run yet — lab gate from rules: inventory, network", "Approvals 0 of 2", OVERLAP with c-p4x8ma.</li>
   <li>The lab page "Change lab · run-1 running", "lab host local · metal provisioning · fresh machines", "twin of defiant · cn-035, cn-036".</li>
-  <li>Steps: topology <i>generate</i> → BMC <i>Redfish sim</i> → install <i>Talos</i> → join <i>defiant</i> → nodes Ready <i>2 of 2</i> → BGP <i>2 peers up</i> → power cycle cn-036 <i>back in 3m 10s</i> → data-b link down <i>traffic via data-a</i> → checks <i>12 of 12</i> → report <i>written</i>.</li>
+  <li>Steps: topology <i>generate</i> → BMC <i>Redfish sim</i> → install <i>Talos</i> → join <i>defiant</i> → nodes Ready <i>2 of 2</i> → BGP <i>2 peers up</i> → power cycle cn-036 <i>back in 3m 10s</i> → data-b link down <i>traffic via data-a</i> → checks <i>12 of 12</i> → report <i>written</i>. Steps still to come show as hollow circles; the result chip counts the time ("running · 0:12").</li>
+  <li>The CONSOLE on the right grows with the run: a heading per step, its output lines as they come, the checks of each step, and a "running" line with the time. It follows the run. Click a step to pin its output; click <span class="ui">Follow the run</span> to go back to live.</li>
   <li>Result: <i>pass</i>, "23s (lab time 6m 40s)", "Lab gate of control/inventory/** +2 met", Report <code>kb/labs/&lt;id&gt;-run-1.md</code>, Trailer <code>Pk-Lab-Run: &lt;id&gt;/run-1 pass</code>.</li>
 </ul>
 <p class="muted">Tell: the lab is simulated, the checks are real computations on the rendered state of this change. The report goes into the change as a commit.</p>
@@ -418,18 +419,19 @@ pk changes commit $CH --message "feat(cilium): peer cn-036 in rack-6z"</code></p
 <div class="body">
 <h4>Do</h4>
 <ol>
-  <li>On the lab page, click <span class="ui">Change</span>. In the OVERLAP card, click <span class="ui">Impact: defiant +2 ~1</span>.</li>
+  <li>On the lab page, click <span class="ui">Change</span>. Under the title, click <span class="ui">Impact: defiant +2 ~1</span>.</li>
   <li>Click the tabs <span class="ui">Semantic</span>, <span class="ui">Source</span>, <span class="ui">Rendered</span>. Return to <span class="ui">Semantic</span>.</li>
   <li>In the Advisor card, click <span class="ui">Risks of this change</span>.</li>
   <li>Under the result, click the thumbs-up icon.</li>
 </ol>
 <h4>The audience sees</h4>
 <ul class="see">
+  <li>The change page: <i>lab passed</i> next to the title, and the lifecycle at lab (run-1). The buttons <span class="ui">Run lab again</span>, <span class="ui">Impact: defiant +2 ~1</span>, <span class="ui">Ask the advisor about risks</span>, <span class="ui">Push, open draft MR</span>.</li>
   <li>Impact: "main e08763f → &lt;sha&gt;"; defiant CLUSTER "21 → 23 objects · ring canary"; infra-metal <code>+ Machine/cn-035</code>, <code>+ Machine/cn-036</code>; cilium <code>~ CiliumBGPPeeringPolicy/rack-6z</code>, each with a source link; "pegasus, phoenix: no change".</li>
   <li>Semantic: "cn-035: new compute node in GC5A-6Z, U6", "cn-036: new compute node in GC5A-6Z, U8", "rack-6z: BGP policy selects 2 more nodes", and the new lab report.</li>
-  <li>The overlap: "c-p4x8ma (anna) also changes CiliumBGPPeeringPolicy/rack-6z on defiant. … No lock, no block: the second merge renders again."</li>
+  <li>The overlap: "c-p4x8ma (anna) also changes CiliumBGPPeeringPolicy/rack-6z on defiant. BGP peers for org-a and org-b. Both can merge. Whichever merges second is re-rendered on top of the first."</li>
   <li>RISK FROM .PK/POLICY.YAML <i>high</i>: policy rules inventory and network (2 approvals, lab), risk rules "A change to a node is high." and "A change to cilium is high."</li>
-  <li>The advisor (mock text): Overlap (until c-p4x8ma merges, cn-035 and cn-036 peer only with 10.6.0.1/32), Lab gap (one data link down, not both), Lab gap (no BGP peer down test), Port history (c-2hd7vw moved cn-003 to data-a 37). "Advisory only. The rating stays "high" from the policy." and a "Read:" line with the sources.</li>
+  <li>The advisor (without a model endpoint, marked "built-in · from project data"): Overlap (until c-p4x8ma merges, cn-035 and cn-036 peer only with 10.6.0.1/32), Lab gap (one data link down, not both), Lab gap (no BGP peer down test), Port history (c-2hd7vw moved cn-003 to data-a 37). "Advisory only. The rating stays "high" from the policy." and a "Read:" line with the sources.</li>
   <li>After the thumbs up: "Rated. Saved in the LLM log with the model name."</li>
 </ul>
 <div class="fallback"><h4>If it fails</h4>
@@ -445,13 +447,13 @@ pk llm run-advisor $CH risks</code></pre></div>
 <ol>
   <li>On the review page, click <span class="ui">Push, open draft MR</span>.</li>
   <li>Click <span class="ui">Mark ready</span>.</li>
-  <li>Optional: under the title, click the link <span class="ui">MR !13</span>. Gitea opens in a new tab. Show the description with the trailers and the statuses <code>pk/policy</code> and <code>pk/lab</code>. Close the tab.</li>
+  <li>Optional: under the title, click the link <span class="ui">MR !13</span>. Gitea opens in a new tab. Show the description with the trailers and the statuses <code>pk/policy</code> (pending: "waiting: approvals 0 of 2") and <code>pk/lab</code>. Close the tab.</li>
 </ol>
 <h4>The audience sees</h4>
 <ul class="see">
-  <li>Before the push, the change page shows MR DESCRIPTION, FROM .PK/CHANGES/&lt;ID&gt;.YAML with the trailers <code>Pk-Change</code>, <code>Pk-Title</code>, <code>Pk-Intent</code>, <code>Pk-Lab-Run</code>, <code>Pk-Author</code>, and BEFORE REVIEW: "Metadata file moved to the MR — on mark ready".</li>
+  <li>Before the push, the change page shows MR DESCRIPTION, FROM .PK/CHANGES/&lt;ID&gt;.YAML: the title and the intent, then a TRAILERS block with <code>Pk-Change</code>, <code>Pk-Title</code>, <code>Pk-Intent</code>, <code>Pk-Lab-Run</code>, <code>Pk-Author</code>, <code>Pk-Work-Item</code> (the change, lab run, report and work item are links), and BEFORE REVIEW: "Metadata file moved to the MR — on mark ready".</li>
   <li>After the push: the toast "Pushed 5 commits. Draft MR !13 opened."; under the title "MR !13 draft"; the main button changes to <span class="ui">Mark ready</span>.</li>
-  <li>After <span class="ui">Mark ready</span>: the toast "Ready for review: MR !13. The metadata file moved to the MR description."; state <i>review</i>; the main button changes to <span class="ui">Merge</span> (not yet allowed: 0 of 2 approvals).</li>
+  <li>After <span class="ui">Mark ready</span>: the toast "Ready for review: MR !13. The metadata file moved to the MR description."; state <i>review</i>; the main button changes to a dashed <span class="ui">Merge</span> with a lock and "0 of 2 approvals". Its dialog lists what blocks the merge and shows <span class="ui">Merge (blocked)</span>.</li>
 </ul>
 <div class="fallback"><h4>If it fails</h4>
 <pre><code>pk changes push-change $CH
@@ -482,13 +484,13 @@ pk changes mark-ready $CH</code></pre></div>
 </section>
 
 <section class="step" id="s1-12">
-<header><span class="n">1.12</span><span class="t">Rebase, impact unchanged, lab again (run-2)</span><span class="chip">slide 4 · step 6</span><span class="chip time">1 min</span></header>
+<header><span class="n">1.12</span><span class="t">Rebase, impact unchanged, run the lab again (run-2)</span><span class="chip">slide 4 · step 6</span><span class="chip time">1 min</span></header>
 <div class="body">
 <h4>Do</h4>
 <ol>
   <li>Click <span class="ui">Rebase on main</span>.</li>
   <li>Read the toast. Point to the gate "run-1 is for an old head".</li>
-  <li>Click <span class="ui">Lab again</span>. Wait about 25 s.</li>
+  <li>Click <span class="ui">Run lab again</span>. Wait about 25 s.</li>
 </ol>
 <h4>The audience sees</h4>
 <ul class="see">
@@ -515,7 +517,7 @@ pk lab run $CH --wait</code></pre></div>
 <h4>The audience sees</h4>
 <ul class="see">
   <li>"Approvals 1 of 2 … by anna. Can approve: jonas.", then "Approvals 2 of 2 … by anna, jonas." and "All gates met: ready to merge." State <i>approved</i>.</li>
-  <li>The card Merge request "MR !13 · review": MERGE COMMIT PREVIEW (TRAILERS) with <code>Approved-by: anna, jonas</code>; BEFORE REVIEW "Metadata file moved to the MR — main stays clean".</li>
+  <li>The card Merge request "MR !13 · review": MERGE COMMIT PREVIEW (TRAILERS) with <code>Approved-by: anna, jonas</code> (the line lights up when an approval arrives); the <span class="ui">Merge</span> button is no longer dashed; BEFORE REVIEW "Metadata file moved to the MR — main stays clean".</li>
 </ul>
 <p class="muted">Tell: agents and bots never approve or merge (step 3.2 shows the denial).</p>
 <div class="fallback"><h4>If it fails</h4>
@@ -535,8 +537,8 @@ pk demo demo-approve --as jonas --change-id $CH</code></pre></div>
 <h4>The audience sees</h4>
 <ul class="see">
   <li>The dialog "Merge &lt;id&gt;" with <code>Merge change &lt;id&gt;: Add cn-035 and cn-036 to defiant (!13)</code>, the intent, <code>Pk-Lab-Run: &lt;id&gt;/run-2 pass …</code>, <code>Pk-Work-Item: w-114</code>, <code>Approved-by: anna, jonas</code>, <code>Reviewed-in: !13</code>.</li>
-  <li>State <i>merged</i>, ROLLOUT "defiant canary pending", lifecycle "deployed 0 of 1".</li>
-  <li>After about 10 s: state <i>verified</i>, "defiant canary verified &lt;sha&gt;", lifecycle "deployed 1 of 1", "verified 1 of 1".</li>
+  <li>State <i>merged</i>, ROLLOUT "Flux is applying" and "Merged into main as &lt;sha&gt;", lifecycle "deployed 0 of 1". The defiant box (canary) lists the steps: "Flux fetched main@&lt;sha&gt;", "Applied 23 objects", "Kustomizations 0 of 4 ready · health checks running", "Verified". Each step gets a check mark when it is done.</li>
+  <li>After about 10 s: state <i>verified</i>, ROLLOUT "verified", "Kustomizations 4 of 4 ready", "Verified: health checks pass", lifecycle "deployed 1 of 1", "verified 1 of 1".</li>
 </ul>
 <p class="muted">Tell: an auditor reads all of it with <code>git log --merges --format='%(trailers)'</code>.</p>
 <div class="fallback"><h4>If it fails</h4>
@@ -628,7 +630,7 @@ pk history get-history-entry 5749a49</code></pre></div>
 </section>
 
 <h2 id="part3">6. Part 3 · LLM: agent, advisors, chat</h2>
-<p class="lead">Slide 13: one tool layer, three ways in. The advisor buttons (slide 15) were in step 1.9. The top bar pill shows the model (<span class="ui">LLM mock</span> without one). With a real model the words differ from this script; the facts and the sources are the same.</p>
+<p class="lead">Slide 13: one tool layer, three ways in. The advisor buttons (slide 15) were in step 1.9. The top bar pill shows the model (<span class="ui">LLM built-in</span> without one: the bench answers from project data). With a real model the words differ from this script; the facts and the sources are the same.</p>
 
 <section class="step" id="s3-1">
 <header><span class="n">3.1</span><span class="t">The agent, approved for today</span><span class="chip">slide 14 · Your agent, in plain sight</span><span class="chip time">0.5 min</span></header>
@@ -639,7 +641,7 @@ pk history get-history-entry 5749a49</code></pre></div>
 </ol>
 <h4>The audience sees</h4>
 <ul class="see">
-  <li>dennis-agent "approved · ends HH:MM", the rights (push commits, open MRs, run labs, mark ready) and the crossed-out "approve or merge".</li>
+  <li>dennis-agent "approved · ends HH:MM", the rights (push commits, open MRs, run labs, mark ready) with a check mark, and "approve or merge" with a cross.</li>
   <li>"dennis/agent via MCP · token approved today", "navigate mode", "No MCP call yet. Waiting for the agent." RECENT AGENT EVENTS: agent.approve.</li>
 </ul>
 <div class="fallback"><h4>If it fails</h4><p>The grant has ended: on the Agents page, click <span class="ui">Approve agent for today</span> again and run the new command in the agent terminal (see section 2).</p></div>
@@ -713,12 +715,13 @@ pk lab run $C2 --wait</code></pre></div>
 <h4>Do</h4>
 <ol>
   <li>Click <span class="ui">LLM log</span>.</li>
-  <li>Click one chat entry. Optional: click <span class="ui">Export</span>.</li>
+  <li>Click the chat entry <span class="ui">What is the hubble UI token?</span>. Optional: click <span class="ui">Export</span>.</li>
 </ol>
 <h4>The audience sees</h4>
 <ul class="see">
-  <li>"Every model call: the prompt as sent (secrets already removed), the answer, its sources and your rating." Filters: all, chat, advisor, commit message; the ratings count (1 thumbs up from step 1.9).</li>
-  <li>Each entry with surface, user and model.</li>
+  <li>"Every model call: the prompt as sent (secrets already removed), the answer, its sources and your rating." Filters with counts for each kind of call that is in the log (all, chat, advisor, commit message, MCP), and the thumbs up and thumbs down counts (1 thumbs up from step 1.9).</li>
+  <li>Each entry with its kind, the question, the start of the answer, a lock with the number of removed values, the model chip (<i>built-in</i> without a model endpoint) and the user.</li>
+  <li>The opened entry: a red box "2 values removed before the call: hubble.ui.auth.token, sops (in helmrelease.yaml)". The prompt scrolls to the first removed value; each one shows as a lock and <code>[redacted]</code>.</li>
 </ul>
 <div class="fallback"><h4>If it fails</h4><p>CLI: <code>pk llm list-llm-log</code>.</p></div>
 </div>
@@ -737,8 +740,8 @@ pk lab run $C2 --wait</code></pre></div>
 <tr><th>Problem</th><th>Fix</th></tr>
 <tr><td>A pill in the top bar is red</td><td>Wait 10 s. Run <code>make status</code>. Restart the service: <code>docker compose restart bench</code> (or <code>gitea</code>, <code>fluxsim</code>).</td></tr>
 <tr><td>Port 8080, 3000 or 8081 is in use</td><td><code>make up</code> and <code>make fresh</code> check the ports first (<code>make preflight</code>) and tell which variable to set. Put <code>PK_BENCH_PORT=8090</code> (or <code>PK_FORGE_PORT</code>, <code>PK_FLUX_PORT</code>) into <code>.env</code>. Run <code>docker compose up -d</code>. Use the new URL. A plain <code>docker compose up</code> finds a busy bench port only after the forge seeding (about 40 s).</td></tr>
-<tr><td>The model is slow or does not answer</td><td>Switch to the mock model: remove <code>PK_LLM_BASE_URL</code> from <code>.env</code> (or set it empty). Run <code>docker compose up -d bench</code> (5 s). The pill shows "LLM mock".</td></tr>
-<tr><td>"behind main by 1, rebase first"</td><td>Click <span class="ui">Rebase on main</span>, then <span class="ui">Lab again</span>.</td></tr>
+<tr><td>The model is slow or does not answer</td><td>Switch to the built-in analysis: remove <code>PK_LLM_BASE_URL</code> from <code>.env</code> (or set it empty). Run <code>docker compose up -d bench</code> (5 s). The pill shows "LLM built-in".</td></tr>
+<tr><td>"behind main by 1, rebase first"</td><td>Click <span class="ui">Rebase on main</span>, then <span class="ui">Run lab again</span>.</td></tr>
 <tr><td>Approvals do not count</td><td>The change must be ready (not a draft) and the lab must be on the head. Then approve again.</td></tr>
 <tr><td>The page shows old data</td><td>Reload the page (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>R</kbd>). The <span class="ui">live</span> pill must be green.</td></tr>
 <tr><td>Claude Code asks for permission at each platform-kit tool</td><td>Select the answer that allows the tool for this project, or stop it and write <code>~/pk-agent/.claude/settings.local.json</code> (section 2), or start <code>claude --allowedTools mcp__platform-kit</code>.</td></tr>

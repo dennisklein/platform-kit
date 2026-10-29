@@ -44,14 +44,14 @@ The CLI is in the image: `docker compose exec bench pk change list` (try `alias 
 | Flux and the clusters | **simulated** by `fluxsim`: it follows main (or a ring tag), renders each cluster and reports applied and verified revisions. Health checks fail only on a demo fault (Clusters, "Make it fail"). |
 | Digital twin `defiant-twin` | simulated by fluxsim |
 | Rings, promote, hold, revert | real git tags and changes; the clusters behind them are fluxsim |
-| LLM: advisors, chat, commit messages, LLM log, redaction | real with an OpenAI-compatible endpoint; deterministic **mock model** without one |
+| LLM: advisors, chat, commit messages, LLM log, redaction | real with an OpenAI-compatible endpoint; deterministic **built-in analysis** without one |
 | MCP for agent harnesses | real (Streamable HTTP, tools generated from the OpenAPI spec) |
 | Org database sync | not built (the sync-bot changes are seeded) |
 | Shared service mode (SSO, review in the browser) | not built; the bench runs in local mode |
 
 ## LLM setup
 
-Without configuration the bench uses the **mock model**: answers come from the same deterministic findings, phrased by templates. The top bar shows "LLM mock".
+Without configuration the bench uses its **built-in analysis**: answers come from the same deterministic findings in the project data, phrased by templates. The top bar shows "LLM built-in", and each answer is marked "built-in · from project data".
 
 For a real model, give the bench an OpenAI-compatible endpoint before `up`:
 
