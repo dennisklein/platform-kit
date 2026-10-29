@@ -204,6 +204,47 @@ func (c *OpenAI) Complete(ctx context.Context, req Request) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
+	body := c.request(model, req)
+	var out oaResponse
+	if err := c.post(ctx, "/chat/completions", body, &out); err != nil {
+		return nil, err
+	}
+	return toResponse(model, out)
+}
+
+// toResponse converts a non-streamed answer.
+func toResponse(model string, out oaResponse) (*Response, error) {
+	if out.Error != nil {
+		return nil, fmt.Errorf("llm: %s", out.Error.Message)
+	}
+	if len(out.Choices) == 0 {
+		return nil, errors.New("llm: empty answer (no choices)")
+	}
+	m := out.Choices[0].Message
+	res := &Response{Model: model, Usage: out.Usage}
+	if out.Model != "" {
+		res.Model = out.Model
+	}
+	res.Message = Message{Role: RoleAssistant}
+	if m.Content != nil {
+		res.Message.Content = stripThinking(*m.Content)
+	}
+	for _, tc := range m.ToolCalls {
+		res.Message.ToolCalls = append(res.Message.ToolCalls, toolCall(tc.ID, tc.Function.Name, tc.Function.Arguments))
+	}
+	return res, nil
+}
+
+func toolCall(id, name, args string) ToolCall {
+	args = strings.TrimSpace(args)
+	if args == "" || !json.Valid([]byte(args)) {
+		args = "{}"
+	}
+	return ToolCall{ID: id, Name: name, Arguments: json.RawMessage(args)}
+}
+
+// request builds the body of a chat completion (redacted).
+func (c *OpenAI) request(model string, req Request) oaRequest {
 	msgs := append([]Message(nil), req.Messages...)
 	for i := range msgs {
 		msgs[i].ToolCalls = append([]ToolCall(nil), msgs[i].ToolCalls...)
@@ -244,33 +285,7 @@ func (c *OpenAI) Complete(ctx context.Context, req Request) (*Response, error) {
 	if len(body.Tools) > 0 {
 		body.ToolChoice = "auto"
 	}
-	var out oaResponse
-	if err := c.post(ctx, "/chat/completions", body, &out); err != nil {
-		return nil, err
-	}
-	if out.Error != nil {
-		return nil, fmt.Errorf("llm: %s", out.Error.Message)
-	}
-	if len(out.Choices) == 0 {
-		return nil, errors.New("llm: empty answer (no choices)")
-	}
-	m := out.Choices[0].Message
-	res := &Response{Model: model, Usage: out.Usage}
-	if out.Model != "" {
-		res.Model = out.Model
-	}
-	res.Message = Message{Role: RoleAssistant}
-	if m.Content != nil {
-		res.Message.Content = stripThinking(*m.Content)
-	}
-	for _, tc := range m.ToolCalls {
-		args := strings.TrimSpace(tc.Function.Arguments)
-		if args == "" || !json.Valid([]byte(args)) {
-			args = "{}"
-		}
-		res.Message.ToolCalls = append(res.Message.ToolCalls, ToolCall{ID: tc.ID, Name: tc.Function.Name, Arguments: json.RawMessage(args)})
-	}
-	return res, nil
+	return body
 }
 
 // stripThinking removes <think>...</think> blocks of reasoning models.
