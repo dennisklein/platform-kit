@@ -211,10 +211,17 @@ func (s *Svc) advise(ctx context.Context, p *progress, req Request, id, recipe s
 		a.Text = fmt.Sprintf("I cannot check %s: %s.", id, shortErr(err))
 		return true
 	}
-	for i, src := range res.Reading {
-		if i >= 5 {
+	// A recipe can read the same file twice (the lab report for the run and
+	// for its gaps): one step each.
+	shown := map[string]bool{}
+	for _, src := range res.Reading {
+		if len(shown) >= 5 {
 			break
 		}
+		if shown[src.Label] {
+			continue
+		}
+		shown[src.Label] = true
 		p.quick(ctx, src.Kind, "read "+src.Label, "")
 	}
 	p.end(ctx, n, plural(len(res.Points), "finding", "findings"), false)
@@ -258,10 +265,15 @@ func (s *Svc) advise(ctx context.Context, p *progress, req Request, id, recipe s
 	default:
 		fmt.Fprintf(&b, recipeLeads[recipe], who)
 	}
-	// A failed lab: say what failed, from the report.
+	// A failed lab: say what failed, from the report, where a point only
+	// points at it (the recipe has read the report already otherwise).
 	var fails []string
 	var why string
-	if ch != nil && (recipe == advisor.Risks || recipe == advisor.LabGaps) && ch.LabState == api.LabStateFail {
+	seeReport := false
+	for _, pt := range res.Points {
+		seeReport = seeReport || strings.Contains(pt.Text, "see the report")
+	}
+	if seeReport && ch != nil && (recipe == advisor.Risks || recipe == advisor.LabGaps) && ch.LabState == api.LabStateFail {
 		fails, why, _ = s.labFailures(ctx, p, ch)
 	}
 	for _, pt := range res.Points {
@@ -563,9 +575,13 @@ func (s *Svc) openList(ctx context.Context, p *progress) string {
 	return lead + b.String()
 }
 
-func (s *Svc) recentHistory(ctx context.Context, p *progress, _ Request, q string, a *Answer) bool {
+func (s *Svc) recentHistory(ctx context.Context, p *progress, req Request, q string, a *Answer) bool {
 	if !reRecent.MatchString(q) || len(advisor.EntityNames(q)) > 0 || isPlatformVersionQ(q) {
 		return false
+	}
+	// "What did anna work on recently?": her changes, not all merges.
+	if rePerson.MatchString(q) && s.personQuestion(ctx, p, req, q, a) {
+		return true
 	}
 	var entries []api.HistoryEntry
 	if err := p.do(ctx, "history", "history main", func() (string, error) {

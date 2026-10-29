@@ -1263,7 +1263,17 @@ func (s *Svc) versionQuestion(ctx context.Context, p *progress, req Request, q s
 			for _, w := range wls {
 				where = append(where, w.cluster)
 			}
-			a.Text = fmt.Sprintf("**%s** does not run %s. It runs on %s.", want, wls[0].name, joinAnd(uniq(where)))
+			// A CephCluster is named after its cluster: say "Ceph", not
+			// "defiant does not run pegasus".
+			what := wls[0].name
+			if wls[0].kind == "CephCluster" {
+				what = "Ceph"
+			}
+			a.Text = fmt.Sprintf("**%s** does not run %s. It runs on %s", want, what, joinAnd(uniq(where)))
+			if v := wls[0].version(); v != "" && len(uniq(where)) == 1 {
+				a.Text += fmt.Sprintf(" (%s **%s**)", what, v)
+			}
+			a.Text += "."
 			for _, w := range wls {
 				addSource(a, llm.Source{Label: shortPath(w.path), Ref: w.path, Kind: "file"})
 			}

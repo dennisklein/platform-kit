@@ -257,3 +257,78 @@ func TestDeleteNamesWhatPointsAtIt(t *testing.T) {
 		t.Fatalf("%q", a.Text)
 	}
 }
+
+func TestCephOnAnotherCluster(t *testing.T) {
+	const cc = "clusters/pegasus/infra/rook-ceph/cephcluster.yaml"
+	f := platformFake(t)
+	f.files["main\x00"+cc] = seedState(t, cc)
+	s, _, _ := newSvc(t, f, llm.NewMock(nil))
+	a, _ := s.Ask(ctxAs("dennis"), ask("Which Ceph version runs on defiant?"))
+	if a.Text != "**defiant** does not run Ceph. It runs on pegasus (Ceph **v19.2.3**)." {
+		t.Errorf("%q", a.Text)
+	}
+}
+
+// personFake has merges by anna and jonas.
+type personFake struct{ *fake }
+
+func (f personFake) History(ctx context.Context, p api.ListHistoryParams) ([]api.HistoryEntry, error) {
+	return []api.HistoryEntry{
+		{Sha: "u7x2bd000", Change: "c-u7x2bd", Title: "Firmware 2.4 on compute nodes", Author: "anna", Date: time.Date(2026, 10, 14, 0, 0, 0, 0, time.UTC)},
+		{Sha: "0b9cfe000", Change: "c-0b9cfe", Title: "Bump podinfo to 6.8", Author: "jonas", Date: time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)},
+	}, nil
+}
+
+func TestPersonRecently(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(Options{Tools: personFake{newFake(t)}, LLM: llm.NewMock(nil), Path: filepath.Join(dir, "s.json")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := s.Ask(ctxAs("dennis"), ask("What did anna work on recently?"))
+	if !strings.HasPrefix(a.Text, "**anna** works on this project:") || strings.Contains(a.Text, "c-0b9cfe") {
+		t.Errorf("anna: %q", a.Text)
+	}
+	a, _ = s.Ask(ctxAs("dennis"), ask("What changed recently?"))
+	if !strings.HasPrefix(a.Text, "The last 2 merges on main:") {
+		t.Errorf("recent: %q", a.Text)
+	}
+}
+
+// readsTwice is a recipe that reads the lab report twice.
+type readsTwice struct{ points }
+
+func (r readsTwice) Run(ctx context.Context, recipe, id string) (*advisor.Result, error) {
+	res, _ := r.points.Run(ctx, recipe, id)
+	rep := llm.Source{Label: "c-31d0aa-run-1.md", Ref: "kb/labs/c-31d0aa-run-1.md", Kind: "file"}
+	res.Reading = []llm.Source{rep, rep}
+	return res, nil
+}
+
+// failedLab is a change whose lab failed, with a report.
+type failedLab struct{ *fake }
+
+func (f failedLab) Change(ctx context.Context, id string) (*api.Change, error) {
+	return &api.Change{Id: id, Title: "Cabling for GC5A-6Z", State: api.ChangeStateLab, LabState: api.LabStateFail, LabRun: id + "/run-1",
+		LabRuns: []api.LabRunRef{{Run: id + "/run-1", Report: "kb/labs/" + id + "-run-1.md"}}}, nil
+}
+
+func TestAdviseStepsReadEachSourceOnce(t *testing.T) {
+	// The point already says what failed: the report is not read again.
+	adv := readsTwice{points{pts: []advisor.Point{{Title: "Lab failed", Text: "run-1 failed: session to 10.6.0.3 not established.", Severity: advisor.SevRisk}}}}
+	dir := t.TempDir()
+	s, err := New(Options{Tools: failedLab{newFake(t)}, Advisor: adv, LLM: llm.NewMock(nil), Path: filepath.Join(dir, "s.json")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := s.Ask(ctxAs("dennis"), ask("Is it safe to merge c-31d0aa?"))
+	n := 0
+	for _, st := range a.Steps {
+		if st.Label == "read c-31d0aa-run-1.md" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("steps %+v", a.Steps)
+	}
+}
