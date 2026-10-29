@@ -7,6 +7,14 @@
     status: TrackStatus;
     detail?: string;
   }
+
+  /**
+   * Hyphens inside ids (cn-036, data-b) as non-breaking hyphens, so that a
+   * label wraps between words and never inside an id.
+   */
+  export function keepIds(s: string | undefined): string {
+    return (s ?? '').replace(/(\w)-(?=\w)/g, '$1‑');
+  }
 </script>
 
 <script lang="ts">
@@ -30,14 +38,14 @@
           onclick={() => (selected = selected === it.key ? undefined : it.key)}
         >
           <span class="dot" aria-hidden="true"></span>
-          <span class="t">{it.title}</span>
-          <span class="s">{it.sub || ' '}</span>
+          <span class="t">{keepIds(it.title)}</span>
+          <span class="s">{keepIds(it.sub) || ' '}</span>
         </button>
       {:else}
         <div class="hit" title={it.detail ?? it.title}>
           <span class="dot" aria-hidden="true"></span>
-          <span class="t">{it.title}</span>
-          <span class="s">{it.sub || ' '}</span>
+          <span class="t">{keepIds(it.title)}</span>
+          <span class="s">{keepIds(it.sub) || ' '}</span>
         </div>
       {/if}
     </li>
@@ -75,11 +83,13 @@
     left: calc(50% + 10px);
     right: calc(-50% + 10px);
     height: 2px;
-    background: var(--line-strong);
+    /* the green fill grows from the left when the next step starts */
+    background: linear-gradient(var(--ok), var(--ok)) no-repeat left / 0% 100%, var(--line-strong);
     border-radius: 1px;
+    transition: background-size 0.5s ease-out;
   }
   li.st-done.next-done::after {
-    background: var(--ok);
+    background-size: 100% 100%;
   }
   .hit {
     width: 100%;
@@ -111,6 +121,9 @@
     box-sizing: border-box;
     position: relative;
     z-index: 1;
+    transition:
+      background-color 0.3s ease,
+      border-color 0.3s ease;
   }
   .t,
   .s {
@@ -158,6 +171,10 @@
   }
   .st-running .dot {
     animation: ring 1.4s ease-in-out infinite;
+  }
+  /* the current step pulses a few times when it moves */
+  .st-now .dot {
+    animation: ring 1.4s ease-in-out 3;
   }
   @keyframes ring {
     50% {
