@@ -38,7 +38,9 @@
       .join(', ') || 'policy',
   );
   const others = $derived((gates.approvals.eligible ?? []).filter((p) => !gates.approvals.by.includes(p)));
-  const writers = $derived(gates.pathRights.writers.map((w) => (w.endsWith('-agent') ? 'agent' : w)).join(', '));
+  // An agent writes as "<person>-agent"; people read it as "dennis/agent".
+  const agentWriter = $derived(gates.pathRights.writers.some((w) => w.endsWith('-agent')));
+  const writers = $derived(gates.pathRights.writers.map((w) => (w.endsWith('-agent') ? `${w.slice(0, -6)}/agent` : w)).join(', '));
   const target = $derived(c.parent ?? gates.rebased.target ?? c.target);
   const canDemo = $derived(!!session.me?.demo && c.pushed);
 </script>
@@ -86,7 +88,7 @@
     <li class="t-{gates.pathRights.ok ? 'ok' : 'bad'}">
       <Icon name={gates.pathRights.ok ? 'check' : 'x'} size={17} />
       <span class="what">Write access: {writers || c.author}</span>
-      <span class="hint mono">{gates.pathRights.ok ? 'allowed by policy' : 'not allowed'}</span>
+      <span class="hint mono">{!gates.pathRights.ok ? 'not allowed' : agentWriter ? 'own changes only' : 'allowed by policy'}</span>
       {#each gates.pathRights.details.filter((d) => !d.ok) as d (d.path + d.who)}
         <span class="sub bad">{d.who} may not write {d.path}{d.rule ? ` (rule ${d.rule})` : ''}{d.message ? `: ${d.message}` : ''}</span>
       {/each}
