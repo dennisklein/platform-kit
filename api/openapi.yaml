@@ -2697,6 +2697,12 @@ components:
             of the answer to the asking person as chat.step and chat.delta
             events with the same requestId. The response is the full answer
             either way.
+        builtin:
+          type: boolean
+          description: >-
+            Answer from the project data without calling the model (the asker
+            did not want to wait for a slow model). The answer has fallback
+            true and a fallbackReason.
     ChatStep:
       type: object
       required: [id, tool, label, state]

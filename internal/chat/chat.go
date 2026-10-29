@@ -28,6 +28,9 @@ type Request struct {
 	// the answer (steps and text) goes live to the asking person as
 	// chat.step and chat.delta events.
 	RequestID string
+	// Builtin answers from the project data without the model (the asker
+	// did not want to wait for a slow model).
+	Builtin bool
 }
 
 // Step is one lookup an answer made, for example "history cn-003" with
@@ -48,8 +51,10 @@ type Answer struct {
 	Sources     []llm.Source
 	Suggestions []advisor.Suggestion
 	Refused     bool
-	Model       string
-	Mock        bool
+	// Model is the model name; GuardModel when the secret guard answered
+	// without a model call.
+	Model string
+	Mock  bool
 	// Fallback: the answer comes from the bench data, not from a model (no
 	// LLM endpoint, or the model call failed); false for a refusal).
 	Fallback bool

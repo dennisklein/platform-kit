@@ -1604,6 +1604,8 @@ type ChatMessageRole string
 
 // ChatRequest defines model for ChatRequest.
 type ChatRequest struct {
+	// Builtin Answer from the project data without calling the model (the asker did not want to wait for a slow model). The answer has fallback true and a fallbackReason.
+	Builtin  bool          `json:"builtin,omitempty,omitzero"`
 	ChangeId string        `json:"changeId,omitempty,omitzero"`
 	Messages []ChatMessage `json:"messages"`
 

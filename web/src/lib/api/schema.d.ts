@@ -2388,6 +2388,8 @@ export interface components {
             messages: components["schemas"]["ChatMessage"][];
             /** @description Client id of this question. With it, the bench streams the progress of the answer to the asking person as chat.step and chat.delta events with the same requestId. The response is the full answer either way. */
             requestId?: string;
+            /** @description Answer from the project data without calling the model (the asker did not want to wait for a slow model). The answer has fallback true and a fallbackReason. */
+            builtin?: boolean;
         };
         ChatStep: {
             /** @description Number of the step in the answer, from 1 */
