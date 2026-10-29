@@ -8,8 +8,11 @@
 </div>
 
 <style>
+  /* Fill the panel body, so the messages scroll and the composer stays at
+     the bottom. */
   .panel-chat {
-    height: 100%;
+    position: absolute;
+    inset: 10px 12px;
     min-height: 0;
   }
 </style>

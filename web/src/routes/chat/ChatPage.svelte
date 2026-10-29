@@ -9,17 +9,21 @@
   let { params, query }: { params: Params; query: URLSearchParams } = $props();
 
   const llm = $derived(session.status?.llm);
+  const model = $derived(llm ? (llm.mock ? 'built-in' : llm.model) : '');
 </script>
 
 <div class="chatpage">
   <section class="conv">
-    <header>
-      <Glyph name="chat" size={18} />
-      <h1>Chat</h1>
-      <span class="spacer"></span>
-      <span class="as">as {session.me?.id ?? '…'}</span>
-    </header>
-    <div class="threadwrap"><ChatThread wide /></div>
+    <div class="col">
+      <header>
+        <span class="mark" aria-hidden="true"><Glyph name="sparkle" size={16} /></span>
+        <h1>Chat</h1>
+        {#if model}<span class="model mono" title={llm?.mock ? 'No model endpoint: answers come from the project data' : llm?.baseUrl}>{model}</span>{/if}
+        <span class="spacer"></span>
+        <span class="as">as {session.me?.id ?? '…'}</span>
+      </header>
+      <div class="threadwrap"><ChatThread wide /></div>
+    </div>
   </section>
   <aside class="about">
     <section class="card">
@@ -57,28 +61,50 @@
     min-height: 0;
   }
   .conv {
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
     padding: 14px 24px 12px;
     min-height: 0;
+    display: flex;
+  }
+  /* Title, thread and composer share one column. */
+  .col {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
     gap: 10px;
+    max-width: 920px;
+    width: 100%;
+    margin: 0 auto;
+    min-height: 0;
   }
   header {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
   }
-  header :global(svg) {
-    color: var(--accent);
+  .mark {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--ai-fill);
+    color: var(--ai-on);
+  }
+  h1 {
+    margin: 0;
+  }
+  .model {
+    font-size: 12px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--ai-line);
+    background: var(--ai-soft);
+    color: var(--ai);
   }
   .as {
     font-weight: 600;
   }
   .threadwrap {
     min-height: 0;
-    max-width: 920px;
-    width: 100%;
-    margin: 0 auto;
   }
   .about {
     border-left: 1px solid var(--line);
