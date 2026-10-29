@@ -278,6 +278,12 @@
   const RISK_SRC: Record<string, string> = { rule: 'path rule', riskRule: 'risk rule', minimum: 'minimum' };
   const objectReasons = $derived((impact?.risk.reasons ?? []).filter((r) => r.source !== 'rule'));
   const rules = $derived(gates?.matchedRules ?? []);
+
+  // A draft whose lab passed on the head: the change page says "lab passed".
+  const labPassed = $derived(!!c && c.state === 'draft' && c.labState === 'pass');
+
+  /** A path in parts that may break after each "/", never inside a name. */
+  const pathParts = (p: string) => p.split(/(?<=\/)/);
 </script>
 
 <div class="page review">
@@ -291,7 +297,11 @@
       <div class="eyebrow">Review · <a href={href(`/changes/${c.id}`)} class="mono">{c.id}</a></div>
       <div class="titlerow">
         <h1>{c.title}</h1>
-        <StateChip state={c.state} labState={c.labState} />
+        {#if labPassed}
+          <span class="labpass" title="The lab passed on the head. Next: push and mark ready.">lab passed</span>
+        {:else}
+          <StateChip state={c.state} labState={c.labState} />
+        {/if}
         {#if impact?.risk}<span class="risk r-{impact.risk.level}">risk: {impact.risk.level}</span>{/if}
       </div>
       <div class="meta muted">
@@ -428,7 +438,7 @@
         {/if}
 
         <!-- advisor -->
-        <section class="card advisor" id="advisor" class:tall={!!running || results.length > 0}>
+        <section class="card advisor" id="advisor" class:tall={!!running}>
           <div class="cardhead">
             <h2><Icon name="sparkle" size={18} /> Advisor</h2>
             <span class="muted small">LLM notes, advisory only. They do not change the rating or the gates.</span>
@@ -478,7 +488,9 @@
                   <div class="mono small muted">
                     {r.approvals} approval{r.approvals === 1 ? '' : 's'}{r.labGate ? ', lab' : ''}{r.approvers?.length ? ` · ${r.approvers.join(', ')}` : ''}
                   </div>
-                  <div class="mono small paths">{r.paths.slice(0, 3).join(', ')}{r.paths.length > 3 ? ` +${r.paths.length - 3}` : ''}</div>
+                  <div class="mono small paths">
+                    {#each r.paths.slice(0, 3) as p, i (i)}{#if i}{', '}{/if}{#each pathParts(p) as part, j (j)}<span class="seg">{part}</span><wbr />{/each}{/each}{r.paths.length > 3 ? ` +${r.paths.length - 3}` : ''}
+                  </div>
                 </div>
               </div>
             {/each}
@@ -488,7 +500,9 @@
               <Icon name="shield" size={17} />
               <div>
                 <div>{r.reason[0].toUpperCase() + r.reason.slice(1)}.</div>
-                <div class="mono small muted">{RISK_SRC[r.source] ?? r.source}{r.object ? ` · ${r.object.split('/').slice(-3).filter(Boolean).join('/')}` : ''}</div>
+                <div class="mono small muted paths">
+                  {RISK_SRC[r.source] ?? r.source}{#if r.object}{' · '}{#each pathParts(r.object.split('/').slice(-3).filter(Boolean).join('/')) as part, j (j)}<span class="seg">{part}</span><wbr />{/each}{/if}
+                </div>
               </div>
             </div>
           {/each}
@@ -796,9 +810,10 @@
   }
   .advisor {
     border-left: 4px solid var(--ai-fill);
-    scroll-margin-top: 12px;
+    /* Below the sticky agent banner, when one is on the page. */
+    scroll-margin-top: calc(12px + var(--agent-banner-h, 0px));
   }
-  /* Room to scroll the card to the top while the advisor works and after. */
+  /* Room to scroll the card to the top while the advisor works. */
   .advisor.tall {
     min-height: calc(100vh - var(--topbar-h) - 40px);
   }
@@ -851,6 +866,25 @@
     padding-top: 4px;
     min-width: 0;
   }
+  /* The advisor card is the frame: the answer inside has no second one. */
+  .aresult :global(.adv),
+  .aresult :global(.work) {
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 0;
+    background: transparent;
+    padding: 14px 0 0;
+  }
+  .labpass {
+    display: inline-flex;
+    align-items: center;
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 1px 8px;
+    border-radius: 4px;
+    background: var(--ok-soft);
+    color: var(--ok);
+  }
   .rule {
     display: flex;
     gap: 10px;
@@ -870,7 +904,10 @@
   }
   .paths {
     color: var(--muted);
-    overflow-wrap: anywhere;
+  }
+  /* Paths break after a "/" only, never inside a file name. */
+  .paths .seg {
+    white-space: nowrap;
   }
   .ok-line {
     margin: 0;

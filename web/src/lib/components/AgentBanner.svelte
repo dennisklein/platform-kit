@@ -43,7 +43,7 @@
     else set(true);
     // The height, for pages that scroll a card into view under the banner.
     const root = document.documentElement;
-    const ro = typeof ResizeObserver === 'undefined' || !el ? null : new ResizeObserver(() => root.style.setProperty('--agent-banner-h', `${el?.offsetHeight ?? 0}px`));
+    const ro = typeof ResizeObserver === 'undefined' || !el ? null : new ResizeObserver(() => root.style.setProperty('--agent-banner-h', `${(el?.offsetHeight ?? 0) + 8}px`));
     if (ro && el) ro.observe(el);
     return () => {
       io?.disconnect();
