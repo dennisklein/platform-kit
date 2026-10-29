@@ -1,6 +1,7 @@
 <script lang="ts">
-  // Demo controls (only when the bench runs with PK_DEMO=1): approve a change
-  // as anna or jonas in the forge, and make a cluster fail or heal in fluxsim.
+  // Presenter tools (only when the bench runs with PK_DEMO=1): approve a
+  // change as anna or jonas in the forge, and make a cluster fail or heal in
+  // fluxsim. Closed by default, so that the audience does not see a rig.
   import { api, must, errorText } from '../api/client';
   import type { Cluster } from '../api/ftypes';
   import { session } from '../stores/me.svelte';
@@ -13,7 +14,7 @@
   let {
     changeId: fixedChange,
     sections = ['approve', 'flux'],
-    title = 'Demo controls',
+    title = 'Presenter tools',
     onflux,
   }: {
     changeId?: string;
@@ -93,12 +94,12 @@
 </script>
 
 {#if demo}
-  <section class="demo" aria-label={title}>
-    <header>
-      <Glyph name="zap" size={14} />
-      <h3>{title}</h3>
-      <span class="badge">PK_DEMO</span>
-    </header>
+  <details class="demo" aria-label={title}>
+    <summary>
+      <Glyph name="chevron" size={13} />
+      <span class="st">{title}</span>
+      <span class="hint">presenter only</span>
+    </summary>
 
     {#if sections.includes('approve')}
       <div class="grp">
@@ -149,26 +150,45 @@
     {/if}
 
     {#if msg}<p class="small {msg.ok ? 'ok-text' : 'bad-text'}">{msg.text}</p>{/if}
-  </section>
+  </details>
 {/if}
 
 <style>
   .demo {
-    border: 1px dashed color-mix(in srgb, var(--accent-fill) 70%, transparent);
-    background: color-mix(in srgb, var(--accent-soft) 45%, var(--panel));
+    border: 1px solid var(--line);
     border-radius: var(--radius);
-    padding: 10px 14px;
+    padding: 8px 14px;
     display: grid;
     gap: 8px;
+    font-size: 13px;
   }
-  header {
+  .demo[open] {
+    padding-bottom: 12px;
+  }
+  summary {
     display: flex;
     align-items: center;
     gap: 6px;
-    color: var(--accent);
+    color: var(--muted);
+    cursor: pointer;
+    list-style: none;
+    font-size: 12.5px;
   }
-  header h3 {
-    color: var(--accent);
+  summary::-webkit-details-marker {
+    display: none;
+  }
+  summary :global(svg) {
+    transition: transform var(--t-fast);
+  }
+  .demo[open] summary :global(svg) {
+    transform: rotate(90deg);
+  }
+  .st {
+    font-weight: 600;
+  }
+  .hint {
+    margin-left: auto;
+    font-size: 11.5px;
   }
   .grp {
     display: grid;

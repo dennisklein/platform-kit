@@ -262,7 +262,7 @@
 
   <DemoControls
     sections={['flux']}
-    title="Demo: Flux"
+    title="Presenter tools: Flux"
     onflux={(c) => {
       if (clusters) clusters = clusters.map((x) => (x.id === c.id ? c : x));
       setTimeout(() => void load(), 600);
