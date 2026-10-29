@@ -166,7 +166,7 @@ func (s *Server) Chat(ctx context.Context, req api.ChatRequestObject) (api.ChatR
 	if req.Body == nil {
 		return nil, Errorf(http.StatusBadRequest, "messages are required")
 	}
-	cr := chat.Request{ChangeID: req.Body.ChangeId, Path: req.Body.Path}
+	cr := chat.Request{ChangeID: req.Body.ChangeId, Path: req.Body.Path, RequestID: req.Body.RequestId}
 	for _, m := range req.Body.Messages {
 		cr.Messages = append(cr.Messages, chat.Message{Role: string(m.Role), Content: m.Content})
 	}
@@ -177,6 +177,7 @@ func (s *Server) Chat(ctx context.Context, req api.ChatRequestObject) (api.ChatR
 	return api.Chat200JSONResponse(api.ChatAnswer{
 		Text: a.Text, Sources: sourcesToAPI(a.Sources), Suggestions: suggestionsToAPI(a.Suggestions),
 		Refused: a.Refused, Model: a.Model, Mock: a.Mock, Fallback: a.Fallback, LogId: a.LogID,
+		FallbackReason: a.FallbackReason, Steps: chat.StepsToAPI(a.Steps),
 	}), nil
 }
 

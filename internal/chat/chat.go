@@ -24,6 +24,22 @@ type Request struct {
 	ChangeID string
 	Path     string
 	Messages []Message
+	// RequestID is the client id of the question. With it, the progress of
+	// the answer (steps and text) goes live to the asking person as
+	// chat.step and chat.delta events.
+	RequestID string
+}
+
+// Step is one lookup an answer made, for example "history cn-003" with
+// the summary "4 merges".
+type Step struct {
+	ID      int
+	Tool    string
+	Label   string
+	Summary string
+	// State: running, ok or failed.
+	State string
+	Ms    int64
 }
 
 // Answer is a chat answer.
@@ -37,7 +53,12 @@ type Answer struct {
 	// Fallback: the answer comes from the bench data, not from a model (no
 	// LLM endpoint, or the model call failed); false for a refusal).
 	Fallback bool
-	LogID    string
+	// FallbackReason says why the data answered although a model is set,
+	// for example "the model took longer than 25 s".
+	FallbackReason string
+	// Steps are the lookups of the answer, in order.
+	Steps []Step
+	LogID string
 }
 
 // Service answers chat and manages suggestions (from chat and advisors).

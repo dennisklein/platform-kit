@@ -49,7 +49,17 @@ func wireLLM(ctx context.Context, cfg config.Config, d *bench.Deps) error {
 	ref := &inproc.Ref{}
 	apiClient := inproc.New(ref, bench.BasePath)
 	tools := &advisor.APITools{API: apiClient, Index: idx}
-	cs, err := chat.New(chat.Options{Tools: tools, LLM: client, Log: lg, Events: d.Events,
+	// A model-backed chat answer gets PK_CHAT_DEADLINE (default 25 s); after
+	// it the bench answers from its data.
+	deadline := chat.DefaultDeadline
+	if v := os.Getenv("PK_CHAT_DEADLINE"); v != "" {
+		if dl, err := time.ParseDuration(v); err == nil && dl > 0 {
+			deadline = dl
+		} else {
+			log.Warn("PK_CHAT_DEADLINE is not a duration; using the default", "value", v, "default", deadline)
+		}
+	}
+	cs, err := chat.New(chat.Options{Tools: tools, LLM: client, Log: lg, Events: d.Events, Deadline: deadline,
 		Path: filepath.Join(cfg.LLMDir(), "suggestions.json")})
 	if err != nil {
 		return err

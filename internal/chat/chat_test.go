@@ -188,7 +188,7 @@ func TestMockPolicySuggestionAcceptReject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.Text != "I suggest 1 line in bgp-rack-6z.yaml. See the editor." || len(a.Suggestions) != 1 {
+	if a.Text != "I suggest 1 line in bgp-rack-6z.yaml: it adds cn-037 to rack-6z, so cn-037 gets a BGP session. Review the diff below, then accept or reject it." || len(a.Suggestions) != 1 {
 		t.Fatalf("%q %+v", a.Text, a.Suggestions)
 	}
 	sg := a.Suggestions[0]
@@ -242,7 +242,7 @@ func TestMockPolicySuggestionAcceptReject(t *testing.T) {
 func TestMockRetrieval(t *testing.T) {
 	s, _, _ := newSvc(t, newFake(t), llm.NewMock(nil))
 	a, _ := s.Ask(ctxAs("dennis"), ask("How do I add a node?"))
-	if !strings.Contains(a.Text, "Add a node: Rack, cable, inventory") || a.Sources[0].Kind != "kb" || !a.Mock || !a.Fallback {
+	if !strings.Contains(a.Text, "The KB article **Add a node** says: Rack, cable, inventory") || a.Sources[0].Kind != "kb" || !a.Mock || !a.Fallback {
 		t.Fatalf("%+v", a)
 	}
 	if _, err := s.Ask(ctxAs("dennis"), Request{}); !errors.Is(err, ErrNoQuestion) {
@@ -315,7 +315,7 @@ func TestToolLoop(t *testing.T) {
 			}
 		}
 	}
-	if toolMsgs != 3 || len(last.Tools) != 8 {
+	if toolMsgs != 3 || len(last.Tools) != 9 {
 		t.Errorf("tool msgs %d tools %d", toolMsgs, len(last.Tools))
 	}
 	e, _ := log.Get(context.Background(), a.LogID)
