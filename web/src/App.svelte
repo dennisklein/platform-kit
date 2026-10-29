@@ -111,18 +111,20 @@
     min-height: 0;
   }
   /* Half a projector (browser next to a terminal): the side panel lies over
-     the page instead of squeezing it. */
+     the page instead of squeezing it. This is the only overlay rule; the
+     nav and a strip of the page stay visible beside it. */
   @media (max-width: 1100px) {
     .side-col {
       position: fixed;
       top: var(--topbar-h);
       right: 0;
       bottom: 0;
+      left: auto;
       z-index: 40;
-      width: min(var(--side-w), 92vw);
+      width: min(var(--side-w), calc(100vw - var(--nav-w) - 200px));
       box-shadow: -12px 0 32px rgb(0 0 0 / 0.18);
     }
-    .side-col > :global(*) {
+    .side-col > :global(.side) {
       width: 100%;
     }
   }

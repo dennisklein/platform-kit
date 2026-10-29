@@ -1,7 +1,7 @@
 <script lang="ts">
   // Right side panel: chat (F) and live activity: the agents at work and a
   // transcript of their MCP calls (raw events only with ?debug). Below
-  // 1100 px it floats over the page instead of squeezing it.
+  // 1100 px App.svelte's .side-col floats it over the page.
   import { ui } from '../stores/ui.svelte';
   import { focus } from '../stores/focus.svelte';
   import { events } from '../stores/events.svelte';
@@ -120,19 +120,6 @@
     flex-direction: column;
     min-height: 0;
   }
-  /* Narrow windows (a browser beside the agent terminal): float over the
-     page, so the page keeps its width. */
-  @media (max-width: 1100px) {
-    .side {
-      position: fixed;
-      top: var(--topbar-h);
-      right: 0;
-      bottom: 0;
-      width: min(420px, 90vw);
-      z-index: 40;
-      box-shadow: -8px 0 28px rgb(0 0 0 / 0.18);
-    }
-  }
   .tabs {
     display: flex;
     align-items: center;
@@ -151,9 +138,10 @@
     align-items: center;
     gap: 6px;
   }
+  /* Chat and agent activity are AI surfaces: the active tab is teal. */
   [role='tab'][aria-selected='true'] {
-    background: var(--accent-soft);
-    color: var(--accent);
+    background: var(--ai-soft);
+    color: var(--ai);
   }
   [role='tab']:disabled {
     opacity: 0.5;
