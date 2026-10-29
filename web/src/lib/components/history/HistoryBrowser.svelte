@@ -15,6 +15,7 @@
   import StateChip from '../StateChip.svelte';
   import ResultChip from '../ResultChip.svelte';
   import Glyph from '../Glyph.svelte';
+  import PageHeader from '../PageHeader.svelte';
 
   let { query, sha }: { query: URLSearchParams; sha?: string } = $props();
 
@@ -81,6 +82,25 @@
     void loadDetail(selSha);
   });
 
+  // The selected row stays in view when the list scrolls in its own box
+  // (detail under the list on a narrow screen). Only the list scrolls.
+  let tablewrap = $state<HTMLElement>();
+  $effect(() => {
+    void selSha;
+    void entries.length;
+    const box = tablewrap;
+    if (!box) return;
+    const id = requestAnimationFrame(() => {
+      const row = box.querySelector<HTMLElement>('tr.sel');
+      if (!row) return;
+      const r = row.getBoundingClientRect();
+      const b = box.getBoundingClientRect();
+      const head = box.querySelector('thead')?.getBoundingClientRect().height ?? 0;
+      if (r.top < b.top + head || r.bottom > b.bottom) box.scrollTop += r.top - b.top - (box.clientHeight - r.height) / 2;
+    });
+    return () => cancelAnimationFrame(id);
+  });
+
   function search(q: HistoryQuery) {
     const p = new URLSearchParams(toParams(q));
     router.navigate(`/history${p.size ? `?${p}` : ''}`);
@@ -98,14 +118,21 @@
 
 <div class="hb" class:withdetail={!!selSha}>
   <section class="listcol">
-    <div class="top">
-      <HistorySearch value={filters} onsearch={search} />
-      <span class="scope mono muted">main · merge commits</span>
+    <div class="head">
+      <div class="title-row">
+        <PageHeader title="History">
+          {#snippet meta()}Merges on main, with their trailers; pick one to travel back in time.{/snippet}
+        </PageHeader>
+      </div>
+      <div class="top">
+        <HistorySearch value={filters} onsearch={search} />
+        <span class="scope mono muted">main · merge commits</span>
+      </div>
+
+      {#if error}<div class="error-box">{error}</div>{/if}
     </div>
 
-    {#if error}<div class="error-box">{error}</div>{/if}
-
-    <div class="tablewrap">
+    <div class="tablewrap" bind:this={tablewrap}>
       <table class="table hist">
         <thead>
           <tr><th class="d">Date</th><th class="c">Change</th><th>Title</th><th class="b">By</th><th class="l">Lab</th></tr>
@@ -255,19 +282,32 @@
   .hb.withdetail {
     grid-template-columns: minmax(0, 1fr) minmax(420px, 40%);
   }
+  /* The list scrolls in its own column; min-width and overflow keep a
+     narrow table (and its sticky header) from spilling into the detail. */
   .listcol {
     display: grid;
-    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, max-content) auto;
+    align-content: start;
     gap: 10px;
-    padding: 14px 0 10px;
+    padding: 20px 0 10px;
     min-height: 0;
+    min-width: 0;
+    overflow: hidden;
     background: var(--panel);
+  }
+  .head {
+    display: grid;
+    gap: 12px;
+    min-width: 0;
+  }
+  .title-row {
+    padding: 0 24px;
   }
   .top {
     display: flex;
     gap: 14px;
     align-items: flex-start;
-    padding: 0 16px;
+    padding: 0 24px;
   }
   .scope {
     font-size: 13px;
@@ -275,11 +315,12 @@
     white-space: nowrap;
   }
   .error-box {
-    margin: 0 16px;
+    margin: 0 24px;
   }
   .tablewrap {
     overflow: auto;
     min-height: 0;
+    min-width: 0;
   }
   .hist th {
     position: sticky;
@@ -289,7 +330,7 @@
   }
   .hist th:first-child,
   .hist td:first-child {
-    padding-left: 16px;
+    padding-left: 24px;
   }
   .hist tr {
     cursor: pointer;
@@ -349,7 +390,7 @@
   }
   .foot {
     margin: 0;
-    padding: 0 16px;
+    padding: 0 24px;
   }
   .detail {
     border-left: 1px solid var(--line);
@@ -492,10 +533,19 @@
     color: var(--muted);
     padding: 24px;
   }
-  @media (max-width: 640px) {
+  /* Below 1100 px (where the side panel starts to lie over the page) the
+     detail goes under the list, and each part scrolls on its own. */
+  @media (max-width: 1100px) {
     .hb.withdetail {
       grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: minmax(0, 42%) minmax(0, 1fr);
     }
+    .hb.withdetail .detail {
+      border-left: 0;
+      border-top: 1px solid var(--line);
+    }
+  }
+  @media (max-width: 640px) {
     .scope,
     .hist .b,
     .hist .l {
