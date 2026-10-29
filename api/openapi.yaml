@@ -1507,6 +1507,7 @@ components:
         data:
           type: object
           additionalProperties: true
+        replay: { type: boolean, description: "A recalled event (the recent MCP tool calls of agents) that a new subscriber gets on connect, not a live one" }
     ChangeEvent:
       type: object
       required: [changeId]

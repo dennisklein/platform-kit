@@ -1268,6 +1268,8 @@ export interface components {
             data: {
                 [key: string]: unknown;
             };
+            /** @description A recalled event (the recent MCP tool calls of agents) that a new subscriber gets on connect, not a live one */
+            replay?: boolean;
         };
         ChangeEvent: {
             changeId: string;

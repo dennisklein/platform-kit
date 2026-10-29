@@ -42,6 +42,9 @@ type Event struct {
 	// Audience is the person the event is for; empty means everyone.
 	Audience string `json:"-"`
 	Data     any    `json:"data"`
+	// Replay marks a recalled event sent to a new subscriber on connect
+	// (see PublishRecalled); clients show it without alarms.
+	Replay bool `json:"replay,omitempty"`
 }
 
 // Publisher publishes events.
@@ -56,10 +59,28 @@ type Publisher interface {
 type Bus interface {
 	Publisher
 	// Subscribe returns events for principal after lastID (replayed from a
-	// short history) and then live events. Call cancel to unsubscribe. The
+	// short history; with lastID 0 the recalled events) and then live events. Call cancel to unsubscribe. The
 	// channel is closed when the subscriber is too slow; the client then
 	// reconnects with Last-Event-ID.
 	Subscribe(principal string, lastID uint64) (ch <-chan Event, cancel func())
+}
+
+// Recaller is a Publisher that keeps the last few recalled events and sends
+// them to each new subscriber (one without a Last-Event-ID), so a page that
+// loads fresh still shows what agents just did.
+type Recaller interface {
+	PublishRecalled(audience string, t Type, data any)
+}
+
+// PublishRecalled publishes an event that new subscribers get on connect
+// (the MCP tool calls of agents). Publishers without a recall publish it
+// as usual.
+func PublishRecalled(p Publisher, audience string, t Type, data any) {
+	if r, ok := p.(Recaller); ok {
+		r.PublishRecalled(audience, t, data)
+		return
+	}
+	p.PublishTo(audience, t, data)
 }
 
 // Nop is a Publisher that drops all events.
@@ -71,6 +92,8 @@ func (Nop) PublishTo(string, Type, any) {}
 const (
 	historySize = 512
 	chanSize    = 256
+	// recallSize is how many recalled events a new subscriber gets.
+	recallSize = 20
 )
 
 // Hub is the in-memory Bus.
@@ -78,6 +101,7 @@ type Hub struct {
 	mu      sync.Mutex
 	nextID  uint64
 	history []Event
+	recall  []Event
 	subs    map[*sub]struct{}
 	now     func() time.Time
 }
@@ -95,7 +119,12 @@ func NewHub() *Hub {
 
 func (h *Hub) Publish(t Type, data any) { h.PublishTo("", t, data) }
 
-func (h *Hub) PublishTo(audience string, t Type, data any) {
+func (h *Hub) PublishTo(audience string, t Type, data any) { h.publish(audience, t, data, false) }
+
+// PublishRecalled publishes an event and keeps it for new subscribers.
+func (h *Hub) PublishRecalled(audience string, t Type, data any) { h.publish(audience, t, data, true) }
+
+func (h *Hub) publish(audience string, t Type, data any, recall bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.nextID++
@@ -104,6 +133,12 @@ func (h *Hub) PublishTo(audience string, t Type, data any) {
 		h.history = append(h.history, ev)
 		if len(h.history) > historySize {
 			h.history = h.history[len(h.history)-historySize:]
+		}
+	}
+	if recall {
+		h.recall = append(h.recall, ev)
+		if len(h.recall) > recallSize {
+			h.recall = h.recall[len(h.recall)-recallSize:]
 		}
 	}
 	for s := range h.subs {
@@ -122,6 +157,17 @@ func (h *Hub) Subscribe(principal string, lastID uint64) (<-chan Event, func()) 
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	s := &sub{principal: principal, ch: make(chan Event, chanSize)}
+	if lastID == 0 {
+		// A fresh page: the recent recalled events, marked as a replay.
+		// They carry the newest id, so a reconnect (Last-Event-ID) replays
+		// only what comes after this connect.
+		for _, ev := range h.recall {
+			if visible(ev, principal) {
+				ev.ID, ev.Replay = h.nextID, true
+				s.ch <- ev
+			}
+		}
+	}
 	if lastID > 0 {
 		for _, ev := range h.history {
 			if ev.ID > lastID && visible(ev, principal) && len(s.ch) < chanSize {

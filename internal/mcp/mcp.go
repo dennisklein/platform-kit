@@ -448,7 +448,9 @@ func (h *Handler) presence(id identity.Identity, tp toolPlan, args map[string]an
 			text += " (failed)"
 		}
 	}
-	h.o.Events.PublishTo(id.Principal(), events.Presence, api.Presence{
+	// Recalled: a reloaded page still shows the agent's calls and the last
+	// denial.
+	events.PublishRecalled(h.o.Events, id.Principal(), events.Presence, api.Presence{
 		Actor: id.User, Kind: api.IdentityKind(id.Kind), ActsFor: id.ActsFor,
 		Tool: tp.Name, ChangeId: change, Path: path, Text: text, At: time.Now().UTC(),
 	})
