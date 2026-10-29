@@ -1,0 +1,2854 @@
+openapi: 3.0.3
+info:
+  title: platform-kit bench API
+  version: 0.1.0
+  description: |
+    The one API of the platform-kit bench. The web UI, the pk CLI and the MCP
+    endpoint all use these operations, so they share the same rights checks.
+
+    Conventions:
+    - All paths are under `/api/v1`. Bodies are JSON.
+    - Errors use the `Error` schema. 403 with "agents never approve or merge" is
+      the answer for agents on approve and merge.
+    - File paths are query parameters (`?path=`), because they contain slashes.
+    - A `ref` parameter accepts `main` (default), a change id (`c-xxxxxx`, the
+      change worktree including saved, uncommitted files), a branch name or a
+      commit sha.
+    - Lab run ids contain a slash (`c-k7m2qz/run-1`); URL-encode them in paths.
+    - Operations with `x-mcp-tool` are exposed as MCP tools on `/mcp`. The tool
+      input schema is the path and query parameters plus the request body.
+    - `GET /events` is a server-sent event stream (`text/event-stream`). Each
+      message has `id:`, `event: <EventType>` and `data: <Event JSON>`. The
+      payload schema for each type is listed at `EventType`. The stream sends a
+      comment line every 15 s as keep-alive and replays missed events after a
+      reconnect with `Last-Event-ID`. This operation is served by hand and is
+      not part of the generated strict server.
+servers:
+  - url: /api/v1
+tags:
+  - name: me
+    description: Identity, bench status, focus and events
+  - name: changes
+    description: Change lifecycle (worktree, branch, merge request)
+  - name: files
+    description: Files in a change worktree
+  - name: render
+    description: Render, impact, diff and gates
+  - name: labs
+    description: Change labs, digital twin and topology
+  - name: kinds
+    description: Kind registry and schemas
+  - name: entities
+    description: Entities (nodes, racks, switches, ...) built from kinds
+  - name: kb
+    description: Knowledge base articles
+  - name: work
+    description: Work items and milestones
+  - name: history
+    description: History of main and time travel
+  - name: clusters
+    description: Clusters, rollout and rings
+  - name: llm
+    description: Advisors, chat, suggestions, LLM log and search
+  - name: agents
+    description: Agent grants (MCP tokens)
+  - name: audit
+    description: Audit trail
+  - name: policy
+    description: Policy summary and generated forge rules
+  - name: demo
+    description: Demo helpers (only when PK_DEMO=1)
+
+paths:
+  # ---------------------------------------------------------------- me
+  /me:
+    get:
+      operationId: getMe
+      tags: [me]
+      summary: The identity of the caller
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        default: { $ref: "#/components/responses/Error" }
+  /status:
+    get:
+      operationId: getStatus
+      tags: [me]
+      summary: Bench status (forge, LLM, Flux, main head) for the top bar
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BenchStatus" }
+        default: { $ref: "#/components/responses/Error" }
+  /events:
+    get:
+      operationId: streamEvents
+      tags: [me]
+      summary: Server-sent events (see EventType for the payloads)
+      parameters:
+        - name: Last-Event-ID
+          in: header
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: Event stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+        default: { $ref: "#/components/responses/Error" }
+  /focus:
+    get:
+      operationId: getFocus
+      tags: [me]
+      summary: The focus of the session (current change, file, object, view)
+      x-mcp-tool: pk_focus_get
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Focus" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      operationId: setFocus
+      tags: [me]
+      summary: Move the focus. An agent in suggest mode only sends a "look here" card.
+      x-mcp-tool: pk_focus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FocusUpdate" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Focus" }
+        default: { $ref: "#/components/responses/Error" }
+
+  # ---------------------------------------------------------------- agents
+  /agents:
+    get:
+      operationId: listAgents
+      tags: [agents]
+      summary: Agents from the policy with their grants
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AgentGrant" }
+        default: { $ref: "#/components/responses/Error" }
+  /agents/{id}/approve:
+    post:
+      operationId: approveAgent
+      tags: [agents]
+      summary: Approve an agent for today (humans only). Returns a token valid for 8 h.
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ApproveAgentRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AgentApproval" }
+        default: { $ref: "#/components/responses/Error" }
+  /agents/{id}/grant:
+    delete:
+      operationId: revokeAgent
+      tags: [agents]
+      summary: Revoke the grant of an agent
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AgentGrant" }
+        default: { $ref: "#/components/responses/Error" }
+
+  # ---------------------------------------------------------------- changes
+  /changes:
+    get:
+      operationId: listChanges
+      tags: [changes]
+      summary: Open changes (local worktrees, remote branches, open MRs) and recent merges
+      x-mcp-tool: pk_change_list
+      parameters:
+        - name: scope
+          in: query
+          description: open (default) lists open changes; all adds the last 50 merges and closed changes.
+          schema: { type: string, enum: [open, all], default: open }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChangeList" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createChange
+      tags: [changes]
+      summary: New change (worktree, branch and metadata file)
+      x-mcp-tool: pk_change_new
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateChangeRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Change" }
+        default: { $ref: "#/components/responses/Error" }
+  /changes/{id}:
+    get:
+      operationId: getChange
+      tags: [changes]
+      summary: One change with lifecycle, commits, gates and overlaps
+      x-mcp-tool: pk_change_get
+      parameters:
+        - $ref: "#/components/parameters/ChangeId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Change" }
+        default: { $ref: "#/components/responses/Error" }
+  /changes/{id}/checkout:
+    post:
+      operationId: checkoutChange
+      tags: [changes]
+      summary: Fetch the branch of a change into a local worktree
+      parameters:
+        - $ref: "#/components/parameters/ChangeId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChangeSummary" }
+        default: { $ref: "#/components/responses/Error" }
+  /changes/{id}/commits:
+    get:
+      operationId: listCommits
+      tags: [changes]
+      summary: Commits of the change (target..head)
+      parameters:
+        - $ref: "#/components/parameters/ChangeId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Commit" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: commit
+      tags: [changes]
+      summary: Commit saved files of the worktree (all changed files, or the given paths)
+      x-mcp-tool: pk_commit
+      parameters:
+        - $ref: "#/components/parameters/ChangeId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CommitRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Commit" }
+        default: { $ref: "#/components/responses/Error" }
+  /changes/{id}/commit-message:
+    post:
+      operationId: suggestCommitMessage
+      tags: [llm]
+      summary: Suggest a Conventional Commit message from the uncommitted diff and the intent
+      x-mcp-tool: pk_commit_message
+      parameters:
+        - $ref: "#/components/parameters/ChangeId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CommitMessageRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CommitMessageSuggestion" }
+        default: { $ref: "#/components/responses/Error" }
+  /changes/{id}/push:
+    post:
+      operationId: pushChange
+      tags: [changes]
+      summary: Push the branch. The first push opens a draft merge request.
+      x-mcp-tool: pk_change_push
+      parameters:
+        - $ref: "#/components/parameters/ChangeId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PushResult" }
+        default: { $ref: "#/components/responses/Error" }
+  /changes/{id}/ready:
+    post:
+      operationId: markReady
+      tags: [changes]
+      summary: Move to review (lab gate, metadata to the MR description, remove draft)
+      x-mcp-tool: pk_change_ready
+      parameters:
+        - $ref: "#/components/parameters/ChangeId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Change" }
+        default: { $ref: "#/components/responses/Error" }
+  /changes/{id}/rebase:
+    post:
+      operationId: rebaseChange
+      tags: [changes]
+      summary: Rebase on the target and force-push with lease. 409 with paths on conflict.
+      x-mcp-tool: pk_change_rebase
+      parameters:
+        - $ref: "#/components/parameters/ChangeId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RebaseResult" }
+        default: { $ref: "#/components/responses/Error" }
+  /changes/{id}/approve:
+    post:
+      operationId: approveChange
+      tags: [changes]
+      summary: Approve the merge request (humans only; agents get 403)
+      x-mcp-tool: pk_change_approve
+      parameters:
+        - $ref: "#/components/parameters/ChangeId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ApproveRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Approval" }
+        default: { $ref: "#/components/responses/Error" }
+  /changes/{id}/merge:
+    post:
+      operationId: mergeChange
+      tags: [changes]
+      summary: Merge (humans only). 409 "behind main by N, rebase first" when not rebased.
+      x-mcp-tool: pk_change_merge
+      parameters:
+        - $ref: "#/components/parameters/ChangeId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MergeResult" }
+        default: { $ref: "#/components/responses/Error" }
+  /changes/{id}/close:
+    post:
+      operationId: closeChange
+      tags: [changes]
+      summary: Close the change without merge
+      parameters:
+        - $ref: "#/components/parameters/ChangeId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChangeSummary" }
+        default: { $ref: "#/components/responses/Error" }
+  /changes/{id}/revert:
+    post:
+      operationId: revertChange
+      tags: [clusters]
+      summary: Open a revert change for a merged change (fast path, P2)
+      parameters:
+        - $ref: "#/components/parameters/ChangeId"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Change" }
+        default: { $ref: "#/components/responses/Error" }
+
+  # ---------------------------------------------------------------- files
+  /changes/{id}/tree:
+    get:
+      operationId: getTree
+      tags: [files]
+      summary: File tree of the change worktree with status against the target
+      x-mcp-tool: pk_file_list
+      parameters:
+        - $ref: "#/components/parameters/ChangeId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FileTree" }
+        default: { $ref: "#/components/responses/Error" }
+  /changes/{id}/status:
+    get:
+      operationId: worktreeStatus
+      tags: [files]
+      summary: Changed, staged and untracked files of the worktree
+      parameters:
+        - $ref: "#/components/parameters/ChangeId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorktreeStatus" }
+        default: { $ref: "#/components/responses/Error" }
+  /changes/{id}/file:
+    get:
+      operationId: readFile
+      tags: [files]
+      summary: Read a file. Secret values are masked.
+      x-mcp-tool: pk_file_read
+      parameters:
+        - $ref: "#/components/parameters/ChangeId"
+        - $ref: "#/components/parameters/FilePath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FileContent" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      operationId: writeFile
+      tags: [files]
+      summary: Save a file to the worktree (full content, or set fields by dotted path). Masked secrets keep their stored value.
+      x-mcp-tool: pk_file_write
+      parameters:
+        - $ref: "#/components/parameters/ChangeId"
+        - $ref: "#/components/parameters/FilePath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WriteFileRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WriteFileResult" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteFile
+      tags: [files]
+      summary: Delete a file from the worktree
+      parameters:
+        - $ref: "#/components/parameters/ChangeId"
+        - $ref: "#/components/parameters/FilePath"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WriteFileResult" }
+        default: { $ref: "#/components/responses/Error" }
+  /changes/{id}/file/new:
+    post:
+      operationId: newFile
+      tags: [files]
+      summary: Create a file from a kind skeleton (schema defaults) at the kind's default path
+      x-mcp-tool: pk_file_new
+      parameters:
+        - $ref: "#/components/parameters/ChangeId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewFileRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FileContent" }
+        default: { $ref: "#/components/responses/Error" }
+  /changes/{id}/problems:
+    get:
+      operationId: validateChange
+      tags: [files]
+      summary: Schema and cross-file problems of the change worktree
+      x-mcp-tool: pk_validate
+      parameters:
+        - $ref: "#/components/parameters/ChangeId"
+        - name: path
+          in: query
+          description: Only problems of this file
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProblemList" }
+        default: { $ref: "#/components/responses/Error" }
+
+  # ---------------------------------------------------------------- render
+  /changes/{id}/impact:
+    get:
+      operationId: getImpact
+      tags: [render]
+      summary: Render target and change per cluster and compare (grouped by Flux Kustomization)
+      x-mcp-tool: pk_render_impact
+      parameters:
+        - $ref: "#/components/parameters/ChangeId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Impact" }
+        default: { $ref: "#/components/responses/Error" }
+  /changes/{id}/diff:
+    get:
+      operationId: getDiff
+      tags: [render]
+      summary: Diff of the change (semantic, source or rendered view)
+      x-mcp-tool: pk_diff
+      parameters:
+        - $ref: "#/components/parameters/ChangeId"
+        - name: view
+          in: query
+          schema: { $ref: "#/components/schemas/DiffViewKind" }
+        - name: cluster
+          in: query
+          description: Only this cluster (rendered view)
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Diff" }
+        default: { $ref: "#/components/responses/Error" }
+  /changes/{id}/gates:
+    get:
+      operationId: getGates
+      tags: [render]
+      summary: Policy gates (same evaluation as pk ci)
+      x-mcp-tool: pk_gates
+      parameters:
+        - $ref: "#/components/parameters/ChangeId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Gates" }
+        default: { $ref: "#/components/responses/Error" }
+
+  # ---------------------------------------------------------------- labs
+  /changes/{id}/labs:
+    post:
+      operationId: runLab
+      tags: [labs]
+      summary: Start a change lab on the head of the change
+      x-mcp-tool: pk_lab_run
+      parameters:
+        - $ref: "#/components/parameters/ChangeId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RunLabRequest" }
+      responses:
+        "202":
+          description: Started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LabRun" }
+        default: { $ref: "#/components/responses/Error" }
+  /labs:
+    get:
+      operationId: listLabs
+      tags: [labs]
+      summary: Lab definitions (.pk/labs) and recent runs
+      parameters:
+        - name: changeId
+          in: query
+          description: Only runs of this change
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LabList" }
+        default: { $ref: "#/components/responses/Error" }
+  /labs/runs/{run}:
+    get:
+      operationId: getLabRun
+      tags: [labs]
+      summary: One lab run with its steps
+      x-mcp-tool: pk_lab_status
+      parameters:
+        - name: run
+          in: path
+          required: true
+          description: Run id, for example c-k7m2qz/run-1 (URL-encoded)
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LabRun" }
+        default: { $ref: "#/components/responses/Error" }
+  /labs/topology:
+    get:
+      operationId: getTopology
+      tags: [labs]
+      summary: Topology generated from inventory, cabling and .pk/emulation.yaml (read-only)
+      x-mcp-tool: pk_lab_topology
+      parameters:
+        - $ref: "#/components/parameters/Ref"
+        - name: cluster
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Topology" }
+        default: { $ref: "#/components/responses/Error" }
+
+  # ---------------------------------------------------------------- suggestions
+  /changes/{id}/suggestions:
+    get:
+      operationId: listSuggestions
+      tags: [llm]
+      summary: Suggested edits (from chat or advisors) in the change
+      parameters:
+        - $ref: "#/components/parameters/ChangeId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Suggestion" }
+        default: { $ref: "#/components/responses/Error" }
+  /suggestions/{sid}/accept:
+    post:
+      operationId: acceptSuggestion
+      tags: [llm]
+      summary: Accept a suggested edit. It is written to the worktree as a normal edit by the caller.
+      parameters:
+        - $ref: "#/components/parameters/SuggestionId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Suggestion" }
+        default: { $ref: "#/components/responses/Error" }
+  /suggestions/{sid}/reject:
+    post:
+      operationId: rejectSuggestion
+      tags: [llm]
+      summary: Reject a suggested edit
+      parameters:
+        - $ref: "#/components/parameters/SuggestionId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Suggestion" }
+        default: { $ref: "#/components/responses/Error" }
+
+  # ---------------------------------------------------------------- kinds
+  /kinds:
+    get:
+      operationId: listKinds
+      tags: [kinds]
+      summary: The kind registry
+      x-mcp-tool: pk_kind_list
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Kind" }
+        default: { $ref: "#/components/responses/Error" }
+  /kinds/{kind}/schema:
+    get:
+      operationId: getKindSchema
+      tags: [kinds]
+      summary: JSON Schema of a kind (with x-pk extensions)
+      x-mcp-tool: pk_kind_schema
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          description: Kind name, for example Node or HelmRelease
+          schema: { type: string }
+        - name: version
+          in: query
+          description: Version of the kind (default the newest)
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JsonSchema" }
+        default: { $ref: "#/components/responses/Error" }
+
+  # ---------------------------------------------------------------- entities
+  /entities:
+    get:
+      operationId: listEntities
+      tags: [entities]
+      summary: Entities of a kind (or all)
+      x-mcp-tool: pk_entity_list
+      parameters:
+        - name: kind
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/Ref"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/EntitySummary" }
+        default: { $ref: "#/components/responses/Error" }
+  /entities/{kind}/{name}:
+    get:
+      operationId: getEntity
+      tags: [entities]
+      summary: One entity with fields (truth class, owner, source), references and backlinks
+      x-mcp-tool: pk_entity_get
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema: { type: string }
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+        - name: cluster
+          in: query
+          description: "Pick the entity of this cluster when several share kind and name (HelmRelease cilium)"
+          schema: { type: string }
+        - name: path
+          in: query
+          description: Pick the entity in this file when several share kind and name
+          schema: { type: string }
+        - $ref: "#/components/parameters/Ref"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Entity" }
+        default: { $ref: "#/components/responses/Error" }
+  /racks/{name}:
+    get:
+      operationId: getRack
+      tags: [entities]
+      summary: Rack view (units with occupants; highlights when ref is a change)
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: "#/components/parameters/Ref"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Rack" }
+        default: { $ref: "#/components/responses/Error" }
+
+  # ---------------------------------------------------------------- kb
+  /kb:
+    get:
+      operationId: listArticles
+      tags: [kb]
+      summary: Knowledge base articles
+      parameters:
+        - $ref: "#/components/parameters/Ref"
+        - name: entity
+          in: query
+          description: Only articles that link this entity
+          schema: { type: string }
+        - name: type
+          in: query
+          schema: { $ref: "#/components/schemas/ArticleType" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ArticleSummary" }
+        default: { $ref: "#/components/responses/Error" }
+  /kb/article:
+    get:
+      operationId: getArticle
+      tags: [kb]
+      summary: One article with entities and the changes that cite it
+      x-mcp-tool: pk_kb_read
+      parameters:
+        - $ref: "#/components/parameters/FilePath"
+        - $ref: "#/components/parameters/Ref"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Article" }
+        default: { $ref: "#/components/responses/Error" }
+
+  # ---------------------------------------------------------------- work
+  /work:
+    get:
+      operationId: getWorkBoard
+      tags: [work]
+      summary: Work items with derived status, and milestones with progress
+      parameters:
+        - $ref: "#/components/parameters/Ref"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkBoard" }
+        default: { $ref: "#/components/responses/Error" }
+
+  # ---------------------------------------------------------------- history
+  /history:
+    get:
+      operationId: listHistory
+      tags: [history]
+      summary: Merge commits on main, one row per change (from trailers)
+      x-mcp-tool: pk_history
+      parameters:
+        - name: q
+          in: query
+          description: Free text over title, intent and trailers
+          schema: { type: string }
+        - name: entity
+          in: query
+          description: Only changes that touched this entity (for example cn-003)
+          schema: { type: string }
+        - name: path
+          in: query
+          description: Only changes that touched this path or glob
+          schema: { type: string }
+        - name: author
+          in: query
+          schema: { type: string }
+        - name: kind
+          in: query
+          description: Only changes that touched files of this kind
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 100 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HistoryList" }
+        default: { $ref: "#/components/responses/Error" }
+  /history/{sha}:
+    get:
+      operationId: getHistoryEntry
+      tags: [history]
+      summary: One merge commit with trailers, semantic and source diff
+      parameters:
+        - name: sha
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HistoryDetail" }
+        default: { $ref: "#/components/responses/Error" }
+  /refs/{ref}/tree:
+    get:
+      operationId: getRefTree
+      tags: [history]
+      summary: File tree at a ref (read-only, time travel)
+      parameters:
+        - name: ref
+          in: path
+          required: true
+          description: Commit sha, branch or main (URL-encode slashes)
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FileTree" }
+        default: { $ref: "#/components/responses/Error" }
+  /refs/{ref}/file:
+    get:
+      operationId: readFileAtRef
+      tags: [history]
+      summary: A file at a ref (read-only). With convert, old kind versions are converted to the newest.
+      parameters:
+        - name: ref
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: "#/components/parameters/FilePath"
+        - name: convert
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FileContent" }
+        default: { $ref: "#/components/responses/Error" }
+
+  # ---------------------------------------------------------------- clusters
+  /clusters:
+    get:
+      operationId: listClusters
+      tags: [clusters]
+      summary: Clusters with role, ring and applied/verified revision (from Flux)
+      x-mcp-tool: pk_clusters
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Cluster" }
+        default: { $ref: "#/components/responses/Error" }
+  /rings:
+    get:
+      operationId: listRings
+      tags: [clusters]
+      summary: Rollout rings (canary, prod) with their tag, hold and gate (P2)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RingStatus" }
+        default: { $ref: "#/components/responses/Error" }
+  /rings/{ring}/promote:
+    post:
+      operationId: promoteRing
+      tags: [clusters]
+      summary: Move a ring tag forward to a merge commit (P2)
+      parameters:
+        - $ref: "#/components/parameters/Ring"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PromoteRingRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RingStatus" }
+        default: { $ref: "#/components/responses/Error" }
+  /rings/{ring}/hold:
+    post:
+      operationId: holdRing
+      tags: [clusters]
+      summary: Hold a ring tag (stops the rollout to the next rings, P2)
+      parameters:
+        - $ref: "#/components/parameters/Ring"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RingStatus" }
+        default: { $ref: "#/components/responses/Error" }
+  /rings/{ring}/release:
+    post:
+      operationId: releaseRing
+      tags: [clusters]
+      summary: Release a held ring tag (P2)
+      parameters:
+        - $ref: "#/components/parameters/Ring"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RingStatus" }
+        default: { $ref: "#/components/responses/Error" }
+
+  # ---------------------------------------------------------------- llm
+  /advisors:
+    get:
+      operationId: listAdvisors
+      tags: [llm]
+      summary: Advisor recipes
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AdvisorRecipe" }
+        default: { $ref: "#/components/responses/Error" }
+  /changes/{id}/advisors/{recipe}:
+    post:
+      operationId: runAdvisor
+      tags: [llm]
+      summary: Run an advisor recipe on a change
+      x-mcp-tool: pk_advise
+      parameters:
+        - $ref: "#/components/parameters/ChangeId"
+        - name: recipe
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdvisorResult" }
+        default: { $ref: "#/components/responses/Error" }
+  /chat:
+    post:
+      operationId: chat
+      tags: [llm]
+      summary: Freeform chat as the logged-in human. Edits come back as suggestions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChatRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChatAnswer" }
+        default: { $ref: "#/components/responses/Error" }
+  /llm/log:
+    get:
+      operationId: listLlmLog
+      tags: [llm]
+      summary: LLM log entries (platform admins only)
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 200 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LlmLogList" }
+        default: { $ref: "#/components/responses/Error" }
+  /llm/log/export:
+    get:
+      operationId: exportLlmLog
+      tags: [llm]
+      summary: Export the LLM log as JSON lines (platform admins only)
+      responses:
+        "200":
+          description: JSON lines, one LlmLogEntry per line
+          content:
+            application/x-ndjson:
+              schema: { type: string, format: binary }
+        default: { $ref: "#/components/responses/Error" }
+  /llm/log/{id}:
+    delete:
+      operationId: deleteLlmLog
+      tags: [llm]
+      summary: Delete an LLM log entry (platform admins only; writes an audit entry)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: Deleted
+        default: { $ref: "#/components/responses/Error" }
+  /llm/log/{id}/rating:
+    post:
+      operationId: rateLlm
+      tags: [llm]
+      summary: Rate an advisor result or chat answer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RateRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LlmLogEntry" }
+        default: { $ref: "#/components/responses/Error" }
+  /search:
+    get:
+      operationId: search
+      tags: [llm]
+      summary: Retrieval index search (KB, repo files, trailers, MR discussions, lab reports)
+      x-mcp-tool: pk_search
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 10 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SearchResult" }
+        default: { $ref: "#/components/responses/Error" }
+
+  # ---------------------------------------------------------------- audit, policy
+  /audit:
+    get:
+      operationId: listAudit
+      tags: [audit]
+      summary: Audit trail (agent grants, LLM log deletes, merges, break-glass)
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 200 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AuditEntry" }
+        default: { $ref: "#/components/responses/Error" }
+  /policy:
+    get:
+      operationId: getPolicySummary
+      tags: [policy]
+      summary: The policy on main
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PolicySummary" }
+        default: { $ref: "#/components/responses/Error" }
+  /policy/forge-rules:
+    get:
+      operationId: getForgeRules
+      tags: [policy]
+      summary: Forge rules generated from the policy (branch protection, CODEOWNERS preview)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ForgeRules" }
+        default: { $ref: "#/components/responses/Error" }
+
+  # ---------------------------------------------------------------- demo
+  /demo/approve:
+    post:
+      operationId: demoApprove
+      tags: [demo]
+      summary: Approve a change in the forge as another person (PK_DEMO=1 only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DemoApproveRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Approval" }
+        default: { $ref: "#/components/responses/Error" }
+  /demo/flux:
+    post:
+      operationId: demoFlux
+      tags: [demo]
+      summary: Make fluxsim fail or heal a cluster (PK_DEMO=1 only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DemoFluxRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Cluster" }
+        default: { $ref: "#/components/responses/Error" }
+
+components:
+  parameters:
+    ChangeId:
+      name: id
+      in: path
+      required: true
+      description: Change id, for example c-k7m2qz
+      schema: { type: string, pattern: "^c-[a-z0-9]{6}$" }
+    FilePath:
+      name: path
+      in: query
+      required: true
+      description: Repo-relative file path, for example control/inventory/cn-035.yaml
+      schema: { type: string }
+    Ref:
+      name: ref
+      in: query
+      required: false
+      description: main (default), a change id, a branch or a commit sha
+      schema: { type: string }
+    AgentId:
+      name: id
+      in: path
+      required: true
+      description: Agent id from the policy, for example dennis-agent
+      schema: { type: string }
+    SuggestionId:
+      name: sid
+      in: path
+      required: true
+      schema: { type: string }
+    Ring:
+      name: ring
+      in: path
+      required: true
+      schema: { type: string }
+
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    # ------------------------------------------------------------ common
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string, description: Short message for people }
+        detail: { type: string }
+        paths:
+          type: array
+          description: Conflicting or offending paths (for example on a rebase conflict)
+          items: { type: string }
+    JsonSchema:
+      type: object
+      description: A JSON Schema document (draft 2020-12) with x-pk extensions
+      additionalProperties: true
+    IdentityKind:
+      type: string
+      enum: [human, agent, bot]
+    RiskLevel:
+      type: string
+      enum: [low, medium, high]
+    Op:
+      type: string
+      description: add, change or delete
+      enum: [add, change, delete]
+    SourceRef:
+      type: object
+      required: [path]
+      properties:
+        path: { type: string }
+        line: { type: integer, description: 1-based line; 0 when unknown }
+    ObjectRef:
+      type: object
+      required: [cluster, apiVersion, kind, name]
+      properties:
+        cluster: { type: string }
+        apiVersion: { type: string }
+        kind: { type: string }
+        namespace: { type: string }
+        name: { type: string }
+    Source:
+      type: object
+      description: Where an LLM point or answer comes from
+      required: [label, kind]
+      properties:
+        label: { type: string, description: "Short label, for example trailer c-2hd7vw or MR !88" }
+        ref: { type: string, description: "Link target: change id, path, sha, run id, URL" }
+        kind:
+          type: string
+          enum: [trailer, mr, kb, lab, file, policy, impact, change, history, entity, search]
+    Person:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        email: { type: string }
+        roles: { type: array, items: { type: string } }
+        teams: { type: array, items: { type: string } }
+
+    # ------------------------------------------------------------ me
+    Me:
+      type: object
+      required: [id, name, kind, roles, demo]
+      properties:
+        id: { type: string, description: "Person, agent or bot id" }
+        name: { type: string }
+        email: { type: string }
+        kind: { $ref: "#/components/schemas/IdentityKind" }
+        actsFor: { type: string, description: Person an agent acts for }
+        roles: { type: array, items: { type: string } }
+        teams: { type: array, items: { type: string } }
+        initials: { type: string, description: "For the avatar, for example DK" }
+        demo: { type: boolean, description: PK_DEMO=1 }
+        grant: { $ref: "#/components/schemas/AgentGrant" }
+    ServiceStatus:
+      type: object
+      required: [name, reachable]
+      properties:
+        name: { type: string, description: "Display name, for example Gitea" }
+        reachable: { type: boolean }
+        url: { type: string }
+        detail: { type: string }
+    LlmStatus:
+      type: object
+      required: [reachable, mock, model]
+      properties:
+        reachable: { type: boolean }
+        mock: { type: boolean, description: No PK_LLM_BASE_URL set; deterministic mock model }
+        model: { type: string }
+        embedModel: { type: string }
+        baseUrl: { type: string }
+        detail: { type: string }
+    MainRef:
+      type: object
+      required: [sha]
+      properties:
+        sha: { type: string }
+        subject: { type: string }
+        at: { type: string, format: date-time }
+        change: { type: string, description: Change id of the last merge }
+    BenchStatus:
+      type: object
+      required: [mode, version, forge, llm, flux, main]
+      properties:
+        mode: { type: string, enum: [local, shared] }
+        version: { type: string }
+        demo: { type: boolean }
+        forge: { $ref: "#/components/schemas/ServiceStatus" }
+        llm: { $ref: "#/components/schemas/LlmStatus" }
+        flux: { $ref: "#/components/schemas/ServiceStatus" }
+        main: { $ref: "#/components/schemas/MainRef" }
+    Focus:
+      type: object
+      description: Server-side focus of a user session. All tabs, chat and agents follow it.
+      required: [by, at]
+      properties:
+        changeId: { type: string }
+        path: { type: string, description: File open in the editor }
+        line: { type: integer }
+        object: { $ref: "#/components/schemas/ObjectRef" }
+        view: { $ref: "#/components/schemas/FocusView" }
+        route: { type: string, description: "UI route, for example /changes/c-k7m2qz/review" }
+        pinned: { type: boolean, description: The admin pinned the view; agents do not move it }
+        by: { type: string, description: Identity that moved the focus last }
+        at: { type: string, format: date-time }
+    FocusView:
+      type: string
+      enum: [change, editor, review, lab, history, entity, kb, work, chat]
+    FocusUpdate:
+      type: object
+      properties:
+        changeId: { type: string }
+        path: { type: string }
+        line: { type: integer }
+        object: { $ref: "#/components/schemas/ObjectRef" }
+        view: { $ref: "#/components/schemas/FocusView" }
+        route: { type: string }
+        pinned: { type: boolean }
+    Presence:
+      type: object
+      description: An agent (or other client) works somewhere. Sent on each MCP tool call.
+      required: [actor, kind, at]
+      properties:
+        actor: { type: string }
+        kind: { $ref: "#/components/schemas/IdentityKind" }
+        actsFor: { type: string }
+        tool: { type: string, description: MCP tool name }
+        changeId: { type: string }
+        path: { type: string }
+        text: { type: string, description: "Short line, for example pk_file_write control/inventory/cn-035.yaml" }
+        suggest: { $ref: "#/components/schemas/FocusUpdate" }
+        at: { type: string, format: date-time }
+
+    # ------------------------------------------------------------ events
+    EventType:
+      type: string
+      description: |
+        SSE event types and their data payloads:
+        - change.created, change.updated: ChangeEvent
+        - lab.step: LabStepEvent
+        - lab.finished: LabRun
+        - render.updated: RenderEvent
+        - focus.changed: Focus
+        - forge.updated: ForgeEvent
+        - forge.reset: ForgeResetEvent (pk forge-init --reset rebuilt the forge state; clients reload)
+        - flux.updated: Cluster
+        - presence: Presence
+        - suggestion.created: Suggestion
+      enum:
+        - change.created
+        - change.updated
+        - lab.step
+        - lab.finished
+        - render.updated
+        - focus.changed
+        - forge.updated
+        - forge.reset
+        - flux.updated
+        - presence
+        - suggestion.created
+    Event:
+      type: object
+      required: [id, type, time, data]
+      properties:
+        id: { type: integer, format: int64 }
+        type: { $ref: "#/components/schemas/EventType" }
+        time: { type: string, format: date-time }
+        data:
+          type: object
+          additionalProperties: true
+    ChangeEvent:
+      type: object
+      required: [changeId]
+      properties:
+        changeId: { type: string }
+        reason: { type: string, description: "What happened, for example commit, push, rebase, merge" }
+        change: { $ref: "#/components/schemas/ChangeSummary" }
+    LabStepEvent:
+      type: object
+      required: [run, step]
+      properties:
+        run: { type: string }
+        changeId: { type: string }
+        step: { $ref: "#/components/schemas/LabStep" }
+    RenderEvent:
+      type: object
+      required: [changeId, summary]
+      properties:
+        changeId: { type: string }
+        summary: { $ref: "#/components/schemas/ImpactSummary" }
+    ForgeEvent:
+      type: object
+      required: [what]
+      properties:
+        what: { type: string, description: "pr, review, status, merge, branch" }
+        changeId: { type: string }
+        mr: { $ref: "#/components/schemas/MergeRequestRef" }
+        sha: { type: string }
+
+    ForgeResetEvent:
+      type: object
+      required: [since]
+      properties:
+        since: { type: string, format: date-time, description: Time of the rebuild; changes opened before it were dropped locally }
+        main: { type: string, description: New main head sha, when known }
+
+    # ------------------------------------------------------------ agents
+    AgentMode:
+      type: string
+      description: navigate moves the focus of the admin; suggest only sends "look here" cards
+      enum: [navigate, suggest]
+    AgentGrant:
+      type: object
+      required: [id, actsFor, can, mode, active]
+      properties:
+        id: { type: string }
+        actsFor: { type: string }
+        can:
+          type: array
+          items: { type: string, description: "push, open-mr, run-lab, mark-ready" }
+        mode: { $ref: "#/components/schemas/AgentMode" }
+        active: { type: boolean }
+        approvedBy: { type: string }
+        approvedAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        lastSeenAt: { type: string, format: date-time }
+        lastTool: { type: string }
+    ApproveAgentRequest:
+      type: object
+      properties:
+        mode: { $ref: "#/components/schemas/AgentMode" }
+        hours: { type: integer, minimum: 1, maximum: 12, default: 8 }
+    McpSnippet:
+      type: object
+      required: [client, file, content]
+      properties:
+        client: { type: string, description: "opencode, claude-code" }
+        file: { type: string, description: "Where it goes, for example opencode.json or .mcp.json" }
+        content: { type: string }
+        command: { type: string, description: "Optional shell command that adds it" }
+        allow:
+          type: string
+          description: >-
+            Optional shell command that allows the platform-kit tools without a
+            permission prompt (Claude Code: .claude/settings.local.json in the
+            project directory)
+        allowFlag: { type: string, description: "Other way to allow the tools, for example claude --allowedTools mcp__platform-kit" }
+    AgentApproval:
+      type: object
+      required: [grant, token, mcpUrl, snippets]
+      properties:
+        grant: { $ref: "#/components/schemas/AgentGrant" }
+        token: { type: string, description: Shown once. Bearer token for /mcp and /api/v1. }
+        mcpUrl: { type: string }
+        snippets:
+          type: array
+          items: { $ref: "#/components/schemas/McpSnippet" }
+
+    # ------------------------------------------------------------ changes
+    ChangeState:
+      type: string
+      enum: [draft, lab, review, approved, merged, deployed, verified, closed]
+    LabState:
+      type: string
+      description: State of the last lab run on the head of the change
+      enum: [none, running, pass, fail]
+    ChangeGroup:
+      type: string
+      enum: [mine, others, review, bots]
+    MergeRequestRef:
+      type: object
+      required: [number, url, draft, state]
+      properties:
+        number: { type: integer }
+        url: { type: string }
+        draft: { type: boolean }
+        state: { type: string, enum: [open, merged, closed] }
+        title: { type: string }
+    ApprovalCount:
+      type: object
+      required: [have, need]
+      properties:
+        have: { type: integer }
+        need: { type: integer }
+    ClusterRollout:
+      type: object
+      required: [cluster, deployed, verified]
+      properties:
+        cluster: { type: string }
+        ring: { type: string }
+        deployed: { type: boolean }
+        verified: { type: boolean }
+        sha: { type: string, description: Revision Flux applied on the cluster }
+        at: { type: string, format: date-time }
+    ChangeSummary:
+      type: object
+      required: [id, title, branch, target, author, authorKind, state, labState, group, local, dirty, aheadTarget, behindTarget, aheadRemote, behindRemote, pushed, files, commits, approvals]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        intent: { type: string }
+        branch: { type: string, description: "change/<id>-<slug>" }
+        target: { type: string, description: "main or change/<parent branch>" }
+        parent: { type: string, description: Parent change id of a stack }
+        author: { type: string }
+        agent: { type: string, description: Agent that made commits in the change }
+        authorKind: { $ref: "#/components/schemas/IdentityKind" }
+        state: { $ref: "#/components/schemas/ChangeState" }
+        labState: { $ref: "#/components/schemas/LabState" }
+        labRun: { type: string, description: Last lab run id }
+        group: { $ref: "#/components/schemas/ChangeGroup" }
+        local: { type: boolean, description: A local worktree exists }
+        dirty: { type: boolean, description: The worktree has saved, uncommitted files }
+        pushed: { type: boolean, description: The branch exists on the forge }
+        mr: { $ref: "#/components/schemas/MergeRequestRef" }
+        aheadTarget: { type: integer }
+        behindTarget: { type: integer, description: "Commits on the target that the branch lacks (behind main by N)" }
+        aheadRemote: { type: integer }
+        behindRemote: { type: integer }
+        files: { type: integer, description: Files changed against the target }
+        commits: { type: integer }
+        workItems: { type: array, items: { type: string } }
+        approvals: { $ref: "#/components/schemas/ApprovalCount" }
+        risk: { $ref: "#/components/schemas/RiskLevel" }
+        impact: { $ref: "#/components/schemas/ImpactSummary" }
+        overlaps: { type: array, items: { type: string }, description: Ids of open changes with an overlap }
+        presence: { $ref: "#/components/schemas/Presence" }
+        rollout: { type: array, items: { $ref: "#/components/schemas/ClusterRollout" } }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        mergedAt: { type: string, format: date-time }
+        mergeSha: { type: string }
+    LifecycleStep:
+      type: object
+      required: [state, status, label]
+      properties:
+        state: { $ref: "#/components/schemas/ChangeState" }
+        status: { type: string, enum: [done, now, fail, todo] }
+        label: { type: string, description: "Under the dot, for example run-3 or 0 of 2" }
+        detail: { type: string }
+    LabRunRef:
+      type: object
+      required: [run, result]
+      properties:
+        run: { type: string, description: "c-k7m2qz/run-1" }
+        sha: { type: string, description: Head sha that was tested }
+        result: { $ref: "#/components/schemas/LabResult" }
+        report: { type: string, description: "Report article path, for example kb/labs/c-k7m2qz-run-1.md" }
+    ChangeMeta:
+      type: object
+      description: ".pk/changes/<id>.yaml (while draft) or the MR trailers (after ready)"
+      required: [id, title]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        intent: { type: string }
+        author: { type: string }
+        agent: { type: string }
+        target: { type: string }
+        parent: { type: string }
+        workItems: { type: array, items: { type: string } }
+        labRuns: { type: array, items: { $ref: "#/components/schemas/LabRunRef" } }
+    Approval:
+      type: object
+      required: [user, counts]
+      properties:
+        user: { type: string }
+        at: { type: string, format: date-time }
+        sha: { type: string }
+        counts: { type: boolean, description: The approval counts for the policy }
+        reason: { type: string, description: "Why it does not count, for example author or not an approver" }
+    Overlap:
+      type: object
+      required: [change, by, objects]
+      properties:
+        change: { type: string }
+        title: { type: string }
+        by: { type: string, description: Author of the other change }
+        state: { $ref: "#/components/schemas/ChangeState" }
+        objects: { type: array, items: { $ref: "#/components/schemas/ObjectRef" } }
+    Change:
+      allOf:
+        - $ref: "#/components/schemas/ChangeSummary"
+        - type: object
+          required: [lifecycle, commits, labRuns, overlapsDetail, approvalsBy, children]
+          properties:
+            headSha: { type: string }
+            baseSha: { type: string, description: Merge base with the target }
+            targetSha: { type: string }
+            worktree: { type: string, description: Local worktree path }
+            meta: { $ref: "#/components/schemas/ChangeMeta" }
+            description: { type: string, description: MR description with the trailer block }
+            lifecycle: { type: array, items: { $ref: "#/components/schemas/LifecycleStep" } }
+            commits: { type: array, items: { $ref: "#/components/schemas/Commit" } }
+            gates: { $ref: "#/components/schemas/Gates" }
+            labRuns: { type: array, items: { $ref: "#/components/schemas/LabRunRef" } }
+            overlapsDetail: { type: array, items: { $ref: "#/components/schemas/Overlap" } }
+            approvalsBy: { type: array, items: { $ref: "#/components/schemas/Approval" } }
+            children: { type: array, items: { type: string }, description: Changes stacked on this one }
+            changedFiles: { type: array, items: { $ref: "#/components/schemas/FileStatus" } }
+    ChangeList:
+      type: object
+      required: [changes]
+      properties:
+        changes: { type: array, items: { $ref: "#/components/schemas/ChangeSummary" } }
+        main: { $ref: "#/components/schemas/MainRef" }
+        forgeOffline:
+          type: boolean
+          description: >-
+            The forge (Gitea) did not answer the last fetch or poll. The list
+            comes from the local clone and the last forge state; push and
+            merge wait for the forge.
+    CreateChangeRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string, minLength: 3, maxLength: 120 }
+        intent: { type: string }
+        target: { type: string, description: "main (default) or the branch of an open change" }
+        parent: { type: string, description: Parent change id (stack) }
+        workItems: { type: array, items: { type: string } }
+    Trailer:
+      type: object
+      required: [key, value]
+      properties:
+        key: { type: string }
+        value: { type: string }
+    Commit:
+      type: object
+      required: [sha, short, subject, author, date]
+      properties:
+        sha: { type: string }
+        short: { type: string }
+        subject: { type: string }
+        body: { type: string }
+        author: { type: string, description: Author id (person, agent or bot) }
+        authorName: { type: string }
+        authorEmail: { type: string }
+        date: { type: string, format: date-time }
+        agent: { type: string, description: From the Pk-Agent trailer }
+        onBehalfOf: { type: string }
+        trailers: { type: array, items: { $ref: "#/components/schemas/Trailer" } }
+        files: { type: array, items: { type: string } }
+        pushed: { type: boolean }
+    CommitRequest:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string }
+        paths: { type: array, items: { type: string }, description: Only these paths (default all changed files) }
+    CommitMessageRequest:
+      type: object
+      properties:
+        paths: { type: array, items: { type: string } }
+    CommitMessageSuggestion:
+      type: object
+      required: [message, model, mock, fallback]
+      properties:
+        message: { type: string, description: Full message (subject, blank line, bullets) }
+        subject: { type: string }
+        body: { type: string }
+        model: { type: string }
+        mock: { type: boolean }
+        logId: { type: string }
+        fallback: { type: boolean, description: "The answer comes from the bench data, not from a model: no LLM endpoint is set (mock) or the model call failed or gave no usable answer" }
+        sources: { type: array, items: { $ref: "#/components/schemas/Source" } }
+    PushResult:
+      type: object
+      required: [change, created]
+      properties:
+        change: { $ref: "#/components/schemas/ChangeSummary" }
+        mr: { $ref: "#/components/schemas/MergeRequestRef" }
+        created: { type: boolean, description: The push opened the MR }
+        renamedFrom: { type: string, description: Old id when the id collided on the remote }
+        pushed: { type: array, items: { type: string }, description: Short shas that were pushed }
+    RebaseResult:
+      type: object
+      required: [ok, change]
+      properties:
+        ok: { type: boolean }
+        from: { type: string, description: Old head sha }
+        to: { type: string, description: New head sha }
+        onto: { type: string, description: Target sha }
+        conflicts: { type: array, items: { type: string } }
+        impactUnchanged: { type: boolean }
+        change: { $ref: "#/components/schemas/ChangeSummary" }
+    ApproveRequest:
+      type: object
+      properties:
+        comment: { type: string }
+    MergeResult:
+      type: object
+      required: [sha, message, change]
+      properties:
+        sha: { type: string }
+        message: { type: string, description: Merge commit message with trailers }
+        mr: { $ref: "#/components/schemas/MergeRequestRef" }
+        change: { $ref: "#/components/schemas/ChangeSummary" }
+        openSteps: { type: array, items: { $ref: "#/components/schemas/OpenStep" } }
+
+    # ------------------------------------------------------------ files
+    FileChange:
+      type: string
+      description: Status against the target (or worktree status)
+      enum: [added, modified, deleted, renamed, untracked]
+    FileStatus:
+      type: object
+      required: [path, status]
+      properties:
+        path: { type: string }
+        oldPath: { type: string }
+        status: { $ref: "#/components/schemas/FileChange" }
+        staged: { type: boolean }
+        committed: { type: boolean, description: Change is in a commit of the change (not only saved) }
+    WorktreeStatus:
+      type: object
+      required: [clean, files]
+      properties:
+        clean: { type: boolean }
+        head: { type: string }
+        files:
+          type: array
+          description: Saved, uncommitted files of the worktree
+          items: { $ref: "#/components/schemas/FileStatus" }
+    FileNode:
+      type: object
+      required: [path, name, type]
+      properties:
+        path: { type: string }
+        name: { type: string }
+        type: { type: string, enum: [file, dir] }
+        status: { $ref: "#/components/schemas/FileChange" }
+        kind: { type: string, description: Kind name when a kind matches }
+        problems: { type: integer }
+        changed: { type: integer, description: "Dirs: number of changed files below (the +2 badge)" }
+        children: { type: array, items: { $ref: "#/components/schemas/FileNode" } }
+    FileTree:
+      type: object
+      required: [ref, entries]
+      properties:
+        ref: { type: string }
+        sha: { type: string }
+        entries: { type: array, items: { $ref: "#/components/schemas/FileNode" } }
+    KindRef:
+      type: object
+      required: [name, apiVersion]
+      properties:
+        name: { type: string, description: "Kind name, for example Node" }
+        apiVersion: { type: string }
+        version: { type: string }
+        own: { type: boolean }
+        objectName: { type: string, description: metadata.name of the document }
+    SecretField:
+      type: object
+      required: [field, kind]
+      properties:
+        field: { type: string, description: "Dotted path, for example spec.values.hubble.ui.auth.token" }
+        kind: { type: string, enum: [sops, openbao, schema] }
+        line: { type: integer }
+        key: { type: string, description: "Key that encrypts it, for example admin key, local" }
+    FileContent:
+      type: object
+      required: [path, content, exists, readOnly, language, problems, secrets]
+      properties:
+        path: { type: string }
+        ref: { type: string }
+        content: { type: string, description: Content with secret values masked as ••••••••. }
+        exists: { type: boolean }
+        readOnly: { type: boolean }
+        language: { type: string, enum: [yaml, markdown, json, text] }
+        status: { $ref: "#/components/schemas/FileChange" }
+        kind: { $ref: "#/components/schemas/KindRef" }
+        truthClass: { $ref: "#/components/schemas/TruthClass" }
+        applyPath: { $ref: "#/components/schemas/ApplyPath" }
+        schemaUrl: { type: string, description: "URL of the JSON Schema for the editor, for example /api/v1/kinds/HelmRelease/schema" }
+        storedVersion: { type: string, description: apiVersion as stored in git }
+        convertedFrom: { type: string, description: Old apiVersion when the content was converted }
+        problems: { type: array, items: { $ref: "#/components/schemas/Problem" } }
+        secrets: { type: array, items: { $ref: "#/components/schemas/SecretField" } }
+        sha: { type: string, description: Blob sha or content hash, for optimistic writes }
+    WriteFileRequest:
+      type: object
+      properties:
+        content: { type: string, description: Full new content (masked secrets keep their stored values) }
+        set:
+          type: object
+          description: 'Set fields by dotted path, for example {"spec.location.unit": 6}'
+          additionalProperties: true
+        baseSha: { type: string, description: Reject when the file changed since this sha }
+    ImpactSummary:
+      type: object
+      required: [clusters, added, changed, deleted, text]
+      properties:
+        clusters:
+          type: array
+          items:
+            type: object
+            required: [cluster, added, changed, deleted]
+            properties:
+              cluster: { type: string }
+              added: { type: integer }
+              changed: { type: integer }
+              deleted: { type: integer }
+        added: { type: integer }
+        changed: { type: integer }
+        deleted: { type: integer }
+        risk: { $ref: "#/components/schemas/RiskLevel" }
+        text: { type: string, description: "For example defiant +2 ~1" }
+    WriteFileResult:
+      type: object
+      required: [file]
+      properties:
+        file: { $ref: "#/components/schemas/FileContent" }
+        impact: { $ref: "#/components/schemas/ImpactSummary" }
+    NewFileRequest:
+      type: object
+      required: [kind, name]
+      properties:
+        kind: { type: string, description: "Kind name, for example Node" }
+        name: { type: string, description: "Object name, for example cn-035" }
+        path: { type: string, description: Override the default path of the kind }
+    ProblemSeverity:
+      type: string
+      enum: [error, warning, info]
+    Problem:
+      type: object
+      required: [path, severity, message, source]
+      properties:
+        path: { type: string }
+        line: { type: integer }
+        col: { type: integer }
+        severity: { $ref: "#/components/schemas/ProblemSeverity" }
+        message: { type: string, description: "For example: port data-a 37 in use by cn-003" }
+        source: { type: string, enum: [yaml, schema, kind, policy, render, reference] }
+        field: { type: string, description: "Dotted path, for example spec.interval" }
+        code: { type: string }
+    ProblemList:
+      type: object
+      required: [problems, errors, warnings]
+      properties:
+        problems: { type: array, items: { $ref: "#/components/schemas/Problem" } }
+        errors: { type: integer }
+        warnings: { type: integer }
+
+    # ------------------------------------------------------------ render
+    ObjectChange:
+      type: object
+      required: [op, cluster, apiVersion, kind, name, key]
+      properties:
+        op: { $ref: "#/components/schemas/Op" }
+        cluster: { type: string }
+        kustomization: { type: string }
+        apiVersion: { type: string }
+        kind: { type: string }
+        namespace: { type: string }
+        name: { type: string }
+        key: { type: string, description: "cluster/apiVersion/kind/namespace/name" }
+        source: { $ref: "#/components/schemas/SourceRef" }
+        diff: { type: string, description: Unified diff of the rendered YAML }
+    KustomizationImpact:
+      type: object
+      required: [name, objects]
+      properties:
+        name: { type: string }
+        path: { type: string }
+        objects: { type: array, items: { $ref: "#/components/schemas/ObjectChange" } }
+    ClusterImpact:
+      type: object
+      required: [cluster, objectsBase, objectsHead, kustomizations]
+      properties:
+        cluster: { type: string }
+        role: { type: string }
+        ring: { type: string }
+        objectsBase: { type: integer }
+        objectsHead: { type: integer }
+        kustomizations: { type: array, items: { $ref: "#/components/schemas/KustomizationImpact" } }
+    SemanticLine:
+      type: object
+      required: [subject, text, op]
+      properties:
+        subject: { type: string, description: "For example cn-035 or rack-6z" }
+        text: { type: string, description: "For example new compute node in GC5A-6Z, U6" }
+        op: { $ref: "#/components/schemas/Op" }
+        path: { type: string }
+        line: { type: integer }
+        kind: { type: string }
+    OpenStep:
+      type: object
+      description: A manual or sync apply step that follows a merge
+      required: [kind, name, applyPath, text]
+      properties:
+        kind: { type: string }
+        name: { type: string }
+        path: { type: string }
+        applyPath: { $ref: "#/components/schemas/ApplyPath" }
+        text: { type: string }
+    RiskReason:
+      type: object
+      required: [reason, source]
+      properties:
+        reason: { type: string }
+        source: { type: string, enum: [rule, riskRule, minimum] }
+        rule: { type: string }
+        object: { type: string, description: Object key that matched }
+    Risk:
+      type: object
+      required: [level, reasons]
+      properties:
+        level: { $ref: "#/components/schemas/RiskLevel" }
+        reasons: { type: array, items: { $ref: "#/components/schemas/RiskReason" } }
+    Impact:
+      type: object
+      required: [changeId, base, head, clusters, semantic, overlaps, openSteps, summary, risk, problems]
+      properties:
+        changeId: { type: string }
+        base: { $ref: "#/components/schemas/RenderRef" }
+        head: { $ref: "#/components/schemas/RenderRef" }
+        clusters: { type: array, items: { $ref: "#/components/schemas/ClusterImpact" } }
+        semantic: { type: array, items: { $ref: "#/components/schemas/SemanticLine" } }
+        overlaps: { type: array, items: { $ref: "#/components/schemas/Overlap" } }
+        openSteps: { type: array, items: { $ref: "#/components/schemas/OpenStep" } }
+        summary: { $ref: "#/components/schemas/ImpactSummary" }
+        risk: { $ref: "#/components/schemas/Risk" }
+        problems: { type: array, items: { $ref: "#/components/schemas/Problem" }, description: Render errors }
+        renderedAt: { type: string, format: date-time }
+    RenderRef:
+      type: object
+      required: [ref]
+      properties:
+        ref: { type: string }
+        sha: { type: string }
+        dirty: { type: boolean, description: Includes saved, uncommitted files }
+    DiffViewKind:
+      type: string
+      enum: [semantic, source, rendered]
+    FileDiff:
+      type: object
+      required: [path, status, unified]
+      properties:
+        path: { type: string }
+        oldPath: { type: string }
+        status: { $ref: "#/components/schemas/FileChange" }
+        unified: { type: string }
+        old: { type: string, description: Old content (masked), for side-by-side views }
+        new: { type: string, description: New content (masked) }
+    Diff:
+      type: object
+      required: [view]
+      properties:
+        view: { $ref: "#/components/schemas/DiffViewKind" }
+        semantic: { type: array, items: { $ref: "#/components/schemas/SemanticLine" } }
+        files: { type: array, items: { $ref: "#/components/schemas/FileDiff" } }
+        objects: { type: array, items: { $ref: "#/components/schemas/ObjectChange" } }
+    LabGateStatus:
+      type: string
+      enum: [met, needed, running, failed, na]
+    MatchedRule:
+      type: object
+      required: [name, paths, approvals, labGate, risk]
+      properties:
+        name: { type: string }
+        paths: { type: array, items: { type: string }, description: Changed paths that matched the rule }
+        approvals: { type: integer }
+        labGate: { type: boolean }
+        risk: { $ref: "#/components/schemas/RiskLevel" }
+        approvers: { type: array, items: { type: string } }
+    PathRight:
+      type: object
+      required: [path, who, ok]
+      properties:
+        path: { type: string }
+        rule: { type: string }
+        who: { type: string }
+        ok: { type: boolean }
+        message: { type: string }
+    Gates:
+      type: object
+      required: [pathRights, labGate, approvals, rebased, risk, matchedRules, mergeable, blockers]
+      properties:
+        pathRights:
+          type: object
+          required: [ok, writers, details]
+          properties:
+            ok: { type: boolean }
+            writers: { type: array, items: { type: string }, description: "Identities that wrote the change, for example dennis, dennis-agent" }
+            details: { type: array, items: { $ref: "#/components/schemas/PathRight" } }
+        labGate:
+          type: object
+          required: [status, required]
+          properties:
+            status: { $ref: "#/components/schemas/LabGateStatus" }
+            required: { type: boolean }
+            run: { type: string }
+            sha: { type: string }
+            detail: { type: string }
+        approvals:
+          type: object
+          required: [have, need, by]
+          properties:
+            have: { type: integer }
+            need: { type: integer }
+            by: { type: array, items: { type: string }, description: Approvals that count }
+            eligible: { type: array, items: { type: string }, description: People who can approve }
+            ignored: { type: array, items: { $ref: "#/components/schemas/Approval" } }
+        rebased:
+          type: object
+          required: [ok, behind]
+          properties:
+            ok: { type: boolean }
+            behind: { type: integer }
+            target: { type: string }
+        risk: { $ref: "#/components/schemas/Risk" }
+        matchedRules: { type: array, items: { $ref: "#/components/schemas/MatchedRule" } }
+        mergeable: { type: boolean }
+        blockers: { type: array, items: { type: string } }
+        fastPath: { type: boolean, description: Revert fast path applies }
+
+    # ------------------------------------------------------------ labs
+    LabResult:
+      type: string
+      enum: [running, pass, fail, cancelled]
+    LabStepStatus:
+      type: string
+      enum: [pending, running, pass, fail, skipped]
+    LabStepType:
+      type: string
+      enum: [topology, bmc, install, join, gitops, check, fault, wait, exec, report]
+    LabCheck:
+      type: object
+      required: [name, ok]
+      properties:
+        name: { type: string }
+        ok: { type: boolean }
+        detail: { type: string, description: "For example cn-036: no BGP peering policy selects it" }
+        subject: { type: string, description: Entity the check is about }
+    LabStep:
+      type: object
+      required: [index, name, type, title, status]
+      properties:
+        index: { type: integer }
+        name: { type: string, description: Step name from the scenario }
+        type: { $ref: "#/components/schemas/LabStepType" }
+        title: { type: string, description: "Short title, for example BMC" }
+        detail: { type: string, description: "Second line, for example Redfish sim" }
+        status: { $ref: "#/components/schemas/LabStepStatus" }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        durationMs: { type: integer, format: int64 }
+        output: { type: array, items: { type: string } }
+        checks: { type: array, items: { $ref: "#/components/schemas/LabCheck" } }
+        scenario: { type: boolean, description: "Step from the scenario (check, bmc, fault, wait, exec); false for the fixed stages topology, BMC, install, join, report" }
+    LabRun:
+      type: object
+      required: [id, number, lab, result, steps, startedAt, driver]
+      properties:
+        id: { type: string, description: "c-k7m2qz/run-1" }
+        changeId: { type: string }
+        number: { type: integer }
+        lab: { type: string, description: Lab object name }
+        sha: { type: string }
+        ref: { type: string }
+        scenario: { type: string }
+        driver: { type: string, description: "sim (laptop); qemu, talos-docker, containerlab later" }
+        host: { type: string }
+        provision: { type: string, enum: [metal, direct] }
+        fidelity: { type: string, enum: [replica, scaled] }
+        fresh: { type: boolean, description: Fresh machines (true) or twin snapshot }
+        result: { $ref: "#/components/schemas/LabResult" }
+        summary: { type: string, description: "For example 12 of 12 checks pass" }
+        checksPassed: { type: integer }
+        checksTotal: { type: integer }
+        steps: { type: array, items: { $ref: "#/components/schemas/LabStep" } }
+        report: { type: string, description: Report article path in the change }
+        by: { type: string }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        durationMs: { type: integer, format: int64 }
+        simulatedMs: { type: integer, format: int64, description: "Simulated lab time (the sim driver runs faster than a real lab), for example 6m 40s" }
+        cluster: { type: string, description: Cluster the lab emulates }
+        nodes: { type: array, items: { type: string }, description: "Machines under test, for example cn-035, cn-036" }
+        gatePaths: { type: array, items: { type: string }, description: "Path globs whose lab gate this run serves, for example control/inventory/**" }
+        failures: { type: array, items: { type: string }, description: "Failed check details, for example cn-036: no BGP peering policy selects it" }
+        labObject:
+          type: object
+          additionalProperties: true
+          description: The generated Lab object (pk/v1alpha1 Lab, purpose change)
+    RunLabRequest:
+      type: object
+      properties:
+        scenario: { type: string, description: Scenario name (default from the changed paths) }
+    LabDefinition:
+      type: object
+      required: [name, purpose, path]
+      properties:
+        name: { type: string }
+        purpose: { type: string, enum: [twin, change] }
+        path: { type: string }
+        topology: { type: string }
+        follow: { type: string, description: Ref a twin follows }
+        cluster: { type: string, description: Fluxsim cluster that reports its status }
+        status: { $ref: "#/components/schemas/Cluster" }
+        spec:
+          type: object
+          additionalProperties: true
+    LabList:
+      type: object
+      required: [definitions, runs]
+      properties:
+        definitions: { type: array, items: { $ref: "#/components/schemas/LabDefinition" } }
+        runs: { type: array, items: { $ref: "#/components/schemas/LabRun" } }
+        scenarios: { type: array, items: { type: string } }
+    TopologyMachine:
+      type: object
+      required: [name, bmc, machine, nics]
+      properties:
+        name: { type: string }
+        cluster: { type: string }
+        role: { type: string }
+        model: { type: string }
+        rack: { type: string }
+        unit: { type: integer }
+        emulate: { type: boolean }
+        bmc:
+          type: object
+          properties:
+            fixture: { type: string }
+            mac: { type: string }
+            network: { type: string }
+            port: { type: string, description: "mgmt 37" }
+        machine:
+          type: object
+          properties:
+            backend: { type: string, enum: [qemu, talos-docker, none] }
+            cpus: { type: integer }
+            memoryMiB: { type: integer }
+            firmware: { type: string }
+            disks:
+              type: array
+              items:
+                type: object
+                properties:
+                  name: { type: string }
+                  sizeGiB: { type: integer }
+                  serial: { type: string }
+        nics:
+          type: array
+          items:
+            type: object
+            required: [name, network]
+            properties:
+              name: { type: string }
+              network: { type: string }
+              mac: { type: string }
+              peer: { type: string, description: "data-a 38" }
+              cable: { type: string }
+    TopologyNetwork:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        vlan: { type: integer }
+        cidr: { type: string }
+        ipv6Prefix: { type: string }
+        emulate: { type: boolean }
+    TopologyLink:
+      type: object
+      required: [a, b]
+      properties:
+        a: { type: string }
+        b: { type: string }
+        cable: { type: string }
+    Topology:
+      type: object
+      required: [name, ref, machines, networks, links]
+      properties:
+        name: { type: string }
+        cluster: { type: string }
+        ref: { type: string }
+        sha: { type: string }
+        substrate: { type: string }
+        uplink: { type: string }
+        machines: { type: array, items: { $ref: "#/components/schemas/TopologyMachine" } }
+        networks: { type: array, items: { $ref: "#/components/schemas/TopologyNetwork" } }
+        links: { type: array, items: { $ref: "#/components/schemas/TopologyLink" } }
+        problems: { type: array, items: { $ref: "#/components/schemas/Problem" } }
+
+    # ------------------------------------------------------------ kinds
+    TruthClass:
+      type: string
+      enum: [intent, generated, asserted, derived, imperative-only]
+    ApplyPath:
+      type: string
+      enum: [flux, manual, sync, none]
+    Kind:
+      type: object
+      required: [name, apiVersion, versions, own, applyPath, views, paths]
+      properties:
+        name: { type: string }
+        group: { type: string }
+        apiVersion: { type: string, description: Newest apiVersion }
+        versions: { type: array, items: { type: string } }
+        own: { type: boolean, description: Own kind (Go types) or third-party overlay }
+        description: { type: string }
+        truthClass: { $ref: "#/components/schemas/TruthClass" }
+        applyPath: { $ref: "#/components/schemas/ApplyPath" }
+        views: { type: array, items: { type: string }, description: "Views beyond YAML and form, for example rack, node" }
+        paths: { type: array, items: { type: string }, description: Path globs where the kind lives }
+        hooks: { type: array, items: { type: string, enum: [render, describe, validate, convert, skeleton] } }
+        schemaUrl: { type: string }
+
+    # ------------------------------------------------------------ entities
+    EntitySummary:
+      type: object
+      required: [kind, name, path]
+      properties:
+        kind: { type: string }
+        apiVersion: { type: string }
+        name: { type: string }
+        path: { type: string }
+        title: { type: string }
+        cluster: { type: string }
+        role: { type: string }
+        status: { type: string }
+        labels:
+          type: object
+          additionalProperties: { type: string }
+    EntityField:
+      type: object
+      required: [field, label, truth]
+      properties:
+        field: { type: string, description: Dotted path }
+        label: { type: string }
+        value: { description: Any JSON value (masked when secret) }
+        display: { type: string, description: "Formatted value, for example GC5A-6Z U6" }
+        truth: { $ref: "#/components/schemas/TruthClass" }
+        owner: { type: string, description: "Owner system, for example asset-db or people" }
+        secret: { type: boolean }
+        source: { $ref: "#/components/schemas/SourceRef" }
+        group: { type: string, description: "UI group, for example Intent or Hardware facts" }
+    EntityRef:
+      type: object
+      required: [kind, name, field, exists]
+      properties:
+        kind: { type: string }
+        name: { type: string }
+        field: { type: string }
+        exists: { type: boolean }
+        path: { type: string }
+    ChangeLink:
+      type: object
+      required: [id, title]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        state: { $ref: "#/components/schemas/ChangeState" }
+        author: { type: string }
+        sha: { type: string }
+        mr: { type: string, description: "!88" }
+        date: { type: string, format: date-time }
+    PortCheck:
+      type: object
+      required: [port, ok]
+      properties:
+        port: { type: string }
+        cable: { type: string }
+        peer: { type: string, description: "data-a 37" }
+        network: { type: string }
+        ok: { type: boolean }
+        message: { type: string, description: "port in use by cn-003" }
+    Entity:
+      type: object
+      required: [kind, apiVersion, name, path, fields, references, backlinks, problems]
+      properties:
+        kind: { type: string }
+        apiVersion: { type: string }
+        storedVersion: { type: string }
+        name: { type: string }
+        path: { type: string }
+        ref: { type: string }
+        title: { type: string }
+        cluster: { type: string, description: "Cluster of the entity (spec.cluster or clusters/<id>/...)" }
+        alternatives:
+          type: array
+          description: "Other entities with the same kind and name (for example HelmRelease cilium in each cluster); pick one with ?cluster= or ?path="
+          items: { $ref: "#/components/schemas/EntitySummary" }
+        applyPath: { type: string, description: "For example Flux, metal operator" }
+        change:
+          type: object
+          description: Set when ref is a change and the change touches this entity
+          properties:
+            id: { type: string }
+            status: { $ref: "#/components/schemas/FileChange" }
+        fields: { type: array, items: { $ref: "#/components/schemas/EntityField" } }
+        ports: { type: array, items: { $ref: "#/components/schemas/PortCheck" } }
+        references: { type: array, items: { $ref: "#/components/schemas/EntityRef" } }
+        backlinks:
+          type: object
+          required: [changes, articles, workItems, entities]
+          properties:
+            changes: { type: array, items: { $ref: "#/components/schemas/ChangeLink" } }
+            articles: { type: array, items: { $ref: "#/components/schemas/ArticleSummary" } }
+            workItems: { type: array, items: { $ref: "#/components/schemas/WorkItem" } }
+            entities: { type: array, items: { $ref: "#/components/schemas/EntityRef" } }
+        semantic: { type: array, items: { $ref: "#/components/schemas/SemanticLine" }, description: Semantic diff when ref is a change }
+        problems: { type: array, items: { $ref: "#/components/schemas/Problem" } }
+        data:
+          type: object
+          description: The document (masked)
+          additionalProperties: true
+    RackOccupant:
+      type: object
+      required: [kind, name, unit, size]
+      properties:
+        kind: { type: string, description: "Node, Switch or Jbod" }
+        name: { type: string }
+        unit: { type: integer, description: Lowest unit }
+        size: { type: integer }
+        role: { type: string }
+        cluster: { type: string }
+        category: { type: string, enum: [compute, storage, control, network, jbod, other] }
+        highlight: { type: string, enum: [none, added, changed, deleted, conflict] }
+        changeId: { type: string }
+        problems: { type: array, items: { type: string } }
+    Rack:
+      type: object
+      required: [name, units, occupants, free]
+      properties:
+        name: { type: string }
+        row: { type: string }
+        units: { type: integer }
+        location: { type: string }
+        path: { type: string }
+        ref: { type: string }
+        occupants: { type: array, items: { $ref: "#/components/schemas/RackOccupant" } }
+        free: { type: array, items: { type: integer }, description: Free units }
+        problems: { type: array, items: { $ref: "#/components/schemas/Problem" } }
+
+    # ------------------------------------------------------------ kb
+    ArticleType:
+      type: string
+      enum: [runbook, design, reference, incident, lab-report]
+    ArticleSummary:
+      type: object
+      required: [path, title, type]
+      properties:
+        path: { type: string }
+        title: { type: string }
+        type: { $ref: "#/components/schemas/ArticleType" }
+        entities: { type: array, items: { type: string } }
+        changes: { type: array, items: { type: string } }
+        lastChange: { $ref: "#/components/schemas/ChangeLink" }
+    Article:
+      type: object
+      required: [path, title, type, body, entities, changes, citedBy, problems]
+      properties:
+        path: { type: string }
+        ref: { type: string }
+        title: { type: string }
+        type: { $ref: "#/components/schemas/ArticleType" }
+        body: { type: string, description: Markdown without front matter }
+        frontMatter:
+          type: object
+          additionalProperties: true
+        entities: { type: array, items: { $ref: "#/components/schemas/EntityRef" } }
+        changes: { type: array, items: { $ref: "#/components/schemas/ChangeLink" }, description: Changes listed in the front matter }
+        citedBy: { type: array, items: { $ref: "#/components/schemas/ChangeLink" }, description: Changes that touched or cite the article }
+        lastChange: { $ref: "#/components/schemas/ChangeLink" }
+        problems: { type: array, items: { $ref: "#/components/schemas/Problem" } }
+
+    # ------------------------------------------------------------ work
+    WorkStatus:
+      type: string
+      enum: [planned, in-progress, in-review, done]
+    WorkItem:
+      type: object
+      required: [id, title, status, path, changes]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        milestone: { type: string }
+        owner: { type: string }
+        path: { type: string }
+        assets: { type: array, items: { type: string } }
+        kb: { type: array, items: { type: string } }
+        changes: { type: array, items: { $ref: "#/components/schemas/ChangeLink" } }
+        status: { $ref: "#/components/schemas/WorkStatus" }
+        statusFrom: { type: string, description: Change id the status is derived from }
+    Milestone:
+      type: object
+      required: [id, title, items, done]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        due: { type: string, format: date }
+        description: { type: string }
+        items: { type: integer }
+        done: { type: integer }
+    WorkBoard:
+      type: object
+      required: [milestones, items]
+      properties:
+        milestones: { type: array, items: { $ref: "#/components/schemas/Milestone" } }
+        items: { type: array, items: { $ref: "#/components/schemas/WorkItem" } }
+
+    # ------------------------------------------------------------ history
+    HistoryEntry:
+      type: object
+      required: [sha, short, date, title, type, trailers]
+      properties:
+        sha: { type: string }
+        short: { type: string }
+        date: { type: string, format: date-time }
+        type: { type: string, enum: [change, break-glass, direct] }
+        change: { type: string }
+        title: { type: string }
+        intent: { type: string }
+        author: { type: string }
+        agent: { type: string }
+        approvedBy: { type: array, items: { type: string } }
+        labRun: { $ref: "#/components/schemas/LabRunRef" }
+        mr: { type: string, description: "!88" }
+        breakGlass: { type: string }
+        workItems: { type: array, items: { type: string } }
+        state: { $ref: "#/components/schemas/ChangeState" }
+        trailers: { type: array, items: { $ref: "#/components/schemas/Trailer" } }
+        files: { type: array, items: { type: string } }
+        entities: { type: array, items: { type: string } }
+    HistoryList:
+      type: object
+      required: [entries]
+      properties:
+        entries: { type: array, items: { $ref: "#/components/schemas/HistoryEntry" } }
+        total: { type: integer }
+    HistoryDetail:
+      type: object
+      required: [entry, semantic, files]
+      properties:
+        entry: { $ref: "#/components/schemas/HistoryEntry" }
+        message: { type: string, description: Full merge commit message }
+        parent: { type: string, description: First parent sha (main before the merge) }
+        semantic: { type: array, items: { $ref: "#/components/schemas/SemanticLine" } }
+        files: { type: array, items: { $ref: "#/components/schemas/FileDiff" } }
+        rollout: { type: array, items: { $ref: "#/components/schemas/ClusterRollout" } }
+
+    # ------------------------------------------------------------ clusters
+    Revision:
+      type: object
+      required: [sha]
+      properties:
+        sha: { type: string }
+        at: { type: string, format: date-time }
+        change: { type: string }
+    KustomizationStatus:
+      type: object
+      required: [name, ready]
+      properties:
+        name: { type: string }
+        path: { type: string }
+        ready: { type: boolean }
+        revision: { type: string }
+        message: { type: string }
+    Cluster:
+      type: object
+      required: [id, role, ring, healthy]
+      properties:
+        id: { type: string }
+        role: { type: string }
+        ring: { type: string }
+        path: { type: string }
+        ringTag: { type: string, description: "ring/<name> tag the cluster follows (P2)" }
+        applied: { $ref: "#/components/schemas/Revision" }
+        verified: { $ref: "#/components/schemas/Revision" }
+        pending: { $ref: "#/components/schemas/Revision" }
+        healthy: { type: boolean }
+        reachable: { type: boolean, description: "fluxsim answered (false: applied/verified are unknown)" }
+        failing: { type: boolean, description: Demo fault injected }
+        held: { type: boolean }
+        objects: { type: integer }
+        kustomizations: { type: array, items: { $ref: "#/components/schemas/KustomizationStatus" } }
+        message: { type: string }
+    RingStatus:
+      type: object
+      required: [ring, held]
+      properties:
+        ring: { type: string }
+        tag: { type: string }
+        sha: { type: string }
+        held: { type: boolean }
+        clusters: { type: array, items: { type: string } }
+        heldBy: { type: string }
+        following: { type: string, description: "What the clusters follow: the tag, or main when the ring has no tag (rings off)" }
+        change: { type: string, description: Pk-Change of the tagged merge commit }
+        candidate: { type: string, description: "Next revision for the ring: main head (first ring) or the verified revision of the previous ring" }
+        candidateChange: { type: string }
+        gate: { type: string, enum: [auto, manual, none], description: "auto: only low-risk paths, promoted after the soak; manual: a person promotes; none: nothing to promote" }
+        reason: { type: string, description: "For example: high-risk paths: control/inventory/cn-035.yaml (inventory)" }
+        soakUntil: { type: string, format: date-time }
+        verified: { type: boolean, description: All clusters of the ring verified the tagged revision }
+    PromoteRingRequest:
+      type: object
+      properties:
+        sha: { type: string, description: Merge commit (default the previous ring's verified revision) }
+
+    # ------------------------------------------------------------ llm
+    AdvisorRecipe:
+      type: object
+      required: [id, title, question, tools, output]
+      properties:
+        id: { type: string, description: "risks, merge-order, lab-gaps, explain-diff, check-commit, commit-message" }
+        title: { type: string }
+        question: { type: string }
+        tools: { type: array, items: { type: string } }
+        output: { type: string, enum: [points, message, suggestion] }
+        scope: { type: string, enum: [change, commit] }
+    AdvisorPoint:
+      type: object
+      required: [text, severity, sources]
+      properties:
+        title: { type: string, description: "Bold lead, for example BGP order." }
+        text: { type: string }
+        severity: { type: string, enum: [info, warn, risk, ok] }
+        sources: { type: array, items: { $ref: "#/components/schemas/Source" } }
+    AdvisorResult:
+      type: object
+      required: [recipe, title, points, model, mock, fallback, logId]
+      properties:
+        recipe: { type: string }
+        title: { type: string }
+        changeId: { type: string }
+        points: { type: array, items: { $ref: "#/components/schemas/AdvisorPoint" } }
+        note: { type: string, description: "For example Advisory only. The rating stays high from the policy." }
+        reading: { type: array, items: { $ref: "#/components/schemas/Source" }, description: What the recipe read }
+        suggestions: { type: array, items: { $ref: "#/components/schemas/Suggestion" } }
+        model: { type: string }
+        mock: { type: boolean }
+        fallback: { type: boolean, description: "The answer comes from the bench data, not from a model: no LLM endpoint is set (mock) or the model call failed or gave no usable answer" }
+        logId: { type: string }
+        rating: { type: string, enum: [up, down] }
+        createdAt: { type: string, format: date-time }
+    ChatMessage:
+      type: object
+      required: [role, content]
+      properties:
+        role: { type: string, enum: [user, assistant] }
+        content: { type: string }
+    ChatRequest:
+      type: object
+      required: [messages]
+      properties:
+        changeId: { type: string }
+        path: { type: string, description: File open in the editor }
+        messages: { type: array, items: { $ref: "#/components/schemas/ChatMessage" } }
+    ChatAnswer:
+      type: object
+      required: [text, sources, suggestions, model, mock, fallback, logId]
+      properties:
+        text: { type: string }
+        sources: { type: array, items: { $ref: "#/components/schemas/Source" } }
+        suggestions: { type: array, items: { $ref: "#/components/schemas/Suggestion" } }
+        refused: { type: boolean, description: The answer refuses (for example a secret) }
+        model: { type: string }
+        mock: { type: boolean }
+        fallback: { type: boolean, description: "The answer comes from the bench data, not from a model: no LLM endpoint is set (mock) or the model call failed or gave no usable answer" }
+        logId: { type: string }
+    Suggestion:
+      type: object
+      required: [id, changeId, path, before, after, diff, status, by]
+      properties:
+        id: { type: string }
+        changeId: { type: string }
+        path: { type: string }
+        title: { type: string }
+        before: { type: string }
+        after: { type: string }
+        diff: { type: string, description: Unified diff }
+        status: { type: string, enum: [pending, accepted, rejected, stale] }
+        by: { type: string, description: "chat or advisor:<recipe>" }
+        logId: { type: string }
+        createdAt: { type: string, format: date-time }
+        decidedBy: { type: string }
+        decidedAt: { type: string, format: date-time }
+    RateRequest:
+      type: object
+      required: [rating]
+      properties:
+        rating: { type: string, enum: [up, down] }
+    LlmLogEntry:
+      type: object
+      required: [id, time, user, surface, model, prompt, answer]
+      properties:
+        id: { type: string }
+        time: { type: string, format: date-time }
+        user: { type: string }
+        surface: { type: string, enum: [advisor, chat, commit-message, mcp] }
+        recipe: { type: string }
+        changeId: { type: string }
+        model: { type: string }
+        mock: { type: boolean }
+        prompt: { type: string, description: Redacted prompt }
+        answer: { type: string }
+        sources: { type: array, items: { $ref: "#/components/schemas/Source" } }
+        redactions: { type: integer, description: Number of values the filter removed }
+        rating: { type: string, enum: [up, down] }
+        durationMs: { type: integer, format: int64 }
+        error: { type: string, description: The model call failed; the answer comes from the deterministic findings }
+    LlmLogList:
+      type: object
+      required: [entries, total]
+      properties:
+        entries: { type: array, items: { $ref: "#/components/schemas/LlmLogEntry" } }
+        total: { type: integer }
+    SearchHit:
+      type: object
+      required: [kind, ref, title, snippet, score]
+      properties:
+        kind: { type: string, enum: [kb, file, trailer, mr, lab] }
+        ref: { type: string }
+        title: { type: string }
+        snippet: { type: string }
+        score: { type: number }
+        path: { type: string }
+        change: { type: string }
+    SearchResult:
+      type: object
+      required: [query, hits, mode]
+      properties:
+        query: { type: string }
+        mode: { type: string, enum: [bm25, embeddings] }
+        hits: { type: array, items: { $ref: "#/components/schemas/SearchHit" } }
+
+    # ------------------------------------------------------------ audit, policy
+    AuditEntry:
+      type: object
+      required: [id, time, actor, action]
+      properties:
+        id: { type: string }
+        time: { type: string, format: date-time }
+        actor: { type: string }
+        actorKind: { $ref: "#/components/schemas/IdentityKind" }
+        action: { type: string, description: "agent.approve, agent.revoke, llm.delete, change.merge, ..." }
+        target: { type: string }
+        detail: { type: string }
+    PolicyRule:
+      type: object
+      required: [name, paths, writers, approvers, approvals, labGate, risk]
+      properties:
+        name: { type: string }
+        paths: { type: array, items: { type: string } }
+        writers: { type: array, items: { type: string } }
+        approvers: { type: array, items: { type: string } }
+        approvals: { type: integer }
+        labGate: { type: boolean }
+        risk: { $ref: "#/components/schemas/RiskLevel" }
+    RiskRule:
+      type: object
+      required: [match, risk, reason]
+      properties:
+        match:
+          type: object
+          additionalProperties: { type: string }
+        risk: { $ref: "#/components/schemas/RiskLevel" }
+        reason: { type: string }
+    PolicyAgent:
+      type: object
+      required: [id, can]
+      properties:
+        id: { type: string }
+        actsFor: { type: string }
+        can: { type: array, items: { type: string } }
+    PolicySummary:
+      type: object
+      required: [path, people, agents, bots, rules, riskRules, problems]
+      properties:
+        path: { type: string }
+        sha: { type: string }
+        people: { type: array, items: { $ref: "#/components/schemas/Person" } }
+        agents: { type: array, items: { $ref: "#/components/schemas/PolicyAgent" } }
+        bots: { type: array, items: { $ref: "#/components/schemas/PolicyAgent" } }
+        rules: { type: array, items: { $ref: "#/components/schemas/PolicyRule" } }
+        riskRules: { type: array, items: { $ref: "#/components/schemas/RiskRule" } }
+        fastPath:
+          type: object
+          properties:
+            approvals: { type: integer }
+            labGate: { type: boolean }
+        problems: { type: array, items: { $ref: "#/components/schemas/Problem" } }
+        schemaUrl: { type: string }
+    ForgeRules:
+      type: object
+      required: [branchProtection, codeowners]
+      properties:
+        branchProtection:
+          type: object
+          required: [branch, requiredChecks, mergeWhitelist, requiredApprovals, blockOnOutdated, enablePush]
+          properties:
+            branch: { type: string }
+            requiredChecks: { type: array, items: { type: string } }
+            mergeWhitelist: { type: array, items: { type: string } }
+            approvalsWhitelist: { type: array, items: { type: string } }
+            requiredApprovals: { type: integer }
+            blockOnOutdated: { type: boolean }
+            enablePush: { type: boolean }
+        codeowners: { type: string, description: Generated .gitea/CODEOWNERS content }
+        inSync: { type: boolean, description: The forge matches the generated rules }
+        drift: { type: array, items: { type: string } }
+
+    # ------------------------------------------------------------ demo
+    DemoApproveRequest:
+      type: object
+      required: [changeId, as]
+      properties:
+        changeId: { type: string }
+        as: { type: string, description: "Person id, for example anna or jonas" }
+    DemoFluxRequest:
+      type: object
+      required: [cluster]
+      properties:
+        cluster: { type: string }
+        fail: { type: boolean }
