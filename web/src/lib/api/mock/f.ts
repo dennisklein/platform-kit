@@ -281,8 +281,16 @@ on('POST', '/chat', ({ body }) => {
   const q: string = (msgs[msgs.length - 1]?.content ?? '').toLowerCase();
   const c = (llm as any).chat;
   let a: any;
-  if (/token|secret|password|key\b/.test(q)) a = clone(c.secret);
-  else if (/^why|port 37|cn-003/.test(q)) a = clone(c.why);
+  // The lookups the bench shows as steps of the answer.
+  const step = (id: number, tool: string, label: string, summary = '') => ({ id, tool, label, summary, state: 'ok', ms: 40 });
+  let steps: any[] = [step(1, 'search', `search '${q.split(/\s+/).slice(0, 3).join(' ')}'`, '4 hits')];
+  if (/token|secret|password|key\b/.test(q)) {
+    a = clone(c.secret);
+    steps = [step(1, 'search', "search 'hubble ui token'", '2 secret values removed')];
+  } else if (/^why|port 37|cn-003/.test(q)) {
+    a = clone(c.why);
+    steps = [step(1, 'history', 'history cn-003', '4 merges'), step(2, 'history_entry', 'read 4 merge diffs', 'match c-2hd7vw')];
+  }
   else if (/^add .*(bgp|polic)/.test(q)) {
     if (!body?.changeId) {
       a = { text: 'Open a change first. I make edits only as suggestions in a change.', sources: [], suggestions: [] };
@@ -298,14 +306,27 @@ on('POST', '/chat', ({ body }) => {
         s.title = `Add ${node} to the BGP policy rack-6z`;
         suggestions.push(s);
       }
-      a.text = `I suggest 1 line in bgp-rack-6z.yaml. See the editor.`;
+      a.text = `I suggest 1 line in bgp-rack-6z.yaml: it adds ${node} to rack-6z, so ${node} gets a BGP session. Review the diff below, then accept or reject it.`;
+      steps = [
+        step(1, 'search', `find BGP policies in ${body.changeId}`, 'rack-6z'),
+        step(2, 'read_file', 'read bgp-rack-6z.yaml', '10 nodes selected'),
+        step(3, 'suggest_edit', 'suggest bgp-rack-6z.yaml', '+1 line'),
+      ];
     }
   } else a = clone(c.other);
   const e = logEntry('chat', msgs.map((m: any) => `${m.role}: ${m.content}`).join('\n'), a.text, {
     changeId: body?.changeId,
     sources: a.sources,
   });
-  return { ...a, model: 'mock', mock: true, fallback: true, logId: e.id, suggestions: (a.suggestions ?? []).map((s: any) => ({ ...s, logId: e.id })) };
+  return {
+    ...a,
+    model: 'mock',
+    mock: true,
+    fallback: true,
+    logId: e.id,
+    steps,
+    suggestions: (a.suggestions ?? []).map((s: any) => ({ ...s, logId: e.id })),
+  };
 });
 
 on('GET', '/changes/{id}/suggestions', ({ params }) => suggestions.filter((s) => s.changeId === params.id));

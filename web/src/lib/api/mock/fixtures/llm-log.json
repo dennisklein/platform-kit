@@ -111,7 +111,7 @@
    "user": "dennis"
   },
   {
-   "answer": "I suggest 1 line in bgp-rack-6z.yaml. See the editor. Note: cn-037 is not in the inventory of this change yet.",
+   "answer": "I suggest 1 line in bgp-rack-6z.yaml: it adds cn-037 to rack-6z, so cn-037 gets a BGP session. Review the diff below, then accept or reject it. Note: cn-037 is not in the inventory of this change yet.",
    "changeId": "c-k7m2qz",
    "durationMs": 341,
    "id": "l-a6yluayk",

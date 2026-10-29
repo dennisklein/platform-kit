@@ -1,6 +1,8 @@
 <script lang="ts">
-  // The chat conversation: questions as dennis, answers with sources,
-  // suggestion cards (diff, Accept/Reject), refusals for secrets, thumbs.
+  // The chat conversation: questions as dennis, answers with the steps the
+  // bench took (live while the answer forms), sources, suggestion cards
+  // (diff, Accept/Reject), refusals for secrets, thumbs, copy and
+  // regenerate.
   import { tick } from 'svelte';
   import { chat, type ChatEntry } from '../../stores/chat.svelte';
   import { session } from '../../stores/me.svelte';
@@ -13,8 +15,10 @@
   import Markdown from '../Markdown.svelte';
   import Glyph from '../Glyph.svelte';
   import { modelLabel, type AnswerLike } from '../../f/llm';
+  import { copyText } from '../../f/copy';
+  import { closeMarkdown, elapsed, stepText, usedTools, type LiveStep } from './live';
 
-  // "LLM offline · answer from data" when the bench data answered instead of the model.
+  // "from project data" when the bench data answered instead of the model.
   function answerModel(a: AnswerLike) {
     const llm = session.status?.llm;
     return modelLabel(a, !!llm && !llm.mock && !llm.reachable);
@@ -25,37 +29,82 @@
   let text = $state('');
   let list: HTMLDivElement | undefined = $state();
   let input: HTMLTextAreaElement | undefined = $state();
+  /** Answers whose steps are open: the newest one of this visit, and the ones the user opened. */
+  let opened = $state<Record<number, boolean>>({});
+  /** Answers that just arrived: their sources and cards fade in. */
+  let fresh = $state<Record<number, boolean>>({});
+  let copied = $state<number | null>(null);
+  let now = $state(Date.now());
 
-  const EXAMPLES = [
+  const ctx = $derived(chat.changeId);
+  const examples = $derived([
     'Why does cn-003 use port 37 on data-a?',
-    'What is the hubble UI token?',
+    ctx ? `What are the risks of ${ctx}?` : 'Which changes are open?',
     'Add cn-037 to the rack-6z BGP policy',
-  ];
+    'What is the hubble UI token?',
+  ]);
 
-  async function send(t = text) {
-    if (!t.trim()) return;
-    text = '';
-    const p = chat.send(t);
-    await tick();
-    scroll();
-    await p;
-    await tick();
-    scroll();
+  // "qwen2.5:7b" or "built-in" for the thinking line.
+  const modelName = $derived.by(() => {
+    const llm = session.status?.llm;
+    if (!llm) return '';
+    return llm.mock ? 'built-in' : llm.model;
+  });
+
+  function send(t = text) {
+    if (!t.trim() || chat.busy) return;
+    if (chat.send(t)) text = '';
+    void tick().then(() => scroll(true));
   }
 
-  function scroll() {
-    list?.scrollTo({ top: list.scrollHeight, behavior: 'smooth' });
+  function nearBottom() {
+    return !list || list.scrollHeight - list.scrollTop - list.clientHeight < 140;
   }
 
+  function scroll(force = false) {
+    if (list && (force || nearBottom())) list.scrollTo({ top: list.scrollHeight });
+  }
+
+  // Follow the answer while it grows, unless the user scrolled up.
   $effect(() => {
     void chat.entries.length;
-    void tick().then(() => list?.scrollTo({ top: list.scrollHeight }));
+    const last = chat.entries[chat.entries.length - 1];
+    void last?.live?.text.length;
+    void last?.live?.steps.length;
+    const stick = nearBottom();
+    void tick().then(() => stick && scroll(true));
+  });
+
+  // The clock of the live answer.
+  $effect(() => {
+    if (!chat.busy) return;
+    now = Date.now();
+    const t = setInterval(() => (now = Date.now()), 500);
+    return () => clearInterval(t);
+  });
+
+  // A new answer: its steps stay open and its extras fade in; older ones close.
+  let liveId = 0;
+  $effect(() => {
+    const last = chat.entries[chat.entries.length - 1];
+    if (last?.live && last.id !== liveId) {
+      liveId = last.id;
+      opened = {};
+      fresh = {};
+    } else if (last && !last.live && last.id === liveId && !fresh[last.id]) {
+      fresh = { [last.id]: true };
+      opened = { [last.id]: true };
+    }
   });
 
   function onkeydown(e: KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
-      void send();
+      // While an answer forms, the draft stays in the box.
+      if (!chat.busy) send();
+    } else if (e.key === 'Escape' && chat.busy) {
+      e.preventDefault();
+      chat.stop();
     }
   }
 
@@ -65,8 +114,28 @@
     chat.update(e.id, { ...e.answer, suggestions });
   }
 
+  async function copy(e: ChatEntry) {
+    if (await copyText(e.answer?.text ?? e.content)) {
+      copied = e.id;
+      setTimeout(() => (copied = copied === e.id ? null : copied), 1600);
+    }
+  }
+
+  function regenerate() {
+    if (chat.regenerate()) void tick().then(() => scroll(true));
+  }
+
+  function liveStatus(steps: LiveStep[], streaming: boolean, startedAt: number): string {
+    const t = elapsed(startedAt, now);
+    if (streaming) return `Writing · ${t}`;
+    if (steps.some((s) => s.state === 'running')) return `Working · ${t}`;
+    return modelName ? `Thinking · ${modelName} · ${t}` : `Thinking · ${t}`;
+  }
+
+  // "the model took longer than 25 s" → "model took longer than 25 s".
+  const reason = (r?: string) => (r ?? '').replace(/^the /, '');
+
   const open = $derived(changes.list.filter((c) => !['merged', 'deployed', 'verified', 'closed'].includes(c.state)));
-  const ctx = $derived(chat.changeId);
   const ctxTitle = $derived(changes.byId(ctx)?.title);
 
   function pick(e: Event) {
@@ -74,6 +143,21 @@
     chat.picked = v === '__none' ? null : v === '__auto' ? undefined : v;
   }
 </script>
+
+{#snippet stepList(steps: LiveStep[], live: boolean)}
+  <ol class="steps" class:live aria-label="Steps">
+    {#each steps as s (s.id)}
+      <li class="step {s.state}" title={s.ms ? `${s.ms} ms` : undefined}>
+        <span class="st" aria-hidden="true">
+          {#if s.state === 'running'}<span class="spin"></span>{:else if s.state === 'failed'}<Glyph name="x" size={11} />{:else}<Glyph name="check" size={11} />{/if}
+        </span>
+        <span class="lbl">{s.label}</span>
+        {#if s.summary}<span class="sum">→ {s.summary}</span>{/if}
+        <span class="sr-only">{s.state === 'running' ? 'running' : s.state === 'failed' ? 'failed' : 'done'}</span>
+      </li>
+    {/each}
+  </ol>
+{/snippet}
 
 <div class="thread" class:wide>
   <div class="ctx">
@@ -91,57 +175,120 @@
     {/if}
   </div>
 
-  <div class="msgs" bind:this={list} aria-live="polite">
+  <div class="msgs" class:empty={!chat.entries.length} bind:this={list}>
     {#each chat.entries as e (e.id)}
       {#if e.role === 'user'}
         <div class="q">{e.content}</div>
-      {:else if e.error}
-        <div class="a err"><Glyph name="alert" size={14} /> {e.error}</div>
-      {:else if e.answer}
-        {@const a = e.answer}
-        <div class="a" class:refused={a.refused}>
-          {#if a.refused}<span class="lock"><Glyph name="lock" size={14} /></span>{/if}
-          <div class="txt"><Markdown source={a.text} /></div>
-          {#if a.sources.length}
-            <div class="srcs">
-              {#each a.sources as s, i (i)}<SourceChip source={s} changeId={e.changeId} />{/each}
+      {:else}
+        <div class="arow">
+          <span class="avatar" aria-hidden="true"><Glyph name="sparkle" size={15} /></span>
+          {#if e.error}
+            <div class="a err" role="alert"><Glyph name="alert" size={14} /> {e.error}</div>
+          {:else if e.live}
+            {@const l = e.live}
+            <div class="a live" aria-busy="true">
+              <div class="who">
+                <span class="name">pk assistant</span>
+                <span class="status" aria-live="polite">{liveStatus(l.steps, !!l.text, l.startedAt)}</span>
+              </div>
+              {#if l.steps.length}{@render stepList(l.steps, true)}{/if}
+              {#if l.text}
+                <div class="txt streaming"><Markdown source={closeMarkdown(l.text)} /></div>
+              {:else if !l.steps.length}
+                <div class="dots" aria-hidden="true"><span></span><span></span><span></span></div>
+              {/if}
+            </div>
+          {:else if e.stopped}
+            <div class="a stopped">
+              <div class="who"><span class="name">pk assistant</span></div>
+              {#if e.content}<div class="txt"><Markdown source={closeMarkdown(e.content)} /></div>{/if}
+              <div class="foot">
+                <span class="muted small">Stopped.</span>
+                {#if chat.lastAnswerId === e.id}
+                  <button class="icon" onclick={regenerate} disabled={chat.busy} title="Ask again"><Glyph name="refresh" size={13} /><span>Ask again</span></button>
+                {/if}
+              </div>
+            </div>
+          {:else if e.answer}
+            {@const a = e.answer}
+            {@const m = answerModel(a)}
+            {@const steps = (a.steps ?? []) as LiveStep[]}
+            <div class="a" class:refused={a.refused} class:fresh={fresh[e.id]}>
+              <div class="who">
+                <span class="name">pk assistant</span>
+                {#if steps.length}
+                  <button
+                    class="used"
+                    aria-expanded={!!opened[e.id]}
+                    onclick={() => (opened = { ...opened, [e.id]: !opened[e.id] })}
+                    title={opened[e.id] ? 'Hide the steps' : 'Show the steps'}
+                  >
+                    {usedTools(steps.length)}
+                    <span class="chev" class:up={opened[e.id]}><Glyph name="chevron" size={11} /></span>
+                  </button>
+                {/if}
+              </div>
+              {#if steps.length && opened[e.id]}{@render stepList(steps, false)}{/if}
+              <div class="txt">
+                {#if a.refused}<span class="lock"><Glyph name="lock" size={14} /></span>{/if}
+                <Markdown source={a.text} />
+              </div>
+              {#if a.sources.length}
+                <div class="srcs extra">
+                  {#each a.sources as s, i (i)}<SourceChip source={s} changeId={e.changeId} />{/each}
+                </div>
+              {/if}
+              {#each a.suggestions as s, i (s.id)}
+                <div class="sg extra">
+                  <SuggestionCard suggestion={s} onDecided={(x) => decided(e, i, x)} />
+                </div>
+              {/each}
+              <div class="foot extra">
+                <Thumbs logId={a.logId} compact note={false} />
+                <span class="model mono" class:warn-text={m.fallback && !a.fallbackReason} title={m.title}>{m.text}</span>
+                {#if a.fallbackReason}
+                  <span class="why" title="The bench answered from its own data instead"><Glyph name="clock" size={11} /> {reason(a.fallbackReason)}</span>
+                {/if}
+                <span class="spacer"></span>
+                <button class="icon" onclick={() => copy(e)} title="Copy the answer" aria-live="polite">
+                  <Glyph name={copied === e.id ? 'check' : 'copy'} size={13} /><span class="sr-only">{copied === e.id ? 'Copied' : 'Copy'}</span>
+                </button>
+                {#if chat.lastAnswerId === e.id}
+                  <button class="icon" onclick={regenerate} disabled={chat.busy} title="Ask again">
+                    <Glyph name="refresh" size={13} /><span class="sr-only">Ask again</span>
+                  </button>
+                {/if}
+                {#if a.logId}<a class="log" href={href('/llm-log', { q: a.logId })} title="Open in the LLM log">log</a>{/if}
+              </div>
             </div>
           {/if}
-          {#each a.suggestions as s, i (s.id)}
-            <div class="sg">
-              <SuggestionCard suggestion={s} onDecided={(x) => decided(e, i, x)} />
-            </div>
-          {/each}
-          <div class="foot">
-            <Thumbs logId={a.logId} compact note={false} />
-            <span class="model mono" class:warn-text={answerModel(a).fallback} title={answerModel(a).title}>{answerModel(a).text}</span>
-            {#if a.logId}<a class="log" href={href('/llm-log', { q: a.logId })} title="Open in the LLM log">log</a>{/if}
-          </div>
         </div>
       {/if}
     {:else}
       <div class="intro">
+        <span class="badge" aria-hidden="true"><Glyph name="sparkle" size={22} /></span>
+        <h2>Ask about this project</h2>
         <p>
-          Ask about the project. The chat reads the state repo, the KB, merge trailers, MR discussions and lab reports.
-          Edits come back as suggestions in your change; you accept them.
+          The chat reads the state repo, the KB, merge trailers, MR discussions and lab reports, and shows its sources. Edits come
+          back as suggestions in your change; you accept them.
         </p>
         <div class="ex">
-          {#each EXAMPLES as x (x)}
-            <button class="exq" onclick={() => send(x)}>{x}</button>
+          {#each examples as x (x)}
+            <button class="chip" onclick={() => send(x)}>
+              <Glyph name="sparkle" size={12} /><span>{x}</span><span class="go"><Glyph name="arrow-right" size={12} /></span>
+            </button>
           {/each}
         </div>
       </div>
     {/each}
-    {#if chat.busy}
-      <div class="a typing" aria-label="Thinking"><span></span><span></span><span></span></div>
-    {/if}
   </div>
 
   <form
     class="ask"
+    class:busy={chat.busy}
     onsubmit={(e) => {
       e.preventDefault();
-      void send();
+      send();
     }}
   >
     <textarea
@@ -149,14 +296,21 @@
       bind:value={text}
       {onkeydown}
       rows={wide ? 2 : 1}
-      placeholder="Ask about the project…"
+      placeholder={chat.busy ? 'Type your next question…' : 'Ask about the project…'}
       aria-label="Message"
     ></textarea>
-    <button class="btn small primary" disabled={!text.trim() || chat.busy} title="Send (Enter)">
-      <Glyph name="send" size={13} /><span class="sr-only">Send</span>
-    </button>
+    {#if chat.busy}
+      <button type="button" class="btn small stop" onclick={() => chat.stop()} title="Stop the answer (Esc)">
+        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect width="10" height="10" rx="2" fill="currentColor" /></svg>
+        <span>Stop</span>
+      </button>
+    {:else}
+      <button class="btn small send" disabled={!text.trim()} title="Send (Enter)">
+        <Glyph name="send" size={13} /><span class="sr-only">Send</span>
+      </button>
+    {/if}
   </form>
-  <p class="who small muted">as {session.me?.id ?? '…'} · secret fields are removed before each call</p>
+  <p class="who-line small muted">as {session.me?.id ?? '…'} · secret fields are removed before each call</p>
 </div>
 
 <style>
@@ -182,14 +336,24 @@
     max-width: 240px;
     padding: 2px 0;
   }
+  .wide .ctxsel {
+    font-size: 13px;
+    max-width: 420px;
+  }
   .msgs {
     position: relative;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
     padding: 2px 2px 8px;
     min-height: 0;
+  }
+  .wide .msgs {
+    gap: 16px;
+  }
+  .wide .msgs.empty {
+    justify-content: center;
   }
   .q {
     align-self: flex-end;
@@ -197,44 +361,207 @@
     background: var(--gsi-navy);
     color: #fff;
     padding: 8px 12px;
-    border-radius: 10px 10px 2px 10px;
+    border-radius: 12px 12px 3px 12px;
     font-size: 14px;
     white-space: pre-wrap;
   }
-  .a {
-    align-self: flex-start;
-    max-width: 96%;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 10px 10px 10px 2px;
-    padding: 9px 12px;
-    display: grid;
-    gap: 6px;
-    font-size: 14px;
+  .wide .q {
+    max-width: 72%;
+    font-size: 15px;
+    padding: 9px 14px;
+  }
+
+  /* Assistant: sparkle avatar, AI-teal frame. */
+  .arow {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
     min-width: 0;
   }
+  .avatar {
+    flex: none;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--ai-fill);
+    color: var(--ai-on);
+    margin-top: 2px;
+  }
+  .a {
+    flex: 0 1 auto;
+    max-width: calc(100% - 34px);
+    background: var(--panel);
+    border: 1px solid var(--ai-line);
+    border-radius: 3px 12px 12px 12px;
+    padding: 8px 12px 9px;
+    display: grid;
+    gap: 7px;
+    font-size: 14px;
+    min-width: 0;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+  }
   .wide .a {
-    max-width: 80%;
+    max-width: min(86%, 780px);
+    padding: 10px 16px 11px;
+  }
+  .a.live {
+    min-width: min(320px, calc(100% - 34px));
+    border-style: dashed;
+  }
+  .who {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    min-height: 18px;
+  }
+  .name {
+    font-weight: 700;
+    color: var(--ai);
+    letter-spacing: 0.01em;
+  }
+  .status {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .used {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: 1px solid var(--ai-line);
+    background: var(--ai-soft);
+    color: var(--ai);
+    border-radius: 999px;
+    padding: 0 8px;
+    font: 600 11.5px/18px var(--sans);
+  }
+  .used:hover {
+    border-color: var(--ai);
+  }
+  .chev {
+    display: inline-flex;
+    transform: rotate(0deg);
+    transition: transform 0.15s;
+  }
+  .chev.up {
+    transform: rotate(180deg);
+  }
+
+  /* Steps: mono chips with a spinner, then a check. */
+  .steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 4px;
+  }
+  .step {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font: 12.5px/1.45 var(--mono);
+    font-variant-ligatures: none;
+    color: var(--ink);
+    min-width: 0;
+  }
+  .steps.live .step {
+    animation: rise 0.22s ease-out both;
+  }
+  .wide .step {
+    font-size: 13px;
+  }
+  .st {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--ai-soft);
+    color: var(--ai);
+  }
+  .step.failed .st {
+    background: var(--warn-soft);
+    color: var(--warn);
+  }
+  .step.running .lbl {
+    color: var(--ai);
+  }
+  .lbl {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .sum {
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    flex: 0 1 auto;
+  }
+  .spin {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 2px solid color-mix(in srgb, var(--ai) 30%, transparent);
+    border-top-color: var(--ai);
+    animation: spin 0.8s linear infinite;
+  }
+
+  .txt {
+    min-width: 0;
+  }
+  .txt :global(.md) {
+    font-size: 14px;
+    line-height: 1.55;
+    max-width: none;
+  }
+  .wide .txt :global(.md) {
+    font-size: 15px;
+  }
+  .txt :global(.md > :last-child) {
+    margin-bottom: 0;
+  }
+  .txt :global(.md ul),
+  .txt :global(.md ol) {
+    padding-left: 20px;
+  }
+  .txt :global(.md table) {
+    display: block;
+    overflow-x: auto;
+    max-width: 100%;
+  }
+  .txt :global(.md blockquote) {
+    border-left-color: var(--ai-line);
+  }
+  /* A caret at the end of the text while it streams. */
+  .txt.streaming :global(.md > :last-child)::after {
+    content: '';
+    display: inline-block;
+    width: 0.45em;
+    height: 1.05em;
+    margin-left: 2px;
+    vertical-align: -0.15em;
+    background: var(--ai);
+    border-radius: 1px;
+    animation: caret 1s steps(2, start) infinite;
   }
   .a.refused {
     border-color: color-mix(in srgb, var(--warn) 45%, transparent);
     background: var(--warn-soft);
-    grid-template-columns: auto 1fr;
   }
-  .a.refused > :not(.lock, .txt) {
-    grid-column: 1 / -1;
+  .a.refused .txt {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
   }
   .lock {
     color: var(--warn);
     padding-top: 3px;
-  }
-  .txt :global(.md) {
-    font-size: 14px;
-    line-height: 1.5;
-  }
-  .txt :global(.md p:last-child),
-  .txt :global(.md ul:last-child) {
-    margin-bottom: 0;
   }
   .a.err {
     background: var(--bad-soft);
@@ -243,6 +570,9 @@
     display: flex;
     gap: 6px;
     align-items: center;
+  }
+  .a.stopped {
+    border-style: dashed;
   }
   .srcs {
     display: flex;
@@ -257,71 +587,181 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    margin-top: -2px;
+    margin-top: -1px;
+    min-width: 0;
   }
-  .model {
+  /* One line, also in the narrow side panel: the labels shorten first. */
+  .model,
+  .why {
     font-size: 11px;
     color: var(--muted);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .why {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .foot .icon,
+  .foot .log {
+    flex: none;
+  }
+  .icon {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    padding: 3px 5px;
+    border-radius: 5px;
+    font-size: 12px;
+  }
+  .icon:hover:not(:disabled) {
+    background: var(--ai-soft);
+    color: var(--ai);
+  }
+  .icon:disabled {
+    opacity: 0.5;
   }
   .log {
     font-size: 11px;
     color: var(--muted);
-    margin-left: auto;
   }
+  .fresh .extra {
+    animation: rise 0.35s ease-out both;
+  }
+  .fresh .srcs.extra {
+    animation-delay: 0.05s;
+  }
+  .fresh .sg.extra {
+    animation-delay: 0.15s;
+  }
+  .fresh .foot.extra {
+    animation-delay: 0.25s;
+  }
+  .dots {
+    display: flex;
+    gap: 4px;
+    padding: 4px 0 2px;
+  }
+  .dots span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--ai);
+    animation: blink 1.2s infinite;
+  }
+  .dots span:nth-child(2) {
+    animation-delay: 0.2s;
+  }
+  .dots span:nth-child(3) {
+    animation-delay: 0.4s;
+  }
+
+  /* Empty state: what the chat does, and example questions as chips. */
   .intro {
     color: var(--muted);
     font-size: 13px;
     display: grid;
     gap: 10px;
+    justify-items: start;
+    text-align: left;
+  }
+  .wide .intro {
+    justify-items: center;
+    text-align: center;
+    max-width: 640px;
+    margin: 0 auto;
+    font-size: 14.5px;
+    gap: 12px;
+    padding-bottom: 6vh;
+  }
+  .badge {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--ai-soft);
+    color: var(--ai);
+    border: 1px solid var(--ai-line);
+  }
+  .wide .badge {
+    width: 48px;
+    height: 48px;
+  }
+  .intro h2 {
+    margin: 0;
+    font-size: 15px;
+    color: var(--ink);
+  }
+  .wide .intro h2 {
+    font-size: 21px;
   }
   .intro p {
     margin: 0;
+    line-height: 1.5;
   }
   .ex {
-    display: grid;
+    display: flex;
+    flex-wrap: wrap;
     gap: 6px;
   }
-  .exq {
-    text-align: left;
-    border: 1px solid var(--line);
-    background: var(--panel);
-    border-radius: 8px;
-    padding: 7px 10px;
-    font-size: 13px;
+  .wide .ex {
+    justify-content: center;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--ai-line);
+    background: var(--ai-soft);
     color: var(--ink);
+    border-radius: 999px;
+    padding: 5px 8px 5px 10px;
+    font-size: 13px;
+    text-align: left;
+    max-width: 100%;
   }
-  .exq:hover {
-    border-color: var(--accent-fill);
+  .chip > :global(svg:first-child) {
+    color: var(--ai);
+    flex: none;
   }
-  .typing {
-    flex-direction: row;
-    display: flex;
-    gap: 4px;
-    padding: 12px 14px;
+  .chip span:not(.go) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .typing span {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--muted);
-    animation: blink 1.2s infinite;
+  .wide .chip {
+    font-size: 14px;
+    padding: 7px 10px 7px 13px;
   }
-  .typing span:nth-child(2) {
-    animation-delay: 0.2s;
+  .chip .go {
+    display: inline-flex;
+    color: var(--ai);
+    opacity: 0;
+    transform: translateX(-3px);
+    transition:
+      opacity 0.15s,
+      transform 0.15s;
   }
-  .typing span:nth-child(3) {
-    animation-delay: 0.4s;
+  .chip:hover {
+    border-color: var(--ai);
+    background: var(--panel);
   }
-  @keyframes blink {
-    0%,
-    80%,
-    100% {
-      opacity: 0.25;
-    }
-    40% {
-      opacity: 1;
-    }
+  .chip:hover .go,
+  .chip:focus-visible .go {
+    opacity: 1;
+    transform: none;
   }
+
+  /* Composer. */
   .ask {
     display: flex;
     gap: 6px;
@@ -332,7 +772,8 @@
     background: var(--panel);
   }
   .ask:focus-within {
-    border-color: var(--accent-fill);
+    border-color: var(--ai);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ai) 15%, transparent);
   }
   textarea {
     flex: 1;
@@ -344,12 +785,78 @@
     padding: 5px 0;
     max-height: 120px;
   }
+  .wide textarea {
+    font-size: 15px;
+  }
   .ask .btn {
     border-radius: 14px;
-    padding: 5px 9px;
+    padding: 5px 10px;
   }
-  .who {
+  .send {
+    background: var(--ai-fill);
+    border-color: var(--ai-fill);
+    color: var(--ai-on);
+  }
+  .send:hover:not(:disabled) {
+    background: var(--ai) !important;
+    border-color: var(--ai) !important;
+    color: var(--ai-on);
+  }
+  .stop {
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .who-line {
     margin: -4px 0 0;
     text-align: center;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes caret {
+    to {
+      visibility: hidden;
+    }
+  }
+  @keyframes blink {
+    0%,
+    80%,
+    100% {
+      opacity: 0.25;
+    }
+    40% {
+      opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .spin,
+    .dots span,
+    .txt.streaming :global(.md > :last-child)::after {
+      animation: none;
+    }
+    .spin {
+      border-color: var(--ai);
+    }
+    .steps.live .step,
+    .fresh .extra {
+      animation: none;
+    }
+    .chev,
+    .chip .go {
+      transition: none;
+    }
   }
 </style>

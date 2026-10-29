@@ -25,6 +25,9 @@ const TYPES: EventType[] = [
   'flux.updated',
   'presence',
   'suggestion.created',
+  // Live progress of a chat answer (only to the person who asked).
+  'chat.step',
+  'chat.delta',
 ];
 
 class Events {
@@ -72,7 +75,8 @@ class Events {
       return;
     }
     this.lastId = ev.id;
-    this.recent = [ev, ...this.recent].slice(0, 50);
+    // Live chat progress is not activity worth listing.
+    if (ev.type !== 'chat.step' && ev.type !== 'chat.delta') this.recent = [ev, ...this.recent].slice(0, 50);
     for (const key of [ev.type, '*']) {
       for (const h of this.#handlers.get(key) ?? []) {
         try {

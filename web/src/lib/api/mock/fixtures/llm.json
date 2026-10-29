@@ -255,7 +255,7 @@
      "title": "Add cn-037 to the BGP policy rack-6z"
     }
    ],
-   "text": "I suggest 1 line in bgp-rack-6z.yaml. See the editor. Note: cn-037 is not in the inventory of this change yet."
+   "text": "I suggest 1 line in bgp-rack-6z.yaml: it adds cn-037 to rack-6z, so cn-037 gets a BGP session. Review the diff below, then accept or reject it. Note: cn-037 is not in the inventory of this change yet."
   },
   "other": {
    "logId": "l-goapddvy",
