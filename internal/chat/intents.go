@@ -765,6 +765,18 @@ func (s *Svc) writeRequest(ctx context.Context, p *progress, req Request, q stri
 		a.Text += fmt.Sprintf(":\n\n```\npk edit %s --set %s=%s\n```\n\nOr open `%s` in the editor and change the field in the form. Then commit and run the lab.", name, field, value, path)
 		return true
 	}
+	// Talos or Kubernetes: the talconfig of the cluster.
+	if reTalosWord.MatchString(q) || reK8sWord.MatchString(q) {
+		if tree, err := s.o.Tools.Tree(ctx, "main"); err == nil {
+			rest := appTerms(q, clusterNames(tree))
+			for w := range platformWords {
+				delete(rest, w)
+			}
+			if len(rest) == 0 && s.talconfigEdit(ctx, p, q, inChange, a) {
+				return true
+			}
+		}
+	}
 	// No entity: find the file that holds the thing ("bump podinfo to 6.9").
 	terms := appTerms(q, nil)
 	if len(terms) > 0 {
@@ -970,7 +982,10 @@ func seq(n *yaml.Node) []*yaml.Node {
 
 // ---------------------------------------------------------------- versions
 
-var reVersionQ = regexp.MustCompile(`(?i)\bversions?\b|\bwhich (image|chart|tag|release)\b|\bimage tags?\b`)
+var (
+	reVersionQ  = regexp.MustCompile(`(?i)\bversions?\b|\bwhich (image|chart|tag|release)\b|\bimage tags?\b`)
+	reReplicasQ = regexp.MustCompile(`(?i)\breplicas?\b|\bhow many (pods|instances|copies)\b`)
+)
 
 // workload is a Deployment, StatefulSet, DaemonSet or HelmRelease.
 type workload struct {
@@ -978,6 +993,15 @@ type workload struct {
 	image, chart, chartVer    string
 	replicas                  int
 	interval                  string
+}
+
+// label is the short line of a workload for a step: podinfo 6.8.0, Ceph
+// v19.2.3.
+func (w workload) label() string {
+	if w.kind == "CephCluster" {
+		return "Ceph " + w.version()
+	}
+	return w.name + " " + w.version()
 }
 
 func (w workload) version() string {
@@ -1045,7 +1069,7 @@ func (s *Svc) findWorkloads(ctx context.Context, p *progress, ref string, terms 
 					continue
 				}
 				switch n.Kind {
-				case "", "Deployment", "StatefulSet", "DaemonSet", "HelmRelease":
+				case "", "Deployment", "StatefulSet", "DaemonSet", "HelmRelease", "CephCluster":
 				default:
 					continue
 				}
@@ -1121,9 +1145,14 @@ func workloadsIn(path, content string) []workload {
 		w := workload{path: path, cluster: clusterOfPath(path), kind: d.Kind, name: d.Name}
 		switch d.Kind {
 		case "Deployment", "StatefulSet", "DaemonSet":
-			if r, ok := kindutil.Get(d.Data, "spec", "replicas").(int); ok {
+			switch r := kindutil.Get(d.Data, "spec", "replicas").(type) {
+			case int:
 				w.replicas = r
-			} else if r, ok := kindutil.Get(d.Data, "spec", "replicas").(float64); ok {
+			case int64:
+				w.replicas = int(r)
+			case uint64:
+				w.replicas = int(r)
+			case float64:
 				w.replicas = int(r)
 			}
 			if cs, ok := kindutil.Get(d.Data, "spec", "template", "spec", "containers").([]any); ok && len(cs) > 0 {
@@ -1135,6 +1164,8 @@ func workloadsIn(path, content string) []workload {
 			w.chart, _ = kindutil.Get(d.Data, "spec", "chart", "spec", "chart").(string)
 			w.chartVer = fmt.Sprint(orEmpty(kindutil.Get(d.Data, "spec", "chart", "spec", "version")))
 			w.interval, _ = kindutil.Get(d.Data, "spec", "interval").(string)
+		case "CephCluster":
+			w.image, _ = kindutil.Get(d.Data, "spec", "cephVersion", "image").(string)
 		default:
 			continue
 		}
@@ -1161,7 +1192,8 @@ func clusterOfPath(p string) string {
 // versionQuestion answers "which podinfo version runs on defiant?" from
 // the desired state on main, and names open changes that change it.
 func (s *Svc) versionQuestion(ctx context.Context, p *progress, req Request, q string, a *Answer) bool {
-	if !reVersionQ.MatchString(q) {
+	platform, replicas := isPlatformVersionQ(q), reReplicasQ.MatchString(q)
+	if !reVersionQ.MatchString(q) && !platform && !replicas {
 		return false
 	}
 	tree, err := s.o.Tools.Tree(ctx, "main")
@@ -1170,10 +1202,27 @@ func (s *Svc) versionQuestion(ctx context.Context, p *progress, req Request, q s
 	}
 	clusters := clusterNames(tree)
 	terms := appTerms(q, clusters)
-	if len(terms) == 0 {
+	for w := range platformWords {
+		delete(terms, w)
+	}
+	for _, w := range []string{"replica", "replicas", "pods", "instances", "copies"} {
+		delete(terms, w)
+	}
+	var wls []workload
+	if len(terms) > 0 {
+		wls = s.findWorkloads(ctx, p, "main", terms)
+	}
+	if len(wls) == 0 {
+		// No app: Talos and Kubernetes come from the talconfig of a
+		// cluster; Flux is not pinned in the repo.
+		switch {
+		case platform:
+			return s.platformVersion(ctx, p, req, q, tree, a)
+		case terms["flux"] || terms["fluxcd"]:
+			return s.fluxVersion(ctx, p, tree, a)
+		}
 		return false
 	}
-	wls := s.findWorkloads(ctx, p, "main", terms)
 	var want string
 	for _, t := range llm.Tokenize(q) {
 		if clusters[t] {
@@ -1211,6 +1260,9 @@ func (s *Svc) versionQuestion(ctx context.Context, p *progress, req Request, q s
 			}
 			return d
 		}
+		if w.kind == "CephCluster" {
+			return fmt.Sprintf("Ceph **%s** (CephCluster **%s**, image `%s`)", w.version(), w.name, w.image)
+		}
 		d := fmt.Sprintf("**%s %s**", w.name, w.version())
 		var extra []string
 		if w.image != "" {
@@ -1228,8 +1280,13 @@ func (s *Svc) versionQuestion(ctx context.Context, p *progress, req Request, q s
 	if len(wls) == 1 {
 		w := wls[0]
 		n := p.begin("read_file", "read "+shortPath(w.path))
-		p.end(ctx, n, w.name+" "+w.version(), false)
-		fmt.Fprintf(&b, "**%s** runs %s. That is the desired state on main, in `%s`; Flux applies it.", w.cluster, describe(w), w.path)
+		p.end(ctx, n, w.label(), false)
+		if replicas && w.replicas > 0 {
+			fmt.Fprintf(&b, "**%s** on %s runs **%s** (%s, image `%s`). That is the desired state on main, in `%s`; Flux applies it.",
+				w.name, w.cluster, plural(w.replicas, "replica", "replicas"), w.name+" "+w.version(), w.image, w.path)
+		} else {
+			fmt.Fprintf(&b, "**%s** runs %s. That is the desired state on main, in `%s`; Flux applies it.", w.cluster, describe(w), w.path)
+		}
 	} else {
 		n := p.begin("read_file", fmt.Sprintf("read %s", plural(len(wls), "file", "files")))
 		p.end(ctx, n, joinAnd(uniq(versions(wls))), false)

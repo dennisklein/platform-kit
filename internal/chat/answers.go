@@ -482,7 +482,7 @@ func (s *Svc) openList(ctx context.Context, p *progress) string {
 }
 
 func (s *Svc) recentHistory(ctx context.Context, p *progress, _ Request, q string, a *Answer) bool {
-	if !reRecent.MatchString(q) || len(advisor.EntityNames(q)) > 0 {
+	if !reRecent.MatchString(q) || len(advisor.EntityNames(q)) > 0 || isPlatformVersionQ(q) {
 		return false
 	}
 	var entries []api.HistoryEntry
@@ -976,7 +976,7 @@ func (s *Svc) retrieval(ctx context.Context, p *progress, req Request, q string,
 	case "kb":
 		a.Text = kbAnswer(top, q)
 	default:
-		a.Text = fileAnswer(top, ct)
+		a.Text = fileAnswer(top, q, ct)
 	}
 	if len(ct) >= 2 && match*2 < len(ct) {
 		a.Text = "I found no direct answer. The closest record: " + lowerLead(a.Text)
@@ -1265,16 +1265,30 @@ func kbAnswer(h llm.Hit, q string) string {
 }
 
 // fileAnswer says what a file defines in one or two sentences, from its
-// fields; never the whole file.
-func fileAnswer(h llm.Hit, terms map[string]bool) string {
+// fields; never the whole file. A summary that names none of the key terms
+// of the question answers another question ("Which Kubernetes version?" is
+// not "chart cilium 1.18.2"): then the answer only points at the file.
+func fileAnswer(h llm.Hit, q string, terms map[string]bool) string {
 	path := h.Path
 	if path == "" {
 		path = h.Ref
 	}
-	if sum, ok := fileSummary(path, h.Text, terms); ok {
+	if sum, ok := fileSummary(path, h.Text, terms); ok && namesKeyTerm(sum, path, q) {
 		return sum + fmt.Sprintf(" Source: `%s` on main.", path)
 	}
 	return fmt.Sprintf("The file `%s` on main matches best. Open it from the source below.", path)
+}
+
+// namesKeyTerm reports whether a summary names a key term of the question:
+// a word that can name an app or a topic, not a question word and not the
+// cluster of the file. A question without key terms takes any summary.
+func namesKeyTerm(sum, path, q string) bool {
+	cluster := clusterOfPath(path)
+	if m := reTalconfig.FindStringSubmatch(path); m != nil {
+		cluster = m[1]
+	}
+	key := appTerms(q, map[string]bool{cluster: true})
+	return len(key) == 0 || overlap(key, sum) > 0
 }
 
 // ---------------------------------------------------------------- Markdown helpers

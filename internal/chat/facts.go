@@ -105,7 +105,18 @@ func (s *Svc) whyNew(ctx context.Context, p *progress, req Request, names []stri
 
 // ---------------------------------------------------------------- counts
 
-var reCountQ = regexp.MustCompile(`(?i)\bhow many\s+(?:\w+\s+)?(nodes?|servers?|machines?|hosts?|workers?|switch(?:es)?|racks?|clusters?|jbods?)\b|\bnumber of (nodes|switches|racks|clusters|servers)\b`)
+var (
+	reCountQ = regexp.MustCompile(`(?i)\bhow many\s+(?:[\w-]+\s+){0,2}?(nodes?|servers?|machines?|hosts?|workers?|switch(?:es)?|racks?|clusters?|jbods?)\b|\bnumber of (?:[\w-]+\s+){0,2}?(nodes|switches|racks|clusters|servers|workers)\b`)
+	// roleWords name a node role in a count question.
+	roleWords = []struct {
+		re         *regexp.Regexp
+		role, word string
+	}{
+		{regexp.MustCompile(`(?i)\bworkers?\b`), "worker", "worker"},
+		{regexp.MustCompile(`(?i)\bcontrol[- ]?planes?\b|\bcontrol\b|\bmasters?\b`), "control", "control plane"},
+		{regexp.MustCompile(`(?i)\bstorage\b`), "storage", "storage"},
+	}
+)
 
 // countQuestion answers "how many nodes does defiant have?" from the
 // inventory of the selected change (or main).
@@ -123,6 +134,11 @@ func (s *Svc) countQuestion(ctx context.Context, p *progress, req Request, q str
 	if err := p.do(ctx, "search", "list the inventory of "+ref, func() (string, error) {
 		var err error
 		tree, err = s.o.Tools.Tree(ctx, ref)
+		if err != nil && ref != "main" {
+			// A change that is gone: count main.
+			ref = "main"
+			tree, err = s.o.Tools.Tree(ctx, ref)
+		}
 		return plural(countFiles(tree), "file", "files"), err
 	}); err != nil {
 		return false
@@ -202,9 +218,16 @@ func (s *Svc) countQuestion(ctx context.Context, p *progress, req Request, q str
 	if r := reRackName.FindString(q); r != "" && !rePolicyRef.MatchString(r) {
 		rack = strings.ToUpper(r)
 	}
+	role, roleWord := "", ""
+	for _, rw := range roleWords {
+		if rw.re.MatchString(q) {
+			role, roleWord = rw.role, rw.word
+			break
+		}
+	}
 	var sel []advisor.NodeInfo
 	for _, nd := range nodes {
-		if (want == "" || nd.Cluster == want) && (rack == "" || strings.EqualFold(nd.Rack, rack)) {
+		if (want == "" || nd.Cluster == want) && (rack == "" || strings.EqualFold(nd.Rack, rack)) && (role == "" || nd.Role == role) {
 			sel = append(sel, nd)
 		}
 	}
@@ -259,6 +282,18 @@ func (s *Svc) countQuestion(ctx context.Context, p *progress, req Request, q str
 	}
 	text := fmt.Sprintf("%s has **%s**", subject, plural(len(sel), "node", "nodes"))
 	switch {
+	case role != "":
+		var names []string
+		for _, nd := range sel {
+			names = append(names, nd.Name)
+		}
+		sort.Strings(names)
+		text = fmt.Sprintf("%s has **%s**", subject, plural(len(sel), roleWord+" node", roleWord+" nodes"))
+		if len(names) > 0 && len(names) <= 4 {
+			text += " (" + joinAnd(names) + ")"
+		} else if len(names) > 4 {
+			text += " (" + nameRange(names) + ")"
+		}
 	case len(roles) == 1 && len(sel) > 1:
 		names := byRole[roles[0]]
 		text += fmt.Sprintf(", all %ss (%s)", strings.ReplaceAll(roles[0], "-", " "), nameRange(names))
@@ -297,6 +332,9 @@ func (s *Svc) countQuestion(ctx context.Context, p *progress, req Request, q str
 // its fields: an image or chart version, a node's place and ports, a Flux
 // path and interval. ok is false when the file has no document it knows.
 func fileSummary(path, content string, terms map[string]bool) (string, bool) {
+	if reTalconfig.MatchString(path) {
+		return talconfigSummary(path, content)
+	}
 	docs := repo.ParseFile(path, []byte(content)).Docs
 	if len(docs) == 0 {
 		return "", false
