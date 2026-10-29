@@ -196,7 +196,7 @@ func TestRings(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(rs) != 2 || rs[0].Ring != "canary" || rs[1].Ring != "prod" || rs[0].Following != "main" || rs[0].Gate != GateManual ||
-		!strings.HasPrefix(rs[0].Reason, "rings off") || strings.Join(rs[1].Clusters, ",") != "pegasus,phoenix" || !rs[1].Verified {
+		rs[0].Reason != "Rings are off: the clusters follow main. Promote pins ring/canary." || strings.Join(rs[1].Clusters, ",") != "pegasus,phoenix" || !rs[1].Verified {
 		t.Fatalf("rings off = %+v", rs)
 	}
 	if _, err := s.Promote(ctx, agent, "canary", ""); !errors.Is(err, ErrForbidden) {

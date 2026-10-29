@@ -8,7 +8,7 @@
   "following": "main",
   "gate": "none",
   "held": false,
-  "reason": "rings off: the clusters follow main; promote sets ring/canary",
+  "reason": "Rings are off: the clusters follow main. Promote pins ring/canary.",
   "ring": "canary",
   "verified": true
  },
@@ -22,7 +22,7 @@
   "following": "main",
   "gate": "none",
   "held": false,
-  "reason": "rings off: the clusters follow main; promote sets ring/prod",
+  "reason": "Rings are off: the clusters follow main. Promote pins ring/prod.",
   "ring": "prod",
   "verified": true
  }

@@ -319,7 +319,7 @@ func (s *Svc) gate(ctx context.Context, p *policy.Policy, r *Ring, since time.Ti
 	switch {
 	case r.Tag == "":
 		// A person turns the ring on: the first promote sets the tag.
-		r.Gate, r.Reason = GateManual, "rings off: the clusters follow main; promote sets ring/"+r.Ring
+		r.Gate, r.Reason = GateManual, "Rings are off: the clusters follow main. Promote pins ring/"+r.Ring+"."
 		return
 	case r.Candidate == r.Current:
 		r.Gate, r.Reason = GateNone, "up to date"
