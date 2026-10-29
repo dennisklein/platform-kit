@@ -1,0 +1,773 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>platform-kit demo script</title>
+<style>
+:root {
+  --bg: #fff; --fg: #1d1d1f; --muted: #5f6368; --line: #d9d9de; --accent: #2457c5; --panel: #f6f7f9;
+  --ok: #1a7f37; --warn: #9a6700; --bad: #c62828; --code: #f0f1f4; --chip: #e8eefc;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #16171a; --fg: #e8e8ea; --muted: #a0a3a8; --line: #33353a; --accent: #8fb0ff; --panel: #1f2024;
+    --ok: #57c26f; --warn: #e0b04a; --bad: #ff7b72; --code: #26282d; --chip: #26324d;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #16171a; --fg: #e8e8ea; --muted: #a0a3a8; --line: #33353a; --accent: #8fb0ff; --panel: #1f2024;
+  --ok: #57c26f; --warn: #e0b04a; --bad: #ff7b72; --code: #26282d; --chip: #26324d;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 980px; margin: 0 auto; padding: 24px 16px 80px; }
+h1 { font-size: 30px; margin: 8px 0 4px; }
+h2 { font-size: 23px; margin: 48px 0 8px; padding-top: 12px; border-top: 2px solid var(--line); }
+h3 { font-size: 18px; margin: 0; }
+p, li { max-width: 78ch; }
+a { color: var(--accent); }
+code, kbd, pre { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.92em; }
+code { background: var(--code); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--panel); }
+pre { background: var(--code); padding: 10px 12px; border-radius: 6px; overflow-x: auto; margin: 6px 0; position: relative; white-space: pre; }
+pre code { background: none; padding: 0; }
+.muted { color: var(--muted); }
+.lead { color: var(--muted); margin-top: 0; }
+.ui { font-weight: 600; }
+.ui::before { content: "["; color: var(--muted); font-weight: 400; }
+.ui::after { content: "]"; color: var(--muted); font-weight: 400; }
+.see { color: var(--ok); }
+table { border-collapse: collapse; width: 100%; margin: 8px 0 12px; font-size: 15px; }
+th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 5px 8px; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+.wrap { overflow-x: auto; }
+nav.toc { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 16px; margin: 16px 0; }
+nav.toc ol { margin: 4px 0; padding-left: 22px; }
+.step { border: 1px solid var(--line); border-radius: 8px; margin: 16px 0; background: var(--bg); }
+.step > header { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; padding: 10px 14px; background: var(--panel); border-bottom: 1px solid var(--line); border-radius: 8px 8px 0 0; }
+.step > header .n { font-weight: 700; color: var(--accent); min-width: 2.4em; }
+.step > header .t { font-weight: 700; flex: 1 1 260px; }
+.chip { font-size: 12.5px; background: var(--chip); color: var(--fg); border-radius: 12px; padding: 1px 9px; white-space: nowrap; }
+.chip.opt { background: transparent; border: 1px dashed var(--muted); color: var(--muted); }
+.chip.time { background: transparent; border: 1px solid var(--line); color: var(--muted); }
+.body { padding: 4px 14px 10px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }
+.body h4 { margin: 10px 0 2px; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.body ol, .body ul { margin: 4px 0; padding-left: 24px; }
+.body li { margin: 2px 0; }
+.fallback { border-left: 3px solid var(--warn); padding: 2px 0 2px 12px; margin-top: 8px; }
+.fallback h4 { color: var(--warn); }
+.warn { border-left: 3px solid var(--bad); padding: 4px 12px; background: var(--panel); border-radius: 0 6px 6px 0; margin: 10px 0; }
+.check li { list-style: none; margin-left: -22px; }
+.check input { margin-right: 8px; transform: translateY(1px); }
+.copy { position: absolute; top: 6px; right: 6px; font-size: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 4px; padding: 1px 7px; cursor: pointer; }
+.top { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; }
+#theme { border: 1px solid var(--line); background: var(--panel); color: var(--fg); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+@media print { #theme, .copy { display: none; } .step { break-inside: avoid; } h2 { break-before: page; } }
+</style>
+</head>
+<body>
+<main>
+<div class="top">
+  <p class="muted" style="margin:0">platform-kit · ITR Kubernetes talk · Friday 30 October 2026</p>
+  <button id="theme" type="button" aria-label="Toggle light or dark">Light / dark</button>
+</div>
+<h1>Demo script</h1>
+<p class="lead">Hands-on demo of the bench, in the order of the talk deck (<code>talks/06-platform-kit</code>). Each step tells what to do, what the audience sees, which slide it matches and what to do when it fails. All labels are the labels of the real UI, checked against the running stack.</p>
+
+<nav class="toc" aria-label="Contents">
+<ol>
+  <li><a href="#values">Values and conventions</a></li>
+  <li><a href="#before">Before the talk</a></li>
+  <li><a href="#timing">Timing</a></li>
+  <li><a href="#part1">Part 1 · One change, from laptop to cluster</a> (slides 4–7, 5, 15)</li>
+  <li><a href="#part2">Part 2 · Assets, knowledge, history</a> (slides 9, 10, 12)</li>
+  <li><a href="#part3">Part 3 · LLM: agent, advisors, chat</a> (slides 13–16)</li>
+  <li><a href="#reset">Reset procedure</a></li>
+  <li><a href="#trouble">Problems and fixes</a></li>
+</ol>
+</nav>
+
+<h2 id="values">1. Values and conventions</h2>
+<p>Notation: <span class="ui">Button</span> is a button, link or tab with this exact label. <code>text</code> is a value that you type or select. A green line tells what the audience sees.</p>
+<div class="wrap"><table>
+<tr><th>What</th><th>Value</th></tr>
+<tr><td>Bench (web UI)</td><td><code>http://127.0.0.1:8080</code> — you are <b>dennis</b></td></tr>
+<tr><td>Gitea</td><td><code>http://127.0.0.1:3000</code> — <code>anna</code>, <code>jonas</code>, <code>dennis</code> / <code>pk-demo-2026</code></td></tr>
+<tr><td>fluxsim</td><td><code>http://127.0.0.1:8081/status</code></td></tr>
+<tr><td>Change title</td><td><code>Add cn-035 and cn-036 to defiant</code></td></tr>
+<tr><td>Intent</td><td><code>2 compute nodes for tenants, in GC5A-6Z U6 and U8</code></td></tr>
+<tr><td>Work item</td><td><code>w-114 Compute nodes cn-035, cn-036</code></td></tr>
+<tr><td>Node cn-035</td><td>cluster <code>defiant</code>, role <code>worker</code>, rack <code>GC5A-6Z</code> unit <code>6</code>, model <code>Supermicro SYS-220U-TNR</code>, serial <code>S4R7K2J0035</code>, BMC MAC <code>3c:ec:ef:a1:0c:35</code></td></tr>
+<tr><td>cn-035 ports</td><td>bmc <code>MGT-0141</code> → mgmt <code>37</code> · p1 <code>DATA-0201</code> → data-b <code>37</code> · p2 <code>DATA-0202</code> → data-a <code>37</code> <b>(deliberate mistake: in use by cn-003)</b>, then <code>38</code></td></tr>
+<tr><td>Node cn-036</td><td>same, unit <code>8</code>, serial <code>S4R7K2J0036</code>, BMC MAC <code>3c:ec:ef:a1:0c:36</code></td></tr>
+<tr><td>cn-036 ports</td><td>bmc <code>MGT-0142</code> → mgmt <code>39</code> · p1 <code>DATA-0203</code> → data-b <code>39</code> · p2 <code>DATA-0204</code> → data-a <code>40</code></td></tr>
+<tr><td>Agent node cn-037</td><td>unit <code>30</code>, serial <code>S4R7K2J0037</code>, MAC <code>3c:ec:ef:a1:0c:37</code>, bmc <code>MGT-0143</code> → mgmt <code>41</code>, p1 <code>DATA-0205</code> → data-b <code>41</code>, p2 <code>DATA-0206</code> → data-a <code>42</code></td></tr>
+<tr><td>Seeded open changes</td><td><code>c-31d0aa</code> Cabling for GC5A-6Z (dennis, approved) · <code>c-p4x8ma</code> BGP peers for org-a and org-b (anna, lab failed) · <code>c-6m1pqd</code> Bump podinfo to 6.9 (jonas, review) · <code>c-h3sy7n</code> Sync serials from asset DB (sync-bot, draft)</td></tr>
+<tr><td>Merge request</td><td>after a reset the demo change gets <b>MR !13</b></td></tr>
+</table></div>
+<p>The change id is random (for example <code>c-ijozfd</code>). The talk slides show <code>c-k7m2qz</code> and MR !123. Write the id down after step 1.2.</p>
+<p>CLI fallbacks run in the repository directory. Set this alias and variable once in the demo terminal:</p>
+<pre><code>cd ~/platform-kit
+alias pk='docker compose exec -T bench pk'
+CH=c-xxxxxx        # the id of the demo change, after step 1.2</code></pre>
+
+<h2 id="before">2. Before the talk</h2>
+<h3>The day before (needs network)</h3>
+<ol class="check">
+  <li><label><input type="checkbox"> Run <code>scripts/clone-test.sh</code> in the repository. It clones the repository as the README says, starts the clone on other ports, checks it and deletes it again. It must end with <code>clone test: ok</code>. If it says that files are missing, the demo is not pushed and merged yet.</label></li>
+  <li><label><input type="checkbox"> Pull the repository. Run <code>docker compose up -d --build</code>. Wait until it ends (first build: 2 to 4 minutes).</label></li>
+  <li><label><input type="checkbox"> Optional: run the story once with <code>E2E_SKIP_UI=1 make e2e</code> (needs <code>curl</code> and <code>jq</code>). It must end with <code>e2e api: ok</code>. Then run <code>make fresh</code>. When the agent is approved, <code>make e2e</code> skips its agent step, so that your agent token keeps working (<code>E2E_AGENT_FORCE=1</code> runs the step and revokes the grant).</label></li>
+  <li><label><input type="checkbox"> LLM: start the model server (for example Ollama). Put <code>PK_LLM_BASE_URL</code> and <code>PK_LLM_MODEL</code> into <code>.env</code> (see README). Run <code>docker compose up -d</code>, then <code>make llm-check</code>. It must end with <code>ok</code>.</label></li>
+  <li><label><input type="checkbox"> Agent harness: install Claude Code or opencode. Make an empty directory for it, for example <code>~/pk-agent</code>. For Claude Code, allow the platform-kit tools in this directory. Without this, Claude Code stops at each new tool (about 8 times in step 3.2) and asks for permission:</label>
+<pre><code>mkdir -p ~/pk-agent/.claude
+echo '{"permissions":{"allow":["mcp__platform-kit"]}}' &gt; ~/pk-agent/.claude/settings.local.json</code></pre>
+  <p class="muted">Other way: start Claude Code with <code>claude --allowedTools mcp__platform-kit</code>. opencode allows MCP tools without a prompt.</p></li>
+  <li><label><input type="checkbox"> Do the full demo once. Then do the <a href="#reset">reset procedure</a>.</label></li>
+</ol>
+<h3>30 minutes before the talk</h3>
+<ol class="check">
+  <li><label><input type="checkbox"> Run <code>make fresh</code> (about 45 s). It deletes all demo data and starts again.</label></li>
+  <li><label><input type="checkbox"> Run <code>make status</code>. Make sure that all containers are up and the <code>llm:</code> block shows your model (or <code>mock: true</code>).</label></li>
+  <li><label><input type="checkbox"> Run <code>make llm-check</code> two times. The second answer must come in a few seconds (the model is now loaded).</label></li>
+  <li><label><input type="checkbox"> Open <code>http://127.0.0.1:8080</code>. Make sure that the four pills in the top bar are green: <span class="ui">Gitea</span>, <span class="ui">LLM …</span>, <span class="ui">Flux</span>, <span class="ui">live</span>.</label></li>
+  <li><label><input type="checkbox"> Click <span class="ui">Settings</span>. In YOUR AGENT, click <span class="ui">Approve agent for today</span>. The Agents page opens. Select <span class="ui">Navigate</span>. In <span class="ui">Valid for</span>, select <code>12 h</code>. Click <span class="ui">Approve agent for today</span>.</label></li>
+  <li><label><input type="checkbox"> Click <span class="ui">Copy token</span>. Save the token in a file (for example <code>~/pk-agent/token</code>). The page shows it only once. You need it for the fallback in step 3.2.</label></li>
+  <li><label><input type="checkbox"> Click <span class="ui">Claude Code</span>, then <span class="ui">Copy command</span>, and run the command in <code>~/pk-agent</code>. For opencode: click <span class="ui">opencode</span>, then <span class="ui">Copy opencode.json</span>, and merge it into <code>~/pk-agent/opencode.json</code> (the model provider block is in the README). For Claude Code: run <code>claude mcp list</code> and make sure that <code>platform-kit</code> is connected. Make sure that <code>~/pk-agent/.claude/settings.local.json</code> exists (see the day before; the page shows the same line under <span class="ui">Copy allow rule</span>).</label></li>
+  <li><label><input type="checkbox"> Click <span class="ui">Done</span>. Go to <span class="ui">Changes</span>. Do not create changes now.</label></li>
+  <li><label><input type="checkbox"> Optional: in a second browser tab, open <code>http://127.0.0.1:3000</code>. Click <span class="ui">Sign In</span>. Log in as <code>anna</code> / <code>pk-demo-2026</code>.</label></li>
+  <li><label><input type="checkbox"> Set the browser zoom to 125 %. Set the terminal font large. In the terminal, set the <code>pk</code> alias (section 1).</label></li>
+</ol>
+<div class="warn">After <code>make fresh</code> the old agent token does not work. Approve the agent again and run the new <code>claude mcp add</code> command. For Claude Code, first run <code>claude mcp remove platform-kit</code>.</div>
+
+<h2 id="timing">3. Timing</h2>
+<div class="wrap"><table>
+<tr><th>Part</th><th>Steps</th><th>Slides</th><th>Time</th></tr>
+<tr><td>1 · One change, from laptop to cluster</td><td>1.1–1.15 (with 1.3a)</td><td>4, 5, 6, 7, 8, 9, 11, 15</td><td>16 min (2 lab runs of about 25 s each)</td></tr>
+<tr><td>2 · Assets, knowledge, history</td><td>2.1–2.3</td><td>(9), 10, 12</td><td>3.5 min</td></tr>
+<tr><td>3 · LLM</td><td>3.1–3.4</td><td>13, 14, 16</td><td>7 min</td></tr>
+<tr><td colspan="3"><b>Total</b></td><td><b>about 27 min</b></td></tr>
+</table></div>
+<p>Short version (about 15 min): do step 1.4 with the YAML paste, skip 1.7, skip the Source and Rendered tabs in 1.9, skip 2.1 and 2.2, and use step 3.2 with the fallback script.</p>
+
+<h2 id="part1">4. Part 1 · One change, from laptop to cluster</h2>
+<p class="lead">Slide 4 shows the 9 steps of the change workflow. This part does them for real, with the screens of slides 6 and 7. Step 1.3a shows slide 9 (the asset view) early, because the view shows the change only while the change is open.</p>
+
+<section class="step" id="s1-1">
+<header><span class="n">1.1</span><span class="t">The change rail</span><span class="chip">slide 6 · Many open changes</span><span class="chip time">1 min</span></header>
+<div class="body">
+<h4>Do</h4>
+<ol>
+  <li>Open <code>http://127.0.0.1:8080</code>. The page <span class="ui">Changes</span> opens.</li>
+  <li>Point to the groups in the rail. Click <span class="ui">Mine</span>, <span class="ui">My reviews</span>, <span class="ui">Bots</span>. Then click <span class="ui">All open</span>.</li>
+</ol>
+<h4>The audience sees</h4>
+<ul class="see">
+  <li>MY CHANGES: Cabling for GC5A-6Z <i>approved</i> c-31d0aa; Kernel args on control nodes <i>verified</i> c-19f4tb.</li>
+  <li>PUSHED BY OTHERS: BGP peers for org-a and org-b <i>lab failed</i> c-p4x8ma anna.</li>
+  <li>WAITING FOR MY REVIEW: Bump podinfo to 6.9 <i>review</i> c-6m1pqd jonas. BOTS: Sync serials from asset DB <i>draft</i> c-h3sy7n.</li>
+  <li>Main page: "4 open: 1 mine, 1 waiting for my review" and RECENTLY MERGED ON MAIN. Footer: <code>main e08763f c-19f4tb</code>.</li>
+</ul>
+<div class="fallback"><h4>If it fails</h4>
+<p>Page empty or pills red: wait 10 s and reload. Then run <code>make status</code>. CLI: <code>pk change list</code>.</p></div>
+</div>
+</section>
+
+<section class="step" id="s1-2">
+<header><span class="n">1.2</span><span class="t">New change</span><span class="chip">slide 4 · step 1</span><span class="chip">slide 7 · New change</span><span class="chip time">1 min</span></header>
+<div class="body">
+<h4>Do</h4>
+<ol>
+  <li>Click <span class="ui">New change</span>.</li>
+  <li>In <span class="ui">Title</span>, type <code>Add cn-035 and cn-036 to defiant</code>.</li>
+  <li>In <span class="ui">Intent</span>, type <code>2 compute nodes for tenants, in GC5A-6Z U6 and U8</code>.</li>
+  <li>Keep <span class="ui">Target</span> <code>main</code>.</li>
+  <li>In <span class="ui">Work item</span>, click <span class="ui">w-114 Compute nodes cn-035, cn-036</span>.</li>
+  <li>Click <span class="ui">Create change</span>.</li>
+  <li>Write down the change id from the top bar (for example <code>c-ijozfd</code>). In the terminal, set <code>CH=</code> to it.</li>
+</ol>
+<h4>The audience sees</h4>
+<ul class="see">
+  <li>The dialog text: "Makes a worktree, the branch change/c-······-title and .pk/changes/c-······.yaml."</li>
+  <li>The files view of the new change opens with <code>.pk/changes/&lt;id&gt;.yaml</code> (id, title, intent, author dennis, target main, workItems w-114).</li>
+  <li>A toast: "Change &lt;id&gt; created. Branch change/&lt;id&gt;-add-cn-035-and-cn-036-to-defiant, worktree /data/worktrees/&lt;id&gt;." The top bar shows the change with <i>draft</i>.</li>
+</ul>
+<div class="fallback"><h4>If it fails</h4>
+<pre><code>pk change new "Add cn-035 and cn-036 to defiant" --intent "2 compute nodes for tenants, in GC5A-6Z U6 and U8" --work-item w-114</code></pre>
+<p>Then reload the page and click the change in the rail.</p></div>
+</div>
+</section>
+
+<section class="step" id="s1-3">
+<header><span class="n">1.3</span><span class="t">Node cn-035 in the form, with the deliberate port mistake</span><span class="chip">slide 4 · step 2</span><span class="chip">slide 7 · Edit by hand</span><span class="chip time">2 min</span></header>
+<div class="body">
+<h4>Do</h4>
+<ol>
+  <li>At the bottom of the file tree, click <span class="ui">New file</span>.</li>
+  <li>Keep <span class="ui">Kind</span> <code>Node · inventory.pk.io/v1beta1</code>.</li>
+  <li>In <span class="ui">Name</span>, type <code>cn-035</code>. Click <span class="ui">Create file</span>.</li>
+  <li>At the top right of the editor, click <span class="ui">Form</span>.</li>
+  <li>In <span class="ui">Cluster</span>, select <code>defiant</code>. Keep <span class="ui">Role</span> <code>worker</code>.</li>
+  <li>In <span class="ui">Location</span>, select the rack <code>GC5A-6Z</code>. In the unit field after <span class="ui">U</span>, type <code>6</code>.</li>
+  <li>In <span class="ui">Model</span>, type <code>Supermicro SYS-220U-TNR</code>.</li>
+  <li>In <span class="ui">Serial</span>, type <code>S4R7K2J0035</code>.</li>
+  <li>In <span class="ui">BMC MAC</span>, type <code>3c:ec:ef:a1:0c:35</code>.</li>
+  <li>For each row of the table below: click <span class="ui">Add port</span>, type the <span class="ui">Cable</span>, select the <span class="ui">Peer</span> switch, then type the peer port. Keep <span class="ui">Port</span> and <span class="ui">Network</span> as they are.</li>
+</ol>
+<div class="wrap"><table>
+<tr><th>Port (preset)</th><th>Cable</th><th>Peer switch</th><th>Peer port</th></tr>
+<tr><td>bmc</td><td><code>MGT-0141</code></td><td><code>mgmt</code></td><td><code>37</code></td></tr>
+<tr><td>p1</td><td><code>DATA-0201</code></td><td><code>data-b</code></td><td><code>37</code></td></tr>
+<tr><td>p2</td><td><code>DATA-0202</code></td><td><code>data-a</code></td><td><code>37</code> ← the mistake</td></tr>
+</table></div>
+<ol start="11">
+  <li>Stop. Show the problem (see below). Do not correct it yet: go on with step 1.3a.</li>
+</ol>
+<h4>The audience sees</h4>
+<ul class="see">
+  <li>While fields are empty, PROBLEMS lists them (for example "line 6: spec.cluster is empty: the node is in no cluster"). Each field shows its schema path and owner badge (<i>asset-db</i>, <i>derived</i>). <span class="ui">Emulation</span> fills itself: "qemu + Redfish sim supermicro-x12".</li>
+  <li>With data-a 37: the p2 row turns red with "in use by cn-003". PROBLEMS: "line 19: spec.ports[2].peer.port port data-a 37 in use by cn-003". The tree shows a problem count on cn-003.yaml too.</li>
+</ul>
+<p class="muted">Tell: the form comes from the Node schema; the check is across files (cn-003 holds data-a 37 since change c-2hd7vw). Each save renders the change.</p>
+<div class="fallback"><h4>If it fails</h4>
+<p>Click <span class="ui">YAML</span>, select all, paste the YAML of step 1.4 with the cn-035 values. CLI:</p>
+<pre><code>pk files new-file $CH --kind Node --name cn-035
+pk edit cn-035 --change $CH --set spec.cluster=defiant --set spec.location.rack=GC5A-6Z \
+  --set spec.location.unit=6 --set "spec.model=Supermicro SYS-220U-TNR" --set spec.serial=S4R7K2J0035 \
+  --set spec.bmc.mac=3c:ec:ef:a1:0c:35 \
+  --set 'spec.ports=[{name: bmc, cable: MGT-0141, peer: {switch: mgmt, port: 37}, network: mgmt}, {name: p1, cable: DATA-0201, peer: {switch: data-b, port: 37}, network: data}, {name: p2, cable: DATA-0202, peer: {switch: data-a, port: 37}, network: data}]'
+pk edit cn-035 --change $CH --set 'spec.ports[2].peer.port=38'</code></pre></div>
+</div>
+</section>
+
+<section class="step" id="s1-3a">
+<header><span class="n">1.3a</span><span class="t">The asset view of the change: the same node, the same mistake</span><span class="chip">slide 9 · Hardware gets its own view</span><span class="chip time">1 min</span></header>
+<div class="body">
+<h4>Do</h4>
+<ol>
+  <li>In the left navigation, click <span class="ui">Assets</span>.</li>
+  <li>Click the rack title <span class="ui">GC5A-6Z</span>.</li>
+  <li>In the rack picture, click <span class="ui">cn-035</span> (green, at U6).</li>
+  <li>Point to "new in &lt;id&gt;", the p2 row and the SEMANTIC DIFF card.</li>
+  <li>Optional: in the switch at the top, click <span class="ui">main</span>, then click the change id again.</li>
+  <li>In the red line under the title, click <span class="ui">cn-035.yaml:19</span> (the line of the p2 peer port). The editor opens the file of the change.</li>
+  <li>If the editor shows YAML, click <span class="ui">Form</span>. In the p2 row, change the peer port to <code>38</code>.</li>
+</ol>
+<h4>The audience sees</h4>
+<ul class="see">
+  <li>The rack page with the switch "main | &lt;id&gt;" and "Highlights against the base of &lt;id&gt;". In the rack picture, cn-035 in U6–7 is green, with "!" (a problem) and "+" (new in the change). "IN &lt;ID&gt; added cn-035 U6–7 · worker", PROBLEMS "cn-035 port data-a 37 in use by cn-003".</li>
+  <li>cn-035 "Node v1beta1" with the badge "new in &lt;id&gt;" and the red line "port data-a 37 in use by cn-003". INTENT, HARDWARE FACTS with the owner of each field (<i>intent</i>, <i>asset DB</i>, <i>derived</i>). PORTS AND CABLES "1 problem": p2 DATA-0202 data-a 37 "port data-a 37 in use by cn-003".</li>
+  <li>SEMANTIC DIFF · &lt;ID&gt;: "+ cn-035: new compute node in GC5A-6Z, U6".</li>
+  <li>With <span class="ui">main</span>: "Node cn-035 not found in main". The node exists only in the change.</li>
+  <li>With 38 in the form: "port free" and "No problems". The status line: "saved to worktree just now · Node/cn-035 · render: defiant +1".</li>
+</ul>
+<p class="muted">Tell: a kind adds a view, with the same schema as the YAML editor. Each field has one owner. The check across files is the same as in the editor. The diff is in domain words, from the kind hooks.</p>
+<div class="fallback"><h4>If it fails</h4>
+<p>Open <code>http://127.0.0.1:8080/#/assets/racks/GC5A-6Z?sel=cn-035&amp;ref=$CH</code> (with the change id). To go back, click <span class="ui">Files</span> in the left navigation and click <code>cn-035.yaml</code>. CLI:</p>
+<pre><code>pk entities get-entity Node cn-035 --ref $CH
+pk edit cn-035 --change $CH --set 'spec.ports[2].peer.port=38'</code></pre></div>
+</div>
+</section>
+
+<section class="step" id="s1-4">
+<header><span class="n">1.4</span><span class="t">Node cn-036</span><span class="chip">slide 7 · Edit by hand</span><span class="chip time">1 min</span></header>
+<div class="body">
+<h4>Do</h4>
+<ol>
+  <li>Click <span class="ui">New file</span>. In <span class="ui">Name</span>, type <code>cn-036</code>. Click <span class="ui">Create file</span>.</li>
+  <li>Fast way: click <span class="ui">YAML</span>. Select all text in the editor (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>A</kbd>). Paste this text:</li>
+</ol>
+<pre><code>apiVersion: inventory.pk.io/v1beta1
+kind: Node
+metadata:
+  name: cn-036
+spec:
+  cluster: defiant
+  role: worker
+  location:
+    rack: GC5A-6Z
+    unit: 8
+    size: 2
+  model: Supermicro SYS-220U-TNR
+  serial: S4R7K2J0036
+  bmc:
+    mac: 3c:ec:ef:a1:0c:36
+  ports:
+    - {name: bmc, cable: MGT-0142, peer: {switch: mgmt, port: 39}, network: mgmt}
+    - {name: p1, cable: DATA-0203, peer: {switch: data-b, port: 39}, network: data}
+    - {name: p2, cable: DATA-0204, peer: {switch: data-a, port: 40}, network: data}</code></pre>
+<p>Or fill the form as in step 1.3 with the cn-036 values of section 1.</p>
+<h4>The audience sees</h4>
+<ul class="see">
+  <li>"No problems". The status line: "render: defiant +2". The tree shows <code>control +2</code>, <code>inventory +2</code>.</li>
+</ul>
+<div class="fallback"><h4>If it fails</h4>
+<pre><code>pk files new-file $CH --kind Node --name cn-036
+pk edit cn-036 --change $CH --set spec.cluster=defiant --set spec.location.rack=GC5A-6Z \
+  --set spec.location.unit=8 --set "spec.model=Supermicro SYS-220U-TNR" --set spec.serial=S4R7K2J0036 \
+  --set spec.bmc.mac=3c:ec:ef:a1:0c:36 \
+  --set 'spec.ports=[{name: bmc, cable: MGT-0142, peer: {switch: mgmt, port: 39}, network: mgmt}, {name: p1, cable: DATA-0203, peer: {switch: data-b, port: 39}, network: data}, {name: p2, cable: DATA-0204, peer: {switch: data-a, port: 40}, network: data}]'</code></pre></div>
+</div>
+</section>
+
+<section class="step" id="s1-5">
+<header><span class="n">1.5</span><span class="t">Commit 1, with a suggested message</span><span class="chip">slide 7 · Commit 1</span><span class="chip time">1 min</span></header>
+<div class="body">
+<h4>Do</h4>
+<ol>
+  <li>At the bottom of the file tree, click <span class="ui">Commit (2)</span>.</li>
+  <li>Click <span class="ui">Suggest message</span>.</li>
+  <li>Click <span class="ui">Commit 2 files</span>.</li>
+</ol>
+<h4>The audience sees</h4>
+<ul class="see">
+  <li>WORKTREE with the 2 files checked, and the STAGED DIFF of cn-035.yaml and cn-036.yaml.</li>
+  <li>The message, marked "suggested · edit before you commit" and the model name (<i>mock LLM</i> without a model):<br><code>feat(inventory): add cn-035 and cn-036 in GC5A-6Z</code>, with the bullets "2 compute nodes for defiant, U6 and U8" and "bmc and data ports on mgmt, data-a and data-b".</li>
+  <li>The note: "The advisor reads the staged diff and the change intent. It writes nothing: the admin edits and commits."</li>
+  <li>After the commit: COMMITS 2, "Nothing to commit. Edit files first.", and the buttons <span class="ui">Check this commit</span>, <span class="ui">Run lab</span>, <span class="ui">Push, open draft MR</span>.</li>
+</ul>
+<div class="fallback"><h4>If it fails</h4>
+<pre><code>pk llm suggest-commit-message $CH
+pk changes commit $CH --message "feat(inventory): add cn-035 and cn-036 in GC5A-6Z"</code></pre></div>
+</div>
+</section>
+
+<section class="step" id="s1-6">
+<header><span class="n">1.6</span><span class="t">BGP policy with cn-035 only; "Check this commit" finds cn-036</span><span class="chip">slide 7 · Commit 2, checked by the advisor</span><span class="chip time">2 min</span></header>
+<div class="body">
+<h4>Do</h4>
+<ol>
+  <li>Click <span class="ui">Back to files</span>.</li>
+  <li>In the file tree, open <code>clusters</code> → <code>defiant</code> → <code>infra</code> → <code>cilium</code>. Click <code>bgp-rack-6z.yaml</code>. Make sure that <span class="ui">YAML</span> is selected.</li>
+  <li>Click at the end of line 22, <code>- cn-034</code>. Push <kbd>Enter</kbd>. Type <code>- cn-035</code>.</li>
+  <li>Click <span class="ui">Commit (1)</span>. Click <span class="ui">Suggest message</span>. Click <span class="ui">Commit 1 file</span>.</li>
+  <li>Click <span class="ui">Check this commit</span>.</li>
+  <li>In the suggested edit, click <span class="ui">Accept</span>.</li>
+  <li>Click <span class="ui">Suggest message</span>. Click <span class="ui">Commit 1 file</span>.</li>
+</ol>
+<h4>The audience sees</h4>
+<ul class="see">
+  <li>After the edit: "render: defiant +2 ~1". The suggested message: <code>feat(cilium): peer cn-035 in rack-6z</code>.</li>
+  <li>The check result (RISK): "BGP policy. cn-036 is in the inventory of this change, in GC5A-6Z, but not in the BGP policy rack-6z. It gets no BGP session. Suggested fix: add 1 line to bgp-rack-6z.yaml." with sources and "Suggested edit in bgp-rack-6z.yaml: Add cn-036 to the BGP policy rack-6z" (<code>+ - cn-036</code>).</li>
+  <li>After <span class="ui">Accept</span>: the STAGED DIFF shows <code>+ - cn-036</code>. Then the commit <code>feat(cilium): peer cn-036 in rack-6z</code>. COMMITS 4.</li>
+</ul>
+<p class="muted">The talk shows 2 commits; the live demo has 3 commits plus the opening commit. The accepted fix is a normal edit by dennis.</p>
+<div class="fallback"><h4>If it fails</h4>
+<p>No suggestion: type <code>- cn-036</code> after <code>- cn-035</code> by hand and commit. CLI:</p>
+<pre><code>pk edit rack-6z --change $CH --set 'spec.nodeSelector.matchExpressions[0].values=[cn-025, cn-026, cn-027, cn-028, cn-029, cn-030, cn-031, cn-032, cn-033, cn-034, cn-035]'
+pk changes commit $CH --message "feat(cilium): peer cn-035 in rack-6z"
+pk llm run-advisor $CH check-commit
+pk llm list-suggestions $CH --json | grep '"id"'     # s-xxxxxxxx
+pk llm accept-suggestion s-xxxxxxxx
+pk changes commit $CH --message "feat(cilium): peer cn-036 in rack-6z"</code></pre></div>
+</div>
+</section>
+
+<section class="step" id="s1-7">
+<header><span class="n">1.7</span><span class="t">Generic editor: HelmRelease, a duration problem and a masked secret</span><span class="chip">slide 8 · Every file, from day one</span><span class="chip opt">optional</span><span class="chip time">1.5 min</span></header>
+<div class="body">
+<h4>Do</h4>
+<ol>
+  <li>Click <span class="ui">Back to files</span>. In <code>clusters/defiant/infra/cilium</code>, click <code>helmrelease.yaml</code>.</li>
+  <li>In line 7, <code>interval: 5m</code>, replace <code>5m</code> with <code>5 minutes</code>.</li>
+  <li>Click <span class="ui">Form</span>.</li>
+  <li>In the first <span class="ui">Interval</span> field (spec.interval), type <code>5m</code> again.</li>
+  <li>Make sure that PROBLEMS shows "No problems" and the footer shows <span class="ui">Commit</span> without a number.</li>
+</ol>
+<h4>The audience sees</h4>
+<ul class="see">
+  <li>KIND REGISTRY: kind none, editor "YAML + CRD schema", schema "HelmRelease v2", apply path Flux.</li>
+  <li>Line 27 <code>token: ••••••••</code> and <code>sops.mac: ••••••••</code>. SECRET FIELDS: hubble.ui.auth.token SOPS, key "admin key, local". "Values stay masked. Saving keeps the stored ciphertext."</li>
+  <li>With "5 minutes": PROBLEMS "line 7: spec.interval: must be a duration, for example 5m"; the form field shows "must be a duration, for example 5m".</li>
+  <li>The form: <span class="ui">Interval</span>, <span class="ui">Chart</span>, <span class="ui">BGP control plane</span>, <span class="ui">Hubble UI token</span> "••••••••" with "SOPS" and "key: admin key, local (age age1qy8n…vf3h)".</li>
+</ul>
+<div class="warn">Set the interval back to <code>5m</code> before the lab. An invalid HelmRelease makes the lab check "flux: all-ready" fail.</div>
+<div class="fallback"><h4>If it fails</h4>
+<p>Skip the step. If the footer still shows <span class="ui">Commit (1)</span> for this file, undo the edit in the worktree:</p>
+<pre><code>docker compose exec -T bench git -C /data/worktrees/$CH checkout -- clusters/defiant/infra/cilium/helmrelease.yaml</code></pre></div>
+</div>
+</section>
+
+<section class="step" id="s1-8">
+<header><span class="n">1.8</span><span class="t">Change lab, run-1</span><span class="chip">slide 4 · step 3</span><span class="chip">slide 7 · Run the change lab</span><span class="chip time">1 min</span></header>
+<div class="body">
+<h4>Do</h4>
+<ol>
+  <li>In the left navigation, click <span class="ui">Changes</span>. In the rail, click <span class="ui">Add cn-035 and cn-036 to defiant</span>.</li>
+  <li>Click <span class="ui">Run lab</span>.</li>
+  <li>Wait about 25 s. Point to each step while it runs.</li>
+</ol>
+<h4>The audience sees</h4>
+<ul class="see">
+  <li>The change page first: lifecycle draft · lab · review · approved · merged · deployed · verified; GATES FROM .PK/POLICY.YAML with "Green lab on branch head — no run yet — lab gate from rules: inventory, network", "Approvals 0 of 2", OVERLAP with c-p4x8ma.</li>
+  <li>The lab page "Change lab · run-1 running", "lab host local · metal provisioning · fresh machines", "twin of defiant · cn-035, cn-036".</li>
+  <li>Steps: topology <i>generate</i> → BMC <i>Redfish sim</i> → install <i>Talos</i> → join <i>defiant</i> → nodes Ready <i>2 of 2</i> → BGP <i>2 peers up</i> → power cycle cn-036 <i>back in 3m 10s</i> → data-b link down <i>traffic via data-a</i> → checks <i>12 of 12</i> → report <i>written</i>.</li>
+  <li>Result: <i>pass</i>, "23s (lab time 6m 40s)", "Lab gate of control/inventory/** +2 met", Report <code>kb/labs/&lt;id&gt;-run-1.md</code>, Trailer <code>Pk-Lab-Run: &lt;id&gt;/run-1 pass</code>.</li>
+</ul>
+<p class="muted">Tell: the lab is simulated, the checks are real computations on the rendered state of this change. The report goes into the change as a commit.</p>
+<div class="fallback"><h4>If it fails</h4>
+<p>"a lab run is still running": wait, then reload. A fail: read the failed check; usually a file is not saved or the HelmRelease is still invalid (step 1.7). CLI: <code>pk lab run $CH --wait</code></p></div>
+</div>
+</section>
+
+<section class="step" id="s1-9">
+<header><span class="n">1.9</span><span class="t">Review: impact, semantic diff, overlap, risk, advisor</span><span class="chip">slide 5 · Review the effect</span><span class="chip">slide 15 · advisor buttons</span><span class="chip time">2.5 min</span></header>
+<div class="body">
+<h4>Do</h4>
+<ol>
+  <li>On the lab page, click <span class="ui">Change</span>. In the OVERLAP card, click <span class="ui">Impact: defiant +2 ~1</span>.</li>
+  <li>Click the tabs <span class="ui">Semantic</span>, <span class="ui">Source</span>, <span class="ui">Rendered</span>. Return to <span class="ui">Semantic</span>.</li>
+  <li>In the Advisor card, click <span class="ui">Risks of this change</span>.</li>
+  <li>Under the result, click the thumbs-up icon.</li>
+</ol>
+<h4>The audience sees</h4>
+<ul class="see">
+  <li>Impact: "main e08763f → &lt;sha&gt;"; defiant CLUSTER "21 → 23 objects · ring canary"; infra-metal <code>+ Machine/cn-035</code>, <code>+ Machine/cn-036</code>; cilium <code>~ CiliumBGPPeeringPolicy/rack-6z</code>, each with a source link; "pegasus, phoenix: no change".</li>
+  <li>Semantic: "cn-035: new compute node in GC5A-6Z, U6", "cn-036: new compute node in GC5A-6Z, U8", "rack-6z: BGP policy selects 2 more nodes", and the new lab report.</li>
+  <li>The overlap: "c-p4x8ma (anna) also changes CiliumBGPPeeringPolicy/rack-6z on defiant. … No lock, no block: the second merge renders again."</li>
+  <li>RISK FROM .PK/POLICY.YAML <i>high</i>: policy rules inventory and network (2 approvals, lab), risk rules "A change to a node is high." and "A change to cilium is high."</li>
+  <li>The advisor (mock text): Overlap (until c-p4x8ma merges, cn-035 and cn-036 peer only with 10.6.0.1/32), Lab gap (one data link down, not both), Lab gap (no BGP peer down test), Port history (c-2hd7vw moved cn-003 to data-a 37). "Advisory only. The rating stays "high" from the policy." and a "Read:" line with the sources.</li>
+  <li>After the thumbs up: "Rated. Saved in the LLM log with the model name."</li>
+</ul>
+<div class="fallback"><h4>If it fails</h4>
+<pre><code>pk render get-impact $CH
+pk llm run-advisor $CH risks</code></pre></div>
+</div>
+</section>
+
+<section class="step" id="s1-10">
+<header><span class="n">1.10</span><span class="t">Push, draft MR, mark ready</span><span class="chip">slide 4 · step 4</span><span class="chip">slide 7 · Push and open the MR</span><span class="chip time">1.5 min</span></header>
+<div class="body">
+<h4>Do</h4>
+<ol>
+  <li>On the review page, click <span class="ui">Push, open draft MR</span>.</li>
+  <li>Click <span class="ui">Mark ready</span>.</li>
+  <li>Optional: under the title, click the link <span class="ui">MR !13</span>. Gitea opens in a new tab. Show the description with the trailers and the statuses <code>pk/policy</code> and <code>pk/lab</code>. Close the tab.</li>
+</ol>
+<h4>The audience sees</h4>
+<ul class="see">
+  <li>Before the push, the change page shows MR DESCRIPTION, FROM .PK/CHANGES/&lt;ID&gt;.YAML with the trailers <code>Pk-Change</code>, <code>Pk-Title</code>, <code>Pk-Intent</code>, <code>Pk-Lab-Run</code>, <code>Pk-Author</code>, and BEFORE REVIEW: "Metadata file moved to the MR — on mark ready".</li>
+  <li>After the push: the toast "Pushed 5 commits. Draft MR !13 opened."; under the title "MR !13 draft"; the main button changes to <span class="ui">Mark ready</span>.</li>
+  <li>After <span class="ui">Mark ready</span>: the toast "Ready for review: MR !13. The metadata file moved to the MR description."; state <i>review</i>; the main button changes to <span class="ui">Merge</span> (not yet allowed: 0 of 2 approvals).</li>
+</ul>
+<div class="fallback"><h4>If it fails</h4>
+<pre><code>pk changes push-change $CH
+pk changes mark-ready $CH</code></pre></div>
+</div>
+</section>
+
+<section class="step" id="s1-11">
+<header><span class="n">1.11</span><span class="t">main moved: merge c-31d0aa</span><span class="chip">slide 4 · step 5</span><span class="chip time">1 min</span></header>
+<div class="body">
+<h4>Do</h4>
+<ol>
+  <li>In the rail, click <span class="ui">Cabling for GC5A-6Z</span> (c-31d0aa, <i>approved</i>).</li>
+  <li>Click <span class="ui">Merge</span>. Read the dialog. Click <span class="ui">Merge</span>.</li>
+  <li>In the rail, click <span class="ui">Add cn-035 and cn-036 to defiant</span>.</li>
+</ol>
+<h4>The audience sees</h4>
+<ul class="see">
+  <li>c-31d0aa: "Approvals 2 of 2 by anna, jonas", "All gates met: ready to merge."</li>
+  <li>The dialog "Merge c-31d0aa": "Merge commit on main, with the trailer block an auditor reads with git log --merges:" and the block from <code>Merge change c-31d0aa: Cabling for GC5A-6Z (!9)</code> to <code>Reviewed-in: !9</code>.</li>
+  <li>After the merge: c-31d0aa <i>merged</i>, ROLLOUT "Merged into main as &lt;sha&gt;". The rail: every open change shows "behind main by 1".</li>
+  <li>The demo change: "behind main by 1" in the header, Gates "Behind main by 1 — one-click rebase", "Before merge: approvals 0 of 2; behind main by 1, rebase first". The button <span class="ui">Rebase on main</span> appears.</li>
+</ul>
+<p class="muted">Tell: the bench never rewrites a branch in the background. The admin decides.</p>
+<div class="fallback"><h4>If it fails</h4>
+<pre><code>pk changes merge-change c-31d0aa</code></pre></div>
+</div>
+</section>
+
+<section class="step" id="s1-12">
+<header><span class="n">1.12</span><span class="t">Rebase, impact unchanged, lab again (run-2)</span><span class="chip">slide 4 · step 6</span><span class="chip time">1 min</span></header>
+<div class="body">
+<h4>Do</h4>
+<ol>
+  <li>Click <span class="ui">Rebase on main</span>.</li>
+  <li>Read the toast. Point to the gate "run-1 is for an old head".</li>
+  <li>Click <span class="ui">Lab again</span>. Wait about 25 s.</li>
+</ol>
+<h4>The audience sees</h4>
+<ul class="see">
+  <li>The toast: "Rebased on main &lt;sha&gt;. Impact unchanged." and "The old lab run tested another sha: run the lab again."</li>
+  <li>Gates: "Green lab on branch head — run-1 is for an old head"; "Before merge: approvals 0 of 2; lab gate: &lt;id&gt;/run-1 tested an older head; run the lab again".</li>
+  <li>The lab page: "Change lab · run-2", <i>pass</i>, 12 of 12, and the list "run-2 · pass", "run-1 · pass".</li>
+</ul>
+<div class="fallback"><h4>If it fails</h4>
+<pre><code>pk changes rebase-change $CH
+pk lab run $CH --wait</code></pre></div>
+</div>
+</section>
+
+<section class="step" id="s1-13">
+<header><span class="n">1.13</span><span class="t">Approvals: anna and jonas</span><span class="chip">slide 4 · step 7</span><span class="chip time">1 min</span></header>
+<div class="body">
+<h4>Do</h4>
+<ol>
+  <li>On the lab page, click <span class="ui">Change</span>.</li>
+  <li>In the GATES card, after "demo:", click <span class="ui">approve as anna</span>.</li>
+  <li>Click <span class="ui">approve as jonas</span>.</li>
+</ol>
+<p>Alternative in the forge (slower, more real): in the Gitea tab as anna, open <code>http://127.0.0.1:3000/platform/state/pulls/13/files</code>. Click <span class="ui">Review</span>. Click <span class="ui">Approve</span>. The bench shows the approval in about 3 s.</p>
+<h4>The audience sees</h4>
+<ul class="see">
+  <li>"Approvals 1 of 2 … by anna. Can approve: jonas.", then "Approvals 2 of 2 … by anna, jonas." and "All gates met: ready to merge." State <i>approved</i>.</li>
+  <li>The card Merge request "MR !13 · review": MERGE COMMIT PREVIEW (TRAILERS) with <code>Approved-by: anna, jonas</code>; BEFORE REVIEW "Metadata file moved to the MR — main stays clean".</li>
+</ul>
+<p class="muted">Tell: agents and bots never approve or merge (step 3.2 shows the denial).</p>
+<div class="fallback"><h4>If it fails</h4>
+<pre><code>pk demo demo-approve --as anna --change-id $CH
+pk demo demo-approve --as jonas --change-id $CH</code></pre></div>
+</div>
+</section>
+
+<section class="step" id="s1-14">
+<header><span class="n">1.14</span><span class="t">Merge: the metadata becomes trailers; deploy and verify</span><span class="chip">slide 4 · steps 8 and 9</span><span class="chip time">1 min</span></header>
+<div class="body">
+<h4>Do</h4>
+<ol>
+  <li>Click <span class="ui">Merge</span>. Read the dialog. Click <span class="ui">Merge</span>.</li>
+  <li>Wait about 10 s. Point to the ROLLOUT card and the lifecycle.</li>
+</ol>
+<h4>The audience sees</h4>
+<ul class="see">
+  <li>The dialog "Merge &lt;id&gt;" with <code>Merge change &lt;id&gt;: Add cn-035 and cn-036 to defiant (!13)</code>, the intent, <code>Pk-Lab-Run: &lt;id&gt;/run-2 pass …</code>, <code>Pk-Work-Item: w-114</code>, <code>Approved-by: anna, jonas</code>, <code>Reviewed-in: !13</code>.</li>
+  <li>State <i>merged</i>, ROLLOUT "defiant canary pending", lifecycle "deployed 0 of 1".</li>
+  <li>After about 10 s: state <i>verified</i>, "defiant canary verified &lt;sha&gt;", lifecycle "deployed 1 of 1", "verified 1 of 1".</li>
+</ul>
+<p class="muted">Tell: an auditor reads all of it with <code>git log --merges --format='%(trailers)'</code>.</p>
+<div class="fallback"><h4>If it fails</h4>
+<pre><code>pk changes merge-change $CH
+pk change list          # merged changes: pk changes get-change $CH</code></pre>
+<p>No "verified" after 30 s: check the <span class="ui">Flux</span> pill; run <code>docker compose restart fluxsim</code>.</p></div>
+</div>
+</section>
+
+<section class="step" id="s1-15">
+<header><span class="n">1.15</span><span class="t">The work item follows</span><span class="chip">slide 11 · Plan with work items</span><span class="chip time">0.5 min</span></header>
+<div class="body">
+<h4>Do</h4>
+<ol>
+  <li>In the left navigation, click <span class="ui">Work</span>.</li>
+</ol>
+<h4>The audience sees</h4>
+<ul class="see">
+  <li>"defiant ready for tenants · milestone defiant-ready · 3 of 6 done".</li>
+  <li>Columns PLANNED 2 (w-117, w-121), IN PROGRESS 1 (w-112 c-p4x8ma lab), IN REVIEW 0, DONE 3: Kernel args (w-104), Cabling for GC5A-6Z (w-108, c-31d0aa), <b>Compute nodes cn-035, cn-036 (w-114, &lt;id&gt; verified)</b>.</li>
+</ul>
+<div class="fallback"><h4>If it fails</h4><p>Reload the page. CLI: <code>pk work get-work-board</code>.</p></div>
+</div>
+</section>
+
+<h2 id="part2">5. Part 2 · Assets, knowledge, history</h2>
+
+<section class="step" id="s2-1">
+<header><span class="n">2.1</span><span class="t">Rack GC5A-6Z and node cn-035, now on main</span><span class="chip">slide 9 · Hardware gets its own view</span><span class="chip">optional</span><span class="chip time">1 min</span></header>
+<div class="body">
+<p class="muted">Step 1.3a showed this view with the open change ("new in &lt;id&gt;", the port check, the semantic diff). After the merge in 1.14 the change is closed: cn-035 is a normal node on main, without the badge and the SEMANTIC DIFF card.</p>
+<h4>Do</h4>
+<ol>
+  <li>Click <span class="ui">Assets</span>.</li>
+  <li>Click the rack title <span class="ui">GC5A-6Z</span>.</li>
+  <li>In the rack picture, click <span class="ui">cn-035</span>.</li>
+</ol>
+<h4>The audience sees</h4>
+<ul class="see">
+  <li>Two racks (GC5A-6Y: control, storage and switches; GC5A-6Z: "12 devices · 23 U free"), and the NODES table.</li>
+  <li>The rack picture and the DEVICES list: cn-025 … cn-034 in U10–29, the new cn-036 in U8–9 and cn-035 in U6–7; "Free: U1–5, U30–47".</li>
+  <li>cn-035 "Node v1beta1": INTENT (Cluster, Role, Location "GC5A-6Z U6 (2U)" — <i>intent</i>; Apply path — <i>derived</i>), HARDWARE FACTS (Model, Serial, BMC MAC — <i>asset DB</i>; Emulation — <i>derived</i>), PORTS AND CABLES (bmc MGT-0141 mgmt 37, p1 DATA-0201 data-b 37, p2 DATA-0202 data-a 38), REFERENCES, BACKLINKS (the change, lab reports, w-114, "Used by rack-6z").</li>
+</ul>
+<div class="fallback"><h4>If it fails</h4><p>Open <code>http://127.0.0.1:8080/#/assets/racks/GC5A-6Z?sel=cn-035</code>. CLI: <code>pk entities get-entity Node cn-035</code>.</p></div>
+</div>
+</section>
+
+<section class="step" id="s2-2">
+<header><span class="n">2.2</span><span class="t">Knowledge: runbook and lab report</span><span class="chip">slide 10 · Knowledge next to the state</span><span class="chip opt">optional</span><span class="chip time">1 min</span></header>
+<div class="body">
+<h4>Do</h4>
+<ol>
+  <li>Click <span class="ui">Knowledge</span>.</li>
+  <li>Click <span class="ui">Add a compute node to a cluster</span> (runbook).</li>
+  <li>In the list, click <span class="ui">Lab report &lt;id&gt;/run-2</span>.</li>
+</ol>
+<h4>The audience sees</h4>
+<ul class="see">
+  <li>Categories with counts: Runbooks, Design, Reference, Incidents, Lab reports. RETRIEVAL INDEX: state repo, kb, MR discussions, trailers, lab reports.</li>
+  <li>The runbook <code>kb/runbooks/add-node.md</code> with <code>pk</code> commands. LINKS: ENTITIES (GC5A-6Z, defiant, data-a, data-b, mgmt), CHANGES THAT CITE IT: the demo change <i>verified</i>.</li>
+  <li>The lab report of run-2: an article written by the lab, in the change.</li>
+</ul>
+<div class="fallback"><h4>If it fails</h4><p>CLI: <code>pk kb get-article --path kb/runbooks/add-node.md</code>.</p></div>
+</div>
+</section>
+
+<section class="step" id="s2-3">
+<header><span class="n">2.3</span><span class="t">History: filter by entity, trailers, time travel</span><span class="chip">slide 12 · History, one change per row</span><span class="chip time">1.5 min</span></header>
+<div class="body">
+<h4>Do</h4>
+<ol>
+  <li>Click <span class="ui">History</span>.</li>
+  <li>In the search field, type <code>entity:cn-003</code>. Push <kbd>Enter</kbd>.</li>
+  <li>Click the row <span class="ui">Move cn-003 to data-a 37</span>.</li>
+  <li>In the time travel card, click <span class="ui">converted to v1beta1</span>, then <span class="ui">as stored</span>.</li>
+  <li>Optional: click <span class="ui">Compare with now</span>.</li>
+</ol>
+<h4>The audience sees</h4>
+<ul class="see">
+  <li>One row per change, newest first: the demo change and c-31d0aa on top, then c-19f4tb, c-0b9cfe, c-u7x2bd "anna + agent", c-m1gr8t, c-b7gl4s <i>break-glass</i> with lab <i>alert</i>, c-a5e3vk, c-2hd7vw, c-9kq1mf, f186de7 "chore: initial state". "auditors read the same with git log --merges --format='%(trailers)'".</li>
+  <li>With the filter: 4 entries (c-u7x2bd, c-m1gr8t, c-2hd7vw, f186de7).</li>
+  <li>c-2hd7vw: <i>verified</i>, MR !2, merge 5749a49; TRAILERS (Pk-Intent "free data-b ports for rack 6Z", Pk-Lab-Run, Approved-by "anna, dennis"); SEMANTIC DIFF "cn-003 p2: data-b 37 to data-a 37".</li>
+  <li>"State at 5749a49 · read-only", "stored as v1alpha1": the old flat fields <code>rack</code>, <code>unit</code>, <code>height</code>; the converted view shows <code>location</code>.</li>
+</ul>
+<div class="fallback"><h4>If it fails</h4>
+<pre><code>pk history list-history --entity cn-003
+pk history get-history-entry 5749a49</code></pre></div>
+</div>
+</section>
+
+<h2 id="part3">6. Part 3 · LLM: agent, advisors, chat</h2>
+<p class="lead">Slide 13: one tool layer, three ways in. The advisor buttons (slide 15) were in step 1.9. The top bar pill shows the model (<span class="ui">LLM mock</span> without one). With a real model the words differ from this script; the facts and the sources are the same.</p>
+
+<section class="step" id="s3-1">
+<header><span class="n">3.1</span><span class="t">The agent, approved for today</span><span class="chip">slide 14 · Your agent, in plain sight</span><span class="chip time">0.5 min</span></header>
+<div class="body">
+<h4>Do</h4>
+<ol>
+  <li>Click <span class="ui">Settings</span>. In YOUR AGENT, click <span class="ui">Manage agents</span>.</li>
+</ol>
+<h4>The audience sees</h4>
+<ul class="see">
+  <li>dennis-agent "approved · ends HH:MM", the rights (push commits, open MRs, run labs, mark ready) and the crossed-out "approve or merge".</li>
+  <li>"dennis/agent via MCP · token approved today", "navigate mode", "No MCP call yet. Waiting for the agent." RECENT AGENT EVENTS: agent.approve.</li>
+</ul>
+<div class="fallback"><h4>If it fails</h4><p>The grant has ended: on the Agents page, click <span class="ui">Approve agent for today</span> again and run the new command in the agent terminal (see section 2).</p></div>
+</div>
+</section>
+
+<section class="step" id="s3-2">
+<header><span class="n">3.2</span><span class="t">The agent adds cn-037 through MCP; the lab finds the gap; approve is denied</span><span class="chip">slide 14 · Your agent, in plain sight</span><span class="chip time">3 min</span></header>
+<div class="body">
+<h4>Do</h4>
+<ol>
+  <li>Put the browser and the agent terminal side by side.</li>
+  <li>In <code>~/pk-agent</code>, start the agent: <code>claude</code> or <code>opencode</code>. Claude Code uses the allow rule of section 2; without it, start <code>claude --allowedTools mcp__platform-kit</code>.</li>
+  <li>Paste this prompt:</li>
+</ol>
+<pre><code>Use the platform-kit tools. Make a new change with the title "Add cn-037 to defiant". In it, add the compute node cn-037 to the cluster defiant: rack GC5A-6Z, unit 30, size 2, role worker, model Supermicro SYS-220U-TNR, serial S4R7K2J0037, BMC MAC 3c:ec:ef:a1:0c:37. Ports: bmc to mgmt port 41 with cable MGT-0143 (network mgmt), p1 to data-b port 41 with cable DATA-0205 (network data), p2 to data-a port 42 with cable DATA-0206 (network data). Change only the node file. Commit it, run the change lab and tell me the result. Then try to approve the change.</code></pre>
+<ol start="4">
+  <li>Do not touch the browser. In navigate mode it follows the agent.</li>
+  <li>When the agent ends, read its summary aloud.</li>
+</ol>
+<h4>The audience sees</h4>
+<ul class="see">
+  <li>The tool calls in the terminal: <code>pk_change_new</code>, <code>pk_kind_schema</code> or <code>pk_file_new</code>, <code>pk_file_write</code>, <code>pk_commit</code>, <code>pk_lab_run</code>, <code>pk_lab_status</code>, <code>pk_change_approve</code>. The agent can read other files first (for example <code>cn-036.yaml</code>). No permission prompts.</li>
+  <li>The browser opens the new change "Add cn-037 to defiant" (the title from the prompt; if the agent uses other words, use its title in step 3.3), the file <code>cn-037.yaml</code>, then the lab. The commits have the author dennis-agent and the trailers <code>Pk-Agent: dennis-agent</code>, <code>Pk-On-Behalf-Of: dennis</code>; the commit list marks them <i>Pk-Agent</i>.</li>
+  <li>The lab fails: nodes Ready 1 of 1, BGP "0 peers up", checks "4 of 6", "cn-037: no BGP peering policy selects it", "Lab gate of control/inventory/** +1 not met". The check is real: rack-6z does not select cn-037.</li>
+  <li><code>pk_change_approve</code>: "denied: agents never approve or merge".</li>
+  <li>The Agents page shows "Last call just now · pk_change_approve". The rail shows the change with "dennis + agent"; the change page shows "author dennis + dennis-agent".</li>
+</ul>
+<p class="muted">An agent can try to fix the BGP policy itself. The prompt says "Change only the node file", so that the chat can do it in step 3.3. If the agent changed the policy anyway, skip the third question in step 3.3.</p>
+<div class="fallback"><h4>If it fails</h4>
+<p>The agent stalls or the model is slow: stop it (<kbd>Esc</kbd> or <kbd>Ctrl</kbd>+<kbd>C</kbd>). Run the same MCP calls with the saved token. The browser shows them the same way:</p>
+<pre><code>scripts/mcp-demo.sh "$(cat ~/pk-agent/token)"</code></pre></div>
+</div>
+</section>
+
+<section class="step" id="s3-3">
+<header><span class="n">3.3</span><span class="t">Chat: why, secrets, and a suggested edit</span><span class="chip">slide 16 · Chat that knows the project</span><span class="chip time">2.5 min</span></header>
+<div class="body">
+<h4>Do</h4>
+<ol>
+  <li>Make sure that the change "Add cn-037 to defiant" is open in the browser.</li>
+  <li>In the top bar, click the <span class="ui">Side panel</span> icon (right of the theme icon).</li>
+  <li>Make sure that the change selector shows "&lt;cn-037 change id&gt; (current)".</li>
+  <li>The empty chat shows 3 example questions. Click <span class="ui">Why does cn-003 use port 37 on data-a?</span>.</li>
+  <li>In the text field, type <code>What is the hubble UI token?</code>. Push <kbd>Enter</kbd>.</li>
+  <li>Type <code>Add cn-037 to the rack-6z BGP policy</code>. Push <kbd>Enter</kbd>.</li>
+  <li>Under the suggested edit, click <span class="ui">Accept</span>.</li>
+  <li>In the left navigation, click <span class="ui">Files</span>. Click <span class="ui">Commit (1)</span>. Click <span class="ui">Suggest message</span>. Click <span class="ui">Commit 1 file</span>.</li>
+  <li>Click <span class="ui">Run lab</span>. Wait about 25 s.</li>
+</ol>
+<h4>The audience sees</h4>
+<ul class="see">
+  <li>Answer 1: "c-2hd7vw moved cn-003 p2 from data-b 37 to data-a 37, to free data-b ports for rack 6Z. Approved by anna and dennis. Merged 2026-09-12, author jonas." Sources: trailer c-2hd7vw, MR !2, history 5749a49.</li>
+  <li>Answer 2: "I cannot see it. Secret fields are removed before each call."</li>
+  <li>Answer 3: "I suggest 1 line in bgp-rack-6z.yaml. See the editor." and the suggested edit <code>+ - cn-037</code>, "Chat does not commit, run labs or mark ready on its own."</li>
+  <li>After <span class="ui">Accept</span>: "Accepted by dennis. Now it is a normal edit, owned by dennis."</li>
+  <li>The lab run-2 passes: nodes Ready 1 of 1, BGP 1 peer up, checks 8 of 8.</li>
+</ul>
+<div class="fallback"><h4>If it fails</h4>
+<p>The example questions are not there: the chat is not empty. Click <span class="ui">Clear</span>, or type the questions. "Open a change first": select the cn-037 change in the selector. The suggestion card is also in the editor of <code>bgp-rack-6z.yaml</code> (SUGGESTED EDITS, <span class="ui">Accept</span>). CLI (set <code>C2</code> to the cn-037 change id):</p>
+<pre><code>pk llm chat --change-id $C2 --data '{"messages":[{"role":"user","content":"Add cn-037 to the rack-6z BGP policy"}]}'
+pk llm list-suggestions $C2          # then: pk llm accept-suggestion &lt;suggestion id&gt;
+pk changes commit $C2 --message "feat(cilium): peer cn-037 in rack-6z"
+pk lab run $C2 --wait</code></pre></div>
+</div>
+</section>
+
+<section class="step" id="s3-4">
+<header><span class="n">3.4</span><span class="t">The LLM log</span><span class="chip">slides 13, 15, 16</span><span class="chip time">0.5 min</span></header>
+<div class="body">
+<h4>Do</h4>
+<ol>
+  <li>Click <span class="ui">LLM log</span>.</li>
+  <li>Click one chat entry. Optional: click <span class="ui">Export</span>.</li>
+</ol>
+<h4>The audience sees</h4>
+<ul class="see">
+  <li>"Every model call: the prompt as sent (secrets already removed), the answer, its sources and your rating." Filters: all, chat, advisor, commit message; the ratings count (1 thumbs up from step 1.9).</li>
+  <li>Each entry with surface, user and model.</li>
+</ul>
+<div class="fallback"><h4>If it fails</h4><p>CLI: <code>pk llm list-llm-log</code>.</p></div>
+</div>
+</section>
+
+<h2 id="reset">7. Reset procedure</h2>
+<div class="wrap"><table>
+<tr><th>When</th><th>Do</th><th>Time</th></tr>
+<tr><td>Between rehearsals</td><td><code>make reset</code> (or <code>docker compose run --rm forge-init forge-init --reset</code>). Then reload the browser tab. Nothing restarts. The lab runs of the old state go away; the agent grant and the LLM log stay.</td><td>~35 s</td></tr>
+<tr><td>Before the talk</td><td><code>make fresh</code> (or <code>docker compose down -v &amp;&amp; docker compose up -d --wait</code>). Then do the checklist of section 2 from step 2 (approve the agent again).</td><td>~45 s</td></tr>
+</table></div>
+<p>Make sure after a reset: the Changes page shows "4 open: 1 mine, 1 waiting for my review", the rail footer shows <code>main e08763f</code>, and c-31d0aa is <i>approved</i>. The demo change then gets MR !13 again. After <code>make reset</code> the LLM log and the agent grant keep the old calls; <code>make fresh</code> removes them.</p>
+
+<h2 id="trouble">8. Problems and fixes</h2>
+<div class="wrap"><table>
+<tr><th>Problem</th><th>Fix</th></tr>
+<tr><td>A pill in the top bar is red</td><td>Wait 10 s. Run <code>make status</code>. Restart the service: <code>docker compose restart bench</code> (or <code>gitea</code>, <code>fluxsim</code>).</td></tr>
+<tr><td>Port 8080, 3000 or 8081 is in use</td><td><code>make up</code> and <code>make fresh</code> check the ports first (<code>make preflight</code>) and tell which variable to set. Put <code>PK_BENCH_PORT=8090</code> (or <code>PK_FORGE_PORT</code>, <code>PK_FLUX_PORT</code>) into <code>.env</code>. Run <code>docker compose up -d</code>. Use the new URL. A plain <code>docker compose up</code> finds a busy bench port only after the forge seeding (about 40 s).</td></tr>
+<tr><td>The model is slow or does not answer</td><td>Switch to the mock model: remove <code>PK_LLM_BASE_URL</code> from <code>.env</code> (or set it empty). Run <code>docker compose up -d bench</code> (5 s). The pill shows "LLM mock".</td></tr>
+<tr><td>"behind main by 1, rebase first"</td><td>Click <span class="ui">Rebase on main</span>, then <span class="ui">Lab again</span>.</td></tr>
+<tr><td>Approvals do not count</td><td>The change must be ready (not a draft) and the lab must be on the head. Then approve again.</td></tr>
+<tr><td>The page shows old data</td><td>Reload the page (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>R</kbd>). The <span class="ui">live</span> pill must be green.</td></tr>
+<tr><td>Claude Code asks for permission at each platform-kit tool</td><td>Select the answer that allows the tool for this project, or stop it and write <code>~/pk-agent/.claude/settings.local.json</code> (section 2), or start <code>claude --allowedTools mcp__platform-kit</code>.</td></tr>
+<tr><td>The agent token does not work</td><td>Approve the agent again (<span class="ui">Settings</span> → <span class="ui">Manage agents</span>) and add the new command or <code>.mcp.json</code>.</td></tr>
+<tr><td>Something else goes wrong in the story</td><td>Continue with the CLI fallback of the step. If the state is broken: <code>make reset</code> (35 s) and start Part 1 again.</td></tr>
+</table></div>
+</main>
+<script>
+(function () {
+  var root = document.documentElement, key = 'pk.demo.theme';
+  try { var t = localStorage.getItem(key); if (t) root.setAttribute('data-theme', t); } catch (e) {}
+  document.getElementById('theme').addEventListener('click', function () {
+    var dark = root.getAttribute('data-theme') ? root.getAttribute('data-theme') === 'dark'
+      : window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var next = dark ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem(key, next); } catch (e) {}
+  });
+  document.querySelectorAll('pre').forEach(function (pre) {
+    var b = document.createElement('button');
+    b.className = 'copy'; b.type = 'button'; b.textContent = 'Copy';
+    b.addEventListener('click', function () {
+      var text = pre.querySelector('code') ? pre.querySelector('code').innerText : pre.innerText;
+      var done = function () { b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 1200); };
+      if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, function () {});
+    });
+    pre.appendChild(b);
+  });
+})();
+</script>
+</body>
+</html>
