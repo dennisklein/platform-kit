@@ -212,8 +212,13 @@ func (s *Server) GetTree(ctx context.Context, req api.GetTreeRequestObject) (api
 		return nil, err
 	}
 	status := s.changeStatus(ctx, svc, req.Id)
+	// The tree counts what needs a fix: errors and warnings. Notes (info,
+	// for example "cn-035 does not exist yet") show only in the editor.
 	problems := map[string]int{}
 	for _, p := range s.problemsFor(ctx, dir, "") {
+		if p.Severity == api.ProblemSeverityInfo {
+			continue
+		}
 		problems[p.Path]++
 	}
 	entries, err := s.buildTree(dir, status, problems)
