@@ -1,12 +1,19 @@
 package seed
 
 import (
+	"context"
+	"io"
+	"log/slog"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"sigs.k8s.io/yaml"
 
+	"github.com/dennisklein/platform-kit/internal/forge/fake"
+	"github.com/dennisklein/platform-kit/internal/gitx"
 	"github.com/dennisklein/platform-kit/internal/policy"
 	seedfs "github.com/dennisklein/platform-kit/seed"
 )
@@ -72,5 +79,56 @@ func TestProtection(t *testing.T) {
 	users := people{&p}.users()
 	if len(users) != 9 {
 		t.Fatalf("users %+v", users)
+	}
+}
+
+// The seed is deterministic: the same seed bytes give the same commits.
+// docs/demo.html and the talk deck cite these shas, so a change to the seed
+// (or to how change metadata is marshalled) must update them too.
+const (
+	seedMainSHA    = "382f3ac82581df5e7c4bddfd201e6887905e36ef" // main after the seed: Merge change c-19f4tb (!8)
+	seedC2hd7vwSHA = "d4af128073e3aae894d7c09300f850359d1fc76d" // Merge change c-2hd7vw (!2)
+)
+
+func TestSeedSHAs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the seed history with git")
+	}
+	ctx := context.Background()
+	state, changes, err := Load(seedfs.FS())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pol policy.Policy
+	if err := yaml.Unmarshal(state[policy.Path], &pol); err != nil {
+		t.Fatal(err)
+	}
+	work := t.TempDir()
+	bare, err := gitx.Init(ctx, filepath.Join(work, "remote.git"), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := fake.New("platform", "state")
+	f.SetCloneURL("file://" + bare.Dir)
+	b := &builder{g: f, pp: people{&pol}, o: Options{WorkDir: work},
+		log: slog.New(slog.NewTextHandler(io.Discard, nil)), noWaitMerged: true}
+	if err := b.build(ctx, state, changes); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := bare.RevParse(ctx, "refs/heads/main"); got != seedMainSHA {
+		t.Errorf("main = %s, want %s (update docs/demo.html and the deck)", got, seedMainSHA)
+	}
+	out, err := bare.Run(ctx, "log", "--first-parent", "--format=%H %s", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var merge string
+	for _, l := range strings.Split(out, "\n") {
+		if sha, subj, ok := strings.Cut(l, " "); ok && strings.HasPrefix(subj, "Merge change c-2hd7vw:") {
+			merge = sha
+		}
+	}
+	if merge != seedC2hd7vwSHA {
+		t.Errorf("c-2hd7vw merge = %s, want %s (update docs/demo.html and the deck)", merge, seedC2hd7vwSHA)
 	}
 }

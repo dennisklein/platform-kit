@@ -345,7 +345,10 @@ func ForgeInit(ctx context.Context, o Options) error {
 			return fmt.Errorf("collaborator %s: %w", u.Login, err)
 		}
 	}
-	b := &builder{g: g, pp: pp, o: o, log: o.Log}
+	b := &builder{g: g, pp: pp, o: o, log: o.Log, tokens: func(user string) string {
+		t, _ := g.Token(user)
+		return t
+	}}
 	if err := b.build(ctx, state, changes); err != nil {
 		return err
 	}
@@ -415,17 +418,34 @@ func setupUsers(ctx context.Context, g *gitea.Client, pp people, o Options) (*fo
 
 // ---------------------------------------------------------------- builder
 
+// seedForge is the part of the forge the builder uses (Gitea in forge-init,
+// the in-memory fake in tests).
+type seedForge interface {
+	Repo() forge.Repo
+	CreatePR(ctx context.Context, as string, req forge.PRCreate) (*forge.PR, error)
+	GetPR(ctx context.Context, number int) (*forge.PR, error)
+	Approve(ctx context.Context, as string, number int, body string) (*forge.Review, error)
+	SetStatus(ctx context.Context, as, sha string, st forge.CommitStatus) error
+	DeleteBranch(ctx context.Context, as, branch string) error
+}
+
 type builder struct {
-	g    *gitea.Client
+	g    seedForge
 	pp   people
 	o    Options
 	log  *slog.Logger
 	repo *gitx.Repo
+	// tokens gives the push token of a user (nil: push without one).
+	tokens func(user string) string
+	// noWaitMerged skips waiting for the forge to mark a pull request merged.
+	noWaitMerged bool
 }
 
 func (b *builder) token(user string) string {
-	t, _ := b.g.Token(user)
-	return t
+	if b.tokens == nil {
+		return ""
+	}
+	return b.tokens(user)
 }
 
 func (b *builder) push(ctx context.Context, user string, refspecs ...string) error {
@@ -666,8 +686,10 @@ func (b *builder) mergedChange(ctx context.Context, c *Change) error {
 		return fmt.Errorf("push main: %w", err)
 	}
 	// Gitea marks the PR merged when it sees the head in main (autodetect manual merge).
-	if err := b.waitMerged(ctx, pr.Number); err != nil {
-		b.log.Warn("pull request not marked merged", "id", c.ID, "mr", pr.Number, "err", err)
+	if !b.noWaitMerged {
+		if err := b.waitMerged(ctx, pr.Number); err != nil {
+			b.log.Warn("pull request not marked merged", "id", c.ID, "mr", pr.Number, "err", err)
+		}
 	}
 	if err := b.g.DeleteBranch(ctx, user, branch); err != nil && !errors.Is(err, forge.ErrNotFound) {
 		b.log.Warn("delete branch", "branch", branch, "err", err)
