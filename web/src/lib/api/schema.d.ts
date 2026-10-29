@@ -3824,6 +3824,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description A commit sha, or a change id (c-xxxxxx) for the merge of that change */
                 sha: string;
             };
             cookie?: never;

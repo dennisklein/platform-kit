@@ -324,19 +324,35 @@ func (s *Server) ListHistory(ctx context.Context, req api.ListHistoryRequestObje
 // sha. Anything else (for example "--output=<file>") never reaches git.
 var shaParam = regexp.MustCompile(`^[0-9a-f]{4,40}$`)
 
+// changeParam is a change id in place of the sha: the merge of that change
+// (so scripts need not cite shas, which move when the seed changes).
+var changeParam = regexp.MustCompile(`^c-[0-9a-z]{6}$`)
+
 func (s *Server) GetHistoryEntry(ctx context.Context, req api.GetHistoryEntryRequestObject) (api.GetHistoryEntryResponseObject, error) {
 	h, err := s.history(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if !shaParam.MatchString(req.Sha) {
+	var it *histItem
+	if changeParam.MatchString(req.Sha) {
+		for _, x := range h.items {
+			if x.entry.Change == req.Sha {
+				it = x
+				break
+			}
+		}
+		if it == nil {
+			return nil, Errorf(404, "no merge of change %s on main", req.Sha)
+		}
+	} else if !shaParam.MatchString(req.Sha) {
 		return nil, Errorf(404, "commit %s not found", req.Sha)
 	}
-	var it *histItem
 	for _, x := range h.items {
+		if it != nil {
+			break
+		}
 		if x.entry.Sha == req.Sha || (len(req.Sha) >= 7 && strings.HasPrefix(x.entry.Sha, req.Sha)) {
 			it = x
-			break
 		}
 	}
 	g := gitx.Open(h.dir)

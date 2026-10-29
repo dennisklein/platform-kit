@@ -346,6 +346,17 @@ func TestChangeHandlersFlow(t *testing.T) {
 	if hd.Parent == "" || len(hd.Files) == 0 || hd.Semantic == nil {
 		t.Fatalf("history entry: %+v", hd)
 	}
+	// A change id finds its merge.
+	var byID struct {
+		Entry struct {
+			Sha string `json:"sha"`
+		} `json:"entry"`
+	}
+	b.call("GET", "/history/"+id, nil, 200, &byID)
+	if byID.Entry.Sha != mr.Sha {
+		t.Fatalf("history by change id: %+v, want %s", byID, mr.Sha)
+	}
+	b.call("GET", "/history/c-zzzzzz", nil, 404, nil)
 
 	// Time travel: the file before our merge.
 	b.call("GET", "/refs/"+hd.Parent+"/file?path="+q("clusters/defiant/infra/cilium/bgp.yaml"), nil, 200, &fc)

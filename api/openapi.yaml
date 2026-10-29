@@ -921,6 +921,7 @@ paths:
         - name: sha
           in: path
           required: true
+          description: A commit sha, or a change id (c-xxxxxx) for the merge of that change
           schema: { type: string }
       responses:
         "200":
