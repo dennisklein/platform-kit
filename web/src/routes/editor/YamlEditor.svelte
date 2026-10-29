@@ -38,6 +38,11 @@
   let view: EditorView | undefined;
   const ro = new Compartment();
   const lang = new Compartment();
+  // A narrow pane (browser beside the terminal) soft-wraps long lines, such
+  // as the flow-style port lines, instead of cutting them off.
+  const wrap = new Compartment();
+  const WRAP_BELOW_PX = 720;
+  let wrapped = false;
   // The schema is read through a getter, so completion sees updates.
   let currentSchema: JS | null = null;
   $effect(() => {
@@ -86,6 +91,7 @@
           basicSetup,
           syntaxHighlighting(highlight),
           lang.of(langExt(language)),
+          wrap.of([]),
           ro.of([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)]),
           lintGutter(),
           autocompletion({ override: [schemaCompletion(() => currentSchema)], icons: false }),
@@ -130,7 +136,15 @@
         ],
       }),
     });
+    const ro2 = new ResizeObserver(() => {
+      const narrow = host.clientWidth > 0 && host.clientWidth < WRAP_BELOW_PX;
+      if (narrow === wrapped || !view) return;
+      wrapped = narrow;
+      view.dispatch({ effects: wrap.reconfigure(narrow ? EditorView.lineWrapping : []) });
+    });
+    ro2.observe(host);
     return () => {
+      ro2.disconnect();
       clearTimeout(cursorTimer);
       view?.destroy();
       view = undefined;

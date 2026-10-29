@@ -32,6 +32,8 @@
     title: events.connected ? 'Live updates on' : 'Live updates off, reconnecting',
   });
   const dark = $derived(ui.shownTheme === 'dark');
+  /** "Gitea offline" → "Gitea": the dot colour says the rest. */
+  const shortWord = (label: string) => label.split(' ')[0];
 </script>
 
 <header class="topbar">
@@ -61,19 +63,20 @@
   <span class="spacer"></span>
 
   <!-- Below 900 px (browser and terminal side by side) the pills keep their
-       dot and tooltip and drop the words. -->
+       dot and a short word ("Gitea", "LLM", "Flux", "live"); the rest is in
+       the tooltip. -->
   <div class="pills">
     <span class="pill {forge.tone}" title={forge.title} aria-label={forge.label}>
-      <span class="dot"></span><span class="pl">{forge.label}</span>
+      <span class="dot"></span><span class="pl">{forge.label}</span><span class="ps" aria-hidden="true">{shortWord(forge.label)}</span>
     </span>
     <span class="pill ai {llm.tone}" title={llm.title} aria-label={llm.label}>
-      <span class="dot"></span><Glyph name="sparkle" size={12} /><span class="pl">{llm.label}</span>
+      <span class="dot"></span><Glyph name="sparkle" size={12} /><span class="pl">{llm.label}</span><span class="ps" aria-hidden="true">LLM</span>
     </span>
     <a class="pill {flux.tone}" href={href('/clusters')} title={flux.title} aria-label={flux.label}>
-      <span class="dot"></span><span class="pl">{flux.label}</span>
+      <span class="dot"></span><span class="pl">{flux.label}</span><span class="ps" aria-hidden="true">{shortWord(flux.label)}</span>
     </a>
     <span class="pill {live.tone}" title={live.title} aria-label="live">
-      <span class="dot"></span><span class="pl">live</span>
+      <span class="dot"></span><span class="pl">live</span><span class="ps" aria-hidden="true">live</span>
     </span>
   </div>
 
@@ -195,6 +198,9 @@
   .pills a {
     text-decoration: none;
   }
+  .ps {
+    display: none;
+  }
   /* LLM pill: the AI teal, with the dot for its health. */
   .pill.ai {
     color: var(--ai);
@@ -246,9 +252,13 @@
     .pill.ai :global(svg) {
       display: none;
     }
+    .ps {
+      display: inline;
+    }
     .pill {
-      padding: 6px;
-      gap: 0;
+      padding: 2px 7px;
+      gap: 4px;
+      font-size: 11.5px;
     }
     .pills {
       gap: 4px;
@@ -257,7 +267,7 @@
       margin-left: 0;
     }
     .ctitle {
-      max-width: 22ch;
+      max-width: 14ch;
     }
   }
   @media (max-width: 640px) {
