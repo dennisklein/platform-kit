@@ -350,12 +350,8 @@ func (e *Engine) labGaps(w *workspace) []finding {
 			res = string(ref.Result)
 		}
 		if res == string(api.LabResultFail) {
-			detail := "see the report"
-			if run != nil {
-				detail = failDetail(*run)
-			}
-			out = append(out, finding{Point: Point{Title: "Lab failed", Severity: SevRisk,
-				Text: fmt.Sprintf("%s failed: %s.", runLabel, detail), Sources: []llm.Source{src}}})
+			text, srcs := w.labFailedText(runLabel, run, ref)
+			out = append(out, finding{Point: Point{Title: "Lab failed", Severity: SevRisk, Text: text, Sources: srcs}})
 		} else if sha != "" && ch.HeadSha != "" && !strings.HasPrefix(ch.HeadSha, sha) && !strings.HasPrefix(sha, ch.HeadSha) {
 			out = append(out, finding{Point: Point{Title: "Lab is old", Severity: SevWarn,
 				Text: fmt.Sprintf("%s tested %s, the head is %s. The lab gate needs a new run.", runLabel, short7(sha), short7(ch.HeadSha)), Sources: []llm.Source{src, srcPolicy()}}})
