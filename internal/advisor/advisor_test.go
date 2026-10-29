@@ -189,8 +189,12 @@ func TestOtherRecipesMock(t *testing.T) {
 				t.Errorf("lab-gaps:\n%s", all)
 			}
 		case ExplainDiff:
-			if !strings.Contains(all, "tenants cluster, canary ring: 2 added, 1 changed. Objects 40 → 42.") || !strings.Contains(all, "+ Machine/cn-035") {
-				t.Errorf("explain-diff:\n%s", all)
+			for _, want := range []string{"On defiant (tenants cluster, canary ring): Flux creates the Machines cn-035 and cn-036",
+				"The BGP policy rack-6z also selects cn-035, so it gets a BGP session.", "from 40 to 42 objects",
+				"Check that CiliumBGPPeeringPolicy/rack-6z gains cn-035"} {
+				if !strings.Contains(all, want) {
+					t.Errorf("explain-diff: missing %q in\n%s", want, all)
+				}
 			}
 		}
 	}
@@ -214,6 +218,49 @@ func (s *scripted) Model() string              { return "qwen3" }
 func (s *scripted) Complete(ctx context.Context, req llm.Request) (*llm.Response, error) {
 	s.got = append(s.got, req)
 	return &llm.Response{Model: "qwen3", Message: llm.Message{Role: llm.RoleAssistant, Content: s.answer}}, nil
+}
+
+func TestLabGapsPlanned(t *testing.T) {
+	ft := newFakeTools()
+	ft.runs[demoID] = nil
+	e, _, _ := newTestEngine(t, ft, llm.NewMock(nil))
+	res, err := e.Run(testCtx(), LabGaps, demoID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := pointTexts(res.Points)
+	for _, want := range []string{"What the lab will test: The lab runs the metal scenario.", "with Talos through the emulated BMC",
+		"What it leaves out:", "real hardware"} {
+		if !strings.Contains(all, want) {
+			t.Errorf("missing %q in\n%s", want, all)
+		}
+	}
+	var reads []string
+	for _, s := range res.Reading {
+		reads = append(reads, s.Label)
+	}
+	if !strings.Contains(strings.Join(reads, "|"), "emulation.yaml") {
+		t.Errorf("reading %v", reads)
+	}
+}
+
+func TestMergeOrderReadsTheOtherChanges(t *testing.T) {
+	ft := newFakeTools()
+	e, _, _ := newTestEngine(t, ft, llm.NewMock(nil))
+	res, err := e.Run(testCtx(), MergeOrder, demoID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reads []string
+	for _, s := range res.Reading {
+		reads = append(reads, s.Kind+":"+s.Label)
+	}
+	got := strings.Join(reads, "|")
+	for _, want := range []string{"c-31d0aa", "c-p4x8ma", "policy:"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("reading lacks %q: %s", want, got)
+		}
+	}
 }
 
 func TestRisksRealModel(t *testing.T) {

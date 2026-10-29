@@ -509,6 +509,8 @@ func (e *Engine) labGapsRecipe(w *workspace) ([]finding, error) {
 	} else if ref != nil {
 		fs = append(fs, finding{Point: Point{Title: "What the lab tests", Severity: SevInfo,
 			Text: fmt.Sprintf("%s %s (recorded in the change; the run details are not on this bench).", ref.Run, ref.Result), Sources: []llm.Source{srcLab(ref.Run)}}})
+	} else {
+		fs = append(fs, e.plannedLab(w)...)
 	}
 	gaps := e.labGaps(w)
 	sortFindings(gaps)
@@ -570,6 +572,17 @@ func (e *Engine) mergeOrder(w *workspace) ([]finding, error) {
 		cands = append(cands, c)
 	}
 	sort.SliceStable(cands, func(i, j int) bool { return cands[i].score > cands[j].score })
+	// What the advisor reads: the other changes and their MRs, and the policy.
+	for _, c := range cands {
+		if c.id == ch.Id {
+			continue
+		}
+		w.read(srcChange(c.id))
+		if c.mr > 0 {
+			w.read(srcMR(c.mr, c.mrURL))
+		}
+	}
+	w.read(srcPolicy())
 	var fs []finding
 	if len(cands) == 1 {
 		fs = append(fs, finding{Point: Point{Title: "No conflicts", Severity: SevOK,
@@ -705,163 +718,6 @@ func (e *Engine) textConflict(w *workspace, other string) string {
 		}
 	}
 	return strings.Join(parts, " ")
-}
-
-// ---------------------------------------------------------------- explain diff
-
-func (e *Engine) explainDiff(w *workspace) ([]finding, error) {
-	imp, err := w.impact()
-	if err != nil {
-		return nil, err
-	}
-	var fs []finding
-	for _, c := range imp.Clusters {
-		a, ch, d := 0, 0, 0
-		for _, k := range c.Kustomizations {
-			for _, o := range k.Objects {
-				switch o.Op {
-				case api.OpAdd:
-					a++
-				case api.OpChange:
-					ch++
-				case api.OpDelete:
-					d++
-				}
-			}
-		}
-		if a+ch+d == 0 {
-			continue
-		}
-		var parts []string
-		for _, k := range c.Kustomizations {
-			if len(k.Objects) == 0 {
-				continue
-			}
-			var objs []string
-			for _, o := range k.Objects {
-				objs = append(objs, opSign(o.Op)+o.Kind+"/"+o.Name+changedFields(o.Diff))
-			}
-			parts = append(parts, fmt.Sprintf("%s: %s", k.Name, strings.Join(objs, ", ")))
-		}
-		text := fmt.Sprintf("%s. Objects %d → %d. %s.", counts(a, ch, d), c.ObjectsBase, c.ObjectsHead, strings.Join(parts, "; "))
-		if c.Role != "" || c.Ring != "" {
-			text = fmt.Sprintf("%s cluster, %s ring: %s", orDash(c.Role), orDash(c.Ring), text)
-		}
-		var srcs []llm.Source
-		seen := map[string]bool{}
-		for _, k := range c.Kustomizations {
-			for _, o := range k.Objects {
-				if o.Source.Path != "" && !seen[o.Source.Path] {
-					seen[o.Source.Path] = true
-					srcs = append(srcs, srcFile(o.Source.Path, o.Source.Line))
-				}
-			}
-		}
-		if len(srcs) > 4 {
-			srcs = srcs[:4]
-		}
-		srcs = append([]llm.Source{srcImpact(w.id)}, srcs...)
-		fs = append(fs, finding{Point: Point{Title: c.Cluster, Text: text, Severity: SevInfo, Sources: srcs}})
-	}
-	var lines []string
-	for _, s := range imp.Semantic {
-		// Lab reports and the metadata file are records of the change, not
-		// changes of the platform.
-		if strings.HasPrefix(s.Path, "kb/labs/"+w.id+"-run-") || strings.HasPrefix(s.Path, ".pk/changes/") {
-			continue
-		}
-		lines = append(lines, s.Subject+": "+s.Text)
-	}
-	if len(lines) > 0 {
-		fs = append(fs, finding{Point: Point{Title: "In domain words", Text: strings.Join(lines, "; ") + ".", Severity: SevInfo,
-			Sources: []llm.Source{srcImpact(w.id)}}})
-	}
-	for _, st := range imp.OpenSteps {
-		fs = append(fs, finding{Point: Point{Title: "After merge", Text: st.Text, Severity: SevWarn, Sources: []llm.Source{srcFile(st.Path, 0)}}})
-	}
-	if len(imp.Risk.Reasons) > 0 {
-		var rs []string
-		seen := map[string]bool{}
-		for _, r := range imp.Risk.Reasons {
-			if !seen[r.Reason] {
-				seen[r.Reason] = true
-				rs = append(rs, r.Reason)
-			}
-		}
-		fs = append(fs, finding{Point: Point{Title: "Risk " + string(imp.Risk.Level), Text: strings.Join(rs, "; ") + ".", Severity: SevInfo,
-			Sources: []llm.Source{srcPolicy()}}})
-		w.read(srcPolicy())
-	}
-	if len(fs) == 0 {
-		fs = append(fs, finding{Point: Point{Title: "No rendered change", Severity: SevOK,
-			Text: "The change does not change any rendered object (for example only docs or work items).", Sources: []llm.Source{srcImpact(w.id)}}})
-	}
-	return fs, nil
-}
-
-func opSign(op api.Op) string {
-	switch op {
-	case api.OpAdd:
-		return "+ "
-	case api.OpDelete:
-		return "- "
-	}
-	return "~ "
-}
-
-func orDash(s string) string {
-	if s == "" {
-		return "-"
-	}
-	return s
-}
-
-func counts(a, c, d int) string {
-	var p []string
-	if a > 0 {
-		p = append(p, fmt.Sprintf("%d added", a))
-	}
-	if c > 0 {
-		p = append(p, fmt.Sprintf("%d changed", c))
-	}
-	if d > 0 {
-		p = append(p, fmt.Sprintf("%d deleted", d))
-	}
-	return strings.Join(p, ", ")
-}
-
-// changedFields summarizes a rendered diff: " (+2 lines: - cn-035, - cn-036)".
-func changedFields(u string) string {
-	if u == "" {
-		return ""
-	}
-	var plus, minus []string
-	for _, l := range strings.Split(u, "\n") {
-		switch {
-		case strings.HasPrefix(l, "+++"), strings.HasPrefix(l, "---"):
-		case strings.HasPrefix(l, "+"):
-			plus = append(plus, strings.TrimPrefix(strings.TrimSpace(l[1:]), "- "))
-		case strings.HasPrefix(l, "-"):
-			minus = append(minus, strings.TrimPrefix(strings.TrimSpace(l[1:]), "- "))
-		}
-	}
-	if len(plus)+len(minus) == 0 || len(plus)+len(minus) > 12 {
-		if len(plus)+len(minus) > 12 {
-			return fmt.Sprintf(" (+%d -%d lines)", len(plus), len(minus))
-		}
-		return ""
-	}
-	var parts []string
-	for _, p := range plus {
-		parts = append(parts, "+"+p)
-	}
-	for _, m := range minus {
-		parts = append(parts, "-"+m)
-	}
-	if len(parts) > 4 {
-		parts = append(parts[:4], "…")
-	}
-	return " (" + strings.Join(parts, ", ") + ")"
 }
 
 // ---------------------------------------------------------------- check commit
