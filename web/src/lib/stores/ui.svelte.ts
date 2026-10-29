@@ -1,6 +1,8 @@
 // Per-browser UI state: theme and side panel. Kept in localStorage when
 // the browser allows it.
-export type Theme = 'system' | 'light' | 'dark';
+import { resolveTheme, toggledTheme, type Theme } from '../f/theme';
+
+export type { Theme };
 export type SideTab = 'chat' | 'activity';
 
 function load<T extends string>(key: string, fallback: T, allowed: readonly T[]): T {
@@ -17,6 +19,14 @@ function save(key: string, v: string) {
     localStorage.setItem(key, v);
   } catch {
     // private mode: keep it in memory only
+  }
+}
+
+function systemPrefersDark(): boolean {
+  try {
+    return matchMedia('(prefers-color-scheme: dark)').matches;
+  } catch {
+    return false;
   }
 }
 
@@ -39,9 +49,28 @@ class UI {
     this.applyTheme();
   }
 
-  cycleTheme() {
-    const next: Record<Theme, Theme> = { system: 'dark', dark: 'light', light: 'system' };
-    this.setTheme(next[this.theme]);
+  /** The system asks for dark; follows changes while the page is open. */
+  systemDark = $state(systemPrefersDark());
+
+  constructor() {
+    try {
+      matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+        this.systemDark = e.matches;
+      });
+    } catch {
+      // no matchMedia (tests): keep the first value
+    }
+  }
+
+  /** The theme on screen: the choice, or the system theme for 'system'. */
+  get shownTheme(): 'light' | 'dark' {
+    return resolveTheme(this.theme, this.systemDark);
+  }
+
+  /** Top bar button: always switch what is on screen, light to dark or back.
+   *  'System' stays a choice in Settings. */
+  toggleTheme() {
+    this.setTheme(toggledTheme(this.theme, this.systemDark));
   }
 
   openSide(tab?: SideTab) {
