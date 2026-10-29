@@ -239,7 +239,8 @@ func TestClientRoundTrip(t *testing.T) {
 
 	rec.mu.Lock()
 	defer rec.mu.Unlock()
-	if len(rec.evs) != 2 || rec.to[0] != "dennis" || rec.evs[1].ChangeId != "c-k7m2qz" || !strings.HasSuffix(rec.evs[1].Text, "(failed)") {
+	if len(rec.evs) != 2 || rec.to[0] != "dennis" || rec.evs[1].ChangeId != "c-k7m2qz" ||
+		rec.evs[1].Text != "pk_change_approve c-k7m2qz (failed: denied: agents never approve or merge)" {
 		t.Errorf("presence %+v to %v", rec.evs, rec.to)
 	}
 	if c, ok := Recent.Last("dennis-agent"); !ok || c.Tool != "pk_change_approve" {
@@ -312,6 +313,46 @@ func TestFocusForRack(t *testing.T) {
 	f, ok = focusFor(tp, map[string]any{"kind": "Node", "name": "cn-035"}, nil)
 	if !ok || f.Route != "/assets/Node/cn-035" {
 		t.Errorf("node focus %+v", f)
+	}
+}
+
+func TestFocusForAdviseRunsTheRecipe(t *testing.T) {
+	tp := toolPlan{Tool: Tool{Name: "pk_advise"}}
+	f, ok := focusFor(tp, map[string]any{"id": "c-k7m2qz", "recipe": "risks"}, nil)
+	if !ok || f.Route != "/changes/c-k7m2qz/review?advisor=risks" || f.View != pkapi.FocusViewReview {
+		t.Errorf("advise focus %+v", f)
+	}
+	f, ok = focusFor(toolPlan{Tool: Tool{Name: "pk_render_impact"}}, map[string]any{"id": "c-k7m2qz"}, nil)
+	if !ok || f.Route != "/changes/c-k7m2qz/review" {
+		t.Errorf("impact focus %+v", f)
+	}
+}
+
+func TestAdviseFollowTagsTheAgent(t *testing.T) {
+	var got pkapi.FocusUpdate
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/changes/{id}/advisors/{recipe}", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"recipe":"risks","title":"Risks","points":[],"model":"mock","mock":true,"fallback":true,"logId":"l1"}`))
+	})
+	mux.HandleFunc("GET /api/v1/me", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"user":"dennis-agent","kind":"agent","grant":{"mode":"navigate"}}`))
+	})
+	mux.HandleFunc("PUT /api/v1/focus", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		_, _ = w.Write([]byte(`{"by":"dennis-agent"}`))
+	})
+	h, err := New(Options{Spec: api.Spec, API: mux})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(withAgent(h))
+	defer ts.Close()
+	cs := connect(t, ts.URL, "pk_agt_test")
+	if _, err := cs.CallTool(context.Background(), &sdk.CallToolParams{Name: "pk_advise", Arguments: map[string]any{"id": "c-k7m2qz", "recipe": "risks"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got.Route != "/changes/c-k7m2qz/review?advisor=risks&by=dennis%2Fagent" {
+		t.Errorf("route %q", got.Route)
 	}
 }
 

@@ -222,11 +222,15 @@ func (h *Handler) call(ctx context.Context, tp toolPlan, req *sdk.CallToolReques
 	if ok {
 		h.follow(ctx, id, tp, args, resp.Body)
 	}
+	fail := ""
+	if !ok {
+		fail = errorText(inproc.ErrorOf(resp))
+	}
 	if !tc.Sent {
-		h.presence(id, tp, args, resp.Body, ok)
+		h.presence(id, tp, args, resp.Body, ok, fail)
 	}
 	if !ok {
-		return errorResult(errorText(inproc.ErrorOf(resp))), nil
+		return errorResult(fail), nil
 	}
 	text := strings.TrimSpace(string(resp.Body))
 	if text == "" {
@@ -411,8 +415,13 @@ func pathOf(tp toolPlan, args map[string]any, result []byte) string {
 	return ""
 }
 
-// presence tells the admin's sessions what the agent does.
-func (h *Handler) presence(id identity.Identity, tp toolPlan, args map[string]any, result []byte, ok bool) {
+// maxReason caps the error text that a failed call adds to its presence line.
+const maxReason = 140
+
+// presence tells the admin's sessions what the agent does. A failed call
+// ends in " (failed: <reason>)", so the UI can say why (for example
+// "denied: agents never approve or merge").
+func (h *Handler) presence(id identity.Identity, tp toolPlan, args map[string]any, result []byte, ok bool, reason string) {
 	change := changeOf(tp, args, result)
 	path := pathOf(tp, args, result)
 	text := tp.Name
@@ -429,7 +438,15 @@ func (h *Handler) presence(id identity.Identity, tp toolPlan, args map[string]an
 		}
 	}
 	if !ok {
-		text += " (failed)"
+		reason = strings.Join(strings.Fields(reason), " ")
+		if r := []rune(reason); len(r) > maxReason {
+			reason = string(r[:maxReason-1]) + "…"
+		}
+		if reason != "" {
+			text += " (failed: " + reason + ")"
+		} else {
+			text += " (failed)"
+		}
 	}
 	h.o.Events.PublishTo(id.Principal(), events.Presence, api.Presence{
 		Actor: id.User, Kind: api.IdentityKind(id.Kind), ActsFor: id.ActsFor,
@@ -451,9 +468,21 @@ func (h *Handler) follow(ctx context.Context, id identity.Identity, tp toolPlan,
 	if err := h.api.JSON(ctx, http.MethodGet, "/me", nil, nil, &me); err != nil || me.Grant.Mode != api.Navigate {
 		return
 	}
+	if tp.Name == "pk_advise" && strings.Contains(upd.Route, "?advisor=") {
+		// The review page tags the answer with the agent that asked.
+		upd.Route += "&by=" + url.QueryEscape(agentLabel(id))
+	}
 	if err := h.api.JSON(ctx, http.MethodPut, "/focus", nil, upd, nil); err != nil {
 		h.log.Debug("focus move", "err", err)
 	}
+}
+
+// agentLabel names an agent as the web UI does ("dennis/agent").
+func agentLabel(id identity.Identity) string {
+	if id.ActsFor != "" {
+		return id.ActsFor + "/agent"
+	}
+	return id.User
 }
 
 // focusFor maps a tool call to a UI route (web/src/routes.ts patterns).
@@ -474,7 +503,13 @@ func focusFor(tp toolPlan, args map[string]any, result []byte) (api.FocusUpdate,
 		if change == "" {
 			return api.FocusUpdate{}, false
 		}
-		return api.FocusUpdate{ChangeId: change, View: api.FocusViewReview, Route: "/changes/" + change + "/review"}, true
+		route := "/changes/" + change + "/review"
+		if r, _ := args["recipe"].(string); tp.Name == "pk_advise" && r != "" {
+			// The review page runs the recipe of ?advisor= once, so the
+			// answer shows on the admin's screen too.
+			route += "?advisor=" + url.QueryEscape(r)
+		}
+		return api.FocusUpdate{ChangeId: change, View: api.FocusViewReview, Route: route}, true
 	case "pk_lab_run", "pk_lab_status":
 		if change == "" {
 			return api.FocusUpdate{}, false
