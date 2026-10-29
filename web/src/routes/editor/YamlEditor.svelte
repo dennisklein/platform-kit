@@ -7,6 +7,8 @@
   import { Compartment, EditorState, EditorSelection } from '@codemirror/state';
   import { yaml } from '@codemirror/lang-yaml';
   import { autocompletion } from '@codemirror/autocomplete';
+  import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+  import { tags as t } from '@lezer/highlight';
   import { lintGutter, setDiagnostics } from '@codemirror/lint';
   import type { Problem } from '../../lib/api/types';
   import type { JS } from '../../lib/change/schema';
@@ -54,6 +56,26 @@
     return [];
   }
 
+  // Colours from the theme tokens, so that both themes read well (the
+  // default style is made for white and has dark-red strings): keys blue,
+  // values green, as in the deck and the read-only YamlView.
+  const highlight = HighlightStyle.define([
+    { tag: [t.propertyName, t.definition(t.propertyName)], color: 'var(--info)' },
+    { tag: [t.string, t.content, t.special(t.string), t.attributeValue], color: 'var(--ok)' },
+    { tag: [t.number, t.bool, t.null, t.atom], color: 'var(--warn)' },
+    { tag: [t.typeName, t.labelName, t.keyword], color: 'var(--warn)' },
+    { tag: [t.comment, t.lineComment], color: 'var(--muted)', fontStyle: 'italic' },
+    { tag: [t.separator, t.punctuation, t.meta, t.processingInstruction], color: 'var(--muted)' },
+    // Markdown (knowledge articles)
+    { tag: t.heading, color: 'var(--ink)', fontWeight: '700' },
+    { tag: t.strong, fontWeight: '700' },
+    { tag: t.emphasis, fontStyle: 'italic' },
+    { tag: [t.link, t.url], color: 'var(--info)' },
+    { tag: t.monospace, color: 'var(--ok)' },
+    { tag: t.quote, color: 'var(--muted)' },
+    { tag: t.invalid, color: 'var(--bad)' },
+  ]);
+
   onMount(() => {
     let cursorTimer: ReturnType<typeof setTimeout> | undefined;
     view = new EditorView({
@@ -62,6 +84,7 @@
         doc: value,
         extensions: [
           basicSetup,
+          syntaxHighlighting(highlight),
           lang.of(langExt(language)),
           ro.of([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)]),
           lintGutter(),
