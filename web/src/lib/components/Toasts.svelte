@@ -122,8 +122,8 @@
   .text {
     font-weight: 600;
   }
-  /* Short: two lines of detail (the rest is in the tooltip). Errors show
-     all of it. */
+  /* Short: three lines of detail, enough for a branch and its worktree
+     path (the rest is in the tooltip). Errors show all of it. */
   .detail {
     color: var(--muted);
     font-size: 12.5px;
@@ -131,8 +131,8 @@
     overflow-wrap: anywhere;
     display: -webkit-box;
     -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
   }
   .detail.full {
     display: block;
