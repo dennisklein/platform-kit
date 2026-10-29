@@ -169,7 +169,7 @@ echo '{"permissions":{"allow":["mcp__platform-kit"]}}' &gt; ~/pk-agent/.claude/s
   <li>MY CHANGES: Cabling for GC5A-6Z <i>approved</i> c-31d0aa; Kernel args on control nodes <i>verified</i> c-19f4tb.</li>
   <li>PUSHED BY OTHERS: BGP peers for org-a and org-b <i>lab failed</i> c-p4x8ma anna.</li>
   <li>WAITING FOR MY REVIEW: Bump podinfo to 6.9 <i>review</i> c-6m1pqd jonas. BOTS: Sync serials from asset DB <i>draft</i> c-h3sy7n.</li>
-  <li>Main page: "4 open: 1 mine, 1 waiting for my review" and RECENTLY MERGED ON MAIN. Footer: <code>main e08763f c-19f4tb</code>.</li>
+  <li>Main page: "4 open: 1 mine, 1 waiting for my review" and RECENTLY MERGED ON MAIN. Footer: <code>main 382f3ac c-19f4tb</code> (on a fresh seed).</li>
 </ul>
 <div class="fallback"><h4>If it fails</h4>
 <p>Page empty or pills red: wait 10 s and reload. Then run <code>make status</code>. CLI: <code>pk change list</code>.</p></div>
@@ -427,7 +427,7 @@ pk changes commit $CH --message "feat(cilium): peer cn-036 in rack-6z"</code></p
 <h4>The audience sees</h4>
 <ul class="see">
   <li>The change page: <i>lab passed</i> next to the title, and the lifecycle at lab (run-1). The buttons <span class="ui">Run lab again</span>, <span class="ui">Impact: defiant +2 ~1</span>, <span class="ui">Ask the advisor about risks</span>, <span class="ui">Push, open draft MR</span>.</li>
-  <li>Impact: "main e08763f → &lt;sha&gt;"; defiant CLUSTER "21 → 23 objects · ring canary"; infra-metal <code>+ Machine/cn-035</code>, <code>+ Machine/cn-036</code>; cilium <code>~ CiliumBGPPeeringPolicy/rack-6z</code>, each with a source link; "pegasus, phoenix: no change".</li>
+  <li>Impact: "main &lt;sha&gt; → &lt;sha&gt;"; defiant CLUSTER "21 → 23 objects · ring canary"; infra-metal <code>+ Machine/cn-035</code>, <code>+ Machine/cn-036</code>; cilium <code>~ CiliumBGPPeeringPolicy/rack-6z</code>, each with a source link; "pegasus, phoenix: no change".</li>
   <li>Semantic: "cn-035: new compute node in GC5A-6Z, U6", "cn-036: new compute node in GC5A-6Z, U8", "rack-6z: BGP policy selects 2 more nodes", and the new lab report.</li>
   <li>The overlap: "c-p4x8ma (anna) also changes CiliumBGPPeeringPolicy/rack-6z on defiant. BGP peers for org-a and org-b. Both can merge. Whichever merges second is re-rendered on top of the first."</li>
   <li>RISK FROM .PK/POLICY.YAML <i>high</i>: policy rules inventory and network (2 approvals, lab), risk rules "A change to a node is high." and "A change to cilium is high."</li>
@@ -620,12 +620,12 @@ pk change list          # merged changes: pk changes get-change $CH</code></pre>
 <ul class="see">
   <li>One row per change, newest first: the demo change and c-31d0aa on top, then c-19f4tb, c-0b9cfe, c-u7x2bd "anna + agent", c-m1gr8t, c-b7gl4s <i>break-glass</i> with lab <i>alert</i>, c-a5e3vk, c-2hd7vw, c-9kq1mf, f186de7 "chore: initial state". "auditors read the same with git log --merges --format='%(trailers)'".</li>
   <li>With the filter: 4 entries (c-u7x2bd, c-m1gr8t, c-2hd7vw, f186de7).</li>
-  <li>c-2hd7vw: <i>verified</i>, MR !2, merge 5749a49; TRAILERS (Pk-Intent "free data-b ports for rack 6Z", Pk-Lab-Run, Approved-by "anna, dennis"); SEMANTIC DIFF "cn-003 p2: data-b 37 to data-a 37".</li>
-  <li>"State at 5749a49 · read-only", "stored as v1alpha1": the old flat fields <code>rack</code>, <code>unit</code>, <code>height</code>; the converted view shows <code>location</code>.</li>
+  <li>c-2hd7vw: <i>verified</i>, MR !2, merge <code>d4af128</code> (slide 12); TRAILERS (Pk-Intent "free data-b ports for rack 6Z", Pk-Lab-Run, Approved-by "anna, dennis"); SEMANTIC DIFF "cn-003 p2: data-b 37 to data-a 37".</li>
+  <li>"State at d4af128 · read-only", "stored as v1alpha1": the old flat fields <code>rack</code>, <code>unit</code>, <code>height</code>; the converted view shows <code>location</code>.</li>
 </ul>
 <div class="fallback"><h4>If it fails</h4>
 <pre><code>pk history list-history --entity cn-003
-pk history get-history-entry 5749a49</code></pre></div>
+pk history get-history-entry c-2hd7vw</code></pre></div>
 </div>
 </section>
 
@@ -694,7 +694,7 @@ pk history get-history-entry 5749a49</code></pre></div>
 </ol>
 <h4>The audience sees</h4>
 <ul class="see">
-  <li>Answer 1: "c-2hd7vw moved cn-003 p2 from data-b 37 to data-a 37, to free data-b ports for rack 6Z. Approved by anna and dennis. Merged 2026-09-12, author jonas." Sources: trailer c-2hd7vw, MR !2, history 5749a49.</li>
+  <li>Answer 1: "c-2hd7vw moved cn-003 p2 from data-b 37 to data-a 37, to free data-b ports for rack 6Z. Approved by anna and dennis. Merged 2026-09-12, author jonas." Sources: trailer c-2hd7vw, MR !2, and the c-2hd7vw merge in history.</li>
   <li>Answer 2: "I cannot see it. Secret fields are removed before each call."</li>
   <li>Answer 3: "I suggest 1 line in bgp-rack-6z.yaml. See the editor." and the suggested edit <code>+ - cn-037</code>, "Chat does not commit, run labs or mark ready on its own."</li>
   <li>After <span class="ui">Accept</span>: "Accepted by dennis. Now it is a normal edit, owned by dennis."</li>
@@ -733,7 +733,7 @@ pk lab run $C2 --wait</code></pre></div>
 <tr><td>Between rehearsals</td><td><code>make reset</code> (or <code>docker compose run --rm forge-init forge-init --reset</code>). Then reload the browser tab. Nothing restarts. The lab runs of the old state go away; the agent grant and the LLM log stay.</td><td>~35 s</td></tr>
 <tr><td>Before the talk</td><td><code>make fresh</code> (or <code>docker compose down -v &amp;&amp; docker compose up -d --wait</code>). Then do the checklist of section 2 from step 2 (approve the agent again).</td><td>~45 s</td></tr>
 </table></div>
-<p>Make sure after a reset: the Changes page shows "4 open: 1 mine, 1 waiting for my review", the rail footer shows <code>main e08763f</code>, and c-31d0aa is <i>approved</i>. The demo change then gets MR !13 again. After <code>make reset</code> the LLM log and the agent grant keep the old calls; <code>make fresh</code> removes them.</p>
+<p>Make sure after a reset: the Changes page shows "4 open: 1 mine, 1 waiting for my review", the rail footer shows <code>main 382f3ac</code> (the seed test <code>TestSeedSHAs</code> pins this sha and the c-2hd7vw merge <code>d4af128</code>), and c-31d0aa is <i>approved</i>. The demo change then gets MR !13 again. After <code>make reset</code> the LLM log and the agent grant keep the old calls; <code>make fresh</code> removes them.</p>
 
 <h2 id="trouble">8. Problems and fixes</h2>
 <div class="wrap"><table>
