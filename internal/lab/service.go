@@ -719,6 +719,9 @@ func (s *Svc) finish(ctx context.Context, runID string, result Result, info Repo
 		s.mu.Lock()
 		snapshot := copyRun(r)
 		s.mu.Unlock()
+		// The report states the lab time with its own step, as the run
+		// page shows it once the report is written.
+		snapshot.SimulatedMs += reportStepMs
 		report := Report(&snapshot, info)
 		_ = s.store.saveFile(runID, "report.md", report)
 		ref := RunRef{Run: runID, SHA: snapshot.SHA, Result: result, Report: snapshot.Report}
@@ -734,7 +737,7 @@ func (s *Svc) finish(ctx context.Context, runID string, result Result, info Repo
 	if write {
 		st := &r.Steps[ri]
 		st.FinishedAt = time.Now().UTC()
-		st.SimulatedMs = 5000
+		st.SimulatedMs = reportStepMs
 		if recErr != nil {
 			st.Status = StepFail
 			st.Detail = "not written"
@@ -758,6 +761,9 @@ func (s *Svc) finish(ctx context.Context, runID string, result Result, info Repo
 	s.o.Log.Info("lab run finished", "run", runID, "result", final.Result, "summary", final.Summary)
 	s.changeUpdated(ctx, changeID)
 }
+
+// reportStepMs is the lab time of the report step.
+const reportStepMs = 5000
 
 // changeUpdated publishes change.updated so the rail shows the lab state.
 func (s *Svc) changeUpdated(ctx context.Context, id string) {

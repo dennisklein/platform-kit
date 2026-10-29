@@ -162,7 +162,9 @@ func TestRunChangePass(t *testing.T) {
 	}
 	for _, s := range []string{"type: lab-report", "entities: [defiant, cn-035, cn-036]", "changes: [c-k7m2qz]", "result: pass",
 		"| Machines under test | cn-035, cn-036 |", "`Pk-Lab-Run: c-k7m2qz/run-1 pass kb/labs/c-k7m2qz-run-1.md`",
-		"- pass: bmc: power cycle: cn-036: back in 3m 10s", "kind: Lab", "name: c-k7m2qz-run-1"} {
+		"- pass: bmc: power cycle: cn-036: back in 3m 10s", "kind: Lab", "name: c-k7m2qz-run-1",
+		// The same lab time as the run page; globs as code, not bold.
+		"Lab time 6m 40s", "| Lab gate | `control/inventory/**`, `control/cabling.yaml`, `clusters/*/infra/cilium/**` met |"} {
 		if !strings.Contains(report, s) {
 			t.Errorf("report lacks %q:\n%s", s, report)
 		}

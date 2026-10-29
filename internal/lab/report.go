@@ -139,7 +139,12 @@ func Report(r *Run, info ReportInfo) []byte {
 		if r.Result != ResultPass {
 			state = "not met"
 		}
-		fmt.Fprintf(&b, "| Lab gate | %s %s |\n", mdCell(strings.Join(r.GatePaths, ", ")), state)
+		// Code spans: a glob such as control/** is not Markdown bold.
+		paths := make([]string, len(r.GatePaths))
+		for i, p := range r.GatePaths {
+			paths[i] = "`" + mdCell(p) + "`"
+		}
+		fmt.Fprintf(&b, "| Lab gate | %s %s |\n", strings.Join(paths, ", "), state)
 	}
 	fmt.Fprintf(&b, "| Trailer | `Pk-Lab-Run: %s` |\n\n", r.Trailer())
 
