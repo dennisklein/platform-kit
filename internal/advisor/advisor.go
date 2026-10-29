@@ -101,9 +101,12 @@ type Result struct {
 	Mock        bool
 	// Fallback: the answer comes from the bench data, not from a model (no
 	// LLM endpoint, or the model call failed or gave no usable answer).
-	Fallback  bool
-	LogID     string
-	CreatedAt time.Time
+	Fallback bool
+	// FallbackReason says why the data answered although a model is set,
+	// for example "the model took longer than 12 s".
+	FallbackReason string
+	LogID          string
+	CreatedAt      time.Time
 }
 
 // CommitMessageResult is a suggested commit message.

@@ -1239,10 +1239,13 @@ type AdvisorResult struct {
 	CreatedAt time.Time `json:"createdAt,omitempty,omitzero"`
 
 	// Fallback The answer comes from the bench data, not from a model: no LLM endpoint is set (mock) or the model call failed or gave no usable answer
-	Fallback bool   `json:"fallback"`
-	LogId    string `json:"logId"`
-	Mock     bool   `json:"mock"`
-	Model    string `json:"model"`
+	Fallback bool `json:"fallback"`
+
+	// FallbackReason Why the bench answered from data although a model is set, for example the model took longer than 12 s
+	FallbackReason string `json:"fallbackReason,omitempty,omitzero"`
+	LogId          string `json:"logId"`
+	Mock           bool   `json:"mock"`
+	Model          string `json:"model"`
 
 	// Note For example Advisory only. The rating stays high from the policy.
 	Note   string              `json:"note,omitempty,omitzero"`

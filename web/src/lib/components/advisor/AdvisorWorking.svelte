@@ -36,6 +36,9 @@
   // the answer arrives.
   const at = $derived(Math.min(steps.length - 1, Math.floor((now - started) / STEP_MS)));
   const secs = $derived(Math.floor((now - started) / 1000));
+  // The built-in analysis answers in about a second: a seconds counter
+  // there only reads "0 s".
+  const builtin = $derived(!session.status?.llm || session.status.llm.mock);
   const model = $derived.by(() => {
     const llm = session.status?.llm;
     if (!llm || llm.mock) return 'built-in';
@@ -48,7 +51,7 @@
   <div class="line" aria-busy="true" aria-live="polite" aria-label="{title}: working">
     <span class="spin" aria-hidden="true"></span>
     <span class="now">{steps[at]}…</span>
-    <span class="model mono">{model} · {secs} s</span>
+    <span class="model mono">{builtin ? model : `${model} · ${secs} s`}</span>
   </div>
 {:else}
   <article class="work" aria-busy="true" aria-label="{title}: working">
@@ -56,7 +59,7 @@
       <span class="spark"><Glyph name="sparkle" size={16} /></span>
       <h4>{title}</h4>
       {#if by}<span class="by"><Glyph name="bot" size={13} />asked by {by}</span>{/if}
-      <span class="model mono">{model} · {secs} s</span>
+      <span class="model mono">{builtin ? model : `${model} · ${secs} s`}</span>
     </header>
     <ol class="steps" aria-live="polite">
       {#each steps as s, i (s)}

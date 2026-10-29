@@ -65,7 +65,8 @@ func wireLLM(ctx context.Context, cfg config.Config, d *bench.Deps) error {
 		return err
 	}
 	d.Chat = cs
-	d.Advisors = advisor.New(advisor.Options{Tools: tools, LLM: client, Log: lg, Store: cs, Kinds: d.Kinds})
+	d.Advisors = advisor.New(advisor.Options{Tools: tools, LLM: client, Log: lg, Store: cs, Kinds: d.Kinds,
+		Deadline: cfg.AdvisorDeadline})
 
 	d.MCP = func(h http.Handler) http.Handler {
 		ref.Set(h)

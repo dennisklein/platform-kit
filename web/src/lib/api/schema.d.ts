@@ -2370,6 +2370,8 @@ export interface components {
             mock: boolean;
             /** @description The answer comes from the bench data, not from a model: no LLM endpoint is set (mock) or the model call failed or gave no usable answer */
             fallback: boolean;
+            /** @description Why the bench answered from data although a model is set, for example the model took longer than 12 s */
+            fallbackReason?: string;
             logId: string;
             /** @enum {string} */
             rating?: "up" | "down";

@@ -19,6 +19,9 @@ import (
 // ErrUnknownRecipe is returned for a recipe id that does not exist.
 var ErrUnknownRecipe = errors.New("unknown advisor recipe")
 
+// DefaultDeadline bounds the model phrasing of a recipe.
+const DefaultDeadline = 12 * time.Second
+
 // Options of the engine.
 type Options struct {
 	Tools Tools
@@ -31,7 +34,11 @@ type Options struct {
 	Store SuggestionStore
 	// Timeout of one model call (default 90 s).
 	Timeout time.Duration
-	Now     func() time.Time
+	// Deadline bounds the model phrasing of a recipe (PK_ADVISOR_DEADLINE,
+	// default 12 s). After it the deterministic points answer, with a
+	// fallback reason, so a slow model never holds the advisor card.
+	Deadline time.Duration
+	Now      func() time.Time
 }
 
 // Engine runs the recipes. It implements Runner.
@@ -49,6 +56,9 @@ func New(o Options) *Engine {
 	}
 	if o.Timeout <= 0 {
 		o.Timeout = 90 * time.Second
+	}
+	if o.Deadline <= 0 {
+		o.Deadline = DefaultDeadline
 	}
 	if o.Now == nil {
 		o.Now = time.Now
@@ -143,8 +153,16 @@ func (e *Engine) Run(ctx context.Context, recipeID, changeID string) (*Result, e
 	if !res.Mock && len(fs) > 0 {
 		phrased, pnote, model, perr := e.phrase(ctx, prompt, fs)
 		if perr != nil {
+			if ctx.Err() != nil {
+				// The asker cancelled the run.
+				return nil, ctx.Err()
+			}
 			entry.Error = perr.Error()
 			res.Fallback = true
+			res.FallbackReason = e.fallbackReason(perr)
+			if errors.Is(perr, errTooSlow) {
+				entry.Error = "model too slow (" + e.o.Deadline.String() + "): " + perr.Error()
+			}
 			e.log.Warn("advisor: model answer not used", "recipe", r.ID, "err", perr)
 		} else {
 			points = phrased
@@ -305,16 +323,37 @@ Write at most %d points that answer the question for a reviewer. Answer with one
 		r.Title, r.Question, b, max(1, min(len(fs), 5)))
 }
 
+// errTooSlow marks a model call that passed the advisor deadline.
+var errTooSlow = errors.New("the model passed the advisor deadline")
+
+// errUnusable marks a model answer the advisor cannot use.
+var errUnusable = errors.New("the model answer is not usable")
+
+// fallbackReason is the calm line the UI shows when the data answered.
+func (e *Engine) fallbackReason(err error) string {
+	switch {
+	case errors.Is(err, errTooSlow):
+		return fmt.Sprintf("the model took longer than %d s", int(e.o.Deadline.Round(time.Second).Seconds()))
+	case errors.Is(err, errUnusable):
+		return "the model gave no usable answer"
+	}
+	return "the model did not answer"
+}
+
 // phrase asks the model to write the points. Sources always come from the
-// cited findings, never from the model.
+// cited findings, never from the model. The call gets the advisor deadline
+// (and never more than the call timeout).
 func (e *Engine) phrase(ctx context.Context, prompt string, fs []finding) ([]Point, string, string, error) {
-	cctx, cancel := context.WithTimeout(ctx, e.o.Timeout)
+	cctx, cancel := context.WithTimeout(ctx, min(e.o.Deadline, e.o.Timeout))
 	defer cancel()
 	resp, err := e.o.LLM.Complete(cctx, llm.Request{
 		Messages:    []llm.Message{{Role: llm.RoleSystem, Content: systemPrompt}, {Role: llm.RoleUser, Content: prompt}},
 		Temperature: 0.2, MaxTokens: 1200, JSON: true,
 	})
 	if err != nil {
+		if ctx.Err() == nil && errors.Is(cctx.Err(), context.DeadlineExceeded) {
+			return nil, "", "", fmt.Errorf("%w: %w", errTooSlow, err)
+		}
 		return nil, "", "", err
 	}
 	var out struct {
@@ -327,7 +366,7 @@ func (e *Engine) phrase(ctx context.Context, prompt string, fs []finding) ([]Poi
 		Note string `json:"note"`
 	}
 	if err := json.Unmarshal([]byte(jsonObject(resp.Message.Content)), &out); err != nil {
-		return nil, "", "", fmt.Errorf("model answer is not the JSON form: %w", err)
+		return nil, "", "", fmt.Errorf("%w: not the JSON form: %w", errUnusable, err)
 	}
 	byID := map[string]finding{}
 	for _, f := range fs {
@@ -362,7 +401,7 @@ func (e *Engine) phrase(ctx context.Context, prompt string, fs []finding) ([]Poi
 		points = append(points, pt)
 	}
 	if len(points) == 0 {
-		return nil, "", "", errors.New("model answer has no points")
+		return nil, "", "", fmt.Errorf("%w: no points", errUnusable)
 	}
 	return points, strings.TrimSpace(out.Note), resp.Model, nil
 }

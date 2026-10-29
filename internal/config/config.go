@@ -48,6 +48,10 @@ type Config struct {
 	LLMEmbedModel string // PK_LLM_EMBED_MODEL
 	// LLMTimeout bounds one model call (PK_LLM_TIMEOUT, default 45s).
 	LLMTimeout time.Duration
+	// AdvisorDeadline bounds the model phrasing of an advisor recipe
+	// (PK_ADVISOR_DEADLINE, default 12s). After it the advisor answers with
+	// its deterministic points.
+	AdvisorDeadline time.Duration
 
 	// LabSpeed scales lab step durations (PK_LAB_SPEED, default 1 makes a run last about 25 s;
 	// 10 makes it 10 times faster).
@@ -78,6 +82,7 @@ func FromEnv() Config {
 		LLMAPIKey:        os.Getenv("PK_LLM_API_KEY"),
 		LLMEmbedModel:    os.Getenv("PK_LLM_EMBED_MODEL"),
 		LLMTimeout:       envDuration("PK_LLM_TIMEOUT", 45*time.Second),
+		AdvisorDeadline:  envDuration("PK_ADVISOR_DEADLINE", 12*time.Second),
 		LabSpeed:         envFloat("PK_LAB_SPEED", 1),
 		PollInterval:     envDuration("PK_POLL_INTERVAL", 3*time.Second),
 	}

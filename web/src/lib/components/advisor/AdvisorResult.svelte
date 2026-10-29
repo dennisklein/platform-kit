@@ -70,6 +70,8 @@
 
   const SEV: Record<string, string> = { risk: 'risk', warn: 'check', info: 'note', ok: 'ok' };
   const copyText = $derived(resultMarkdown(result));
+  /** "the model took longer than 12 s" → "The model took longer than 12 s, so these points come from the project data." */
+  const fallbackLine = (r: string) => `${r.charAt(0).toUpperCase()}${r.slice(1).replace(/\.$/, '')}, so these points come from the project data.`;
 </script>
 
 <article class="adv" aria-label={result.title}>
@@ -79,6 +81,12 @@
     {#if by}<span class="by" title="An agent asked this through MCP"><Glyph name="bot" size={13} />asked by {by}</span>{/if}
     <span class="model" class:fallback={ml.fallback} title={modelTitle}>{ml.text}</span>
   </header>
+
+  {#if result.fallbackReason}
+    <p class="why" title="The bench answered from its own data instead of the model">
+      <Glyph name="clock" size={13} />{fallbackLine(result.fallbackReason)}
+    </p>
+  {/if}
 
   {#if result.points.length}
     <ol class="points">
@@ -183,6 +191,17 @@
     color: var(--muted);
     border-color: var(--line);
     background: var(--panel-2);
+  }
+  .why {
+    margin: -2px 0 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .why :global(svg) {
+    flex: none;
   }
   .points {
     margin: 0;

@@ -86,7 +86,7 @@ func (e *Engine) CommitMessage(ctx context.Context, changeID string, paths []str
 	prompt := commitPrompt(ch, files, semantic, subject, bullets)
 	entry := llm.LogEntry{Surface: llm.SurfaceCommitMessage, Recipe: CommitMessage, ChangeID: changeID, Model: res.Model, Mock: res.Mock, Prompt: prompt}
 	if !res.Mock {
-		cctx, cancel := context.WithTimeout(ctx, e.o.Timeout)
+		cctx, cancel := context.WithTimeout(ctx, min(e.o.Deadline, e.o.Timeout))
 		resp, err := e.o.LLM.Complete(cctx, llm.Request{
 			Messages: []llm.Message{
 				{Role: llm.RoleSystem, Content: commitSystem},

@@ -115,7 +115,7 @@ func (s *Server) ListAdvisors(ctx context.Context, req api.ListAdvisorsRequestOb
 func AdvisorResultToAPI(r *advisor.Result) api.AdvisorResult {
 	out := api.AdvisorResult{
 		Recipe: r.Recipe, Title: r.Title, ChangeId: r.ChangeID, Note: r.Note, Model: r.Model, Mock: r.Mock, Fallback: r.Fallback,
-		LogId: r.LogID, CreatedAt: r.CreatedAt, Points: []api.AdvisorPoint{},
+		FallbackReason: r.FallbackReason, LogId: r.LogID, CreatedAt: r.CreatedAt, Points: []api.AdvisorPoint{},
 		Reading: sourcesToAPI(r.Reading), Suggestions: suggestionsToAPI(r.Suggestions),
 	}
 	for _, p := range r.Points {
