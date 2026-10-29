@@ -234,15 +234,19 @@ func (s *Svc) advise(ctx context.Context, p *progress, req Request, id, recipe s
 	var b strings.Builder
 	switch recipe {
 	case advisor.Risks:
-		risky := 0
+		// An OK point ("No findings") is neither a risk nor a note.
+		risky, notes := 0, 0
 		for _, pt := range res.Points {
-			if pt.Severity == advisor.SevRisk || pt.Severity == advisor.SevWarn {
+			switch pt.Severity {
+			case advisor.SevRisk, advisor.SevWarn:
 				risky++
+			case advisor.SevOK:
+			default:
+				notes++
 			}
 		}
-		notes := len(res.Points) - risky
 		switch {
-		case len(res.Points) == 0:
+		case risky == 0 && notes == 0:
 			fmt.Fprintf(&b, "I see no risks in %s.", who)
 		case risky == 0:
 			fmt.Fprintf(&b, "I see no blocking risk in %s, and %s to check:", who, plural(notes, "note", "notes"))

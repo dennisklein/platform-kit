@@ -108,3 +108,48 @@ func TestReportWhy(t *testing.T) {
 		t.Errorf("raw results: %q", got)
 	}
 }
+
+func TestLabGapsOfRecordedRun(t *testing.T) {
+	e := New(Options{Tools: newP4Tools(t), LLM: llm.NewMock(nil), Log: llm.NewFileLog(filepath.Join(t.TempDir(), "log.jsonl"))})
+	res, err := e.Run(testCtx(), LabGaps, "c-p4x8ma")
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := pointTexts(res.Points)
+	for _, want := range []string{
+		"What the lab tests: run-1 failed. Its report lists topology, BMC, install and join as passed, BGP as failed and checks as skipped.",
+		"Lab gap: The lab emulates only the router 10.6.0.1, so the BGP peers 10.6.0.3 and 10.6.0.4 are not tested.",
+	} {
+		if !strings.Contains(all, want) {
+			t.Errorf("missing %q in\n%s", want, all)
+		}
+	}
+	for _, bad := range []string{"not on this bench", "run-1 fail ("} {
+		if strings.Contains(all, bad) {
+			t.Errorf("%q in\n%s", bad, all)
+		}
+	}
+}
+
+// sameCount renders a change that keeps the number of objects.
+type sameCount struct{ *fakeTools }
+
+func (f sameCount) Impact(ctx context.Context, id string) (*api.Impact, error) {
+	imp, err := f.fakeTools.Impact(ctx, id)
+	if err == nil && len(imp.Clusters) > 0 {
+		imp.Clusters[0].ObjectsBase, imp.Clusters[0].ObjectsHead = 21, 21
+	}
+	return imp, err
+}
+
+func TestExplainSameObjectCount(t *testing.T) {
+	e := New(Options{Tools: sameCount{newFakeTools()}, LLM: llm.NewMock(nil), Log: llm.NewFileLog(filepath.Join(t.TempDir(), "log.jsonl"))})
+	res, err := e.Run(testCtx(), ExplainDiff, demoID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := pointTexts(res.Points)
+	if !strings.Contains(all, "The object count stays at 21.") || strings.Contains(all, "from 21 to 21") {
+		t.Fatalf("%s", all)
+	}
+}

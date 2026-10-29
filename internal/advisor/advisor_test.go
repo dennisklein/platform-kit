@@ -45,7 +45,8 @@ func TestRisksMock(t *testing.T) {
 	t.Log("\n" + all + res.Note)
 	for _, want := range []string{
 		"c-p4x8ma (anna) also changes CiliumBGPPeeringPolicy/rack-6z: 2 new BGP peers.",
-		"Until c-p4x8ma merges, cn-035 and cn-036 peer only with 10.6.0.1/32.",
+		// cn-036 is not in the policy: it peers with nobody (the BGP gap).
+		"Until c-p4x8ma merges, cn-035 peers only with 10.6.0.1/32.",
 		"Its last lab run failed: BGP session to 10.6.0.3 not established.",
 		"cn-036 is in the inventory of this change, in GC5A-6Z, but not in the BGP policy rack-6z.",
 		"c-2hd7vw (jonas, 2026-09-12) changed cn-003 p2: data-b 37 to data-a 37, to free data-b ports for rack 6Z. This change uses data-b 37 (freed then) and data-a 38 (next to data-a 37).",

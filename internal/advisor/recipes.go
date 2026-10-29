@@ -108,17 +108,22 @@ func (e *Engine) overlapFindings(w *workspace) []finding {
 			}
 		}
 		// Peers of a shared BGP policy: until the other change merges, the
-		// nodes of this change peer with the current peers only.
+		// nodes of this change peer with the current peers only. A node the
+		// policy does not select peers with nobody (a BGP gap says so).
 		for _, pol := range w.bgpPolicies() {
 			if containsObj(o.Objects, "CiliumBGPPeeringPolicy", pol.Name) && len(pol.Peers) > 0 && addsPeers[pol.Name] {
 				var newNodes []string
 				for _, n := range w.changeNodes() {
-					if n.New && strings.EqualFold(n.Rack, pol.Rack) {
+					if n.New && strings.EqualFold(n.Rack, pol.Rack) && pol.Selects(n.Name) {
 						newNodes = append(newNodes, n.Name)
 					}
 				}
 				if len(newNodes) > 0 {
-					text += fmt.Sprintf(" Until %s merges, %s peer only with %s.", o.Change, joinAnd(newNodes), joinAnd(pol.Peers))
+					verb := "peer"
+					if len(newNodes) == 1 {
+						verb = "peers"
+					}
+					text += fmt.Sprintf(" Until %s merges, %s %s only with %s.", o.Change, joinAnd(newNodes), verb, joinAnd(pol.Peers))
 				}
 			}
 		}
@@ -503,12 +508,16 @@ func (e *Engine) labGapsRecipe(w *workspace) ([]finding, error) {
 		}
 		fs = append(fs, finding{Point: Point{Title: "What the lab tests", Text: text + ".", Severity: SevOK, Sources: []llm.Source{srcLab(run.Id)}}})
 	} else if ref != nil {
-		fs = append(fs, finding{Point: Point{Title: "What the lab tests", Severity: SevInfo,
-			Text: fmt.Sprintf("%s %s (recorded in the change; the run details are not on this bench).", ref.Run, ref.Result), Sources: []llm.Source{srcLab(ref.Run)}}})
+		// A recorded run: what it tested comes from its report.
+		text, srcs := w.recordedRunText(ref)
+		fs = append(fs, finding{Point: Point{Title: "What the lab tests", Severity: SevInfo, Text: text, Sources: srcs}})
 	} else {
 		fs = append(fs, e.plannedLab(w)...)
 	}
 	gaps := e.labGaps(w)
+	if g, ok := w.emulationGap(run, ref); ok {
+		gaps = append(gaps, g)
+	}
 	sortFindings(gaps)
 	fs = append(fs, gaps...)
 	if len(fs) == 0 {

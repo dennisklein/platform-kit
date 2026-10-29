@@ -22,6 +22,7 @@ func seedState(t *testing.T, p string) string {
 	return string(b)
 }
 
+// platformFake has the clusters, talconfigs and some inventory of main.
 func platformFake(t *testing.T) *fake {
 	f := newFake(t)
 	for _, p := range []string{
@@ -168,6 +169,7 @@ func TestModelAdviseTakesTheIDOfTheQuestion(t *testing.T) {
 	}
 }
 
+// storyFake has a change with a failed lab and a merged change.
 type storyFake struct{ *fake }
 
 func (f storyFake) Change(ctx context.Context, id string) (*api.Change, error) {
@@ -216,5 +218,42 @@ func TestFollowUpsAnswerTheNarrowerQuestion(t *testing.T) {
 	}
 	if when.Text != "**c-2hd7vw** (*Move cn-003 to data-a 37*) was merged on **2026-09-12** in MR !2; jonas wrote it." {
 		t.Errorf("when %q", when.Text)
+	}
+}
+
+func TestNoFindingsIsNoNote(t *testing.T) {
+	adv := points{pts: []advisor.Point{{Title: "No findings", Text: "No overlap with open changes.", Severity: advisor.SevOK}}}
+	dir := t.TempDir()
+	s, err := New(Options{Tools: newFake(t), Advisor: adv, LLM: llm.NewMock(nil), Path: filepath.Join(dir, "s.json")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := s.Ask(ctxAs("dennis"), ask("Is it safe to merge c-31d0aa?"))
+	if !strings.HasPrefix(a.Text, "I see no risks in **c-31d0aa**") || strings.Contains(a.Text, "note") {
+		t.Fatalf("%q", a.Text)
+	}
+}
+
+// labLinked is a node that only a lab points at.
+type labLinked struct{ *fake }
+
+func (f labLinked) Entity(ctx context.Context, kind, name, ref string) (*api.Entity, error) {
+	if kind != "Node" || name != "cn-003" {
+		return nil, os.ErrNotExist
+	}
+	e := &api.Entity{Kind: "Node", Name: "cn-003", Path: "control/inventory/cn-003.yaml"}
+	e.Backlinks.Entities = []api.EntityRef{{Kind: "Lab", Name: "defiant-twin"}}
+	return e, nil
+}
+
+func TestDeleteNamesWhatPointsAtIt(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(Options{Tools: labLinked{newFake(t)}, LLM: llm.NewMock(nil), Path: filepath.Join(dir, "s.json")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := s.Ask(ctxAs("dennis"), ask("Delete cn-003 from the inventory"))
+	if !strings.Contains(a.Text, "Check what else points at it: Lab defiant-twin.") || strings.Contains(a.Text, "Nothing else") {
+		t.Fatalf("%q", a.Text)
 	}
 }

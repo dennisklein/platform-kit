@@ -695,7 +695,7 @@ func (s *Svc) removeRequest(ctx context.Context, p *progress, req Request, q str
 		step++
 	}
 	fmt.Fprintf(&b, "\n%d. Commit, then run the lab.", step)
-	if !sugg && len(policies) == 0 {
+	if !sugg && len(policies) == 0 && len(others) == 0 {
 		b.WriteString("\n\nNothing else in the repo points at it.")
 	}
 	a.Text = b.String()

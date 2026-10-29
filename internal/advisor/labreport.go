@@ -1,6 +1,7 @@
 package advisor
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -196,4 +197,128 @@ func (w *workspace) labFailedText(runLabel string, run *api.LabRun, ref *api.Lab
 		text += "; " + c
 	}
 	return text + ".", srcs
+}
+
+// reportFile reads the KB report of a lab run (in the change, else on
+// main) and records it as a source.
+func (w *workspace) reportFile(report string) (string, bool) {
+	if report == "" {
+		return "", false
+	}
+	content, ok := w.file(w.id, report)
+	if !ok {
+		if content, ok = w.file("main", report); !ok {
+			return "", false
+		}
+	}
+	w.read(srcReport(report))
+	return content, true
+}
+
+var reStepRow = regexp.MustCompile(`^\|\s*([^|]+?)\s*\|\s*([^|]*?)\s*\|\s*([a-z]+)\s*\|$`)
+
+// reportSteps returns the steps of a report's step table by result (pass,
+// fail, skipped), in table order. The report step itself is no test.
+func reportSteps(content string) map[string][]string {
+	out := map[string][]string{}
+	for _, l := range strings.Split(content, "\n") {
+		m := reStepRow.FindStringSubmatch(strings.TrimSpace(l))
+		if m == nil || strings.EqualFold(m[1], "step") || strings.HasPrefix(m[1], "-") || m[1] == "report" {
+			continue
+		}
+		out[m[3]] = append(out[m[3]], m[1])
+	}
+	return out
+}
+
+func resultWord(r string) string {
+	switch r {
+	case string(api.LabResultPass):
+		return "passed"
+	case string(api.LabResultFail):
+		return "failed"
+	}
+	return r
+}
+
+// recordedRunText says what a run recorded in the change tested, from its
+// report: "run-1 failed. Its report lists topology, BMC, install and join as
+// passed, BGP as failed and checks as skipped."
+func (w *workspace) recordedRunText(ref *api.LabRunRef) (string, []llm.Source) {
+	label := ref.Run
+	if _, n, ok := strings.Cut(ref.Run, "/"); ok {
+		label = n
+	}
+	srcs := []llm.Source{srcLab(ref.Run)}
+	result := resultWord(string(ref.Result))
+	report := ref.Report
+	if report == "" && w.ch != nil {
+		for _, r := range w.ch.LabRuns {
+			if r.Run == ref.Run {
+				report = r.Report
+			}
+		}
+	}
+	content, ok := w.reportFile(report)
+	if !ok {
+		return label + " " + result + ", as recorded in the change.", srcs
+	}
+	srcs = append(srcs, srcReport(report))
+	steps := reportSteps(content)
+	var parts []string
+	for _, r := range [][2]string{{"pass", "passed"}, {"fail", "failed"}, {"skipped", "skipped"}} {
+		if len(steps[r[0]]) > 0 {
+			parts = append(parts, joinAnd(steps[r[0]])+" as "+r[1])
+		}
+	}
+	text := label + " " + result + "."
+	if len(parts) > 0 {
+		text += " Its report lists " + joinAnd(parts) + "."
+	}
+	return text, srcs
+}
+
+var reIPv4 = regexp.MustCompile(`\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b`)
+
+// emulationGap is the gap the report of a failed run explains: "The lab
+// emulates only the router 10.6.0.1, so the BGP peers 10.6.0.3 and 10.6.0.4
+// are not tested."
+func (w *workspace) emulationGap(run *api.LabRun, ref *api.LabRunRef) (finding, bool) {
+	if run == nil && ref == nil {
+		return finding{}, false
+	}
+	fails, why, report := w.labFailures(run, ref)
+	clause := failClause(why)
+	if len(fails) == 0 || clause == "" {
+		return finding{}, false
+	}
+	noun := "the addresses"
+	var ips []string
+	seen := map[string]bool{}
+	for _, f := range fails {
+		if strings.HasPrefix(f, "bgp: ") {
+			noun = "the BGP peers"
+		}
+		for _, ip := range reIPv4.FindAllString(f, -1) {
+			if !seen[ip] && !strings.Contains(why, ip) {
+				seen[ip] = true
+				ips = append(ips, ip)
+			}
+		}
+	}
+	if len(ips) == 0 {
+		return finding{}, false
+	}
+	id := ""
+	if run != nil {
+		id = run.Id
+	} else {
+		id = ref.Run
+	}
+	srcs := []llm.Source{srcLab(id)}
+	if report != "" {
+		srcs = append(srcs, srcReport(report))
+	}
+	text := fmt.Sprintf("%s%s, so %s %s %s not tested.", strings.ToUpper(clause[:1]), clause[1:], noun, joinAnd(ips), isAre(len(ips)))
+	return finding{Point: Point{Title: "Lab gap", Text: text, Severity: SevWarn, Sources: srcs}}, true
 }

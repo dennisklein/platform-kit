@@ -43,7 +43,11 @@ func (e *Engine) explainDiff(w *workspace) ([]finding, error) {
 		if len(tags) > 0 {
 			where += " (" + strings.Join(tags, ", ") + ")"
 		}
-		text := fmt.Sprintf("On %s: %s It goes from %d to %d objects.", where, strings.Join(explainObjects(objs), " "), c.ObjectsBase, c.ObjectsHead)
+		count := fmt.Sprintf("It goes from %d to %d objects.", c.ObjectsBase, c.ObjectsHead)
+		if c.ObjectsBase == c.ObjectsHead {
+			count = fmt.Sprintf("The object count stays at %d.", c.ObjectsHead)
+		}
+		text := fmt.Sprintf("On %s: %s %s", where, strings.Join(explainObjects(objs), " "), count)
 		fs = append(fs, finding{Point: Point{Title: c.Cluster, Text: text, Severity: SevInfo, Sources: objectSources(w.id, objs)}})
 		for _, o := range objs {
 			if o.Op == api.OpChange {
