@@ -1,0 +1,10 @@
+apiVersion: pk/v1alpha1
+kind: Cluster
+metadata:
+  name: defiant
+spec:
+  role: tenants
+  ring: canary
+  description: Tenant cluster for batch and services of the experiment groups.
+  endpoint: https://defiant.k8s.pk.local:6443
+  talos: control/talos/defiant/talconfig.yaml

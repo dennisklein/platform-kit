@@ -1,0 +1,29 @@
+id: c-u7x2bd
+title: "Firmware 2.4 on compute nodes"
+intent: "BMC and BIOS firmware 2.4 on all compute nodes of defiant"
+author: anna
+agent: anna-agent
+date: "2026-10-13T16:40:00Z"
+merged: true
+mergedAt: "2026-10-14T10:30:00Z"
+mergedBy: anna
+approvedBy: [dennis, jonas]
+labRun: {run: c-u7x2bd/run-1, result: pass, report: kb/labs/c-u7x2bd-run-1.md}
+workItems: []
+commits:
+  - message: "feat(inventory): firmware 2.4 label on compute nodes"
+    files:
+      - control/inventory/cn-003.yaml
+      - control/inventory/cn-025.yaml
+      - control/inventory/cn-026.yaml
+      - control/inventory/cn-027.yaml
+      - control/inventory/cn-028.yaml
+      - control/inventory/cn-029.yaml
+      - control/inventory/cn-030.yaml
+      - control/inventory/cn-031.yaml
+      - control/inventory/cn-032.yaml
+      - control/inventory/cn-033.yaml
+      - control/inventory/cn-034.yaml
+  - message: "docs(lab): add report for c-u7x2bd/run-1"
+    files:
+      - kb/labs/c-u7x2bd-run-1.md

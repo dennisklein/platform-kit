@@ -1,0 +1,9 @@
+apiVersion: pk/v1alpha1
+kind: Cluster
+metadata:
+  name: pegasus
+spec:
+  role: storage
+  ring: prod
+  description: Storage cluster. Runs Ceph on sn-05 with the jb-05 disk shelf.
+  endpoint: https://pegasus.k8s.pk.local:6443

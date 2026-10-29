@@ -1,0 +1,8 @@
+apiVersion: inventory.pk.io/v1beta1
+kind: Rack
+metadata:
+  name: GC5A-6Z
+spec:
+  row: "6"
+  units: 47
+  location: GSI Green Cube, level 5, room A (compute for defiant)

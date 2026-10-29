@@ -1,0 +1,618 @@
+[
+ {
+  "apiVersion": "kb.pk.io/v1",
+  "kind": "Article",
+  "name": "kb/hardware/jbod-slot-numbers.md",
+  "path": "kb/hardware/jbod-slot-numbers.md",
+  "status": "ok",
+  "title": "JBOD drawers: slot numbers"
+ },
+ {
+  "apiVersion": "kb.pk.io/v1",
+  "kind": "Article",
+  "name": "kb/incidents/2026-10-02-break-glass.md",
+  "path": "kb/incidents/2026-10-02-break-glass.md",
+  "status": "ok",
+  "title": "Incident 2026-10-02: break-glass"
+ },
+ {
+  "apiVersion": "kb.pk.io/v1",
+  "kind": "Article",
+  "name": "kb/labs/c-19f4tb-run-1.md",
+  "path": "kb/labs/c-19f4tb-run-1.md",
+  "status": "ok",
+  "title": "Lab report c-19f4tb/run-1"
+ },
+ {
+  "apiVersion": "kb.pk.io/v1",
+  "kind": "Article",
+  "name": "kb/labs/c-2hd7vw-run-1.md",
+  "path": "kb/labs/c-2hd7vw-run-1.md",
+  "status": "ok",
+  "title": "Lab report c-2hd7vw/run-1"
+ },
+ {
+  "apiVersion": "kb.pk.io/v1",
+  "kind": "Article",
+  "name": "kb/labs/c-9kq1mf-run-1.md",
+  "path": "kb/labs/c-9kq1mf-run-1.md",
+  "status": "ok",
+  "title": "Lab report c-9kq1mf/run-1"
+ },
+ {
+  "apiVersion": "kb.pk.io/v1",
+  "kind": "Article",
+  "name": "kb/labs/c-u7x2bd-run-1.md",
+  "path": "kb/labs/c-u7x2bd-run-1.md",
+  "status": "ok",
+  "title": "Lab report c-u7x2bd/run-1"
+ },
+ {
+  "apiVersion": "kb.pk.io/v1",
+  "kind": "Article",
+  "name": "kb/runbooks/add-node.md",
+  "path": "kb/runbooks/add-node.md",
+  "status": "ok",
+  "title": "Add a compute node to a cluster"
+ },
+ {
+  "apiVersion": "kb.pk.io/v1",
+  "kind": "Article",
+  "name": "kb/runbooks/replace-failed-disk.md",
+  "path": "kb/runbooks/replace-failed-disk.md",
+  "status": "ok",
+  "title": "Replace a failed disk in a storage node"
+ },
+ {
+  "apiVersion": "kb.pk.io/v1",
+  "kind": "Article",
+  "name": "kb/storage/ceph-osd-layout-pegasus.md",
+  "path": "kb/storage/ceph-osd-layout-pegasus.md",
+  "status": "ok",
+  "title": "Ceph OSD layout on pegasus"
+ },
+ {
+  "apiVersion": "inventory.pk.io/v1beta1",
+  "kind": "CablePlan",
+  "name": "row-6",
+  "path": "control/cabling.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "cilium.io/v2alpha1",
+  "cluster": "defiant",
+  "kind": "CiliumBGPPeeringPolicy",
+  "labels": {
+   "inventory.pk.io/rack": "GC5A-6Z"
+  },
+  "name": "rack-6z",
+  "path": "clusters/defiant/infra/cilium/bgp-rack-6z.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "pk/v1alpha1",
+  "cluster": "defiant",
+  "kind": "Cluster",
+  "name": "defiant",
+  "path": "clusters/defiant/cluster.yaml",
+  "role": "tenants",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "pk/v1alpha1",
+  "cluster": "pegasus",
+  "kind": "Cluster",
+  "name": "pegasus",
+  "path": "clusters/pegasus/cluster.yaml",
+  "role": "storage",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "pk/v1alpha1",
+  "cluster": "phoenix",
+  "kind": "Cluster",
+  "name": "phoenix",
+  "path": "clusters/phoenix/cluster.yaml",
+  "role": "control",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "apps/v1",
+  "cluster": "defiant",
+  "kind": "Deployment",
+  "labels": {
+   "app.kubernetes.io/name": "podinfo"
+  },
+  "name": "podinfo",
+  "path": "clusters/defiant/apps/podinfo/deployment.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "pk/v1alpha1",
+  "kind": "EmulationProfile",
+  "name": "default",
+  "path": ".pk/emulation.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "source.toolkit.fluxcd.io/v1",
+  "cluster": "defiant",
+  "kind": "GitRepository",
+  "name": "state",
+  "path": "clusters/defiant/flux.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "source.toolkit.fluxcd.io/v1",
+  "cluster": "pegasus",
+  "kind": "GitRepository",
+  "name": "state",
+  "path": "clusters/pegasus/flux.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "source.toolkit.fluxcd.io/v1",
+  "cluster": "phoenix",
+  "kind": "GitRepository",
+  "name": "state",
+  "path": "clusters/phoenix/flux.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "helm.toolkit.fluxcd.io/v2",
+  "cluster": "defiant",
+  "kind": "HelmRelease",
+  "name": "cilium",
+  "path": "clusters/defiant/infra/cilium/helmrelease.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "helm.toolkit.fluxcd.io/v2",
+  "cluster": "pegasus",
+  "kind": "HelmRelease",
+  "name": "cilium",
+  "path": "clusters/pegasus/infra/cilium/helmrelease.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "helm.toolkit.fluxcd.io/v2",
+  "cluster": "phoenix",
+  "kind": "HelmRelease",
+  "name": "cilium",
+  "path": "clusters/phoenix/infra/cilium/helmrelease.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "source.toolkit.fluxcd.io/v1",
+  "cluster": "defiant",
+  "kind": "HelmRepository",
+  "name": "cilium",
+  "path": "clusters/defiant/infra/cilium/helmrepository.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "source.toolkit.fluxcd.io/v1",
+  "cluster": "pegasus",
+  "kind": "HelmRepository",
+  "name": "cilium",
+  "path": "clusters/pegasus/infra/cilium/helmrepository.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "source.toolkit.fluxcd.io/v1",
+  "cluster": "phoenix",
+  "kind": "HelmRepository",
+  "name": "cilium",
+  "path": "clusters/phoenix/infra/cilium/helmrepository.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "inventory.pk.io/v1beta1",
+  "kind": "Jbod",
+  "name": "jb-05",
+  "path": "control/inventory/jb-05.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+  "cluster": "defiant",
+  "kind": "Kustomization",
+  "name": "cilium",
+  "path": "clusters/defiant/flux.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+  "cluster": "pegasus",
+  "kind": "Kustomization",
+  "name": "cilium",
+  "path": "clusters/pegasus/flux.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+  "cluster": "phoenix",
+  "kind": "Kustomization",
+  "name": "cilium",
+  "path": "clusters/phoenix/flux.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+  "cluster": "defiant",
+  "kind": "Kustomization",
+  "name": "infra-metal",
+  "path": "clusters/defiant/flux.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+  "cluster": "pegasus",
+  "kind": "Kustomization",
+  "name": "infra-metal",
+  "path": "clusters/pegasus/flux.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+  "cluster": "phoenix",
+  "kind": "Kustomization",
+  "name": "infra-metal",
+  "path": "clusters/phoenix/flux.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+  "cluster": "defiant",
+  "kind": "Kustomization",
+  "name": "podinfo",
+  "path": "clusters/defiant/flux.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "kustomize.toolkit.fluxcd.io/v1",
+  "cluster": "pegasus",
+  "kind": "Kustomization",
+  "name": "rook-ceph",
+  "path": "clusters/pegasus/flux.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "pk/v1alpha1",
+  "kind": "Lab",
+  "name": "defiant-twin",
+  "path": ".pk/labs/defiant-twin.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "work.pk.io/v1alpha1",
+  "kind": "MilestoneList",
+  "name": "work/milestones.yaml",
+  "path": "work/milestones.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "v1",
+  "cluster": "defiant",
+  "kind": "Namespace",
+  "labels": {
+   "pk.io/team": "podinfo"
+  },
+  "name": "podinfo",
+  "path": "clusters/defiant/apps/podinfo/namespace.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "inventory.pk.io/v1beta1",
+  "cluster": "defiant",
+  "kind": "Node",
+  "labels": {
+   "firmware": "2.4"
+  },
+  "name": "cn-003",
+  "path": "control/inventory/cn-003.yaml",
+  "role": "worker",
+  "status": "ok",
+  "title": "compute node node"
+ },
+ {
+  "apiVersion": "inventory.pk.io/v1beta1",
+  "cluster": "defiant",
+  "kind": "Node",
+  "labels": {
+   "firmware": "2.4"
+  },
+  "name": "cn-025",
+  "path": "control/inventory/cn-025.yaml",
+  "role": "worker",
+  "status": "ok",
+  "title": "compute node node"
+ },
+ {
+  "apiVersion": "inventory.pk.io/v1beta1",
+  "cluster": "defiant",
+  "kind": "Node",
+  "labels": {
+   "firmware": "2.4"
+  },
+  "name": "cn-026",
+  "path": "control/inventory/cn-026.yaml",
+  "role": "worker",
+  "status": "ok",
+  "title": "compute node node"
+ },
+ {
+  "apiVersion": "inventory.pk.io/v1beta1",
+  "cluster": "defiant",
+  "kind": "Node",
+  "labels": {
+   "firmware": "2.4"
+  },
+  "name": "cn-027",
+  "path": "control/inventory/cn-027.yaml",
+  "role": "worker",
+  "status": "ok",
+  "title": "compute node node"
+ },
+ {
+  "apiVersion": "inventory.pk.io/v1beta1",
+  "cluster": "defiant",
+  "kind": "Node",
+  "labels": {
+   "firmware": "2.4"
+  },
+  "name": "cn-028",
+  "path": "control/inventory/cn-028.yaml",
+  "role": "worker",
+  "status": "ok",
+  "title": "compute node node"
+ },
+ {
+  "apiVersion": "inventory.pk.io/v1beta1",
+  "cluster": "defiant",
+  "kind": "Node",
+  "labels": {
+   "firmware": "2.4"
+  },
+  "name": "cn-029",
+  "path": "control/inventory/cn-029.yaml",
+  "role": "worker",
+  "status": "ok",
+  "title": "compute node node"
+ },
+ {
+  "apiVersion": "inventory.pk.io/v1beta1",
+  "cluster": "defiant",
+  "kind": "Node",
+  "labels": {
+   "firmware": "2.4"
+  },
+  "name": "cn-030",
+  "path": "control/inventory/cn-030.yaml",
+  "role": "worker",
+  "status": "ok",
+  "title": "compute node node"
+ },
+ {
+  "apiVersion": "inventory.pk.io/v1beta1",
+  "cluster": "defiant",
+  "kind": "Node",
+  "labels": {
+   "firmware": "2.4"
+  },
+  "name": "cn-031",
+  "path": "control/inventory/cn-031.yaml",
+  "role": "worker",
+  "status": "ok",
+  "title": "compute node node"
+ },
+ {
+  "apiVersion": "inventory.pk.io/v1beta1",
+  "cluster": "defiant",
+  "kind": "Node",
+  "labels": {
+   "firmware": "2.4"
+  },
+  "name": "cn-032",
+  "path": "control/inventory/cn-032.yaml",
+  "role": "worker",
+  "status": "ok",
+  "title": "compute node node"
+ },
+ {
+  "apiVersion": "inventory.pk.io/v1beta1",
+  "cluster": "defiant",
+  "kind": "Node",
+  "labels": {
+   "firmware": "2.4"
+  },
+  "name": "cn-033",
+  "path": "control/inventory/cn-033.yaml",
+  "role": "worker",
+  "status": "ok",
+  "title": "compute node node"
+ },
+ {
+  "apiVersion": "inventory.pk.io/v1beta1",
+  "cluster": "defiant",
+  "kind": "Node",
+  "labels": {
+   "firmware": "2.4"
+  },
+  "name": "cn-034",
+  "path": "control/inventory/cn-034.yaml",
+  "role": "worker",
+  "status": "ok",
+  "title": "compute node node"
+ },
+ {
+  "apiVersion": "inventory.pk.io/v1beta1",
+  "cluster": "defiant",
+  "kind": "Node",
+  "name": "cn-035",
+  "path": "control/inventory/cn-035.yaml",
+  "role": "worker",
+  "status": "ok",
+  "title": "compute node node"
+ },
+ {
+  "apiVersion": "inventory.pk.io/v1beta1",
+  "cluster": "defiant",
+  "kind": "Node",
+  "name": "cn-036",
+  "path": "control/inventory/cn-036.yaml",
+  "role": "worker",
+  "status": "ok",
+  "title": "compute node node"
+ },
+ {
+  "apiVersion": "inventory.pk.io/v1beta1",
+  "cluster": "phoenix",
+  "kind": "Node",
+  "name": "cp-01",
+  "path": "control/inventory/cp-01.yaml",
+  "role": "control",
+  "status": "ok",
+  "title": "control node node"
+ },
+ {
+  "apiVersion": "inventory.pk.io/v1beta1",
+  "cluster": "phoenix",
+  "kind": "Node",
+  "name": "cp-02",
+  "path": "control/inventory/cp-02.yaml",
+  "role": "control",
+  "status": "ok",
+  "title": "control node node"
+ },
+ {
+  "apiVersion": "inventory.pk.io/v1beta1",
+  "cluster": "phoenix",
+  "kind": "Node",
+  "name": "cp-03",
+  "path": "control/inventory/cp-03.yaml",
+  "role": "control",
+  "status": "ok",
+  "title": "control node node"
+ },
+ {
+  "apiVersion": "inventory.pk.io/v1beta1",
+  "cluster": "pegasus",
+  "kind": "Node",
+  "name": "sn-05",
+  "path": "control/inventory/sn-05.yaml",
+  "role": "storage",
+  "status": "ok",
+  "title": "storage node node"
+ },
+ {
+  "apiVersion": "pk/v1alpha1",
+  "kind": "Policy",
+  "name": ".pk/policy.yaml",
+  "path": ".pk/policy.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "inventory.pk.io/v1beta1",
+  "kind": "Rack",
+  "name": "GC5A-6Y",
+  "path": "control/inventory/racks/gc5a-6y.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "inventory.pk.io/v1beta1",
+  "kind": "Rack",
+  "name": "GC5A-6Z",
+  "path": "control/inventory/racks/gc5a-6z.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "v1",
+  "cluster": "defiant",
+  "kind": "Service",
+  "name": "podinfo",
+  "path": "clusters/defiant/apps/podinfo/service.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "inventory.pk.io/v1beta1",
+  "kind": "Switch",
+  "name": "data-a",
+  "path": "control/inventory/switches/data-a.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "inventory.pk.io/v1beta1",
+  "kind": "Switch",
+  "name": "data-b",
+  "path": "control/inventory/switches/data-b.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "inventory.pk.io/v1beta1",
+  "kind": "Switch",
+  "name": "mgmt",
+  "path": "control/inventory/switches/mgmt.yaml",
+  "status": "ok"
+ },
+ {
+  "kind": "TalosConfig",
+  "name": "defiant",
+  "path": "control/talos/defiant/talconfig.yaml",
+  "status": "ok"
+ },
+ {
+  "kind": "TalosConfig",
+  "name": "phoenix",
+  "path": "control/talos/phoenix/talconfig.yaml",
+  "status": "ok"
+ },
+ {
+  "apiVersion": "work.pk.io/v1alpha1",
+  "kind": "WorkItem",
+  "name": "w-104",
+  "path": "work/items/w-104.yaml",
+  "status": "ok",
+  "title": "Kernel args on control nodes"
+ },
+ {
+  "apiVersion": "work.pk.io/v1alpha1",
+  "kind": "WorkItem",
+  "name": "w-108",
+  "path": "work/items/w-108.yaml",
+  "status": "ok",
+  "title": "Cabling for GC5A-6Z"
+ },
+ {
+  "apiVersion": "work.pk.io/v1alpha1",
+  "kind": "WorkItem",
+  "name": "w-112",
+  "path": "work/items/w-112.yaml",
+  "status": "ok",
+  "title": "BGP peers for org-a and org-b"
+ },
+ {
+  "apiVersion": "work.pk.io/v1alpha1",
+  "kind": "WorkItem",
+  "name": "w-114",
+  "path": "work/items/w-114.yaml",
+  "status": "ok",
+  "title": "Compute nodes cn-035, cn-036"
+ },
+ {
+  "apiVersion": "work.pk.io/v1alpha1",
+  "kind": "WorkItem",
+  "name": "w-117",
+  "path": "work/items/w-117.yaml",
+  "status": "ok",
+  "title": "Ceph pool for tenant volumes"
+ },
+ {
+  "apiVersion": "work.pk.io/v1alpha1",
+  "kind": "WorkItem",
+  "name": "w-121",
+  "path": "work/items/w-121.yaml",
+  "status": "ok",
+  "title": "Talos 1.11 on defiant"
+ }
+]

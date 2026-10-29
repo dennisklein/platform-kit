@@ -1,0 +1,29 @@
+[
+ {
+  "candidate": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+  "candidateChange": "c-19f4tb",
+  "clusters": [
+   "defiant"
+  ],
+  "following": "main",
+  "gate": "none",
+  "held": false,
+  "reason": "Rings are off: the clusters follow main. Promote pins ring/canary.",
+  "ring": "canary",
+  "verified": true
+ },
+ {
+  "candidate": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+  "candidateChange": "c-19f4tb",
+  "clusters": [
+   "pegasus",
+   "phoenix"
+  ],
+  "following": "main",
+  "gate": "none",
+  "held": false,
+  "reason": "Rings are off: the clusters follow main. Promote pins ring/prod.",
+  "ring": "prod",
+  "verified": true
+ }
+]

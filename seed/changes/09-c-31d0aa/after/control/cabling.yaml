@@ -1,0 +1,13 @@
+# Uplinks of the row-6 switches (in GC5A-6Y) to the spine and the OOB router.
+apiVersion: inventory.pk.io/v1beta1
+kind: CablePlan
+metadata:
+  name: row-6
+spec:
+  spines: [spine-1, spine-2, oob-1]
+  uplinks:
+    - {id: UPL-0001, a: {switch: mgmt, port: 48}, b: {switch: oob-1, port: 6}, speed: 1G}
+    - {id: UPL-0002, a: {switch: data-a, port: 47}, b: {switch: spine-1, port: 11}, speed: 100G}
+    - {id: UPL-0003, a: {switch: data-b, port: 47}, b: {switch: spine-2, port: 11}, speed: 100G}
+    - {id: UPL-0004, a: {switch: data-a, port: 48}, b: {switch: spine-1, port: 12}, speed: 100G}
+    - {id: UPL-0005, a: {switch: data-b, port: 48}, b: {switch: spine-2, port: 12}, speed: 100G}

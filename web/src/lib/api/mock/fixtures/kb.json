@@ -1,0 +1,123 @@
+[
+ {
+  "entities": [
+   "jb-05"
+  ],
+  "path": "kb/hardware/jbod-slot-numbers.md",
+  "title": "JBOD drawers: slot numbers",
+  "type": "reference"
+ },
+ {
+  "changes": [
+   "c-b7gl4s"
+  ],
+  "entities": [
+   "phoenix",
+   "defiant"
+  ],
+  "path": "kb/incidents/2026-10-02-break-glass.md",
+  "title": "Incident 2026-10-02: break-glass",
+  "type": "incident"
+ },
+ {
+  "changes": [
+   "c-19f4tb"
+  ],
+  "entities": [
+   "cp-01",
+   "cp-02",
+   "cp-03",
+   "phoenix"
+  ],
+  "path": "kb/labs/c-19f4tb-run-1.md",
+  "title": "Lab report c-19f4tb/run-1",
+  "type": "lab-report"
+ },
+ {
+  "changes": [
+   "c-2hd7vw"
+  ],
+  "entities": [
+   "cn-003",
+   "data-a",
+   "data-b"
+  ],
+  "path": "kb/labs/c-2hd7vw-run-1.md",
+  "title": "Lab report c-2hd7vw/run-1",
+  "type": "lab-report"
+ },
+ {
+  "changes": [
+   "c-9kq1mf"
+  ],
+  "entities": [
+   "GC5A-6Z",
+   "cn-025",
+   "cn-026",
+   "cn-027",
+   "cn-028",
+   "cn-029",
+   "cn-030",
+   "cn-031",
+   "cn-032",
+   "cn-033",
+   "cn-034"
+  ],
+  "path": "kb/labs/c-9kq1mf-run-1.md",
+  "title": "Lab report c-9kq1mf/run-1",
+  "type": "lab-report"
+ },
+ {
+  "changes": [
+   "c-u7x2bd"
+  ],
+  "entities": [
+   "cn-003",
+   "cn-025",
+   "cn-026",
+   "cn-027",
+   "cn-028",
+   "cn-029",
+   "cn-030",
+   "cn-031",
+   "cn-032",
+   "cn-033",
+   "cn-034"
+  ],
+  "path": "kb/labs/c-u7x2bd-run-1.md",
+  "title": "Lab report c-u7x2bd/run-1",
+  "type": "lab-report"
+ },
+ {
+  "entities": [
+   "GC5A-6Z",
+   "defiant",
+   "data-a",
+   "data-b",
+   "mgmt"
+  ],
+  "path": "kb/runbooks/add-node.md",
+  "title": "Add a compute node to a cluster",
+  "type": "runbook"
+ },
+ {
+  "entities": [
+   "sn-05",
+   "jb-05",
+   "pegasus"
+  ],
+  "path": "kb/runbooks/replace-failed-disk.md",
+  "title": "Replace a failed disk in a storage node",
+  "type": "runbook"
+ },
+ {
+  "entities": [
+   "pegasus",
+   "sn-05",
+   "jb-05"
+  ],
+  "path": "kb/storage/ceph-osd-layout-pegasus.md",
+  "title": "Ceph OSD layout on pegasus",
+  "type": "design"
+ }
+]

@@ -1,0 +1,9 @@
+apiVersion: work.pk.io/v1alpha1
+kind: WorkItem
+id: w-121
+title: Talos 1.11 on defiant
+milestone: defiant-ready
+owner: jonas
+assets: [defiant]
+changes: []
+kb: []

@@ -1,0 +1,12 @@
+apiVersion: inventory.pk.io/v1beta1
+kind: Switch
+metadata:
+  name: mgmt
+spec:
+  network: mgmt
+  ports: 48
+  uplinks: [48]
+  rack: GC5A-6Y
+  unit: 45
+  size: 1
+  model: Edgecore AS4610-54T

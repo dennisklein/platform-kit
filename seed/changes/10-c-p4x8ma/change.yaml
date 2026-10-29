@@ -1,0 +1,20 @@
+id: c-p4x8ma
+title: "BGP peers for org-a and org-b"
+intent: "Peer rack 6Z with the org-a and org-b routers (10.6.0.3, 10.6.0.4)"
+author: anna
+date: "2026-10-28T09:15:00Z"
+merged: false
+workItems: [w-112]
+commits:
+  - message: "feat(cilium): BGP neighbors for org-a and org-b"
+    files:
+      - clusters/defiant/infra/cilium/bgp-rack-6z.yaml
+      - work/items/w-112.yaml
+  - message: "docs(lab): add report for c-p4x8ma/run-1"
+    files:
+      - kb/labs/c-p4x8ma-run-1.md
+open:
+  ready: false
+  approvals: []
+  labRuns:
+    - {run: c-p4x8ma/run-1, result: fail, report: kb/labs/c-p4x8ma-run-1.md}

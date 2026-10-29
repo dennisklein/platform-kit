@@ -1,0 +1,15 @@
+# talhelper config of defiant. Its control plane runs hosted on phoenix.
+# Worker nodes come from control/inventory (spec.cluster: defiant); the
+# bench generates the node list, so this file holds only the shared parts.
+clusterName: defiant
+talosVersion: v1.10.6
+kubernetesVersion: v1.33.4
+endpoint: https://defiant.k8s.pk.local:6443
+worker:
+  installDisk: /dev/nvme0n1
+  patches:
+    - |-
+      machine:
+        kubelet:
+          extraArgs:
+            max-pods: "220"

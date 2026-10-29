@@ -1,0 +1,16 @@
+.git
+.data
+/bin
+.env
+/pk
+**/node_modules
+web/dist
+web/test-results
+web/playwright-report
+docs
+scripts
+README.md
+compose.yaml
+**/*.test
+**/*.out
+.DS_Store

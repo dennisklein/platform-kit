@@ -1,0 +1,252 @@
+{
+ "disk sn-05": {
+  "hits": [
+   {
+    "kind": "kb",
+    "path": "kb/storage/ceph-osd-layout-pegasus.md",
+    "ref": "kb/storage/ceph-osd-layout-pegasus.md",
+    "score": 15.517,
+    "snippet": "| Disk shelf | jb-05, 2 drawers with 24 slots each, SAS to sn-05 | · | OSDs | one OSD per disk, 48 OSDs | · | Failure domain | `osd` (single node; host failure domain comes with sn-06) | · | Pools | `rbd-tenants` (replica 3), `cephfs-data` (EC 4+2) | · ## Decisions · - One O…",
+    "title": "Ceph OSD layout on pegasus"
+   },
+   {
+    "kind": "kb",
+    "path": "kb/runbooks/replace-failed-disk.md",
+    "ref": "kb/runbooks/replace-failed-disk.md",
+    "score": 14.935,
+    "snippet": "pk change new \"Replace disk jb-05 slot 17\" --intent \"OSD down on sn-05, disk in drawer 1 slot 17\" · ``` · 2. Set the slot to `replace`: · ``` · pk edit jb-05 --set drawers[1].slots[17].state=replace · ``` · 3. Run the change lab, mark the change ready and get one approval. …",
+    "title": "Replace a failed disk in a storage node"
+   },
+   {
+    "kind": "file",
+    "path": "clusters/pegasus/cluster.yaml",
+    "ref": "clusters/pegasus/cluster.yaml",
+    "score": 12.803,
+    "snippet": "description: Storage cluster. Runs Ceph on sn-05 with the jb-05 disk shelf. · endpoint: https://pegasus.k8s.pk.local:6443",
+    "title": "clusters/pegasus/cluster.yaml"
+   },
+   {
+    "kind": "file",
+    "path": "control/inventory/sn-05.yaml",
+    "ref": "control/inventory/sn-05.yaml",
+    "score": 9.92,
+    "snippet": "name: sn-05 · spec: · cluster: pegasus · role: storage · location: · rack: GC5A-6Y · unit: 20 · size: 2 · model: Huawei 2288H V5 · serial: 2102312AFN10K5000105 · bmc: · mac: 48:7b:6b:2e:05:05 · ports: · - {name: bmc, cable: MGT-0105, peer: {switch: mgmt, port: 5}, ne…",
+    "title": "control/inventory/sn-05.yaml"
+   },
+   {
+    "kind": "file",
+    "path": "work/items/w-117.yaml",
+    "ref": "work/items/w-117.yaml",
+    "score": 9.311,
+    "snippet": "assets: [sn-05, jb-05, pegasus] · changes: [] · kb: [kb/storage/ceph-osd-layout-pegasus.md]",
+    "title": "work/items/w-117.yaml"
+   },
+   {
+    "kind": "file",
+    "path": "control/inventory/jb-05.yaml",
+    "ref": "control/inventory/jb-05.yaml",
+    "score": 7.94,
+    "snippet": "# Disk shelf of sn-05. Slot numbers: kb/hardware/jbod-slot-numbers.md · apiVersion: inventory.pk.io/v1beta1 · kind: Jbod · metadata: · name: jb-05 · spec: · attachedTo: sn-05 · location: · rack: GC5A-6Y · unit: 22 · size: 4 · model: Western Digital Ultrastar Data60 · …",
+    "title": "control/inventory/jb-05.yaml"
+   },
+   {
+    "kind": "file",
+    "path": "clusters/pegasus/infra/rook-ceph/cephcluster.yaml",
+    "ref": "clusters/pegasus/infra/rook-ceph/cephcluster.yaml",
+    "score": 7.85,
+    "snippet": "- name: sn-05 · # jb-05 disks; slot numbers in kb/hardware/jbod-slot-numbers.md · deviceFilter: \"^sd[a-z]+$\" · config: · osdsPerDevice: \"1\"",
+    "title": "clusters/pegasus/infra/rook-ceph/cephcluster.yaml"
+   },
+   {
+    "kind": "kb",
+    "path": "kb/hardware/jbod-slot-numbers.md",
+    "ref": "kb/hardware/jbod-slot-numbers.md",
+    "score": 5.485,
+    "snippet": "entities: [jb-05] · tags: [hardware, disk] · # JBOD drawers: slot numbers · jb-05 is a Western Digital Ultrastar Data60 shelf with two drawers. In · `jb-05.yaml` drawers and slots count from 0, as in the enclosure firmware. · | Drawer | Slots | Front label | Linux device ord…",
+    "title": "JBOD drawers: slot numbers"
+   },
+   {
+    "kind": "file",
+    "path": ".pk/labs/defiant-twin.yaml",
+    "ref": ".pk/labs/defiant-twin.yaml",
+    "score": 2.513,
+    "snippet": "backend: talos-docker                     # cheap; qemu for install or disk work · provision: direct                           # metal = sim BMC, vMedia, Talos install · host: local · expose: [kube-api, grafana] · lifetime: persistent · snapshot: nightly                     …",
+    "title": ".pk/labs/defiant-twin.yaml"
+   },
+   {
+    "kind": "kb",
+    "path": "kb/incidents/2026-10-02-break-glass.md",
+    "ref": "kb/incidents/2026-10-02-break-glass.md",
+    "score": 2.288,
+    "snippet": "from OpenBao at 08:05. · ## Timeline · | Time | Event | · | --- | --- | · | 07:40 | SSO token endpoint returns 500. kubelogin fails for all admins. | · | 07:55 | Tenant reports stuck jobs on cn-031. | · | 08:05 | jonas reads the break-glass certificate from OpenBao. Alert t…",
+    "title": "Incident 2026-10-02: break-glass"
+   }
+  ],
+  "mode": "bm25",
+  "query": "disk sn-05"
+ },
+ "cn-003": {
+  "hits": [
+   {
+    "kind": "mr",
+    "ref": "!2",
+    "score": 11.453,
+    "snippet": "MR !2 Move cn-003 to data-a 37 · free data-b ports for rack 6Z · Pk-Change: c-2hd7vw · Pk-Title: Move cn-003 to data-a 37 · Pk-Intent: free data-b ports for rack 6Z · Pk-Lab-Run: c-2hd7vw/run-1 pass kb/labs/c-2hd7vw-run-1.md · Pk-Author: jonas",
+    "title": "MR !2 Move cn-003 to data-a 37"
+   },
+   {
+    "change": "c-2hd7vw",
+    "kind": "trailer",
+    "path": "!2",
+    "ref": "c-2hd7vw",
+    "score": 10.355,
+    "snippet": "Merge change c-2hd7vw: Move cn-003 to data-a 37 (!2) · free data-b ports for rack 6Z · Pk-Change: c-2hd7vw · Pk-Intent: free data-b ports for rack 6Z · Pk-Lab-Run: c-2hd7vw/run-1 pass kb/labs/c-2hd7vw-run-1.md · Pk-Author: jonas · Approved-by: anna, dennis · Reviewed-in: !…",
+    "title": "trailer c-2hd7vw: Move cn-003 to data-a 37 (!2)"
+   },
+   {
+    "kind": "lab",
+    "path": "kb/labs/c-2hd7vw-run-1.md",
+    "ref": "kb/labs/c-2hd7vw-run-1.md",
+    "score": 9.719,
+    "snippet": "entities: [cn-003, data-a, data-b] · changes: [c-2hd7vw] · run: c-2hd7vw/run-1 · result: pass · # Lab report c-2hd7vw/run-1 · Result: **pass**. Driver sim, host local, provisioning metal, fresh machines. · ## Steps · | Step | Detail | Result | · | --- | --- | --- | · | t…",
+    "title": "Lab report c-2hd7vw/run-1"
+   },
+   {
+    "kind": "file",
+    "path": "control/inventory/cn-003.yaml",
+    "ref": "control/inventory/cn-003.yaml",
+    "score": 8.6,
+    "snippet": "name: cn-003 · labels: · firmware: \"2.4\" · spec: · cluster: defiant · role: worker · location: · rack: GC5A-6Y · unit: 30 · size: 2 · model: Supermicro SYS-220U-TNR · serial: S4R7K2J0003 · bmc: · mac: 3c:ec:ef:a1:0c:03 · ports: · - {name: bmc, cable: MGT-0109, peer…",
+    "title": "control/inventory/cn-003.yaml"
+   },
+   {
+    "kind": "file",
+    "path": ".pk/labs/defiant-twin.yaml",
+    "ref": ".pk/labs/defiant-twin.yaml",
+    "score": 7.199,
+    "snippet": "machines: [cn-003, cn-025, cn-026] · backend: talos-docker                     # cheap; qemu for install or disk work · provision: direct                           # metal = sim BMC, vMedia, Talos install · host: local · expose: [kube-api, grafana] · lifetime: persistent · …",
+    "title": ".pk/labs/defiant-twin.yaml"
+   },
+   {
+    "kind": "lab",
+    "path": "kb/labs/c-u7x2bd-run-1.md",
+    "ref": "kb/labs/c-u7x2bd-run-1.md",
+    "score": 6.962,
+    "snippet": "entities: [cn-003, cn-025, cn-026, cn-027, cn-028, cn-029, cn-030, cn-031, cn-032, cn-033, cn-034] · changes: [c-u7x2bd] · run: c-u7x2bd/run-1 · result: pass · # Lab report c-u7x2bd/run-1 · Result: **pass**. Driver sim, host local, provisioning metal, fresh machines. · ## S…",
+    "title": "Lab report c-u7x2bd/run-1"
+   },
+   {
+    "kind": "file",
+    "path": "clusters/defiant/infra/cilium/bgp-rack-6z.yaml",
+    "ref": "clusters/defiant/infra/cilium/bgp-rack-6z.yaml",
+    "score": 2.763,
+    "snippet": "- cn-025 · - cn-026 · - cn-027 · - cn-028 · - cn-029 · - cn-030 · - cn-031 · - cn-032 · - cn-033 · - cn-034 · virtualRouters: · - localASN: 64512 · exportPodCIDR: true · neighbors: · - peerAddress: 10.6.0.1/32 · peerASN: 65000",
+    "title": "clusters/defiant/infra/cilium/bgp-rack-6z.yaml"
+   },
+   {
+    "kind": "lab",
+    "path": "kb/labs/c-9kq1mf-run-1.md",
+    "ref": "kb/labs/c-9kq1mf-run-1.md",
+    "score": 2.655,
+    "snippet": "entities: [GC5A-6Z, cn-025, cn-026, cn-027, cn-028, cn-029, cn-030, cn-031, cn-032, cn-033, cn-034] · changes: [c-9kq1mf] · run: c-9kq1mf/run-1 · result: pass · # Lab report c-9kq1mf/run-1 · Result: **pass**. Driver sim, host local, provisioning metal, fresh machines. · ## …",
+    "title": "Lab report c-9kq1mf/run-1"
+   },
+   {
+    "kind": "file",
+    "path": "work/items/w-114.yaml",
+    "ref": "work/items/w-114.yaml",
+    "score": 2.524,
+    "snippet": "title: Compute nodes cn-035, cn-036 · milestone: defiant-ready · owner: dennis · assets: [cn-035, cn-036] · changes: [] · kb: [kb/runbooks/add-node.md] · notes: GC5A-6Z U6 and U8. Ports from the cable plan.",
+    "title": "work/items/w-114.yaml"
+   },
+   {
+    "kind": "file",
+    "path": "control/inventory/cn-025.yaml",
+    "ref": "control/inventory/cn-025.yaml",
+    "score": 2.152,
+    "snippet": "name: cn-025 · labels: · firmware: \"2.4\" · spec: · cluster: defiant · role: worker · location: · rack: GC5A-6Z · unit: 10 · size: 2 · model: Supermicro SYS-220U-TNR · serial: S4R7K2J0025 · bmc: · mac: 3c:ec:ef:a1:0c:25 · ports: · - {name: bmc, cable: MGT-0125, peer…",
+    "title": "control/inventory/cn-025.yaml"
+   }
+  ],
+  "mode": "bm25",
+  "query": "cn-003"
+ },
+ "BGP": {
+  "hits": [
+   {
+    "change": "c-p4x8ma",
+    "kind": "mr",
+    "ref": "!10",
+    "score": 3.775,
+    "snippet": "MR !10 BGP peers for org-a and org-b · Peer rack 6Z with the org-a and org-b routers (10.6.0.3, 10.6.0.4) · Pk-Change: c-p4x8ma · Pk-Title: BGP peers for org-a and org-b · Pk-Intent: Peer rack 6Z with the org-a and org-b routers (10.6.0.3, 10.6.0.4) · Pk-Lab-Run: c-p4x8ma/ru…",
+    "title": "MR !10 BGP peers for org-a and org-b"
+   },
+   {
+    "kind": "kb",
+    "path": "kb/runbooks/add-node.md",
+    "ref": "kb/runbooks/add-node.md",
+    "score": 3.275,
+    "snippet": "tags: [inventory, bgp, labs] · # Add a compute node to a cluster · A compute node is one file in `control/inventory/`. The bench renders it into · a `Machine` for its cluster, and the metal operator installs Talos on it. · ## Steps · 1. Open a change and link the work item: …",
+    "title": "Add a compute node to a cluster"
+   },
+   {
+    "kind": "file",
+    "path": "clusters/defiant/infra/cilium/bgp-rack-6z.yaml",
+    "ref": "clusters/defiant/infra/cilium/bgp-rack-6z.yaml",
+    "score": 3.042,
+    "snippet": "apiVersion: cilium.io/v2alpha1 · kind: CiliumBGPPeeringPolicy · metadata: · name: rack-6z · labels: · inventory.pk.io/rack: GC5A-6Z · spec: · nodeSelector: · matchExpressions: · - key: kubernetes.io/hostname · operator: In · values: · - cn-025 · - cn-026 · - cn-027 …",
+    "title": "clusters/defiant/infra/cilium/bgp-rack-6z.yaml"
+   },
+   {
+    "kind": "file",
+    "path": "clusters/defiant/infra/cilium/kustomization.yaml",
+    "ref": "clusters/defiant/infra/cilium/kustomization.yaml",
+    "score": 2.954,
+    "snippet": "- bgp-rack-6z.yaml",
+    "title": "clusters/defiant/infra/cilium/kustomization.yaml"
+   },
+   {
+    "kind": "file",
+    "path": "work/milestones.yaml",
+    "ref": "work/milestones.yaml",
+    "score": 2.815,
+    "snippet": "description: Rack GC5A-6Z cabled and filled, BGP to the org routers, storage for tenant volumes.",
+    "title": "work/milestones.yaml"
+   },
+   {
+    "kind": "file",
+    "path": "work/items/w-112.yaml",
+    "ref": "work/items/w-112.yaml",
+    "score": 2.735,
+    "snippet": "title: BGP peers for org-a and org-b · milestone: defiant-ready · owner: anna · assets: [GC5A-6Z] · changes: [] · kb: [] · notes: Org routers 10.6.0.3 and 10.6.0.4 announce tenant prefixes.",
+    "title": "work/items/w-112.yaml"
+   },
+   {
+    "kind": "lab",
+    "path": "kb/labs/c-9kq1mf-run-1.md",
+    "ref": "kb/labs/c-9kq1mf-run-1.md",
+    "score": 2.549,
+    "snippet": "| BGP | peers up | pass | · | checks | scenario | pass | · | report | written | pass | · ## Checks · - pass: nodes Ready: 11 of 11 · - pass: bgp: established, 10 of 10 nodes of GC5A-6Z selected by rack-6z · - pass: bmc: power cycle cn-030, back in 3m 05s · - pass: fault: d…",
+    "title": "Lab report c-9kq1mf/run-1"
+   },
+   {
+    "kind": "lab",
+    "path": "kb/labs/c-2hd7vw-run-1.md",
+    "ref": "kb/labs/c-2hd7vw-run-1.md",
+    "score": 1.962,
+    "snippet": "| BGP | peers up | pass | · | checks | scenario | pass | · | report | written | pass | · ## Checks · - pass: nodes Ready: 11 of 11 · - pass: cn-003: p1 data-b 9, p2 data-a 37 · - pass: fault: data-b link down, cn-003 traffic via data-a",
+    "title": "Lab report c-2hd7vw/run-1"
+   },
+   {
+    "kind": "lab",
+    "path": "kb/labs/c-u7x2bd-run-1.md",
+    "ref": "kb/labs/c-u7x2bd-run-1.md",
+    "score": 1.814,
+    "snippet": "| BGP | peers up | pass | · | checks | scenario | pass | · | report | written | pass | · ## Checks · - pass: nodes Ready: 11 of 11 · - pass: bmc: firmware 2.4 reported by Redfish sim on 11 of 11 · - pass: bmc: power cycle cn-025, back in 3m 12s",
+    "title": "Lab report c-u7x2bd/run-1"
+   }
+  ],
+  "mode": "bm25",
+  "query": "BGP"
+ }
+}
