@@ -11,7 +11,7 @@
   import { events } from '../../lib/stores/events.svelte';
   import { ui } from '../../lib/stores/ui.svelte';
   import { shortSha, timeAgo, plural } from '../../lib/change/format';
-  import { changeCounts, clusterHealth } from '../../lib/f/clusters';
+  import { changeCounts, clusterHealth, openBreakdown } from '../../lib/f/clusters';
   import StateChip from '../../lib/components/StateChip.svelte';
   import Icon from '../../lib/components/Icon.svelte';
   import Glyph from '../../lib/components/Glyph.svelte';
@@ -83,7 +83,7 @@
   const labTone = $derived(n.labFailed ? 'bad' : n.labRunning ? 'warn' : 'ok');
 </script>
 
-<div class="page">
+<div class="page landing">
   <header class="head">
     <div class="titles">
       <h1>Changes</h1>
@@ -98,14 +98,14 @@
         {/if}
       </p>
     </div>
-    <button class="btn dark big" onclick={() => (ui.newChangeOpen = true)}><Icon name="plus" size={16} /> New change</button>
+    <button class="btn primary big" onclick={() => (ui.newChangeOpen = true)}><Icon name="plus" size={16} /> New change</button>
   </header>
 
   <section class="tiles" aria-label="At a glance">
     <div class="tile t-ink">
       <span class="eyebrow">Open changes</span>
       <span class="num">{ready ? n.open : '–'}</span>
-      <span class="sub">{ready ? `${n.mine} mine · ${n.others} by others` : ' '}</span>
+      <span class="sub">{ready ? openBreakdown(n) : ' '}</span>
     </div>
     <a class="tile t-{n.review ? 'info' : 'idle'}" href={href(firstReview ? `/changes/${seg(firstReview.id)}` : '/changes')}>
       <span class="eyebrow">Waiting for my review</span>
@@ -118,7 +118,7 @@
         {#if !ready}–{:else if n.labFailed}{n.labFailed} failed{:else if n.labRunning}{n.labRunning} running{:else}all green{/if}
       </span>
       <span class="sub" title={firstFailed?.title}>
-        {#if firstFailed}{firstFailed.id} · {firstFailed.title}{:else if ready}{n.labRunning} running{:else}&nbsp;{/if}
+        {#if firstFailed}{firstFailed.id} · {firstFailed.title}{:else if ready && n.labRunning}{plural(n.labRunning, 'run')} in the lab now{:else if ready}nothing failed or running{:else}&nbsp;{/if}
       </span>
     </a>
     <a class="tile t-{clusterTone}" href={href('/clusters')}>
@@ -213,11 +213,20 @@
     font-size: 14px;
   }
 
-  /* At a glance: four tiles with a coloured top edge, as the deck's cards. */
+  /* At a glance: four tiles with a coloured top edge, as the deck's cards;
+     two by two when the page is narrow, never three and one. */
+  .landing {
+    container-type: inline-size;
+  }
   .tiles {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 12px;
+  }
+  @container (max-width: 900px) {
+    .tiles {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
   }
   .tile {
     --tone: var(--ink);

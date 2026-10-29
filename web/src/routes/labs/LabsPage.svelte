@@ -8,6 +8,7 @@
   import type { components } from '../../lib/api/schema';
   import type { LabList, LabRun } from '../../lib/api/types';
   import { events } from '../../lib/stores/events.svelte';
+  import { changes } from '../../lib/stores/changes.svelte';
   import { short, ago } from '../../lib/f/fmt';
   import Glyph from '../../lib/components/Glyph.svelte';
   import ResultChip from '../../lib/components/ResultChip.svelte';
@@ -95,6 +96,14 @@
   });
 
   const runs = $derived(list?.runs ?? []);
+  // The last run of an open change that this bench did not run itself (a
+  // seeded or pushed change): its report in the change has the result. The
+  // landing tile counts these too, so the list shows them.
+  const reportRuns = $derived(
+    changes.list
+      .filter((c) => c.labRun && (c.labState === 'pass' || c.labState === 'fail') && !runs.some((r) => r.id === c.labRun))
+      .map((c) => ({ id: c.labRun!, result: c.labState, title: c.title, by: c.author })),
+  );
 
   function runHref(r: LabRun) {
     return href(`/labs/runs/${encodeURIComponent(r.id)}`);
@@ -234,7 +243,7 @@
     <h2 class="eyebrow">Change lab runs</h2>
     {#if list === null && !error}
       <p class="muted small">Loading…</p>
-    {:else if !runs.length}
+    {:else if !runs.length && !reportRuns.length}
       <div class="empty">No lab runs yet. Run the lab of a change from its page.</div>
     {:else}
       <table class="table runs">
@@ -259,6 +268,19 @@
               <td class="mono small">{labTime(r.simulatedMs)}</td>
               <td>{r.by ?? ''}</td>
               <td class="muted small">{ago(r.startedAt)}</td>
+            </tr>
+          {/each}
+          {#each reportRuns as r (r.id)}
+            <tr class="rrow" onclick={() => router.navigate(`/labs/runs/${encodeURIComponent(r.id)}`)}>
+              <td class="mono">
+                <a href={href(`/labs/runs/${encodeURIComponent(r.id)}`)} onclick={(e) => e.stopPropagation()}>{r.id}</a>
+              </td>
+              <td><ResultChip result={r.result} /></td>
+              <td class="sum">{r.title} <span class="muted small">· from its report</span></td>
+              <td></td>
+              <td></td>
+              <td>{r.by}</td>
+              <td class="muted small">earlier</td>
             </tr>
           {/each}
         </tbody>

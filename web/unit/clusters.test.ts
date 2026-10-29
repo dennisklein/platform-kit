@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { clusterHealth, changeCounts } from '../src/lib/f/clusters.ts';
+import { clusterHealth, changeCounts, openBreakdown } from '../src/lib/f/clusters.ts';
 
 test('cluster health', () => {
   const ok = { healthy: true, applied: { sha: 'a' }, verified: { sha: 'a' } };
@@ -20,5 +20,7 @@ test('change counts for the landing tiles', () => {
     { group: 'bots' },
     { group: 'review', labState: 'pass' },
   ]);
-  assert.deepEqual(n, { open: 5, mine: 2, others: 2, review: 1, labFailed: 1, labRunning: 1 });
+  assert.deepEqual(n, { open: 5, mine: 2, others: 1, review: 1, bots: 1, labFailed: 1, labRunning: 1 });
+  assert.equal(openBreakdown(n), '2 mine · 1 to review · 1 by others · 1 by a bot');
+  assert.equal(openBreakdown(changeCounts([{ group: 'mine' }])), '1 mine');
 });

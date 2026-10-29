@@ -36,19 +36,30 @@ export interface Counts {
   mine: number;
   others: number;
   review: number;
+  bots: number;
   labFailed: number;
   labRunning: number;
 }
 
 /** Counts for the stat tiles of the Changes page (open changes only). */
 export function changeCounts(list: ChangeLike[]): Counts {
-  const n: Counts = { open: list.length, mine: 0, others: 0, review: 0, labFailed: 0, labRunning: 0 };
+  const n: Counts = { open: list.length, mine: 0, others: 0, review: 0, bots: 0, labFailed: 0, labRunning: 0 };
   for (const c of list) {
     if (c.group === 'mine') n.mine++;
     else if (c.group === 'review') n.review++;
+    else if (c.group === 'bots') n.bots++;
     else n.others++;
     if (c.labState === 'fail') n.labFailed++;
     else if (c.labState === 'running') n.labRunning++;
   }
   return n;
+}
+
+/** The subtitle of the open-changes tile: the parts add up to the total. */
+export function openBreakdown(n: Counts): string {
+  const parts = [`${n.mine} mine`];
+  if (n.review) parts.push(`${n.review} to review`);
+  if (n.others) parts.push(`${n.others} by others`);
+  if (n.bots) parts.push(`${n.bots} by ${n.bots === 1 ? 'a bot' : 'bots'}`);
+  return parts.join(' · ');
 }
