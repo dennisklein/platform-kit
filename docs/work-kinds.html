@@ -1,0 +1,980 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>platform-kit Work Kinds</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column (max 980px) with a sticky contents rail on wide screens; mock screens break out to full column width. */
+:root{
+  --bg:#f4f6f8; --surface:#ffffff; --sunk:#eef1f5; --ink:#15202b; --muted:#5a6676; --line:#d6dce4;
+  --accent:#2d58c8; --accent-soft:#e3eafb;
+  --ok:#1d7f55; --ok-soft:#dcf1e7; --warn:#a96a10; --warn-soft:#fbefd9; --bad:#b93a33; --bad-soft:#f9e0de;
+  --k-goal:#0d7268; --k-goal-soft:#d9f0ec; --k-ms:#2d58c8; --k-ms-soft:#e3eafb; --k-task:#3f4b5b; --k-task-soft:#e7ebf0; --k-ask:#8743c9; --k-ask-soft:#efe4fa;
+  --chg:#a14d12; --chg-soft:#f8e6d6;
+  --f-display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e131a; --surface:#151c25; --sunk:#111821; --ink:#e4e9f0; --muted:#94a1b3; --line:#283342;
+  --accent:#86a6ff; --accent-soft:#1d2a47;
+  --ok:#4cc08a; --ok-soft:#14301f; --warn:#e3a94c; --warn-soft:#352711; --bad:#f2766c; --bad-soft:#3a1a18;
+  --k-goal:#3cc4b3; --k-goal-soft:#0f2e2b; --k-ms:#86a6ff; --k-ms-soft:#1d2a47; --k-task:#b6c1cf; --k-task-soft:#232d3a; --k-ask:#c39af5; --k-ask-soft:#2c1f40;
+  --chg:#f0a066; --chg-soft:#3a2414; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e131a; --surface:#151c25; --sunk:#111821; --ink:#e4e9f0; --muted:#94a1b3; --line:#283342;
+  --accent:#86a6ff; --accent-soft:#1d2a47;
+  --ok:#4cc08a; --ok-soft:#14301f; --warn:#e3a94c; --warn-soft:#352711; --bad:#f2766c; --bad-soft:#3a1a18;
+  --k-goal:#3cc4b3; --k-goal-soft:#0f2e2b; --k-ms:#86a6ff; --k-ms-soft:#1d2a47; --k-task:#b6c1cf; --k-task-soft:#232d3a; --k-ask:#c39af5; --k-ask-soft:#2c1f40;
+  --chg:#f0a066; --chg-soft:#3a2414; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:15px/1.6 var(--f-body);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 64px}
+.wrap{max-width:1180px;margin:0 auto;display:grid;grid-template-columns:200px minmax(0,1fr);gap:40px}
+@media (max-width:980px){.wrap{grid-template-columns:minmax(0,1fr)}.toc{display:none}}
+.toc{position:sticky;top:env(safe-area-inset-top,0px);align-self:start;padding-top:40px;font-size:13px}
+.toc b{font:600 11px/1 var(--f-body);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:10px}
+.toc a{display:block;color:var(--muted);text-decoration:none;padding:3px 0;border-left:2px solid transparent;padding-left:10px}
+.toc a:hover{color:var(--ink);border-left-color:var(--accent)}
+main{min-width:0;max-width:940px}
+header.top{padding:44px 0 8px}
+.eyebrow{font:600 11px/1 var(--f-body);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+h1{font:700 44px/1.05 var(--f-display);margin:10px 0 14px;text-wrap:balance;letter-spacing:-.01em}
+h2{font:700 28px/1.15 var(--f-display);margin:56px 0 10px;text-wrap:balance;padding-top:14px;border-top:1px solid var(--line)}
+h2 .n{color:var(--accent);margin-right:10px;font-variant-numeric:tabular-nums}
+h3{font:600 19px/1.25 var(--f-display);margin:30px 0 8px;text-wrap:balance}
+p,li{max-width:70ch}
+p{margin:8px 0}
+ul,ol{padding-left:22px;margin:8px 0}
+li{margin:3px 0}
+.lede{font-size:17px;color:var(--ink);max-width:68ch}
+.meta{color:var(--muted);font-size:13px}
+code,.mono{font-family:var(--f-mono);font-size:.86em}
+code{background:var(--sunk);border:1px solid var(--line);border-radius:4px;padding:0 4px}
+pre{font:12.5px/1.55 var(--f-mono);background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;margin:10px 0}
+pre code{background:none;border:0;padding:0;font-size:inherit}
+.c{color:var(--muted)}
+a{color:var(--accent)}
+.scroll{overflow-x:auto;margin:12px 0}
+table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:560px}
+th,td{text-align:left;vertical-align:top;padding:7px 10px;border-bottom:1px solid var(--line)}
+th{font:600 11px/1.3 var(--f-body);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);background:var(--sunk)}
+td.y{color:var(--ok);font-weight:600} td.x{color:var(--muted)}
+.callout{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:14px 16px;margin:14px 0}
+.callout.key{border-color:var(--accent);background:var(--accent-soft)}
+.callout b.lbl{font:600 11px/1 var(--f-body);letter-spacing:.08em;text-transform:uppercase;color:var(--accent);display:block;margin-bottom:6px}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+@media (max-width:820px){.grid4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:560px){.grid2,.grid4{grid-template-columns:minmax(0,1fr)}}
+.kind{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.kind .kn{font:700 20px/1 var(--f-display)}
+.kind .kq{font-size:13px;color:var(--muted)}
+.kind dl{margin:4px 0 0;display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12.5px}
+.kind dt{color:var(--muted)} .kind dd{margin:0}
+.kind.goal{border-top:4px solid var(--k-goal)} .kind.goal .kn{color:var(--k-goal)}
+.kind.ms{border-top:4px solid var(--k-ms)} .kind.ms .kn{color:var(--k-ms)}
+.kind.task{border-top:4px solid var(--k-task)} .kind.task .kn{color:var(--k-task)}
+.kind.ask{border-top:4px solid var(--k-ask)} .kind.ask .kn{color:var(--k-ask)}
+.principles{counter-reset:p;list-style:none;padding:0;display:grid;gap:8px}
+.principles li{counter-increment:p;max-width:none;display:grid;grid-template-columns:36px 1fr;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.principles li::before{content:"P" counter(p);font:700 15px/1.4 var(--f-display);color:var(--accent)}
+figure{margin:16px 0}
+figcaption{font-size:12.5px;color:var(--muted);margin-top:6px}
+.diagram{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;overflow-x:auto}
+.diagram svg{display:block;width:100%;height:auto;min-width:640px}
+svg text{font-family:var(--f-body);fill:var(--ink)}
+svg .t-m{fill:var(--muted)} svg .mono{font-family:var(--f-mono)}
+/* chips */
+.chip{display:inline-flex;align-items:center;gap:4px;font:500 11px/1 var(--f-body);padding:3px 7px;border-radius:999px;border:1px solid var(--line);background:var(--sunk);color:var(--ink);white-space:nowrap}
+.chip.ok{background:var(--ok-soft);color:var(--ok);border-color:transparent}
+.chip.warn{background:var(--warn-soft);color:var(--warn);border-color:transparent}
+.chip.bad{background:var(--bad-soft);color:var(--bad);border-color:transparent}
+.chip.ask{background:var(--k-ask-soft);color:var(--k-ask);border-color:transparent}
+.chip.ms{background:var(--k-ms-soft);color:var(--k-ms);border-color:transparent}
+.chip.goal{background:var(--k-goal-soft);color:var(--k-goal);border-color:transparent}
+.chip.chg{background:var(--chg-soft);color:var(--chg);border-color:transparent;font-family:var(--f-mono)}
+.chip.ghost{background:transparent}
+.id{font-family:var(--f-mono);font-size:11.5px;color:var(--muted)}
+/* mock windows */
+.mock{margin:18px 0 6px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface);box-shadow:0 1px 0 var(--line),0 12px 30px -18px rgba(10,20,40,.35)}
+.mock .bar{display:flex;align-items:center;gap:10px;padding:7px 12px;background:var(--sunk);border-bottom:1px solid var(--line);font:12px var(--f-mono);color:var(--muted);min-width:0}
+.mock .dots{display:flex;gap:5px}.mock .dots i{width:9px;height:9px;border-radius:50%;background:var(--line);display:block}
+.mock .url{flex:1;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:2px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mock .app{display:flex;align-items:center;gap:12px;padding:8px 14px;border-bottom:1px solid var(--line);font-size:12.5px;flex-wrap:wrap}
+.mock .app .brand{font:700 14px var(--f-display)}
+.mock .app .sp{flex:1}
+.mock .body{display:grid;grid-template-columns:150px minmax(0,1fr);min-height:200px}
+.mock .nav{border-right:1px solid var(--line);padding:10px 0;font-size:13px;background:var(--sunk)}
+.mock .nav span{display:block;padding:5px 14px;color:var(--muted)}
+.mock .nav span.on{color:var(--ink);font-weight:600;background:var(--surface);border-left:3px solid var(--accent);padding-left:11px}
+.mock .main{padding:14px 16px;min-width:0;overflow-x:auto}
+@media (max-width:640px){.mock .body{grid-template-columns:minmax(0,1fr)}.mock .nav{display:none}}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:12px;font-size:13px;flex-wrap:wrap}
+.tabs span{padding:6px 12px;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs span.on{color:var(--ink);font-weight:600;border-bottom-color:var(--accent)}
+.btn{display:inline-flex;align-items:center;gap:5px;font:500 12px/1 var(--f-body);padding:6px 10px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink);white-space:nowrap}
+.btn.pri{background:var(--accent);color:var(--surface);border-color:var(--accent)}
+.btn.ai{border-color:var(--k-ask);color:var(--k-ask)}
+.mh{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.mh .t{font:700 18px/1.2 var(--f-display)}
+/* plan tree */
+.tree{font-size:13px;min-width:600px}
+.row{display:grid;grid-template-columns:minmax(0,1fr) 120px 92px 96px;align-items:center;gap:10px;padding:6px 8px;border-bottom:1px solid var(--line)}
+.row .nm{display:flex;align-items:center;gap:8px;min-width:0}
+.row .nm .ti{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row.g{background:var(--k-goal-soft);font-weight:600}
+.row.m{background:var(--sunk);font-weight:600}
+.ind1{padding-left:18px}.ind2{padding-left:36px}.ind3{padding-left:54px}
+.kb{width:18px;height:18px;border-radius:4px;display:inline-grid;place-items:center;font:700 10px/1 var(--f-display);color:var(--surface);flex:none}
+.kb.g{background:var(--k-goal)}.kb.m{background:var(--k-ms)}.kb.t{background:var(--k-task)}.kb.a{background:var(--k-ask)}
+.pbar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;width:100%}
+.pbar i{display:block;height:100%;background:var(--ok)}
+.pcell{display:flex;flex-direction:column;gap:3px;font:11px var(--f-mono);color:var(--muted)}
+/* ladder */
+.ladder{display:flex;gap:0;margin:8px 0 4px;flex-wrap:wrap}
+.ladder span{font:500 11.5px/1 var(--f-body);padding:7px 10px;border:1px solid var(--line);margin-left:-1px;background:var(--surface);color:var(--muted)}
+.ladder span:first-child{border-radius:6px 0 0 6px;margin-left:0}.ladder span:last-child{border-radius:0 6px 6px 0}
+.ladder span.done{background:var(--ok-soft);color:var(--ok)}
+.ladder span.cur{background:var(--accent);color:var(--surface);border-color:var(--accent);font-weight:600}
+.split{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:14px}
+@media (max-width:720px){.split{grid-template-columns:minmax(0,1fr)}}
+.panel{border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--surface);min-width:0}
+.panel h4{margin:0 0 8px;font:600 11px/1 var(--f-body);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.kv{display:grid;grid-template-columns:90px minmax(0,1fr);gap:4px 10px;font-size:12.5px}
+.kv .k{color:var(--muted)}
+.ro{color:var(--muted);font-style:italic}
+.sd{font:12px/1.5 var(--f-mono);display:grid;gap:3px}
+.sd div{display:grid;grid-template-columns:18px minmax(0,1fr);gap:6px;padding:3px 6px;border-radius:4px}
+.sd .add{background:var(--ok-soft)} .sd .add b{color:var(--ok)}
+.sd .del{background:var(--bad-soft)} .sd .del b{color:var(--bad)}
+.sd .mod{background:var(--warn-soft)} .sd .mod b{color:var(--warn)}
+.sd .der{background:var(--sunk)} .sd .der b{color:var(--muted)}
+.sd b{font-weight:700}
+.dialog{border:1px solid var(--line);border-radius:10px;box-shadow:0 18px 40px -20px rgba(10,20,40,.5);background:var(--surface);padding:14px;max-width:520px}
+.field{display:grid;gap:4px;margin:8px 0;font-size:12.5px}
+.field .in{border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:var(--bg);font-size:13px}
+.radio{display:flex;gap:8px;flex-wrap:wrap}
+.radio span{border:1px solid var(--line);border-radius:6px;padding:6px 9px;font-size:12.5px}
+.radio span.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600}
+/* report page */
+.paper{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:26px 28px;max-width:820px;margin:0 auto}
+.paper .ph{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;border-bottom:2px solid var(--ink);padding-bottom:10px}
+.paper .ph .t{font:700 24px/1.1 var(--f-display)}
+.paper h5{font:600 11px/1 var(--f-body);letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin:18px 0 8px}
+.goalrow{display:grid;grid-template-columns:minmax(0,1fr) 90px 150px;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+.goalrow .sub{color:var(--muted);font-size:12px}
+.cite{font:500 10px var(--f-mono);color:var(--accent);vertical-align:super}
+.flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin:10px 0}
+.flow .st{flex:1 1 150px;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12.5px;position:relative}
+.flow .st b{display:block;font:600 13px/1.3 var(--f-display);margin-bottom:2px}
+.flow .st .who{font:600 10px/1 var(--f-body);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:4px}
+.flow .ar{align-self:center;color:var(--muted);font-size:16px}
+.who.h{color:var(--k-goal)!important}.who.b{color:var(--accent)!important}.who.l{color:var(--k-ask)!important}.who.f{color:var(--chg)!important}
+video{width:100%;border-radius:10px;border:1px solid var(--line);background:#000;display:block}
+.qs{display:grid;gap:10px}
+.q{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 14px}
+.q b{font-family:var(--f-display);font-size:15px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+<nav class="toc" aria-label="Contents">
+  <b>Contents</b>
+  <a href="#answer">Short answer</a>
+  <a href="#now">What exists now</a>
+  <a href="#principles">Principles</a>
+  <a href="#kinds">The four kinds</a>
+  <a href="#nesting">Nesting and dependencies</a>
+  <a href="#lifecycles">Lifecycles</a>
+  <a href="#changes">Relation to changes</a>
+  <a href="#evolution">Evolution</a>
+  <a href="#pm">PM concerns</a>
+  <a href="#report">Progress reports</a>
+  <a href="#mocks">UI mocks</a>
+  <a href="#workflows">Workflows</a>
+  <a href="#migration">Migration</a>
+  <a href="#questions">Decisions</a>
+</nav>
+<main>
+<header class="top">
+  <div class="eyebrow">platform-kit design · work kinds · decisions adopted 1 Nov 2026</div>
+  <h1>Work kinds, lifecycles and progress reports</h1>
+  <p class="lede">This document defines a small set of work kinds for platform-kit. It defines their lifecycles, how they nest, how they change over time, and how they relate to a change. It then shows how an executive progress report comes from a semantic diff of the work kinds between two dates.</p>
+  <p class="meta">Base: <a href="design.html">design.html</a>, the demo branch (PR #3: <code>internal/kinds/work</code>, the work board), and the design talk of 30 Oct 2026. Sample data uses the demo content (defiant, rack GC5A-6Z, cn-035).</p>
+</header>
+
+<h2 id="answer"><span class="n">0</span>Short answer</h2>
+<ul>
+  <li><b>Four kinds:</b> <span class="chip goal">Goal</span> (why), <span class="chip ms">Milestone</span> (when), <span class="chip">Task</span> (our work, done by changes), <span class="chip ask">Ask</span> (work that others do for us, for example your "org task").</li>
+  <li><b>A kind is defined by where its status comes from.</b> Task status comes from changes. Milestone and Goal status comes from their children. Ask status is asserted by a person or by the sync bot. No status is typed by hand.</li>
+  <li><b>Nesting is fixed and shallow:</b> Goal › Milestone › Task › Sub-task, plus Asks as leaves. Maximum 4 levels of our own work. A milestone never contains a milestone.</li>
+  <li><b>Evolution is by addition.</b> A task gets sub-tasks, Asks or <code>needs</code> edges. Its kind and its id never change. A real kind change (task becomes milestone) is a <i>supersede</i>: a new object, and the old one points to it.</li>
+  <li><b>A change is required for each edit</b>, as you said. Plan-only changes get a fast path in policy. The link between a change and a task lives in the change, not in the task file. Thus parallel changes do not conflict.</li>
+  <li><b>The 1:1 case</b> (one task, one change) shows the full change state as the task state. The demo already allows N changes per item; this design keeps that and adds a "closes" flag.</li>
+  <li><b>A progress report is a semantic diff</b> of the work view between two baselines. Code computes the numbers. The LLM drafts words with citations. A person owns the text. The report is a file in git, added by a change.</li>
+</ul>
+
+<figure>
+<div class="diagram">
+<svg viewBox="0 0 900 470" role="img" aria-label="Work kinds and their relations: Goal contains milestones, milestones contain tasks, a task contains sub-tasks and an Ask, changes close tasks, a dashed needs edge crosses milestones.">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--muted)"/></marker>
+    <marker id="ahc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--chg)"/></marker>
+    <marker id="aha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--k-ask)"/></marker>
+  </defs>
+  <!-- level labels -->
+  <text x="8" y="52" class="t-m" font-size="11">level 0</text>
+  <text x="8" y="142" class="t-m" font-size="11">level 1</text>
+  <text x="8" y="242" class="t-m" font-size="11">level 2</text>
+  <text x="8" y="342" class="t-m" font-size="11">level 3</text>
+  <text x="8" y="432" class="t-m" font-size="11">changes</text>
+  <!-- parent edges -->
+  <g stroke="var(--muted)" stroke-width="1.4" fill="none" marker-end="url(#ah)">
+    <path d="M230 120 L420 78"/><path d="M670 120 L500 78"/>
+    <path d="M145 220 L200 168"/><path d="M335 220 L270 168"/>
+    <path d="M605 220 L650 168"/>
+    <path d="M485 320 L580 268"/><path d="M640 320 L620 268"/><path d="M795 320 L660 268"/>
+  </g>
+  <!-- needs edge -->
+  <path d="M380 236 C 430 236, 470 300, 548 330" stroke="var(--k-ask)" stroke-width="1.6" stroke-dasharray="6 4" fill="none" marker-end="url(#aha)"/>
+  <text x="420" y="262" font-size="11" fill="var(--k-ask)" style="fill:var(--k-ask)">needs</text>
+  <!-- closes edges -->
+  <g stroke="var(--chg)" stroke-width="1.4" fill="none" marker-end="url(#ahc)" stroke-dasharray="2 3">
+    <path d="M145 405 L145 270"/><path d="M335 405 L335 270"/><path d="M485 405 L485 370"/><path d="M640 405 L640 370"/>
+  </g>
+  <text x="152" y="392" font-size="11" style="fill:var(--chg)">closes</text>
+  <!-- goal -->
+  <rect x="350" y="22" width="220" height="56" rx="8" fill="var(--k-goal-soft)" stroke="var(--k-goal)"/>
+  <text x="362" y="44" font-size="14" font-weight="700" style="fill:var(--k-goal)">Goal</text>
+  <text x="362" y="64" font-size="12">defiant serves tenants</text>
+  <text x="500" y="44" font-size="10.5" class="t-m">status ← milestones</text>
+  <!-- milestones -->
+  <rect x="120" y="112" width="220" height="56" rx="8" fill="var(--k-ms-soft)" stroke="var(--k-ms)"/>
+  <text x="132" y="134" font-size="14" font-weight="700" style="fill:var(--k-ms)">Milestone</text>
+  <text x="132" y="154" font-size="12">defiant ready · due 14 Dec</text>
+  <rect x="560" y="112" width="220" height="56" rx="8" fill="var(--k-ms-soft)" stroke="var(--k-ms)"/>
+  <text x="572" y="134" font-size="14" font-weight="700" style="fill:var(--k-ms)">Milestone</text>
+  <text x="572" y="154" font-size="12">tenant storage · due 31 Jan</text>
+  <text x="690" y="134" font-size="10.5" class="t-m">status ← children</text>
+  <!-- tasks -->
+  <rect x="60" y="214" width="170" height="54" rx="7" fill="var(--k-task-soft)" stroke="var(--k-task)"/>
+  <text x="72" y="236" font-size="13" font-weight="700">Task</text>
+  <text x="72" y="255" font-size="11.5">cn-035, cn-036</text>
+  <rect x="250" y="214" width="170" height="54" rx="7" fill="var(--k-task-soft)" stroke="var(--k-task)"/>
+  <text x="262" y="236" font-size="13" font-weight="700">Task</text>
+  <text x="262" y="255" font-size="11.5">BGP peers org-a/b</text>
+  <rect x="540" y="214" width="170" height="54" rx="7" fill="var(--k-task-soft)" stroke="var(--k-task)" stroke-width="2"/>
+  <text x="552" y="236" font-size="13" font-weight="700">Task (split)</text>
+  <text x="552" y="255" font-size="11.5">Ceph pool for tenants</text>
+  <text x="720" y="236" font-size="10.5" class="t-m">status ← changes</text>
+  <text x="720" y="252" font-size="10.5" class="t-m">+ children</text>
+  <!-- level 3 -->
+  <rect x="415" y="316" width="140" height="54" rx="7" fill="var(--k-task-soft)" stroke="var(--k-task)" stroke-dasharray="4 3"/>
+  <text x="427" y="338" font-size="12.5" font-weight="700">Sub-task</text>
+  <text x="427" y="356" font-size="11">disks in OSD hosts</text>
+  <rect x="570" y="316" width="140" height="54" rx="7" fill="var(--k-task-soft)" stroke="var(--k-task)" stroke-dasharray="4 3"/>
+  <text x="582" y="338" font-size="12.5" font-weight="700">Sub-task</text>
+  <text x="582" y="356" font-size="11">pool + StorageClass</text>
+  <rect x="725" y="316" width="150" height="54" rx="7" fill="var(--k-ask-soft)" stroke="var(--k-ask)"/>
+  <text x="737" y="338" font-size="12.5" font-weight="700" style="fill:var(--k-ask)">Ask</text>
+  <text x="737" y="356" font-size="11">disks order · procurement</text>
+  <text x="737" y="388" font-size="10.5" class="t-m">status ← asserted / sync</text>
+  <!-- changes -->
+  <g font-family="JetBrains Mono, monospace" font-size="11">
+    <rect x="95" y="406" width="100" height="26" rx="5" fill="var(--chg-soft)" stroke="var(--chg)"/><text x="108" y="423" class="mono">c-k7m2qz</text>
+    <rect x="285" y="406" width="100" height="26" rx="5" fill="var(--chg-soft)" stroke="var(--chg)"/><text x="298" y="423" class="mono">c-p4x8ma</text>
+    <rect x="435" y="406" width="100" height="26" rx="5" fill="var(--chg-soft)" stroke="var(--chg)"/><text x="448" y="423" class="mono">c-h3d9tw</text>
+    <rect x="590" y="406" width="100" height="26" rx="5" fill="var(--chg-soft)" stroke="var(--chg)"/><text x="603" y="423" class="mono">c-w8e2rf</text>
+  </g>
+  <!-- legend -->
+  <g font-size="11">
+    <line x1="720" y1="420" x2="750" y2="420" stroke="var(--muted)" stroke-width="1.4" marker-end="url(#ah)"/><text x="756" y="424" class="t-m">parent (part of)</text>
+    <line x1="720" y1="440" x2="750" y2="440" stroke="var(--k-ask)" stroke-width="1.6" stroke-dasharray="6 4"/><text x="756" y="444" class="t-m">needs (waits for)</text>
+    <line x1="720" y1="460" x2="750" y2="460" stroke="var(--chg)" stroke-width="1.4" stroke-dasharray="2 3"/><text x="756" y="464" class="t-m">change closes task</text>
+  </g>
+</svg>
+</div>
+<figcaption>Figure 1. The four kinds. Each arrow points from the object that holds the link to the object it names. A child names its parent. A dependent names what it needs. A change names the task it closes.</figcaption>
+</figure>
+
+<h2 id="now"><span class="n">1</span>What exists now</h2>
+<p>The current design and the demo have one work kind and one list. Your memory is almost correct. One detail is different: a work item can link to more than one change.</p>
+<div class="scroll"><table>
+<tr><th>Topic</th><th>Demo now (PR #3)</th><th>Problem</th><th>This design</th></tr>
+<tr><td>Kinds</td><td><code>WorkItem</code> per file, <code>MilestoneList</code> in one file</td><td>No goal, no outside work, no sub-items. One list file makes conflicts.</td><td>Goal, Milestone, Task, Ask. One file per object.</td></tr>
+<tr><td>Status</td><td>Derived. The least advanced linked change decides.</td><td>When is an item with two changes done? After the first merge, the item shows "done" but work remains.</td><td>Derived. A change <i>closes</i> or only <i>refers to</i> a task.</td></tr>
+<tr><td>Change link</td><td>Item file <code>changes: [..]</code> plus change metadata and <code>Pk-Work-Item</code> trailer</td><td>Two open changes on one item edit the same line. The demo notes the rebase conflict.</td><td>Only the change holds the link. The item's change list is a backlink.</td></tr>
+<tr><td>Ids</td><td><code>w-104</code>, sequential</td><td>Two branches make <code>w-122</code> at the same time.</td><td>Random, like change ids: <code>t-8kq2vm</code>.</td></tr>
+<tr><td>Reports</td><td>Milestone "3 of 6 done"</td><td>No history, no scope or date changes.</td><td>Report record from a semantic diff between baselines.</td></tr>
+</table></div>
+
+<h2 id="principles"><span class="n">2</span>Principles</h2>
+<ol class="principles">
+  <li><span><b>Git is the only write path.</b> Each work object is a file in the state repo. A change adds or edits it. This gives review, audit and history for free.</span></li>
+  <li><span><b>Store intent, derive status.</b> People write scope, dates, owners and links. The bench computes status, progress and health. Nobody types "done".</span></li>
+  <li><span><b>A kind is its status source.</b> A new kind is only necessary when status comes from a new source. This keeps the set small.</span></li>
+  <li><span><b>Evolve by addition.</b> Ids and kinds never change. Growth adds children, Asks or <code>needs</code> edges. Thus a report can follow each object over years.</span></li>
+  <li><span><b>Links point from the newer or dependent object.</b> A child names its parent, a dependent names its dependency, a change names its task. Then two parallel changes almost never edit the same file.</span></li>
+  <li><span><b>A report is a diff between two baselines.</b> The same semantic diff hooks that describe a change also describe a month.</span></li>
+  <li><span><b>Code computes numbers, the LLM writes words, a person owns them.</b> Each health rating names the rule and the inputs, so a reviewer can check it.</span></li>
+</ol>
+
+<h2 id="kinds"><span class="n">3</span>The four kinds</h2>
+<p>All kinds are in the API group <code>work.pk.io</code>. All have the truth class <i>intent</i>, except the state fields of an Ask, which are <i>asserted</i>. All have the apply path <i>none</i>: merging a work file changes no cluster.</p>
+<div class="grid4">
+  <div class="kind goal"><span class="kn">Goal</span><span class="kq">Why. An outcome for executives.</span>
+    <dl><dt>file</dt><dd class="mono">work/goals/g-*.yaml</dd><dt>status</dt><dd>from milestones</dd><dt>children</dt><dd>Milestone, recurring Task</dd><dt>life</dt><dd>months to years</dd><dt>count</dt><dd>3 to 6 open</dd></dl></div>
+  <div class="kind ms"><span class="kn">Milestone</span><span class="kq">When. A dated delivery that we promise.</span>
+    <dl><dt>file</dt><dd class="mono">work/milestones/m-*.yaml</dd><dt>status</dt><dd>from children and due date</dd><dt>children</dt><dd>Task, Ask</dd><dt>life</dt><dd>weeks to months</dd><dt>count</dt><dd>2 to 8 open</dd></dl></div>
+  <div class="kind task"><span class="kn">Task</span><span class="kq">What. Work that the team does in the repo.</span>
+    <dl><dt>file</dt><dd class="mono">work/tasks/t-*.yaml</dd><dt>status</dt><dd>from changes and children</dd><dt>children</dt><dd>Sub-task (1 level), Ask</dd><dt>life</dt><dd>days to weeks</dd><dt>count</dt><dd>many</dd></dl></div>
+  <div class="kind ask"><span class="kn">Ask</span><span class="kq">Who else. Work that another team, vendor or org system does for us.</span>
+    <dl><dt>file</dt><dd class="mono">work/asks/a-*.yaml</dd><dt>status</dt><dd>asserted or synced</dd><dt>children</dt><dd>none</dd><dt>life</dt><dd>days to months</dd><dt>count</dt><dd>few, but they block</dd></dl></div>
+</div>
+
+<h3>Fields</h3>
+<div class="grid2">
+<pre><code><span class="c"># work/goals/g-4hd2ka.yaml</span>
+apiVersion: work.pk.io/v1alpha1
+kind: Goal
+id: g-4hd2ka
+title: defiant serves tenant workloads
+outcome: Two tenants run batch jobs on defiant with
+  Ceph volumes and org network access.
+owner: dennis
+target: 2027-01-31
+<span class="c"># set only to close the goal (asserted by owner)</span>
+result: {}            <span class="c"># achieved | partly | missed + note</span></code></pre>
+<pre><code><span class="c"># work/milestones/m-7tq1xe.yaml</span>
+apiVersion: work.pk.io/v1alpha1
+kind: Milestone
+id: m-7tq1xe
+title: defiant ready for tenants
+parent: g-4hd2ka
+owner: dennis
+due: 2026-12-14
+exit: Rack GC5A-6Z cabled and filled, BGP to the
+  org routers, storage for tenant volumes.
+needs: []</code></pre>
+<pre><code><span class="c"># work/tasks/t-9rb3ne.yaml</span>
+apiVersion: work.pk.io/v1alpha1
+kind: Task
+id: t-9rb3ne
+title: BGP peers for org-a and org-b
+parent: m-7tq1xe
+owner: anna
+needs: [a-5xk2pq]       <span class="c"># waits for the network team</span>
+assets: [defiant]
+kb: [kb/runbooks/bgp-peering]
+every: ""               <span class="c"># e.g. 1mo makes it recurring</span>
+dropped: {}             <span class="c"># {reason, replacedBy}</span>
+notes: Peers from the cable plan, ASN 65101.</code></pre>
+<pre><code><span class="c"># work/asks/a-5xk2pq.yaml</span>
+apiVersion: work.pk.io/v1alpha1
+kind: Ask
+id: a-5xk2pq
+title: Uplink ports on org routers for defiant
+parent: m-7tq1xe
+owner: anna             <span class="c"># who follows it up</span>
+party: network team     <span class="c"># who does the work</span>
+ref: NET-4411           <span class="c"># ticket in the org system</span>
+<span class="c"># asserted (or owned by the sync adapter)</span>
+state: promised         <span class="c"># open|requested|promised|delivered|declined</span>
+requested: 2026-10-06
+expected: 2026-12-08</code></pre>
+</div>
+<p>Not stored anywhere in a work file: status, progress, health, the blocked flag, the list of changes, and the children. The bench computes them. The editor shows them read-only.</p>
+
+<h3>Why not fewer kinds, and why not more</h3>
+<ul>
+  <li><b>One generic "item" kind</b> is simpler to store, but then a field must say what kind of status applies. Executives also need a fixed "goal" and "milestone" layer that does not change shape. Four fixed kinds make the report stable for years.</li>
+  <li><b>No separate Epic, Story, Bug, Request or Risk kind.</b> An epic is a task with sub-tasks. A bug or app-team request is a task in the inbox. A risk is computed (see health rules). A recurring task is a task with <code>every</code>.</li>
+  <li><b>No Sprint or Iteration.</b> A small team does not need time boxes. The report period is the only time box.</li>
+</ul>
+
+<h2 id="nesting"><span class="n">4</span>Nesting and dependencies</h2>
+<p>There are two relations. <b>parent</b> means "is part of". Progress rolls up along it, and a parent cannot be done while a child is open. <b>needs</b> means "must wait for". It crosses the tree and it does not roll up.</p>
+<div class="scroll"><table>
+<tr><th>Kind</th><th>Parent can be</th><th>Children can be</th><th>Max depth below it</th><th>Needs can point to</th></tr>
+<tr><td><span class="chip goal">Goal</span></td><td>none</td><td>Milestone, recurring Task</td><td>3 (+ Ask)</td><td>nothing</td></tr>
+<tr><td><span class="chip ms">Milestone</span></td><td>Goal or none</td><td>Task, Ask</td><td>2 (+ Ask)</td><td>Milestone, Task, Ask</td></tr>
+<tr><td><span class="chip">Task</span></td><td>Milestone, Task, Goal (recurring only), none (inbox)</td><td>Task (only if it is a top-level task), Ask</td><td>1 (+ Ask)</td><td>Milestone, Task, Ask</td></tr>
+<tr><td><span class="chip ask">Ask</span></td><td>Milestone or Task</td><td>none</td><td>0</td><td>Ask</td></tr>
+</table></div>
+<div class="callout key"><b class="lbl">Rules (cross-file validation, error in CI)</b>
+<ol>
+<li>A Milestone has no Milestone as parent. Use <code>needs</code> to order milestones, and a Goal to group them. Nested dates make conflicts that nobody can solve.</li>
+<li>A sub-task has no sub-task. When a sub-task must split, split it into siblings. When that is not sufficient, promote the parent task to a milestone (see evolution).</li>
+<li>A recurring task is never in a milestone. A milestone must end, and a recurring task never ends.</li>
+<li>The <code>needs</code> graph has no cycle, and an object does not need its own ancestor or descendant (the tree already says that).</li>
+<li>A done milestone takes no new children. Put new work into a follow-up milestone. This keeps "delivered on" dates true.</li>
+<li>Warning, not error: a task without a parent for more than 14 days ("inbox"), and a <code>needs</code> edge to a dropped object.</li>
+</ol></div>
+
+<h2 id="lifecycles"><span class="n">5</span>Lifecycles</h2>
+<p>Each lifecycle below is computed. The only states that people set are the Ask states and the <code>dropped</code> and <code>result</code> fields.</p>
+<figure><div class="diagram">
+<svg viewBox="0 0 900 470" role="img" aria-label="State machines for Task, Ask and Milestone or Goal.">
+  <defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--muted)"/></marker></defs>
+  <style>.sb{fill:var(--surface);stroke:var(--line)}.sl{font-size:12.5px}.hd{font-size:13px;font-weight:700}</style>
+  <!-- Task -->
+  <text x="14" y="26" class="hd">Task</text>
+  <text x="70" y="26" font-size="11" class="t-m">derived from linked changes and children</text>
+  <g stroke="var(--muted)" stroke-width="1.3" fill="none" marker-end="url(#a2)">
+    <path d="M120 60 H160"/><path d="M260 60 H300"/>
+    <path d="M90 78 V118 H160"/><path d="M230 78 V118 H160" />
+  </g>
+  <rect x="20" y="42" width="100" height="36" rx="18" class="sb"/><text x="45" y="65" class="sl">planned</text>
+  <rect x="160" y="42" width="100" height="36" rx="18" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="190" y="65" class="sl">active</text>
+  <rect x="300" y="42" width="380" height="36" rx="18" fill="var(--ok-soft)" stroke="var(--ok)"/>
+  <text x="318" y="65" class="sl" font-weight="600" style="fill:var(--ok)">done</text>
+  <text x="370" y="65" font-size="11.5">merged › deployed@ring › verified@ring</text>
+  <rect x="160" y="104" width="100" height="30" rx="15" fill="var(--bad-soft)" stroke="var(--bad)"/><text x="182" y="124" font-size="12" style="fill:var(--bad)">dropped</text>
+  <rect x="300" y="100" width="170" height="38" rx="6" fill="none" stroke="var(--warn)" stroke-dasharray="4 3"/><text x="310" y="116" font-size="11" style="fill:var(--warn)">blocked = flag, not a state</text><text x="310" y="131" font-size="10.5" class="t-m">a need or child Ask is open</text>
+  <text x="490" y="112" font-size="11" class="t-m">1:1 case (one change, no children):</text>
+  <text x="490" y="128" font-size="11" class="t-m">show the change state itself:</text>
+  <text x="490" y="144" font-size="11" class="mono" >draft lab review approved merged …</text>
+  <!-- Ask -->
+  <text x="14" y="196" class="hd" style="fill:var(--k-ask)">Ask</text>
+  <text x="58" y="196" font-size="11" class="t-m">asserted by a person through a change, or by the sync bot</text>
+  <g stroke="var(--muted)" stroke-width="1.3" fill="none" marker-end="url(#a2)">
+    <path d="M110 230 H150"/><path d="M260 230 H300"/><path d="M410 230 H450"/>
+    <path d="M205 248 V290 H450"/><path d="M355 248 V290"/>
+  </g>
+  <rect x="20" y="212" width="90" height="36" rx="18" class="sb"/><text x="46" y="235" class="sl">open</text>
+  <rect x="150" y="212" width="110" height="36" rx="18" fill="var(--k-ask-soft)" stroke="var(--k-ask)"/><text x="170" y="235" class="sl">requested</text>
+  <rect x="300" y="212" width="110" height="36" rx="18" fill="var(--k-ask-soft)" stroke="var(--k-ask)"/><text x="322" y="235" class="sl">promised</text>
+  <rect x="450" y="212" width="110" height="36" rx="18" fill="var(--ok-soft)" stroke="var(--ok)"/><text x="470" y="235" class="sl" style="fill:var(--ok)">delivered</text>
+  <rect x="450" y="276" width="110" height="30" rx="15" fill="var(--bad-soft)" stroke="var(--bad)"/><text x="475" y="296" font-size="12" style="fill:var(--bad)">declined</text>
+  <text x="590" y="228" font-size="11" class="t-m">late = expected date passed, not delivered</text>
+  <text x="590" y="246" font-size="11" class="t-m">declined → the needing task is blocked until</text>
+  <text x="590" y="262" font-size="11" class="t-m">someone supersedes the Ask with a Task</text>
+  <!-- Milestone / Goal -->
+  <text x="14" y="352" class="hd" style="fill:var(--k-ms)">Milestone, Goal</text>
+  <text x="128" y="352" font-size="11" class="t-m">derived from children; health from rules</text>
+  <g stroke="var(--muted)" stroke-width="1.3" fill="none" marker-end="url(#a2)"><path d="M120 386 H160"/><path d="M260 386 H300"/></g>
+  <rect x="20" y="368" width="100" height="36" rx="18" class="sb"/><text x="45" y="391" class="sl">planned</text>
+  <rect x="160" y="368" width="100" height="36" rx="18" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="190" y="391" class="sl">active</text>
+  <rect x="300" y="368" width="100" height="36" rx="18" fill="var(--ok-soft)" stroke="var(--ok)"/><text x="330" y="391" class="sl" style="fill:var(--ok)">done</text>
+  <text x="440" y="378" font-size="11.5">health while open:</text>
+  <rect x="440" y="388" width="78" height="22" rx="11" fill="var(--ok-soft)"/><text x="451" y="403" font-size="11" style="fill:var(--ok)">on track</text>
+  <rect x="524" y="388" width="70" height="22" rx="11" fill="var(--warn-soft)"/><text x="535" y="403" font-size="11" style="fill:var(--warn)">at risk</text>
+  <rect x="600" y="388" width="50" height="22" rx="11" fill="var(--bad-soft)"/><text x="612" y="403" font-size="11" style="fill:var(--bad)">late</text>
+  <text x="440" y="432" font-size="11" class="t-m">Goal close: owner sets result = achieved | partly | missed (asserted).</text>
+  <text x="440" y="450" font-size="11" class="t-m">An outcome is more than delivered milestones, so a person decides.</text>
+</svg></div>
+<figcaption>Figure 2. Lifecycles. Grey boxes are computed. Only the Ask states, <code>dropped</code> and the goal <code>result</code> are written by people.</figcaption></figure>
+
+<h3>Task status: the exact rule</h3>
+<pre><code>dropped  if the file has dropped: {...}
+done     if no own change is open, and
+           (no children and a closing change is merged)
+           or (children exist and each child is done or dropped)
+active   if an own change is open, or an own change is merged but none closes,
+         or a child is active or done
+planned  in all other cases
+blocked  (flag) if not done, and a needed object or a child Ask is not done/delivered
+
+delivery level of a done task = lowest level of its closing changes and children:
+  merged  &lt;  deployed@lab  &lt;  deployed@canary  &lt;  deployed@prod  &lt;  verified@prod</code></pre>
+<p>A closed MR that did not merge does not count. A revert change of a closing change sets the task back to <i>active</i> and the report says so.</p>
+
+<h3>The 1:1 case</h3>
+<p>Most tasks have one change and no children. Then the task shows the seven change states from design section 5, not the coarse status. The board column comes from the coarse status.</p>
+<div class="scroll"><table>
+<tr><th>Change state</th><th>draft</th><th>lab</th><th>review</th><th>approved</th><th>merged</th><th>deployed</th><th>verified</th></tr>
+<tr><td>Task status</td><td colspan="4">active</td><td colspan="3">done (with delivery level)</td></tr>
+<tr><td>Board column</td><td colspan="2">In progress</td><td colspan="2">In review</td><td colspan="3">Done</td></tr>
+</table></div>
+
+<h3>Recurring tasks</h3>
+<p>A task with <code>every: 1mo</code> (or <code>1w</code>, <code>3mo</code>, <code>1y</code>) never becomes done. Each period is done when a closing change merges in that period. When a period ends without one, the task is <i>overdue</i>. Examples: the monthly executive report, the Talos upgrade each quarter, the monthly DR restore test. To stop a routine, drop it.</p>
+
+<h3>Milestone and goal health</h3>
+<p>Health uses rules in <code>.pk/work.yaml</code>, in the same way that <code>.pk/policy.yaml</code> rates the risk of a change. Each result names the rule and its inputs. The advisor may add a note, but it never sets the health.</p>
+<pre><code><span class="c"># .pk/work.yaml</span>
+health:
+  late: due passed and not done
+  atRisk:
+    - rule: ask-late           <span class="c"># a needed Ask expects delivery after due - buffer</span>
+      buffer: 7d
+    - rule: ask-not-requested  <span class="c"># an Ask is still "open" and due is near</span>
+      within: 21d
+    - rule: throughput         <span class="c"># open leaf tasks &gt; done per week (last 8 w) x weeks left</span>
+      window: 8w
+    - rule: stale              <span class="c"># an active task had no change activity</span>
+      after: 21d
+reports:
+  every: 1mo
+  depth: milestone            <span class="c"># executives see goals and milestones; tasks only as exceptions</span>
+  delivered: deployed@prod    <span class="c"># what "delivered" means in a report</span></code></pre>
+<p>Progress of a milestone is the count of done leaf tasks divided by all leaf tasks that are not dropped. A leaf task is a task without sub-tasks. Asks are not counted, because they are not our work. They show as blockers.</p>
+
+<h2 id="changes"><span class="n">6</span>Relation to changes</h2>
+<figure><div class="diagram">
+<svg viewBox="0 0 900 300" role="img" aria-label="Where links live: work files on main, change metadata on the branch, trailers on the merge commit, and the bench index that derives status.">
+  <defs><marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--muted)"/></marker></defs>
+  <rect x="14" y="20" width="250" height="160" rx="8" fill="var(--surface)" stroke="var(--line)"/>
+  <text x="28" y="44" font-size="13" font-weight="700">main: work/** (intent)</text>
+  <text x="28" y="68" font-size="11.5" class="mono">tasks/t-8kq2vm.yaml</text>
+  <text x="28" y="86" font-size="11.5" class="mono">  parent: m-7tq1xe</text>
+  <text x="28" y="104" font-size="11.5" class="mono">  needs: []</text>
+  <text x="28" y="122" font-size="11.5" class="mono">  owner: dennis</text>
+  <text x="28" y="146" font-size="11" class="t-m">no change ids, no status</text>
+  <text x="28" y="164" font-size="11" class="t-m">edited only by changes</text>
+  <rect x="320" y="20" width="250" height="160" rx="8" fill="var(--chg-soft)" stroke="var(--chg)"/>
+  <text x="334" y="44" font-size="13" font-weight="700">branch: change metadata</text>
+  <text x="334" y="68" font-size="11.5" class="mono">.pk/changes/c-k7m2qz.yaml</text>
+  <text x="334" y="86" font-size="11.5" class="mono">  work:</text>
+  <text x="334" y="104" font-size="11.5" class="mono">    closes: [t-8kq2vm]</text>
+  <text x="334" y="122" font-size="11.5" class="mono">    refs:   []</text>
+  <text x="334" y="146" font-size="11" class="t-m">set in the new-change dialog</text>
+  <text x="334" y="164" font-size="11" class="t-m">travels with push, works offline</text>
+  <rect x="626" y="20" width="260" height="160" rx="8" fill="var(--surface)" stroke="var(--line)"/>
+  <text x="640" y="44" font-size="13" font-weight="700">main: merge commit trailers</text>
+  <text x="640" y="68" font-size="11.5" class="mono">Pk-Change: c-k7m2qz</text>
+  <text x="640" y="86" font-size="11.5" class="mono">Pk-Closes: t-8kq2vm</text>
+  <text x="640" y="104" font-size="11.5" class="mono">Pk-Work-Item: t-…  (refs)</text>
+  <text x="640" y="128" font-size="11" class="t-m">git log --merges is the full</text>
+  <text x="640" y="146" font-size="11" class="t-m">delivery history of each task</text>
+  <g stroke="var(--muted)" stroke-width="1.3" fill="none" marker-end="url(#a3)"><path d="M570 100 H622"/><path d="M140 180 V230 H330"/><path d="M445 180 V226"/><path d="M756 180 V230 H560"/></g>
+  <text x="580" y="92" font-size="10.5" class="t-m">merge</text>
+  <rect x="330" y="230" width="230" height="56" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+  <text x="344" y="252" font-size="13" font-weight="700">bench index (derived)</text>
+  <text x="344" y="272" font-size="11.5">status · progress · health · backlinks</text>
+  <text x="590" y="262" font-size="11" class="t-m">+ forge (MR state) + Flux (deployed) + lab runs</text>
+</svg></div>
+<figcaption>Figure 3. Where each link lives. The work file has no change ids. Thus a second change on the same task does not touch the task file.</figcaption></figure>
+
+<h3>Three kinds of change</h3>
+<div class="scroll"><table>
+<tr><th>Change</th><th>Touches</th><th>Work link</th><th>Example</th><th>Policy (proposal)</th></tr>
+<tr><td><b>Delivery</b></td><td>desired state (and its records)</td><td><code>closes</code> or <code>refs</code> one or more tasks</td><td>c-k7m2qz adds cn-035, cn-036</td><td>path rules as today</td></tr>
+<tr><td><b>Plan</b></td><td>only <code>work/**</code></td><td>none</td><td>split a task, add an Ask, re-date a milestone</td><td>tasks and asks: 0 approvals, author merges. Milestones and goals: 1 approval. Agent or bot author: always 1 human approval.</td></tr>
+<tr><td><b>Inline</b></td><td>desired state plus one new task file</td><td><code>closes</code> the new task</td><td>a quick fix that also records its task</td><td>path rules of the delivery part</td></tr>
+</table></div>
+<pre><code><span class="c"># .pk/policy.yaml (addition)</span>
+paths:
+  - match: work/tasks/**
+    write: [platform-admin, app-team/*]
+    approvals: 0          <span class="c"># fast path: the MR is the record</span>
+  - match: work/asks/**
+    write: [platform-admin, app-team/*]
+    approvals: 0
+  - match: work/milestones/**
+    write: [platform-admin]
+    approvals: 1          <span class="c"># a due date is a promise to executives</span>
+  - match: work/goals/**
+    write: [platform-admin]
+    approve: [owner]
+  - match: work/reports/**
+    approvals: 1
+agentRules:
+  minHumanApprovals: 1    <span class="c"># no 0-approval path when an agent or bot authored the change</span></code></pre>
+<p>The fast path does not weaken the audit. Each plan edit is still an MR with trailers, an author and a CI policy check. The bench does the whole cycle with one click ("Save plan"). When an agent or the sync bot is an author, the fast path does not apply. A human must approve, and the person the agent acts for can be that approver. Reason: an agent never merges, and repo text that the agent read could carry an injected instruction.</p>
+
+<h3>Rule: plan edits do not hide in a delivery branch</h3>
+<p>You often find a new Ask or sub-task while a delivery change is open. If you add that file in the delivery branch, main shows it only after the merge. But the merge waits for the Ask. So the bench puts each work edit into a separate quick plan change by default ("side change"), and main shows the blocker at once. Exception: an inline change can create the one task that it closes.</p>
+
+<h2 id="evolution"><span class="n">7</span>Evolution</h2>
+<p>Work changes shape while it runs. The table shows each evolution step, which kinds allow it, and the semantic diff line that the step makes. These lines are the raw material of the report.</p>
+<div class="scroll"><table>
+<tr><th>Step</th><th>Goal</th><th>Milestone</th><th>Task</th><th>Ask</th><th>How</th><th>Semantic diff line</th></tr>
+<tr><td>Add child</td><td class="y">milestone</td><td class="y">task, ask</td><td class="y">sub-task, ask</td><td class="x">no</td><td>new file with <code>parent</code></td><td>"t-6mz4ca split into 3 sub-tasks"</td></tr>
+<tr><td>Add need</td><td class="x">no</td><td class="y">yes</td><td class="y">yes</td><td class="y">ask only</td><td><code>needs</code> on the dependent</td><td>"t-9rb3ne now waits for a-5xk2pq (network team)"</td></tr>
+<tr><td>Re-date</td><td class="y">target</td><td class="y">due</td><td class="x">no date</td><td class="y">expected</td><td>field edit</td><td>"m-7tq1xe due 30 Nov → 14 Dec (+14 d)"</td></tr>
+<tr><td>Move</td><td class="x">no</td><td class="y">to other goal</td><td class="y">to other parent</td><td class="y">yes</td><td><code>parent</code> edit</td><td>"t-3kd8wa moved m-7tq1xe → m-2vx6pn"</td></tr>
+<tr><td>Make recurring</td><td class="x">no</td><td class="x">no</td><td class="y">top-level only</td><td class="x">no</td><td><code>every</code></td><td>"t-0dr5ts recurs every 1mo"</td></tr>
+<tr><td>Drop</td><td class="y">result: missed</td><td class="y">yes</td><td class="y">yes</td><td class="y">withdrawn</td><td><code>dropped: {reason}</code></td><td>"t-5yq1gm dropped: tenant cancelled"</td></tr>
+<tr><td>Supersede</td><td class="x">no</td><td class="y">→ Task</td><td class="y">→ Milestone, → Ask</td><td class="y">→ Task</td><td>new object + <code>dropped.replacedBy</code></td><td>"t-6mz4ca became milestone m-2vx6pn"</td></tr>
+<tr><td>Merge duplicates</td><td class="x">no</td><td class="y">yes</td><td class="y">yes</td><td class="y">yes</td><td>drop with <code>replacedBy</code></td><td>"t-1… merged into t-2…"</td></tr>
+</table></div>
+
+<h3>The two cases you named</h3>
+<div class="grid2">
+<div class="callout"><b class="lbl">A simple task needs an org task</b>
+<p>Anna works on c-p4x8ma for t-9rb3ne (BGP peers). She finds that the org routers need open uplink ports. The network team must do that.</p>
+<ol><li>On the task, she clicks <i>Add Ask</i>. She types the party and the ticket.</li>
+<li>The bench writes <code>work/asks/a-5xk2pq.yaml</code> and adds <code>needs: [a-5xk2pq]</code> to the task, in a side plan change. It merges with one click.</li>
+<li>The task shows <i>blocked</i>. Milestone health uses the expected date of the Ask.</li>
+<li>Her delivery change stays open. When the Ask is delivered, the flag goes away.</li></ol></div>
+<div class="callout"><b class="lbl">A simple task needs sub-items</b>
+<p>t-6mz4ca (Ceph pool for tenants) turns out to need disks, a pool and quotas.</p>
+<ol><li>Click <i>Split</i>. Enter three sub-tasks. Optional: order them with <code>needs</code>.</li>
+<li>The bench writes three files with <code>parent: t-6mz4ca</code>. The task file itself does not change.</li>
+<li>The task status now comes from its children. Milestone progress counts 3 leaves instead of 1.</li>
+<li>If a sub-task needs to split again, the bench offers <i>Promote to milestone</i>. That is a supersede.</li></ol></div>
+</div>
+
+<h3>Supersede, step by step</h3>
+<p>Kind and file path stay fixed for each id. A kind change is therefore a new object. Example: promote t-6mz4ca to a milestone.</p>
+<pre><code><span class="c"># one plan change, made by the "Promote to milestone" action</span>
++ work/milestones/m-2vx6pn.yaml     title: tenant storage, parent: g-4hd2ka, due: 2027-01-31
+~ work/tasks/t-6mz4ca.yaml          dropped: {reason: grew into a milestone, replacedBy: m-2vx6pn}
+~ work/tasks/t-h3d9tw.yaml          parent: t-6mz4ca → m-2vx6pn   <span class="c"># each sub-task moves up one level</span>
+~ work/tasks/t-w8e2rf.yaml          parent: t-6mz4ca → m-2vx6pn
+<span class="c"># open changes that close t-6mz4ca: the bench offers to retarget them to m-2vx6pn's tasks</span></code></pre>
+<p>The report follows <code>replacedBy</code> edges, so the history of t-6mz4ca continues in m-2vx6pn. Nothing is renamed.</p>
+
+<h2 id="pm"><span class="n">8</span>PM concerns of a small team</h2>
+<div class="scroll"><table>
+<tr><th>Concern</th><th>Mechanism</th><th>Typed or derived</th></tr>
+<tr><td>Scope (what)</td><td>Goals, milestones, tasks in git; scope diff in reports</td><td>typed</td></tr>
+<tr><td>Purpose (why)</td><td>goal <code>outcome</code>, milestone <code>exit</code>, change <code>intent</code></td><td>typed</td></tr>
+<tr><td>Schedule (when)</td><td>milestone <code>due</code>, goal <code>target</code>; each re-date is an approved MR with a reason</td><td>typed</td></tr>
+<tr><td>Ownership (who)</td><td><code>owner</code> from the people in policy; change authors and agents from trailers</td><td>typed</td></tr>
+<tr><td>Progress</td><td>from change states, Flux and lab runs</td><td>derived</td></tr>
+<tr><td>Order and dependencies</td><td><code>needs</code> graph, blocked flag</td><td>typed edges, derived flag</td></tr>
+<tr><td>Outside work</td><td>Ask; later synced from org ticket systems by the sync adapter (field owner rule)</td><td>asserted</td></tr>
+<tr><td>Risk</td><td>health rules with cited inputs; optional advisor note</td><td>derived</td></tr>
+<tr><td>Capacity</td><td>done tasks per week (from merge history); open tasks per owner</td><td>derived</td></tr>
+<tr><td>Intake and triage</td><td>tasks without parent are the inbox; app teams can add tasks in their paths</td><td>typed</td></tr>
+<tr><td>Routine operations</td><td>recurring tasks; overdue badge, like the backup age badge</td><td>derived</td></tr>
+<tr><td>Incidents</td><td>a break-glass incident record (design section 7) links its follow-up tasks</td><td>typed</td></tr>
+<tr><td>Decisions</td><td>KB articles (ADRs), linked by <code>kb</code></td><td>typed</td></tr>
+<tr><td>Audit</td><td>each plan edit is an MR; <code>git log</code> of a work file is its full history</td><td>git</td></tr>
+<tr><td>Reporting</td><td>Report records from semantic diffs between baselines</td><td>derived + narrative</td></tr>
+</table></div>
+<p><b>Left out on purpose:</b> story points, sprints, time tracking, Gantt durations, custom states, custom fields per team. Each one needs people to type status or estimates. That data goes stale, and a small team does not need it.</p>
+
+<h2 id="report"><span class="n">9</span>Progress reports from semantic diffs</h2>
+<p>Yes, a diff of the work kinds is the right basis. There is one problem to solve first. The report needs two kinds of fact, and only one of them is in git.</p>
+<div class="grid2">
+<div class="callout"><b class="lbl">Intent facts: in git</b><p>Scope, parents, dates, owners, Ask states. <code>git show &lt;baseline&gt;:work/</code> gives them for any date. A diff of two trees gives "added", "dropped", "moved", "re-dated".</p></div>
+<div class="callout"><b class="lbl">Derived facts: not fully in git</b><p>Status comes from the forge, Flux and labs. Merges are in git (trailers). But "in review on 1 Oct" or "deployed to prod on 1 Oct" may not be recoverable later. So each report <b>freezes a snapshot</b> of the derived facts.</p></div>
+</div>
+<h3>The baseline chain</h3>
+<p>Each report is a record file. It holds the baseline (the last merged change at the cut-off time; not a commit hash, see the SHA-256 decision), the frozen snapshot and the computed diff against the previous report. The next report diffs against it. Thus the reports form a chain that nobody can change silently.</p>
+<pre><code><span class="c"># work/reports/r-2026-11.yaml  (kind: Report, record)</span>
+apiVersion: work.pk.io/v1alpha1
+kind: Report
+id: r-2026-11
+period: {from: 2026-10-01, to: 2026-11-01}
+previous: r-2026-10
+baseline: {lastChange: c-v2n8kd}        <span class="c"># state of main at the cut-off</span>
+snapshot:                               <span class="c"># generated: Go code writes it, CI recomputes and compares</span>
+  m-7tq1xe: {status: active, health: at-risk, done: 4, of: 9, due: 2026-12-14}
+  t-2fp6wd: {status: done, level: verified@prod, by: c-31d0aa}
+  a-5xk2pq: {state: promised, expected: 2026-12-08}
+diff:                                   <span class="c"># generated: semantic lines, each with a source</span>
+  - {id: d1, section: delivered, subject: t-2fp6wd, text: Cabling for GC5A-6Z verified on prod, source: c-31d0aa}
+  - {id: d7, section: schedule, subject: m-7tq1xe, text: due 30 Nov → 14 Dec (+14 d), source: c-q7c1nb}
+  - {id: d9, section: blockers, subject: a-5xk2pq, text: network team promised ports for 8 Dec, source: c-b5t0ye}
+narrative: |                            <span class="c"># intent: drafted by the LLM, edited and owned by a person</span>
+  Rack GC5A-6Z is cabled and in production [d1]. The milestone moved by two weeks
+  because the org router ports arrive on 8 Dec [d7][d9].</code></pre>
+
+<h3>How the diff becomes a report</h3>
+<figure><div class="diagram">
+<svg viewBox="0 0 900 250" role="img" aria-label="Report pipeline from two baselines to an exported report.">
+  <defs><marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--muted)"/></marker></defs>
+  <g font-size="12">
+  <rect x="10" y="20" width="150" height="50" rx="7" fill="var(--surface)" stroke="var(--line)"/><text x="22" y="41" font-weight="700">r-2026-10</text><text x="22" y="59" class="t-m" font-size="11">tree + frozen snapshot</text>
+  <rect x="10" y="100" width="150" height="50" rx="7" fill="var(--surface)" stroke="var(--line)"/><text x="22" y="121" font-weight="700">main now</text><text x="22" y="139" class="t-m" font-size="11">tree + live status</text>
+  <rect x="200" y="58" width="130" height="54" rx="7" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="212" y="80" font-weight="700">1 match by id</text><text x="212" y="98" class="t-m" font-size="11">follow replacedBy</text>
+  <rect x="360" y="58" width="130" height="54" rx="7" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="372" y="80" font-weight="700">2 kind hooks</text><text x="372" y="98" class="t-m" font-size="11">semantic lines</text>
+  <rect x="520" y="58" width="130" height="54" rx="7" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="532" y="80" font-weight="700">3 classify</text><text x="532" y="98" class="t-m" font-size="11">sections + reasons</text>
+  <rect x="680" y="58" width="130" height="54" rx="7" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="692" y="80" font-weight="700">4 roll up</text><text x="692" y="98" class="t-m" font-size="11">to report depth</text>
+  <rect x="200" y="176" width="150" height="54" rx="7" fill="var(--k-ask-soft)" stroke="var(--k-ask)"/><text x="212" y="198" font-weight="700" style="fill:var(--k-ask)">5 LLM draft</text><text x="212" y="216" class="t-m" font-size="11">each sentence cites [d#]</text>
+  <rect x="380" y="176" width="150" height="54" rx="7" fill="var(--k-goal-soft)" stroke="var(--k-goal)"/><text x="392" y="198" font-weight="700" style="fill:var(--k-goal)">6 person edits</text><text x="392" y="216" class="t-m" font-size="11">owns the narrative</text>
+  <rect x="560" y="176" width="150" height="54" rx="7" fill="var(--chg-soft)" stroke="var(--chg)"/><text x="572" y="198" font-weight="700" style="fill:var(--chg)">7 report change</text><text x="572" y="216" class="t-m" font-size="11">1 approval, merge</text>
+  <rect x="740" y="176" width="150" height="54" rx="7" fill="var(--surface)" stroke="var(--line)"/><text x="752" y="198" font-weight="700">8 export</text><text x="752" y="216" class="t-m" font-size="11">HTML / PDF to execs</text>
+  </g>
+  <g stroke="var(--muted)" stroke-width="1.3" fill="none" marker-end="url(#a4)">
+    <path d="M160 45 L198 75"/><path d="M160 125 L198 95"/><path d="M330 85 H358"/><path d="M490 85 H518"/><path d="M650 85 H678"/>
+    <path d="M745 112 V145 H275 V174"/><path d="M350 203 H378"/><path d="M530 203 H558"/><path d="M710 203 H738"/>
+  </g>
+</svg></div>
+<figcaption>Figure 4. Steps 1 to 4 are Go code and give the same result each time. Step 5 is the only LLM step. The bench rejects a draft sentence that has no valid diff line citation.</figcaption></figure>
+
+<div class="scroll"><table>
+<tr><th>Section</th><th>Lines that go into it</th><th>Executive question</th></tr>
+<tr><td>Delivered</td><td>tasks and milestones that reached the "delivered" level in the period</td><td>What did we get?</td></tr>
+<tr><td>Progress</td><td>milestone done / total, before and after; burn-up</td><td>Are we moving?</td></tr>
+<tr><td>Scope</td><td>added, dropped, split, moved, superseded (with the change intent as reason)</td><td>Did the plan grow?</td></tr>
+<tr><td>Schedule</td><td>due and target changes, with who approved them</td><td>Did dates move, and why?</td></tr>
+<tr><td>Blockers</td><td>new, late, delivered and declined Asks; long blocked tasks</td><td>What do you need from others?</td></tr>
+<tr><td>Health</td><td>health changes with rule and inputs</td><td>What is at risk?</td></tr>
+<tr><td>Operations</td><td>recurring tasks on time or overdue; incidents; merged changes per layer</td><td>Is the platform kept healthy?</td></tr>
+<tr><td>Next</td><td>milestones due in the next period</td><td>What comes next?</td></tr>
+</table></div>
+<p><b>Exception rule for depth.</b> Executives see goals and milestones. A task appears only when it is blocked for more than 14 days, when its Ask is late, or when it changed a milestone health. All other tasks show as counts.</p>
+<p><b>Scope honesty.</b> Progress can go down when scope grows. The burn-up chart shows both lines (total scope and done), so a reader sees why. The diff names each scope change and its reason.</p>
+
+<h3>Explainer video</h3>
+<p>The time dimension is hard to show in a still diagram. This 50-second animation shows two baselines, the semantic diff between them, and how the lines become report sections.</p>
+<video controls preload="metadata" src="work-kinds-report-explainer.mp4" aria-label="Animated explainer: from two baselines to a progress report"></video>
+<p class="meta">If the video does not load, open <code>work-kinds-report-explainer.mp4</code> next to this file.</p>
+
+<h2 id="mocks"><span class="n">10</span>UI mocks</h2>
+<p>The mocks use the bench layout of the demo. The <i>Work</i> page gets four tabs: <b>Plan</b> (tree), <b>Board</b> (the demo board, now with blocked flags), <b>Roadmap</b> and <b>Reports</b>.</p>
+
+<h3>M1 · Plan tree</h3>
+<div class="mock" aria-label="Mock: plan tree">
+  <div class="bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">localhost:7420/work/plan?goal=g-4hd2ka</span></div>
+  <div class="app"><span class="brand">platform-kit</span><span class="meta">bench · local</span><span class="sp"></span><span class="chip chg">c-k7m2qz</span><span class="chip">Gitea</span><span class="chip">LLM</span><span class="chip">Flux</span></div>
+  <div class="body"><div class="nav"><span>Changes</span><span>Files</span><span>Assets</span><span>Knowledge</span><span class="on">Work</span><span>Labs</span><span>History</span></div>
+  <div class="main">
+    <div class="tabs"><span class="on">Plan</span><span>Board</span><span>Roadmap</span><span>Reports</span></div>
+    <div class="mh"><span class="t">Plan</span><span class="sp"></span><span class="btn">+ Goal</span><span class="btn">+ Milestone</span><span class="btn">+ Task</span><span class="btn">Inbox <span class="chip">2</span></span></div>
+    <div class="tree">
+      <div class="row g"><div class="nm"><span class="kb g">G</span><span class="ti">defiant serves tenant workloads</span><span class="id">g-4hd2ka</span></div><div class="pcell"><div class="pbar"><i style="width:0%"></i></div>0 of 2 milestones</div><div><span class="chip warn">at risk</span></div><div class="meta">target 31 Jan</div></div>
+      <div class="row m ind1"><div class="nm"><span class="kb m">M</span><span class="ti">defiant ready for tenants</span><span class="id">m-7tq1xe</span></div><div class="pcell"><div class="pbar"><i style="width:44%"></i></div>4 of 9 · 44 %</div><div><span class="chip warn" title="rule ask-late: a-5xk2pq expected 8 Dec > due 14 Dec − 7 d">at risk</span></div><div class="meta">due 14 Dec</div></div>
+      <div class="row ind2"><div class="nm"><span class="kb t">T</span><span class="ti">Cabling for GC5A-6Z</span><span class="id">t-2fp6wd</span></div><div><span class="chip chg">c-31d0aa</span></div><div><span class="chip ok">verified@prod</span></div><div class="meta">dennis</div></div>
+      <div class="row ind2"><div class="nm"><span class="kb t">T</span><span class="ti">Compute nodes cn-035, cn-036</span><span class="id">t-8kq2vm</span></div><div><span class="chip chg">c-k7m2qz</span></div><div><span class="chip ms">review</span></div><div class="meta">dennis</div></div>
+      <div class="row ind2"><div class="nm"><span class="kb t">T</span><span class="ti">BGP peers for org-a and org-b</span><span class="id">t-9rb3ne</span></div><div><span class="chip chg">c-p4x8ma</span></div><div><span class="chip bad">blocked</span></div><div class="meta">anna</div></div>
+      <div class="row ind3"><div class="nm"><span class="kb a">A</span><span class="ti">Uplink ports on org routers</span><span class="id">a-5xk2pq · NET-4411</span></div><div class="meta">network team</div><div><span class="chip ask">promised</span></div><div class="meta">exp. 8 Dec</div></div>
+      <div class="row ind2"><div class="nm"><span class="kb t">T</span><span class="ti">Kernel args on control nodes</span><span class="id">t-1qv7hs</span></div><div><span class="chip chg">c-19f4tb</span></div><div><span class="chip ok">verified@prod</span></div><div class="meta">dennis</div></div>
+      <div class="row ind2"><div class="nm"><span class="kb t">T</span><span class="ti">Talos 1.11 on defiant</span><span class="id">t-4nc0zb</span></div><div class="meta">no change</div><div><span class="chip">planned</span></div><div class="meta">jonas</div></div>
+      <div class="row m ind1"><div class="nm"><span class="kb m">M</span><span class="ti">tenant storage</span><span class="id">m-2vx6pn · was t-6mz4ca</span></div><div class="pcell"><div class="pbar"><i style="width:0%"></i></div>0 of 3</div><div><span class="chip ok">on track</span></div><div class="meta">due 31 Jan</div></div>
+      <div class="row ind2"><div class="nm"><span class="kb t">T</span><span class="ti">Disks in OSD hosts</span><span class="id">t-h3d9tw</span></div><div><span class="chip chg">c-h3d9tw…</span></div><div><span class="chip bad">blocked</span></div><div class="meta">jonas</div></div>
+      <div class="row ind3"><div class="nm"><span class="kb a">A</span><span class="ti">Disk order</span><span class="id">a-7gk3mu · PO-22817</span></div><div class="meta">procurement</div><div><span class="chip ask">requested</span></div><div class="meta">exp. 15 Jan</div></div>
+      <div class="row g"><div class="nm"><span class="kb g">G</span><span class="ti">Keep the platform current</span><span class="id">g-0rk2fy</span></div><div class="meta">3 routines</div><div><span class="chip warn">1 overdue</span></div><div class="meta">ongoing</div></div>
+      <div class="row ind1"><div class="nm"><span class="kb t">T</span><span class="ti">↻ DR restore test · every 1mo</span><span class="id">t-0dr5ts</span></div><div class="meta">last 19 Sep</div><div><span class="chip bad">overdue 12 d</span></div><div class="meta">anna</div></div>
+      <div class="row ind1"><div class="nm"><span class="kb t">T</span><span class="ti">↻ Executive report · every 1mo</span><span class="id">t-6rp9ex</span></div><div class="meta">due 5 Nov</div><div><span class="chip ms">active</span></div><div class="meta">dennis</div></div>
+    </div>
+  </div></div>
+</div>
+<p class="meta">Status chips are computed. Hover on a health chip shows the rule and its inputs. The tree is the only place that shows all four levels at once.</p>
+
+<h3>M2 · Task detail: the 1:1 case and the evolution actions</h3>
+<div class="mock" aria-label="Mock: task detail">
+  <div class="bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">localhost:7420/work/t-8kq2vm</span></div>
+  <div class="main" style="padding:16px">
+    <div class="mh"><span class="kb t">T</span><span class="t">Compute nodes cn-035, cn-036</span><span class="id">t-8kq2vm</span><span class="chip ms">active · review</span><span class="sp" style="flex:1"></span></div>
+    <div class="ladder" aria-label="change state"><span class="done">draft</span><span class="done">lab</span><span class="cur">review</span><span>approved</span><span>merged</span><span>deployed</span><span>verified</span></div>
+    <p class="meta">State of c-k7m2qz (the only change, it closes this task). 1 of 1 approvals missing.</p>
+    <div class="split">
+      <div class="panel"><h4>Intent (from work/tasks/t-8kq2vm.yaml)</h4>
+        <div class="kv"><span class="k">parent</span><span>m-7tq1xe defiant ready for tenants</span><span class="k">owner</span><span>dennis</span><span class="k">needs</span><span>none</span><span class="k">assets</span><span>cn-035, cn-036</span><span class="k">kb</span><span>kb/runbooks/add-node</span></div>
+        <h4 style="margin-top:12px">Change something</h4>
+        <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="btn">Edit</span><span class="btn">Split into sub-tasks</span><span class="btn">Add Ask</span><span class="btn">Needs…</span><span class="btn">Move</span><span class="btn">Promote to milestone</span><span class="btn">Drop</span></div>
+        <p class="meta" style="margin-top:8px">Each action opens a quick plan change. Tasks and Asks merge with one click (no approval).</p>
+      </div>
+      <div class="panel"><h4>Derived</h4>
+        <div class="kv"><span class="k">changes</span><span><span class="chip chg">c-k7m2qz</span> closes · review</span><span class="k">blocked</span><span class="ro">no</span><span class="k">history</span><span class="ro">created by c-9sd1qe (plan) on 3 Oct</span></div>
+        <h4 style="margin-top:12px">Advisor</h4>
+        <span class="btn ai">✦ What is left for this task?</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3>M3 · Evolve: add an Ask while a delivery change is open</h3>
+<div class="mock" aria-label="Mock: add ask dialog with live plan diff">
+  <div class="bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">localhost:7420/changes/c-p4x8ma · Add Ask to t-9rb3ne</span></div>
+  <div class="main" style="padding:16px">
+  <div class="split">
+    <div class="dialog">
+      <div class="mh"><span class="kb a">A</span><span class="t">Add Ask</span></div>
+      <div class="field"><label for="m3t">What do we need?</label><div class="in" id="m3t">Uplink ports on org routers for defiant</div></div>
+      <div class="field"><label for="m3p">Who does it?</label><div class="in" id="m3p">network team</div></div>
+      <div class="field"><label for="m3r">Ticket in their system</label><div class="in" id="m3r">NET-4411</div></div>
+      <div class="field"><span>State</span><div class="radio"><span>open</span><span class="on">requested</span><span>promised</span></div></div>
+      <div class="field"><label for="m3e">Expected</label><div class="in" id="m3e">2026-12-08</div></div>
+      <div class="field"><span>Where to record it</span><div class="radio"><span class="on">Side plan change (merges now)</span><span>This delivery change</span></div></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px"><span class="btn">Cancel</span><span class="btn pri">Save plan</span></div>
+    </div>
+    <div class="panel"><h4>Plan change c-b5t0ye · preview</h4>
+      <div class="sd">
+        <div class="add"><b>+</b><span>Ask a-5xk2pq "Uplink ports on org routers" (network team, NET-4411)</span></div>
+        <div class="mod"><b>~</b><span>t-9rb3ne now waits for a-5xk2pq</span></div>
+        <div class="der"><b>=</b><span>t-9rb3ne becomes blocked</span></div>
+        <div class="der"><b>=</b><span>m-7tq1xe health on track → at risk (rule ask-late: expected 8 Dec &gt; due 30 Nov − 7 d)</span></div>
+      </div>
+      <p class="meta" style="margin-top:8px">Policy: work/asks/** needs 0 approvals. Author: anna (human). CI policy check runs, then the bench merges.</p>
+    </div>
+  </div></div>
+</div>
+
+<h3>M4 · Review of a plan change that moves a date</h3>
+<div class="mock" aria-label="Mock: plan change review">
+  <div class="bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">localhost:7420/changes/c-q7c1nb/review</span></div>
+  <div class="main" style="padding:16px">
+    <div class="mh"><span class="chip chg">c-q7c1nb</span><span class="t">Move defiant-ready to 14 Dec</span><span class="chip ms">review</span><span class="chip">plan change</span></div>
+    <div class="tabs"><span class="on">Semantic</span><span>Source</span><span>Impact</span></div>
+    <div class="sd">
+      <div class="mod"><b>~</b><span>m-7tq1xe "defiant ready for tenants" due 30 Nov → 14 Dec (+14 d)</span></div>
+      <div class="der"><b>=</b><span>m-7tq1xe health stays at risk (rule ask-late: a-5xk2pq expected 8 Dec &gt; 14 Dec − 7 d = 7 Dec)</span></div>
+      <div class="der"><b>=</b><span>g-4hd2ka target 31 Jan unchanged; slack shrinks to 48 d</span></div>
+      <div class="der"><b>=</b><span>Impact: no rendered object changes</span></div>
+    </div>
+    <div class="split" style="margin-top:12px">
+      <div class="panel"><h4>Intent (becomes the reason in the report)</h4><p style="margin:0">The network team promised the router ports for 8 Dec (NET-4411). BGP and the tenant smoke test need one week after that.</p></div>
+      <div class="panel"><h4>Gates</h4><div class="kv"><span class="k">policy</span><span>work/milestones/** · 1 approval</span><span class="k">approval</span><span>missing (owner or platform-admin)</span><span class="k">lab</span><span class="ro">not needed</span></div><div style="margin-top:8px;display:flex;gap:6px"><span class="btn pri">Approve</span><span class="btn">Comment</span></div></div>
+    </div>
+  </div>
+</div>
+<p class="meta">The health line shows the honest result: the new date still does not meet the 7-day buffer. The reviewer sees this before approval.</p>
+
+<h3>M5 · Roadmap with date history</h3>
+<div class="mock" aria-label="Mock: roadmap">
+  <div class="bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">localhost:7420/work/roadmap</span></div>
+  <div class="main" style="padding:16px">
+  <div class="tabs"><span>Plan</span><span>Board</span><span class="on">Roadmap</span><span>Reports</span></div>
+  <div class="diagram" style="border:0;padding:0">
+  <svg viewBox="0 0 820 220" role="img" aria-label="Roadmap with milestone due dates and earlier due dates as ghost markers.">
+    <g font-size="11" class="t-m">
+      <text x="140" y="20" class="t-m">Sep</text><text x="260" y="20" class="t-m">Oct</text><text x="380" y="20" class="t-m">Nov</text><text x="500" y="20" class="t-m">Dec</text><text x="620" y="20" class="t-m">Jan</text><text x="740" y="20" class="t-m">Feb</text>
+    </g>
+    <g stroke="var(--line)"><path d="M130 28 V210"/><path d="M250 28 V210"/><path d="M370 28 V210"/><path d="M490 28 V210"/><path d="M610 28 V210"/><path d="M730 28 V210"/></g>
+    <path d="M374 28 V210" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="3 3"/><text x="378" y="206" font-size="10.5" style="fill:var(--accent)">today</text>
+    <text x="10" y="62" font-size="12" font-weight="600">defiant ready</text>
+    <rect x="160" y="50" width="391" height="18" rx="9" fill="var(--k-ms-soft)" stroke="var(--k-ms)"/>
+    <rect x="160" y="50" width="172" height="18" rx="9" fill="var(--k-ms)" opacity=".55"/>
+    <g fill="none" stroke="var(--muted)" stroke-dasharray="2 2"><circle cx="370" cy="59" r="6"/><circle cx="487" cy="59" r="6"/></g>
+    <path d="M370 78 C 410 92, 450 92, 487 78" fill="none" stroke="var(--muted)" stroke-width="1"/>
+    <path d="M487 78 C 510 92, 530 92, 545 78" fill="none" stroke="var(--warn)" stroke-width="1.4"/>
+    <circle cx="545" cy="59" r="7" fill="var(--warn)"/>
+    <text x="346" y="104" font-size="10.5" class="t-m">31 Oct (set Jul)</text>
+    <text x="456" y="104" font-size="10.5" class="t-m">30 Nov · c-7mm4ra rack late</text>
+    <text x="556" y="64" font-size="10.5" style="fill:var(--warn)">14 Dec · c-q7c1nb ports</text>
+    <text x="10" y="142" font-size="12" font-weight="600">tenant storage</text>
+    <rect x="380" y="130" width="356" height="18" rx="9" fill="var(--k-ms-soft)" stroke="var(--k-ms)"/>
+    <circle cx="730" cy="139" r="7" fill="var(--ok)"/><text x="618" y="166" font-size="10.5" class="t-m">31 Jan · from t-6mz4ca</text>
+    <text x="10" y="196" font-size="12" font-weight="600" style="fill:var(--k-ask)">Asks</text>
+    <g><path d="M502 190 l5 -7 l5 7 z" fill="var(--k-ask)"/><text x="516" y="194" font-size="10.5" style="fill:var(--k-ask)">ports 8 Dec</text>
+    <path d="M664 190 l5 -7 l5 7 z" fill="var(--k-ask)"/><text x="678" y="194" font-size="10.5" style="fill:var(--k-ask)">disks 15 Jan</text></g>
+  </svg></div>
+  <p class="meta">Ghost circles are earlier due dates. The bench reads them from <code>git log -p work/milestones/m-7tq1xe.yaml</code>. Each arc names the change that moved the date.</p>
+  </div>
+</div>
+
+<h3>M6 · Report builder</h3>
+<div class="mock" aria-label="Mock: report builder">
+  <div class="bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">localhost:7420/work/reports/new</span></div>
+  <div class="main" style="padding:16px">
+    <div class="tabs"><span>Plan</span><span>Board</span><span>Roadmap</span><span class="on">Reports</span></div>
+    <div class="mh"><span class="t">New report r-2026-11</span><span class="chip">since r-2026-10 (1 Oct)</span><span class="chip">cut-off c-v2n8kd · 1 Nov</span><span class="chip ms">closes t-6rp9ex</span></div>
+    <div class="split">
+      <div class="panel"><h4>Computed diff · 23 lines → 11 at report depth</h4>
+        <div class="sd">
+          <div class="add"><b>d1</b><span>delivered · Cabling for GC5A-6Z verified on prod (c-31d0aa)</span></div>
+          <div class="add"><b>d2</b><span>delivered · Kernel args on control nodes verified on prod (c-19f4tb)</span></div>
+          <div class="der"><b>d3</b><span>progress · defiant ready 2/7 → 4/9</span></div>
+          <div class="mod"><b>d4</b><span>scope · +2 tasks in defiant ready (cn-035/036, Talos 1.11)</span></div>
+          <div class="mod"><b>d5</b><span>scope · t-6mz4ca became milestone tenant storage (3 tasks)</span></div>
+          <div class="mod"><b>d7</b><span>schedule · defiant ready due 30 Nov → 14 Dec (approved: dennis)</span></div>
+          <div class="del"><b>d8</b><span>health · defiant ready on track → at risk (ask-late)</span></div>
+          <div class="mod"><b>d9</b><span>blockers · network team promised ports for 8 Dec (NET-4411)</span></div>
+          <div class="del"><b>d10</b><span>ops · DR restore test overdue 12 d</span></div>
+          <div class="der"><b>d11</b><span>next · defiant ready due 14 Dec</span></div>
+        </div>
+      </div>
+      <div class="panel"><h4>Narrative · draft</h4>
+        <p style="margin:0 0 6px;font-size:13.5px">Rack GC5A-6Z is cabled and runs in production <span class="cite">d1</span>. Two more nodes are in review <span class="cite">d4</span>. The milestone "defiant ready" moved by two weeks to 14 Dec <span class="cite">d7</span>, because the network team delivers the router ports on 8 Dec <span class="cite">d9</span>. It stays at risk until then <span class="cite">d8</span>. Tenant storage is now its own milestone for 31 Jan <span class="cite">d5</span>.</p>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><span class="btn ai">✦ Redraft</span><span class="btn">Edit</span><span class="btn pri">Open report change</span></div>
+        <p class="meta" style="margin-top:8px">Each sentence must cite a diff line. The bench rejects a sentence without one. d10 is not in the text yet: the bench marks it as an unmentioned risk line.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3>M7 · The exported executive report</h3>
+<div class="mock" aria-label="Mock: exported report">
+  <div class="bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">r-2026-11.pdf</span></div>
+  <div class="main" style="padding:18px;background:var(--sunk)">
+  <div class="paper">
+    <div class="ph"><div><div class="eyebrow">Platform team · progress report</div><div class="t">October 2026</div></div><div class="meta" style="text-align:right">1 Oct – 1 Nov 2026 · r-2026-11<br>approved by anna · merged in c-r4x1kp</div></div>
+    <h5>Goals</h5>
+    <div class="goalrow"><div><b>defiant serves tenant workloads</b><div class="sub">target 31 Jan 2027 · 2 milestones</div></div><div><span class="chip warn">at risk</span></div><div class="sub">defiant ready: 4 of 9 · due 14 Dec (was 30 Nov)</div></div>
+    <div class="goalrow"><div><b>Keep the platform current</b><div class="sub">3 routines</div></div><div><span class="chip warn">1 overdue</span></div><div class="sub">DR restore test 12 days late</div></div>
+    <h5>Summary</h5>
+    <p style="font-size:14px">Rack GC5A-6Z is cabled and runs in production. Two more nodes are in review. The milestone "defiant ready" moved by two weeks to 14 Dec, because the network team delivers the router ports on 8 Dec. Tenant storage is now its own milestone for 31 Jan. The monthly DR restore test is late; it is planned for 8 Nov.</p>
+    <div class="grid2" style="margin-top:8px">
+      <div><h5>defiant ready · burn-up</h5>
+        <svg viewBox="0 0 340 170" role="img" aria-label="Burn-up chart: scope grows from 6 to 9 tasks, done grows from 0 to 4 tasks, July to November.">
+          <g stroke="var(--line)"><path d="M40 20 H330"/><path d="M40 60 H330"/><path d="M40 100 H330"/><path d="M40 140 H330"/></g>
+          <g font-size="10" class="t-m"><text x="22" y="144" class="t-m">0</text><text x="22" y="104" class="t-m">3</text><text x="22" y="64" class="t-m">6</text><text x="22" y="24" class="t-m">9</text>
+          <text x="34" y="160" class="t-m">Jul</text><text x="104" y="160" class="t-m">Aug</text><text x="174" y="160" class="t-m">Sep</text><text x="244" y="160" class="t-m">Oct</text><text x="310" y="160" class="t-m">Nov</text></g>
+          <path d="M40 60 L110 60 L180 46.7 L250 46.7 L320 20" fill="none" stroke="var(--k-ms)" stroke-width="2"/>
+          <path d="M40 140 L110 140 L180 126.7 L250 113.3 L320 86.7 L320 140 Z" fill="var(--ok-soft)"/>
+          <path d="M40 140 L110 140 L180 126.7 L250 113.3 L320 86.7" fill="none" stroke="var(--ok)" stroke-width="2.4"/>
+          <circle cx="320" cy="20" r="3.5" fill="var(--k-ms)"/><circle cx="320" cy="86.7" r="4" fill="var(--ok)"/>
+          <text x="246" y="16" font-size="10" style="fill:var(--k-ms)">scope 9</text><text x="270" y="82" font-size="10" style="fill:var(--ok)">done 4</text>
+        </svg></div>
+      <div><h5>Changes in the plan</h5>
+        <ul style="font-size:13px;padding-left:18px;margin:0">
+          <li>Added 2 tasks to defiant ready (new nodes, Talos 1.11).</li>
+          <li>Ceph storage became its own milestone (31 Jan).</li>
+          <li>defiant ready: 30 Nov → 14 Dec. Approved by Dennis. Reason: router ports.</li></ul>
+        <h5>What we need from others</h5>
+        <ul style="font-size:13px;padding-left:18px;margin:0">
+          <li>Network team: uplink ports, promised 8 Dec (NET-4411).</li>
+          <li>Procurement: OSD disks, requested, expected 15 Jan (PO-22817).</li></ul>
+      </div>
+    </div>
+    <h5>Next month</h5>
+    <p style="font-size:13.5px;margin:0">defiant ready due 14 Dec. DR restore test on 8 Nov. 37 changes merged in October (12 apps, 9 inventory, 16 platform).</p>
+  </div></div>
+</div>
+
+<h2 id="workflows"><span class="n">11</span>Workflows</h2>
+<p>Actors: <span class="chip goal">person</span> <span class="chip ms">bench</span> <span class="chip ask">LLM</span> <span class="chip chg">forge / CI</span>.</p>
+
+<h3>W1 · Plan a milestone</h3>
+<div class="flow">
+  <div class="st"><span class="who h">person</span><b>Start a plan change</b>Work › Plan › "+ Milestone". The bench opens plan change c-….</div><span class="ar">→</span>
+  <div class="st"><span class="who h">person</span><b>Add tasks</b>Type titles in the tree. Set owners. Drag to order (writes <code>needs</code>).</div><span class="ar">→</span>
+  <div class="st"><span class="who b">bench</span><b>Live preview</b>Semantic diff and computed health, like M3.</div><span class="ar">→</span>
+  <div class="st"><span class="who f">forge</span><b>Review</b>Milestone file needs 1 approval. Tasks ride along in the same change.</div><span class="ar">→</span>
+  <div class="st"><span class="who f">forge</span><b>Merge</b>All items are on main as <i>planned</i>.</div>
+</div>
+
+<h3>W2 · Deliver a task (1:1)</h3>
+<div class="flow">
+  <div class="st"><span class="who h">person</span><b>Start from the task</b>Task › "Start change". The new-change dialog sets <code>closes: [t-…]</code>.</div><span class="ar">→</span>
+  <div class="st"><span class="who b">bench</span><b>Task becomes active</b>Task state = change state: draft, lab, review …</div><span class="ar">→</span>
+  <div class="st"><span class="who f">forge</span><b>Merge</b>Trailer <code>Pk-Closes: t-…</code>. Task is done (merged).</div><span class="ar">→</span>
+  <div class="st"><span class="who b">bench</span><b>Rings</b>Flux and ring tags raise the delivery level to deployed@prod, then verified.</div>
+</div>
+
+<h3>W3 · Evolve while you work</h3>
+<div class="flow">
+  <div class="st"><span class="who h">person</span><b>Find more work</b>During c-p4x8ma, find the router ports problem.</div><span class="ar">→</span>
+  <div class="st"><span class="who h">person</span><b>Add Ask / Split</b>From the task or from the change page.</div><span class="ar">→</span>
+  <div class="st"><span class="who b">bench</span><b>Side plan change</b>New files, <code>needs</code> edit. 0 approvals for a human author.</div><span class="ar">→</span>
+  <div class="st"><span class="who b">bench</span><b>Board updates</b>Task blocked; milestone health uses the expected date.</div><span class="ar">→</span>
+  <div class="st"><span class="who h">person</span><b>Re-date if needed</b>Milestone plan change with reason, 1 approval (M4).</div>
+</div>
+
+<h3>W4 · Monthly executive report</h3>
+<div class="flow">
+  <div class="st"><span class="who b">bench</span><b>Routine is due</b>Recurring task t-6rp9ex shows "due 5 Nov".</div><span class="ar">→</span>
+  <div class="st"><span class="who b">bench</span><b>Compute</b>Diff r-2026-10 → cut-off. Freeze snapshot (M6).</div><span class="ar">→</span>
+  <div class="st"><span class="who l">LLM</span><b>Draft</b>Narrative from diff lines only, each sentence cited.</div><span class="ar">→</span>
+  <div class="st"><span class="who h">person</span><b>Edit and open change</b>The text is now theirs. Report change closes t-6rp9ex.</div><span class="ar">→</span>
+  <div class="st"><span class="who f">CI</span><b>Check and approve</b>CI recomputes the snapshot and diff and compares. 1 approval.</div><span class="ar">→</span>
+  <div class="st"><span class="who h">person</span><b>Export</b>HTML or PDF (M7) to the executives.</div>
+</div>
+
+<h2 id="migration"><span class="n">12</span>Migration from the demo</h2>
+<ol>
+  <li>Add the kinds Goal, Milestone, Task, Ask and Report in <code>work.pk.io/v1alpha2</code>.</li>
+  <li>Converter <code>WorkItem v1alpha1 → Task v1alpha2</code>: <code>milestone</code> becomes <code>parent</code>; <code>changes</code> moves out of the file (the bench reads it from history and change metadata); id <code>w-104</code> stays as an alias in <code>aliases: [w-104]</code> so old trailers still resolve.</li>
+  <li>Converter <code>MilestoneList → Milestone</code> files, one per entry.</li>
+  <li>A migrate bot opens one normal change that moves the files (design section 9, schema evolution).</li>
+  <li>Change metadata gets <code>work: {closes, refs}</code>. The old <code>workItems</code> list reads as <code>closes</code>.</li>
+  <li>The work board keeps its four columns. Plan, Roadmap and Reports are new tabs.</li>
+</ol>
+
+<h2 id="questions"><span class="n">13</span>Decisions</h2>
+<p>Dennis adopted these decisions on 1 Nov 2026. The sections above already use them.</p>
+<div class="scroll"><table>
+<tr><th>Topic</th><th>Decision</th><th>Not chosen</th></tr>
+<tr><td>Meaning of "delivered" in a report</td><td>Deployed on the last ring (prod): <code>reports.delivered: deployed@prod</code>.</td><td>Merged; verified (needs observability first).</td></tr>
+<tr><td>Approvals for plan changes</td><td>Tasks and Asks: 0 approvals for a human author. Agent or sync bot as author: at least 1 human approval. Milestones, goals and reports: always 1 approval.</td><td>1 approval for all plan changes.</td></tr>
+<tr><td>Report cadence and audience</td><td>Monthly, one Report kind. A quarterly report is the diff of three monthly baselines.</td><td>Separate quarterly report kind.</td></tr>
+<tr><td>First org system for Ask sync</td><td>Deferred. Asks are set by hand from day 1. The sync adapter can own <code>state</code> and <code>expected</code> later.</td><td>Pick a system now.</td></tr>
+</table></div>
+<p class="meta" style="margin-top:28px">Aligned with the generic editor design (ids, references, read-only derived fields) and the AI integration design (agent rules, cited narrative).</p>
+</main>
+</div>
+</body>
+</html>
