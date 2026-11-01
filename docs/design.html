@@ -47,6 +47,7 @@
   <li><a href="#sync">Org database sync</a></li>
   <li><a href="#recovery">Bootstrap and recovery</a></li>
   <li><a href="#security">Security model</a></li>
+  <li><a href="#work">Work and progress reports</a></li>
   <li><a href="#open">Open questions</a></li>
 </ol>
 </nav>
@@ -440,7 +441,26 @@ It comes after labs. At the start, platform-kit links to Skyhook/Radar instead o
 <tr><td>Stolen laptop</td><td>No static kube certificates. Short tokens. SOPS key protected by disk encryption and a passphrase or hardware key.</td></tr>
 </table>
 
-<h2 id="open">15. Open questions</h2>
+<h2 id="work">15. Work and progress reports</h2>
+<p>Work is planned and tracked in the state repo with four kinds. Status is derived, never typed. See <a href="work-kinds.html">work kinds and progress reports</a> for lifecycles, evolution rules, UI mocks and workflows.</p>
+<pre>
+Goal ─ why                   status ← its milestones
+ └ Milestone ─ when          status ← its children + due date (health from rules)
+    └ Task ─ our work        status ← its changes (and sub-tasks)
+       └ Sub-task (1 level)
+    Ask ─ work that others do for us     status ← asserted by a person or the sync bot
+</pre>
+<ul>
+  <li><b>Files and ids.</b> One file per object: <code>work/{goals,milestones,tasks,asks}/&lt;id&gt;.yaml</code>. Ids are random base32 with a kind prefix (<code>g-</code>, <code>m-</code>, <code>t-</code>, <code>a-</code>), like change ids. Ids and kinds never change.</li>
+  <li><b>Links.</b> A child names its <code>parent</code>; a dependent names what it <code>needs</code>. Work files hold no change ids. A change names its tasks in <code>.pk/changes/&lt;id&gt;.yaml</code> (<code>work: {closes, refs}</code>), and the merge commit gets <code>Pk-Closes</code> and <code>Pk-Work-Item</code> trailers.</li>
+  <li><b>Nesting.</b> No milestone in a milestone, no sub-task below a sub-task, no recurring task in a milestone. Asks are leaves. CI validates the rules.</li>
+  <li><b>Evolution.</b> By addition: sub-tasks, Asks, <code>needs</code> edges, <code>every</code> (recurring), <code>dropped</code>. A kind change is a supersede (<code>dropped.replacedBy</code>).</li>
+  <li><b>Health.</b> Rules in <code>.pk/work.yaml</code> rate milestones on track, at risk or late, and name their inputs. An advisor note never sets the health.</li>
+  <li><b>Plan changes.</b> Changes to <code>work/tasks/**</code> and <code>work/asks/**</code> need 0 approvals for a human author. An agent or sync bot author needs at least 1 human approval. Milestones, goals and reports always need 1 approval.</li>
+  <li><b>Reports.</b> Monthly. A <code>Report</code> record (<code>work/reports/r-&lt;yyyy-mm&gt;.yaml</code>) holds the baseline (last merged change), a frozen status snapshot and the semantic diff against the previous report. CI recomputes both. The LLM drafts the narrative; each sentence must cite a diff line; a person owns the text. "Delivered" means deployed on the last ring (prod). Ask sync from an org system comes later.</li>
+</ul>
+
+<h2 id="open">16. Open questions</h2>
 <ul>
   <li>Shared service write mode (server worktrees) for app teams. Decide when app team needs are known; the two-mode design keeps it open.</li>
 </ul>
