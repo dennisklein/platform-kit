@@ -236,13 +236,14 @@ paths:
             ┌───────────────────┼─────────────────────┬──────────────────┐
             ▼                   ▼                     ▼                  ▼
       UI / bench rights   CI policy check      generated GitLab     generated k8s
-      (advice only)       (required job)       approval rules,      RoleBindings
+      (advice, commit     (required job,       approval rules,      RoleBindings
+       check)              pk check)
                                                CODEOWNERS           (OIDC user name)
 </pre>
 <ul>
-  <li>A required CI job checks each MR against the policy: path rights, lab gate, approvals. The forge blocks the merge if it fails.</li>
+  <li>A required CI job checks each MR against the policy: path rights, lab gate, approvals. It also runs <code>pk check base..head</code>: schema, kind hooks, render, write rules and secrets (<a href="#editor">section 9</a>). New errors block; warnings never block. The forge blocks the merge if the job fails.</li>
   <li>platform-kit generates GitLab approval rules and CODEOWNERS from the policy and syncs them. Nobody edits generated rules by hand.</li>
-  <li>The UI only gives advice. Main is protected, so nobody can bypass the policy by direct push.</li>
+  <li>The UI gives advice. The bench refuses a commit that the policy of the target branch refuses, with the same check as CI. Main is protected, so nobody can bypass the policy by direct push.</li>
 </ul>
 <h3>Identity</h3>
 <p>SSO (OIDC) only proves who a person is. The policy file decides what each person can do. The identity provider needs no groups.</p>
@@ -268,12 +269,30 @@ paths:
 <h3>Schema-driven editor</h3>
 <p>The first editor is generic. It edits any repo file through a schema-driven form, on all layers.
 Schemas for repo files are a core contract. Dedicated entity pages (racks, nodes, platform components, apps) come later on top of the same schemas.
-Schemas also mark secret fields and the owner system of each field (see <a href="#sync">org database sync</a>).</p>
+Web UI, CLI, MCP agents, chat suggestions and the sync bot all edit through one contract. See <a href="editor.html">generic editor</a> for the review, the rules in full, diagrams and UI mocks.</p>
+<pre>
+ form · YAML · pk edit · MCP agent · chat suggestion · sync bot
+                         │  edit operations + baseSha
+                         ▼
+ bench: address ──> write rules ──> apply ops ──> SOPS codec ──> write under worktree lock
+                         │ 422                                         │ 409 + theirs
+                         ▼                                             ▼
+                   nothing written                     checks ──> problems, impact (SSE)
+</pre>
+<ul>
+  <li><b>Field address.</b> File, document selector and field path with quoted keys and keyed list selectors, for example <code>spec.ports[name=p2].peer.port</code> or <code>metadata.labels["app.kubernetes.io/name"]</code>. Problems, deep links, edits, suggestions, secrets and diffs all use it. An index path is valid only with a matching <code>baseSha</code>.</li>
+  <li><b>Edit operations.</b> <code>set</code>, <code>unset</code>, <code>insert</code>, <code>move</code>, <code>doc.add</code>, <code>doc.remove</code>, <code>secret.set</code>, <code>secret.generate</code>. Each write carries <code>baseSha</code>, or each op carries <code>expect</code> (the old value). Ops apply all or none. The bench is the only structural YAML writer; bytes outside the touched node stay identical. A batch writes many files with one render and one event (rename, delete with backlinks, bulk edit).</li>
+  <li><b>Write rules.</b> One check for every caller: intent and asserted fields are editable; derived and generated fields are never written; a field whose source is an org system is written only by the sync bot; a secret field takes only the unchanged mask or a secret op. CI runs the parts that git alone shows.</li>
+  <li><b>Concurrent edits.</b> A write with an old base is re-applied when every <code>expect</code> still holds; otherwise the bench writes nothing and answers 409 with theirs, and the form shows a conflict row for that field. The editor never drops a person's edits. Writes by others are barriers in the undo history. A commit names the blob shas it staged.</li>
+  <li><b>Checks.</b> Four stages run the same code: keystroke (YAML and schema), save (write rules, kind hooks), render (per cluster, mapped to file and line) and <code>pk check base..head</code> in CI. Save, commit and push are never blocked. Pickers and checks resolve against the change tree, including its stack parent.</li>
+  <li><b>Form.</b> The form is never lossy: unknown keys show in an "Other keys" block, free subtrees as embedded YAML, absent optional fields in "Add field". Clearing an optional field removes the key. Lists use their schema key. Fields show change markers against the merge-base. Each read-only field states its reason and an action. A multi-document file has one form per document.</li>
+  <li><b>Versions.</b> An edit keeps the stored version of a file and validates with that version's schema. "Upgrade to vN" is an explicit action in its own commit.</li>
+</ul>
 <h3>Kind registry</h3>
 <p>A kind is a type of repo content (for example a rack, a node, a cable, a Flux Kustomization). Each kind is a Go package compiled into platform-kit. It registers:</p>
 <ul>
-  <li><b>Schema.</b> Own kinds define Go types. The types generate a JSON Schema with platform-kit extensions (secret, field owner, truth class, references to other objects, UI hints). When the kind is a k8s object, the same types also generate the CRD schema. Third-party kinds (Flux, Cilium) reuse their CRD schema plus a small overlay for UI hints.</li>
-  <li><b>Truth class.</b> One of <i>intent</i> (people write it), <i>generated</i> (render output), <i>asserted</i> (a claim about the physical world, for example a serial number), <i>derived</i> (computed from other data) or <i>imperative-only</i> (no reconciler). Editor, sync, LLM and lab rules use it.</li>
+  <li><b>Schema.</b> Own kinds define Go types. The types generate a JSON Schema with platform-kit extensions (secret, field source, truth class, references to other objects, list keys, UI hints). When the kind is a k8s object, the same types also generate the CRD schema. Third-party kinds (Flux, Cilium) reuse their upstream CRD schema, vendored for each supported version, plus an overlay that only adds hints and never adds validation. Helm value hints are keyed by chart.</li>
+  <li><b>Truth class.</b> One of <i>intent</i> (people write it), <i>generated</i> (render output, or a stored record such as a lab result), <i>asserted</i> (a claim about the physical world, for example a serial number), <i>derived</i> (computed from other data) or <i>imperative-only</i> (no reconciler). Editor, sync, LLM and lab rules use it.</li>
   <li><b>Apply path.</b> Flux, manual (for example talosctl or an OpenBao configure script) or sync. The UI shows manual apply paths as open steps after merge.</li>
   <li><b>Hooks.</b> Views, semantic diff, cross-file validation (for example "this cable connects two known ports").</li>
 </ul>
@@ -282,7 +301,10 @@ Schemas also mark secret fields and the owner system of each field (see <a href=
                     │
                     └── no kind ──> YAML editor (+ CRD schema validation if apiVersion/kind matches)
 </pre>
-<p><b>Schema evolution.</b> Kinds have versions (<code>v1alpha1</code>, <code>v1beta1</code>, <code>v1</code>). Each new version ships a converter from the old one, so the UI reads all old versions (time travel, audit). A migrate bot opens a normal change that moves the repo files to the new version.</p>
+<p><b>Identity and matching.</b> A kind is identified by (group, kind), a schema by (group, kind, version). The registry matches each document of a file: first by its role in the kustomization graph (resource, patch, generator input, Helm values), then by <code>apiVersion</code> and <code>kind</code>, then by the kind's path rules. A patch validates against its target schema without <code>required</code>. The path of an own kind is the default for new files, not a binding rule.</p>
+<p><b>Effective schema.</b> At registration one pass stamps the effective truth class, field source and secret mark on every schema node (from the nearest ancestor, then the kind default). One Go walker reads it for the form, entity pages, masking, LLM redaction, sync and CI. The extensions are <code>x-pk-kind</code>, <code>x-pk-truth</code>, <code>x-pk-source</code>, <code>x-pk-secret</code>, <code>x-pk-ref</code>, <code>x-pk-list</code>, <code>x-pk-unique</code>, <code>x-pk-ui</code> and <code>x-pk-message</code>; registration rejects any other. Schemas use <code>$defs</code>, so recursive types work.</p>
+<p><b>Schema evolution.</b> Kinds have versions (<code>v1alpha1</code>, <code>v1beta1</code>, <code>v1</code>). Each new version ships a converter from the old one, so the UI reads all old versions (time travel, audit). A migrate bot opens a normal change that moves the repo files to the new version. A version stays editable until no file uses it. Optional additive fields need no new version; renames, type changes and new required fields do. A CI test runs every converter over fixtures.</p>
+<p><b>One schema set.</b> The repo pins the platform-kit version in <code>.pk/platform-kit.yaml</code>. CI uses it. A bench of another version refuses commit and "mark ready".</p>
 <p><b>Files without a kind.</b> The UI edits them in a plain YAML editor. If a known CRD schema matches their <code>apiVersion</code> and <code>kind</code>, the editor adds validation and completion. Thus the UI is useful for all files from day 1, and each new kind only improves it.</p>
 <h3 id="diff">Diff and impact</h3>
 <p>Rendered manifests are not committed. CI and the bench render main and the branch for each cluster, and compare the two object sets.
@@ -299,7 +321,7 @@ The renderer reads the Flux version from the Flux manifests in the repo and uses
 <ul>
   <li><b>Impact unit.</b> The impact of a change is the set of rendered k8s objects that it adds, changes or deletes, per cluster, grouped by Flux Kustomization. Changes with a manual or sync apply path list their open steps next to it.</li>
   <li><b>Diff view.</b> The review page shows the semantic diff first: the kind hooks describe each change in domain words (for example "worker003: new disk serial", "cilium: 2 new BGP peers"). Tabs show the source diff (the git diff) and the rendered object diff.</li>
-  <li><b>Overlap.</b> When two open changes change the same rendered object, both show a warning with a link to the other change. There is no lock and no block. The second merge rebases and renders again.</li>
+  <li><b>Overlap.</b> When two open changes change the same rendered object, both show a warning with a link to the other change. There is no lock and no block. The second merge rebases and renders again. Kinds that render no objects (work items, racks, articles) get the same warning when two open changes set the same field.</li>
   <li><b>Source map.</b> The bench computes which source file and line make each rendered object, when it renders. Rendered objects carry no extra annotations. Thus a live object, a lab result or a drift alert links back to the file to edit.</li>
   <li><b>Risk rating.</b> Rules in <code>.pk/policy.yaml</code> rate the impact (for example "a change to a node or to cilium is high", "only an app namespace is low"). The rating sets the required approvals and lab gate. An optional LLM advisor adds a note on the impact card. The note is advisory and never changes the rating.</li>
 </ul>
@@ -307,7 +329,12 @@ The renderer reads the Flux version from the Flux manifests in the repo and uses
 <ul>
   <li>Talos and bootstrap secrets stay in git, encrypted with SOPS. They must exist before OpenBao runs.</li>
   <li>App secrets move to OpenBao references over time.</li>
-  <li>The editor has one "secret field" concept for both. It decrypts locally with the admin key, shows secret fields masked, and re-encrypts on save.</li>
+  <li>The editor has one "secret field" concept for both. In git a secret field holds SOPS ciphertext or an OpenBao reference, never plaintext; plaintext is a <code>pk check</code> error.</li>
+  <li>Every creation rule in <code>.sops.yaml</code> and every SOPS file sets <code>mac_only_encrypted: true</code>, so the MAC covers only the encrypted values. <code>pk check</code> fails when a rule or a file does not set it.</li>
+  <li>With the admin key, the bench decrypts locally, applies the edit and re-encrypts only the values that changed, so unchanged ciphertext keeps its bytes and review sees each changed secret. Without the key, the bench may change only plain fields that hold no encrypted value.</li>
+  <li>A mask carries a short hash of its ciphertext (<code>••••••••‹b7e2›</code>), so the bench restores each value by identity, never by position.</li>
+  <li>Only a person sets a value (<code>secret.set</code>, browser or TTY). Agents and suggestions may use <code>secret.generate</code>: the bench makes the value and no model sees it.</li>
+  <li>One masking function serves every read: UI, MCP, chat, advisor, history and rendered objects.</li>
 </ul>
 
 <h2 id="llm">10. LLM integration</h2>
@@ -321,7 +348,7 @@ The renderer reads the Flux version from the Flux manifests in the repo and uses
 </pre>
 <ul>
   <li><b>MCP endpoint.</b> The bench exposes MCP on 127.0.0.1 with a bearer token for each agent. A token lives about 8 hours; the admin approves the agent again each workday.</li>
-  <li><b>Freeform chat.</b> Chat in the UI that can see the project, through the same tools, as the admin who is logged in. Chat can suggest edits: it shows each one as a diff in the open change, and the admin accepts or rejects it. Chat does not commit, run labs or mark ready on its own.</li>
+  <li><b>Freeform chat.</b> Chat in the UI that can see the project, through the same tools, as the admin who is logged in. Chat can suggest edits. A suggestion is a list of edit operations (<a href="#editor">section 9</a>); the form and the YAML view show each one at its field, and the admin accepts or rejects each one. An edit elsewhere in the file never makes a suggestion stale. Models propose only intent and asserted fields. Chat does not commit, run labs or mark ready on its own.</li>
   <li><b>Advisory buttons.</b> Opinionated, retrieval-based help on fixed questions (for example "risks of this change"), like Skyhook/Radar. No freeform input. Each advisor recipe (prompt, allowed tools, output form) is Go code compiled into platform-kit, next to the kinds. A recipe can call Skyhook/Radar as a tool; at the start most recipes delegate to them.</li>
   <li><b>Data boundary.</b> The LLM sees all data except secrets and credentials. A hard redaction filter runs before each call. IPs and serial numbers stay visible.</li>
   <li><b>Retrieval.</b> The index uses the local Qwen embedder and stays on site. It holds the state repo, KB docs, MR discussions, merge trailers and lab reports, so the LLM knows why past changes were made. Live state is not indexed: tools read it fresh at call time.</li>
@@ -379,9 +406,9 @@ It comes after labs. At the start, platform-kit links to Skyhook/Radar instead o
 <h2 id="sync">12. Org database sync</h2>
 <ul>
   <li>The first org systems are not known yet. A generic sync adapter interface keeps vendor schemas out of the core.</li>
-  <li>Each field has one owner system. Sync goes both ways. No field has two owners. Schemas mark the owner.</li>
+  <li>Each field has one source system. Sync goes both ways. No field has two sources. Schemas mark the source with <code>x-pk-source</code>. Only the sync bot writes a field whose source is an org system; the editor locks it and offers "Pull from &lt;system&gt;".</li>
   <li>The sync bot opens a normal change on a schedule. An admin can also pull org data into an open change.</li>
-  <li>On drift, the field owner wins, and the sync MR shows the diff for review. Drift never changes main without an MR.</li>
+  <li>On drift, the field source wins, and the sync MR shows the diff for review. Drift never changes main without an MR.</li>
 </ul>
 
 <h2 id="recovery">13. Bootstrap and recovery</h2>
@@ -435,7 +462,8 @@ It comes after labs. At the start, platform-kit links to Skyhook/Radar instead o
 <tr><td>Prompt injection from repo text, MR comments or org data steers the agent or the advisor</td><td>Treat all repo and forge text as data. UI LLM tools are read-only or make drafts only. A human approves every merge.</td></tr>
 <tr><td>Secret leaks into the LLM or its log</td><td>Hard redaction of secret fields (SOPS fields, OpenBao references, known key patterns) before each call. CI tests the filter.</td></tr>
 <tr><td>A local web page calls the bench</td><td>Bearer token, Origin and Host header checks (against DNS rebinding), no CORS.</td></tr>
-<tr><td>Sync bot imports bad data</td><td>Bot opens normal MRs. Field owner rules apply. A human approves.</td></tr>
+<tr><td>Sync bot imports bad data</td><td>Bot opens normal MRs. Field source rules apply. A human approves.</td></tr>
+<tr><td>An edit writes a wrong or plaintext secret, or breaks a SOPS file</td><td>Masks restore by ciphertext hash. Plaintext in a secret field is a write error and a CI error. <code>mac_only_encrypted: true</code>; plain-field edits keep the MAC valid.</td></tr>
 <tr><td>Hand-edited forge rules drift from policy</td><td>A scheduled job compares generated rules with GitLab and alerts on a difference.</td></tr>
 <tr><td>Rendered diff runs untrusted Helm charts in CI</td><td>Render in a sandboxed CI job without cluster credentials or secrets. Pin chart sources.</td></tr>
 <tr><td>Stolen laptop</td><td>No static kube certificates. Short tokens. SOPS key protected by disk encryption and a passphrase or hardware key.</td></tr>
