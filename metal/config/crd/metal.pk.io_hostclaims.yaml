@@ -26,6 +26,9 @@ spec:
         - jsonPath: .status.phase
           name: Phase
           type: string
+        - jsonPath: .status.conditions[?(@.type=="Provisioned")].reason
+          name: Provisioned
+          type: string
         - jsonPath: .status.blockedOn
           name: Blocked
           priority: 1
@@ -83,6 +86,17 @@ spec:
                   required:
                     - nodeRef
                   type: object
+                provisioning:
+                  description: Provisioning tunes how the operator installs the OS onto the machine.
+                  properties:
+                    approval:
+                      default: Required
+                      description: 'Approval: Required (default) or Automatic.'
+                      enum:
+                        - Required
+                        - Automatic
+                      type: string
+                  type: object
                 systemRef:
                   description: SystemRef picks one ComputerSystem by its Redfish member id when the endpoint fronts several; optional when it fronts one.
                   properties:
@@ -98,7 +112,7 @@ spec:
               description: HostClaimStatus is the claim's side of the bind (the authoritative pointer is Host.spec.claimRef — PV/PVC-style, first writer wins).
               properties:
                 blockedOn:
-                  description: BlockedOn is derived — why the claim isn't binding (AssetNotFound, HostAlreadyClaimed); a reason, not a phase.
+                  description: BlockedOn is derived — why the claim isn't binding (AssetNotFound, HostAlreadyClaimed) or, once bound, why its machine isn't provisioning (SingleMediumUnsupported, OperationFailed); a reason, not a phase.
                   type: string
                 conditions:
                   description: Conditions are the truth — the only thing reconcilers branch on.

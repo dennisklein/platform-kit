@@ -34,6 +34,14 @@ const (
 	// ConditionBound: the HostClaim holds its Host (the authoritative pointer is
 	// Host.spec.claimRef; this condition is the claim's view of it).
 	ConditionBound = "Bound"
+	// ConditionProvisioned: on a HostClaim with OS intent — the bound machine
+	// runs the named node's config. False carries what the operator waits on
+	// or why it holds; True means the hand-off happened.
+	ConditionProvisioned = "Provisioned"
+	// ConditionDeletionHeld: on a Host or ManagementEndpoint — deletion was
+	// requested but a claim still holds the machine, so the object stays
+	// (finalizer metal.pk.io/claim-protection) until the claim is released.
+	ConditionDeletionHeld = "DeletionHeld"
 
 	// ConditionConverged: on a BiosSettings — the machine's managed attributes
 	// match the materialized desired state. The Host's BiosConverged mirrors it.
@@ -164,6 +172,38 @@ const (
 	// operation's observation.
 	ReasonResetExplained = "ResetExplained"
 )
+
+// Reasons on the claim's Provisioned condition. All but HandedOff are False:
+// in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation,
+// Releasing) or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia,
+// OperationFailed, ReleaseFailed) that a person resolves.
+const (
+	// ReasonHandedOff on Provisioned=True: the machine checked in with the
+	// node's config.
+	ReasonHandedOff = "HandedOff"
+	// ReasonAwaitingRender: the TalosNode (or its cluster) is missing or has
+	// no rendered config yet.
+	ReasonAwaitingRender = "AwaitingRender"
+	// ReasonAwaitingBootAsset: the installer image or the config medium is not
+	// built (Ready) for the current render yet.
+	ReasonAwaitingBootAsset = "AwaitingBootAsset"
+	// ReasonSingleMediumUnsupported: the endpoint can hold one virtual medium
+	// only, the machine has no Talos to boot from disk, and an install image
+	// with the config embedded is not built here — a known limit.
+	ReasonSingleMediumUnsupported = "SingleMediumUnsupported"
+	// ReasonNoBootableMedia: the endpoint advertises no insertable media slot
+	// or no removable-media boot target.
+	ReasonNoBootableMedia = "NoBootableMedia"
+	// ReasonReleasing: the claim is being deleted; the release operation
+	// (power off, eject) runs before the machine is handed back.
+	ReasonReleasing = "Releasing"
+	// ReasonReleaseFailed: the release operation failed — the machine stays
+	// bound until a person deletes the failed operation (which retries it).
+	ReasonReleaseFailed = "ReleaseFailed"
+)
+
+// ReasonHostClaimed on DeletionHeld=True: a claim holds the machine.
+const ReasonHostClaimed = "HostClaimed"
 
 // Reasons on the claim's Bound condition. HostNotDiscovered is in flight (the
 // machine hasn't been discovered yet), the rest are blocked states.

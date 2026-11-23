@@ -23,7 +23,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,10 +35,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
-	"sigs.k8s.io/yaml"
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc/sim"
 	"github.com/dennisklein/platform-kit/metal/internal/controller"
 	"github.com/dennisklein/platform-kit/metal/internal/ledger"
@@ -131,14 +130,8 @@ func TestConvergence(t *testing.T) {
 
 	// The committed approval policy runs here too: proposals must pass its
 	// no-pre-approved-CREATE rule, approvals are identity acts.
-	policyDocs := strings.Split(readFile(t, filepath.Join("..", "..", "config", "policy", "hostoperation-approval.yaml")), "\n---")
-	require.Len(t, policyDocs, 2)
-	vap := &admissionregistrationv1.ValidatingAdmissionPolicy{}
-	require.NoError(t, yaml.Unmarshal([]byte(policyDocs[0]), vap))
-	require.NoError(t, cl.Create(ctx, vap))
-	vapBinding := &admissionregistrationv1.ValidatingAdmissionPolicyBinding{}
-	require.NoError(t, yaml.Unmarshal([]byte(policyDocs[1]), vapBinding))
-	require.NoError(t, cl.Create(ctx, vapBinding))
+	operator := whoAmI(t, ctx, cl)
+	installApprovalPolicy(t, ctx, cl, operator)
 
 	u, err := env.AddUser(envtest.User{Name: "alice", Groups: []string{"system:masters"}}, nil)
 	require.NoError(t, err)
@@ -170,7 +163,9 @@ func TestConvergence(t *testing.T) {
 		Client: mgr.GetClient(),
 	}).SetupWithManager(mgr))
 	require.NoError(t, (&controller.HostClaimReconciler{
-		Client: mgr.GetClient(),
+		Client:              mgr.GetClient(),
+		OperationsNamespace: "default",
+		Proposer:            operator,
 	}).SetupWithManager(mgr))
 	require.NoError(t, (&controller.HostOperationReconciler{
 		Client:               mgr.GetClient(),
@@ -182,6 +177,7 @@ func TestConvergence(t *testing.T) {
 		Client:               mgr.GetClient(),
 		CredentialsNamespace: "default",
 		OperationsNamespace:  "default",
+		Proposer:             operator,
 		PollInterval:         pollInterval,
 	}).SetupWithManager(mgr))
 	go func() {
@@ -276,8 +272,9 @@ func TestConvergence(t *testing.T) {
 		probe := &metalv1alpha1.HostOperation{
 			ObjectMeta: metav1.ObjectMeta{Name: "vap-probe", Namespace: "default"},
 			Spec: metalv1alpha1.HostOperationSpec{
-				HostRef: metalv1alpha1.Reference{Name: smcHost},
-				Actions: []metalv1alpha1.HostOperationAction{{PowerCycle: &metalv1alpha1.PowerCycleAction{}}},
+				HostRef:    metalv1alpha1.Reference{Name: smcHost},
+				ProposedBy: operator,
+				Actions:    []metalv1alpha1.HostOperationAction{{PowerCycle: &metalv1alpha1.PowerCycleAction{}}},
 			},
 		}
 		probe.Spec.Approval.ApprovedBy = "someone"
@@ -431,6 +428,33 @@ func TestConvergence(t *testing.T) {
 		assert.Equal(t, metalv1alpha1.HostAssigned, h.Status.Phase)
 	})
 
+	t.Run("drift after convergence is proposed again", func(t *testing.T) {
+		bs := settingsOf(smcHost)
+		require.Equal(t, metalv1alpha1.ReasonInSync, converged(bs).Reason)
+		assert.Nil(t, bs.Status.Proposed, "a converged plan is spent and forgotten")
+		first := biosOps(smcHost)
+		require.Len(t, first, 1)
+
+		// Someone flips a managed attribute by hand and the machine reboots
+		// into it: the same desired state is drifted again.
+		require.NoError(t, smcState.SetBiosAttributes(ctx, "1", map[string]any{"QuietBoot": true}))
+		require.NoError(t, smcState.SetPower(ctx, "1", bmc.ActionForceRestart))
+		bs = waitSettings(smcHost, settingsReason(metalv1alpha1.ReasonAwaitingOperation))
+		require.NotNil(t, bs.Status.Proposed)
+		assert.NotEqual(t, first[0].Namespace+"/"+first[0].Name, bs.Status.Proposed.Operation,
+			"the earlier round's finished record is not mistaken for this round's proposal")
+		assert.Len(t, biosOps(smcHost), 2)
+
+		again := bs.Status.Proposed.Operation
+		approve(again)
+		waitOpSucceeded(again)
+		waitSettings(smcHost, settingsReason(metalv1alpha1.ReasonInSync))
+		// Keep the record count the later subtests reason about.
+		ns, name, _ := strings.Cut(again, "/")
+		require.NoError(t, cl.Delete(ctx, &metalv1alpha1.HostOperation{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns}}))
+		require.Eventually(t, func() bool { return len(biosOps(smcHost)) == 1 }, waitFor, tick)
+	})
+
 	t.Run("unchanged planHash spawns nothing", func(t *testing.T) {
 		smcState.SetFault(sim.FaultBiosStuck, true)
 
@@ -551,6 +575,7 @@ func TestConvergence(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "ttl-cycle", Namespace: "default"},
 			Spec: metalv1alpha1.HostOperationSpec{
 				HostRef:                 metalv1alpha1.Reference{Name: huaweiHost},
+				ProposedBy:              operator,
 				Actions:                 []metalv1alpha1.HostOperationAction{{PowerCycle: &metalv1alpha1.PowerCycleAction{}}},
 				TTLSecondsAfterFinished: &ttl,
 			},

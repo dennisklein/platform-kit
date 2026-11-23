@@ -1,13 +1,15 @@
 // manager is the in-cluster pk-metal operator: the Asset materializer,
 // the ManagementEndpoint reconciler, the Host projection, the claim bind, the
 // HostOperation executor behind its VAP approval gate, and the OS payload lane:
-// TalosNode configs rendered into Secrets, BootAsset artifacts built from them,
-// TalosClusters bootstrapped and their admin credentials published.
+// TalosNode configs rendered into Secrets, BootAsset artifacts built from them and
+// served to BMCs by the media service under per-mount grants, TalosClusters
+// bootstrapped and their admin credentials published.
 // Runs equally against kind (day-0, `go run` with a kubeconfig) and in-cluster —
 // the git-native handover means the process carries no state worth pivoting.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"flag"
@@ -16,16 +18,21 @@ import (
 	"os"
 	"time"
 
+	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/asset"
 	"github.com/dennisklein/platform-kit/metal/internal/controller"
 	"github.com/dennisklein/platform-kit/metal/internal/ledger"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/machineapi"
@@ -47,6 +54,10 @@ func main() {
 		metricsAddr  string
 		probeAddr    string
 		leaderElect  bool
+		mediaListen  string
+		mediaURL     string
+		mediaCert    string
+		checkIn      time.Duration
 	)
 	flag.StringVar(&ledgerPath, "ledger", "",
 		"path to the MAC→URL BMC ledger YAML (required; projection of the bmc-access dnsmasq ledger)")
@@ -64,6 +75,14 @@ func main() {
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "metrics address ('0' disables)")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", "0", "health probe address ('0' disables)")
 	flag.BoolVar(&leaderElect, "leader-elect", false, "enable leader election")
+	flag.StringVar(&mediaListen, "media-listen", ":8443",
+		"address the media service binds (HTTPS; BMCs pull granted boot media from it)")
+	flag.StringVar(&mediaURL, "media-url", "",
+		"https://host[:port] BMCs reach the media service at (a NodePort, a load balancer); empty disables the media service and with it in-cluster provisioning")
+	flag.StringVar(&mediaCert, "media-cert-secret", "",
+		"secret (keys tls.crt, tls.key) the media service serves; empty mints an ephemeral self-signed certificate (BMCs do not verify media TLS)")
+	flag.DurationVar(&checkIn, "checkin-timeout", 30*time.Minute,
+		"how long a boot operation waits for the node to check in before it fails")
 	showVersion := flag.Bool("version", false, "print the build version and exit")
 	flag.Parse()
 
@@ -131,7 +150,31 @@ func main() {
 		os.Exit(1)
 	}
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	restCfg := ctrl.GetConfigOrDie()
+	// Operations the operator proposes carry its own name; admission checks it,
+	// and the policy's params must name the same identity.
+	proposer, err := whoAmI(restCfg, scheme)
+	if err != nil {
+		log.Error(err, "who am I")
+		os.Exit(1)
+	}
+	log.Info("operator identity", "username", proposer)
+
+	var media *asset.Service
+	if mediaURL != "" {
+		cert, err := mediaCertificate(restCfg, scheme, credsNS, mediaCert)
+		if err != nil {
+			log.Error(err, "media certificate")
+			os.Exit(1)
+		}
+		if media, err = asset.NewService(mediaListen, mediaURL, cert); err != nil {
+			log.Error(err, "media service")
+			os.Exit(1)
+		}
+		log.Info("media service", "listen", mediaListen, "url", mediaURL, "certSecret", mediaCert)
+	}
+
+	mgr, err := ctrl.NewManager(restCfg, ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsserver.Options{BindAddress: metricsAddr},
 		HealthProbeBindAddress: probeAddr,
@@ -168,24 +211,41 @@ func main() {
 		os.Exit(1)
 	}
 	if err := (&controller.HostClaimReconciler{
-		Client: mgr.GetClient(),
+		Client:                mgr.GetClient(),
+		OperationsNamespace:   credsNS,
+		Proposer:              proposer,
+		CheckInTimeoutSeconds: int32(checkIn.Seconds()),
 	}).SetupWithManager(mgr); err != nil {
 		log.Error(err, "setup hostclaim reconciler")
+		os.Exit(1)
+	}
+	if err := (&controller.ProtectionReconciler{
+		Client: mgr.GetClient(),
+	}).SetupWithManager(mgr); err != nil {
+		log.Error(err, "setup protection reconciler")
 		os.Exit(1)
 	}
 	if err := (&controller.HostOperationReconciler{
 		Client:               mgr.GetClient(),
 		CredentialsNamespace: credsNS,
 		RegistryClient:       registryClient,
+		Media:                media,
 		Recorder:             mgr.GetEventRecorder("pk-metal"),
 	}).SetupWithManager(mgr); err != nil {
 		log.Error(err, "setup hostoperation reconciler")
 		os.Exit(1)
 	}
+	if media != nil {
+		if err := mgr.Add(media); err != nil {
+			log.Error(err, "add media service")
+			os.Exit(1)
+		}
+	}
 	if err := (&controller.ConvergenceReconciler{
 		Client:               mgr.GetClient(),
 		CredentialsNamespace: credsNS,
 		OperationsNamespace:  credsNS,
+		Proposer:             proposer,
 		PollInterval:         poll,
 	}).SetupWithManager(mgr); err != nil {
 		log.Error(err, "setup convergence reconciler")
@@ -246,4 +306,34 @@ func main() {
 		log.Error(err, "manager exited")
 		os.Exit(1)
 	}
+}
+
+// whoAmI asks the apiserver which username this process acts as.
+func whoAmI(cfg *rest.Config, scheme *runtime.Scheme) (string, error) {
+	cl, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		return "", err
+	}
+	ssr := &authenticationv1.SelfSubjectReview{}
+	if err := cl.Create(context.Background(), ssr); err != nil {
+		return "", err
+	}
+	return ssr.Status.UserInfo.Username, nil
+}
+
+// mediaCertificate loads the media service's serving certificate from a
+// Secret, or mints an ephemeral one when none is named.
+func mediaCertificate(cfg *rest.Config, scheme *runtime.Scheme, namespace, name string) (tls.Certificate, error) {
+	if name == "" {
+		return asset.EphemeralCert()
+	}
+	cl, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	sec := &corev1.Secret{}
+	if err := cl.Get(context.Background(), types.NamespacedName{Namespace: namespace, Name: name}, sec); err != nil {
+		return tls.Certificate{}, fmt.Errorf("secret %s/%s: %w", namespace, name, err)
+	}
+	return tls.X509KeyPair(sec.Data[corev1.TLSCertKey], sec.Data[corev1.TLSPrivateKeyKey])
 }

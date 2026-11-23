@@ -46,6 +46,32 @@ type HostClaimSpec struct {
 	// appears and the reconciler stamps it onto the Host.
 	// +optional
 	OS *ClaimOS `json:"os,omitempty"`
+
+	// Provisioning tunes how the operator installs the OS onto the machine.
+	// +optional
+	Provisioning *ClaimProvisioning `json:"provisioning,omitempty"`
+}
+
+// ProvisioningApproval says whether the operator's boot operation for this
+// claim waits for a person.
+// +kubebuilder:validation:Enum=Required;Automatic
+type ProvisioningApproval string
+
+const (
+	// ProvisioningApprovalRequired: the boot operation waits for a person to
+	// approve it — the default, because it powers the machine.
+	ProvisioningApprovalRequired ProvisioningApproval = "Required"
+	// ProvisioningApprovalAutomatic: the operator creates the boot operation
+	// pre-cleared — for cattle, where the claim itself is the decision.
+	ProvisioningApprovalAutomatic ProvisioningApproval = "Automatic"
+)
+
+// ClaimProvisioning is the claim's say in how its machine is provisioned.
+type ClaimProvisioning struct {
+	// Approval: Required (default) or Automatic.
+	// +kubebuilder:default=Required
+	// +optional
+	Approval ProvisioningApproval `json:"approval,omitempty"`
 }
 
 // LabelValue is one intent label value, constrained to the k8s label-value
@@ -81,7 +107,8 @@ type HostClaimStatus struct {
 	Phase ClaimPhase `json:"phase,omitempty"`
 
 	// BlockedOn is derived — why the claim isn't binding (AssetNotFound,
-	// HostAlreadyClaimed); a reason, not a phase.
+	// HostAlreadyClaimed) or, once bound, why its machine isn't provisioning
+	// (SingleMediumUnsupported, OperationFailed); a reason, not a phase.
 	// +optional
 	BlockedOn string `json:"blockedOn,omitempty"`
 }
@@ -96,6 +123,7 @@ type HostClaimStatus struct {
 // +kubebuilder:printcolumn:name="Asset",type=string,JSONPath=`.spec.assetRef.name`
 // +kubebuilder:printcolumn:name="Host",type=string,JSONPath=`.status.hostRef.name`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
+// +kubebuilder:printcolumn:name="Provisioned",type=string,JSONPath=`.status.conditions[?(@.type=="Provisioned")].reason`
 // +kubebuilder:printcolumn:name="Blocked",type=string,JSONPath=`.status.blockedOn`,priority=1
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 type HostClaim struct {

@@ -144,6 +144,13 @@ type DiscoveredSystem struct {
 	// resets stay distinguishable.
 	// +optional
 	LastResetTime *metav1.MicroTime `json:"lastResetTime,omitempty"`
+
+	// BootTargets are the boot override targets the system allows
+	// (BootSourceOverrideTarget@Redfish.AllowableValues) — what a proposed
+	// boot override picks from, never assumed.
+	// +listType=atomic
+	// +optional
+	BootTargets []string `json:"bootTargets,omitempty"`
 }
 
 // ManagementEndpointStatus is discovered truth (assertion lives on the Asset).

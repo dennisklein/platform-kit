@@ -49,6 +49,8 @@ type ConvergenceReconciler struct {
 	CredentialsNamespace string
 	// OperationsNamespace is where proposals are created (the operator's own).
 	OperationsNamespace string
+	// Proposer is the operator's own username, stamped as proposedBy.
+	Proposer string
 	// PollInterval is the BIOS re-observation cadence.
 	PollInterval time.Duration
 }
@@ -81,9 +83,10 @@ func (r *ConvergenceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	phase.StampHost(host, phase.HostFacts{Claimed: host.Spec.ClaimRef != nil})
+	facts := hostFacts(ctx, r.Client, host)
+	phase.StampHost(host, facts)
 	if !equality.Semantic.DeepEqual(orig.Status, host.Status) {
-		if err := r.applyStatus(ctx, host); err != nil {
+		if err := r.applyStatus(ctx, host, facts); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 	}
@@ -102,7 +105,7 @@ func (r *ConvergenceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 // construction: the operation is created before the memory is recorded and its
 // name is derived from the plan hash, so the second attempt is an AlreadyExists
 // and nothing is done twice.
-func (r *ConvergenceReconciler) applyStatus(ctx context.Context, host *metalv1alpha1.Host) error {
+func (r *ConvergenceReconciler) applyStatus(ctx context.Context, host *metalv1alpha1.Host, facts phase.HostFacts) error {
 	apply := &metalv1alpha1.Host{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: metalv1alpha1.GroupVersion.String(),
@@ -116,7 +119,7 @@ func (r *ConvergenceReconciler) applyStatus(ctx context.Context, host *metalv1al
 			apply.Status.Conditions = append(apply.Status.Conditions, *c)
 		}
 	}
-	phase.StampHostOnto(apply, host, phase.HostFacts{Claimed: host.Spec.ClaimRef != nil})
+	phase.StampHostOnto(apply, host, facts)
 	return applyOwnedStatus(ctx, r.Client, apply, fieldOwnerHostConvergence)
 }
 
@@ -199,6 +202,10 @@ func (r *ConvergenceReconciler) firmware(ctx context.Context, host *metalv1alpha
 	if drifted == "" {
 		setCond(metalv1alpha1.ConditionFirmwareConverged, metav1.ConditionTrue,
 			metalv1alpha1.ReasonInSync, "manager "+target.Version)
+		// The plan is spent: forgetting it is what lets a later drift to the
+		// same desired state be proposed again instead of read as this
+		// plan's failure.
+		host.Status.FirmwareProposed = nil
 		return true, nil
 	}
 
@@ -225,7 +232,7 @@ func (r *ConvergenceReconciler) firmware(ctx context.Context, host *metalv1alpha
 	})
 	// Create before recording: a crash between the two re-proposes into
 	// AlreadyExists (benign), the reverse order would hold on a ghost.
-	if err := r.Create(ctx, op); err != nil && !apierrors.IsAlreadyExists(err) {
+	if err := r.propose(ctx, op); err != nil {
 		return false, err
 	}
 	logf.FromContext(ctx).Info("proposed operation", "operation", op.Namespace+"/"+op.Name, "host", host.Name, "reason", op.Spec.Reason)
@@ -304,6 +311,8 @@ func (r *ConvergenceReconciler) bios(ctx context.Context, host *metalv1alpha1.Ho
 		if len(drifted) == 0 {
 			status, reason = metav1.ConditionTrue, metalv1alpha1.ReasonInSync
 			msg = fmt.Sprintf("%d attributes", len(desired))
+			// The plan is spent — see the firmware lane.
+			settings.Status.Proposed = nil
 			break
 		}
 		if !fwConverged {
@@ -323,10 +332,16 @@ func (r *ConvergenceReconciler) bios(ctx context.Context, host *metalv1alpha1.Ho
 			return false, err
 		}
 		op := r.proposal(host.Name, "bios", hash, "BiosConvergence", []metalv1alpha1.HostOperationAction{
-			{ApplyBios: &metalv1alpha1.ApplyBiosAction{SettingsRef: metalv1alpha1.Reference{Name: settings.Name}}},
+			// The attributes travel inside the operation: the approver sees
+			// exactly what will be staged, and a later edit of the settings
+			// cannot change an approved operation.
+			{ApplyBios: &metalv1alpha1.ApplyBiosAction{
+				SettingsRef: &metalv1alpha1.Reference{Name: settings.Name},
+				Attributes:  settings.Spec.Attributes,
+			}},
 			{PowerCycle: &metalv1alpha1.PowerCycleAction{}},
 		})
-		if err := r.Create(ctx, op); err != nil && !apierrors.IsAlreadyExists(err) {
+		if err := r.propose(ctx, op); err != nil {
 			return false, err
 		}
 		logf.FromContext(ctx).Info("proposed operation", "operation", op.Namespace+"/"+op.Name, "host", host.Name, "reason", op.Spec.Reason)
@@ -395,6 +410,32 @@ func (r *ConvergenceReconciler) planVerdict(ctx context.Context, plan *metalv1al
 		"operation " + plan.Operation + " succeeded but the observed state did not converge", nil
 }
 
+// propose creates the proposal, or adopts it when it already exists. The
+// deterministic name dedupes a double-propose race; a same-named operation that
+// is already finished belongs to an earlier round of the same plan (drift came
+// back after the plan converged), so the proposal moves to the next round's
+// name instead of mistaking that record for itself.
+func (r *ConvergenceReconciler) propose(ctx context.Context, op *metalv1alpha1.HostOperation) error {
+	base := op.Name
+	for round := 1; round <= 64; round++ {
+		if round > 1 {
+			op.Name = fmt.Sprintf("%s-%d", base, round)
+		}
+		err := r.Create(ctx, op)
+		if err == nil || !apierrors.IsAlreadyExists(err) {
+			return err
+		}
+		existing := &metalv1alpha1.HostOperation{}
+		if err := r.Get(ctx, client.ObjectKeyFromObject(op), existing); err != nil {
+			return client.IgnoreNotFound(err)
+		}
+		if !opFinished(existing) {
+			return nil // this round's proposal — a double-propose race
+		}
+	}
+	return fmt.Errorf("proposal %s: too many finished rounds of the same plan", base)
+}
+
 // proposal builds a convergence HostOperation. The deterministic name (host,
 // domain, plan-hash prefix) makes proposing create-if-absent — the apiserver
 // dedupes a double-propose race.
@@ -406,6 +447,7 @@ func (r *ConvergenceReconciler) proposal(hostName, domain, hash, reason string, 
 		},
 		Spec: metalv1alpha1.HostOperationSpec{
 			HostRef:                 metalv1alpha1.Reference{Name: hostName},
+			ProposedBy:              r.Proposer,
 			Reason:                  reason,
 			PlanHash:                hash,
 			Actions:                 actions,

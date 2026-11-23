@@ -74,6 +74,16 @@ func (r *HostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	})
 
 	host := &metalv1alpha1.Host{ObjectMeta: metav1.ObjectMeta{Name: req.Name}}
+	if !slices.ContainsFunc(paths, func(p hostPath) bool { return p.ep.DeletionTimestamp.IsZero() }) {
+		// Only endpoints on their way out still front this host — a claim held
+		// them, and its release is letting them go. Materializing the Host anew
+		// from them would resurrect what was just deleted, owned by endpoints
+		// about to vanish; an existing Host is still projected so its hold
+		// stays visible.
+		if err := r.Get(ctx, client.ObjectKeyFromObject(host), host); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+	}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, host, func() error {
 		host.OwnerReferences = endpointOwnerRefs(host.OwnerReferences, paths)
 		return nil
@@ -119,13 +129,54 @@ func (r *HostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 	orig := host.DeepCopy()
 	projectHost(host, paths, ops.Items, node)
-	phase.StampHost(host, phase.HostFacts{Claimed: host.Spec.ClaimRef != nil})
+	projectDeletionHold(host)
+	facts := factsFor(host, claim)
+	phase.StampHost(host, facts)
 	if !equality.Semantic.DeepEqual(orig.Status, host.Status) {
-		if err := r.applyStatus(ctx, host); err != nil {
+		if err := r.applyStatus(ctx, host, facts); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 	}
 	return ctrl.Result{}, nil
+}
+
+// factsFor derives the spec-side phase inputs: claimed while a pointer is set,
+// releasing while the claim holding it is being deleted.
+func factsFor(host *metalv1alpha1.Host, claim *metalv1alpha1.HostClaim) phase.HostFacts {
+	return phase.HostFacts{
+		Claimed:   host.Spec.ClaimRef != nil,
+		Releasing: claim != nil && !claim.DeletionTimestamp.IsZero(),
+	}
+}
+
+// hostFacts is factsFor for writers that have not read the claim yet — every
+// writer of the host's phase must derive it from the same facts, or two
+// writers publish two phases in turn.
+func hostFacts(ctx context.Context, c client.Client, host *metalv1alpha1.Host) phase.HostFacts {
+	var claim *metalv1alpha1.HostClaim
+	if ref := host.Spec.ClaimRef; ref != nil {
+		cl := &metalv1alpha1.HostClaim{}
+		if err := c.Get(ctx, types.NamespacedName{Namespace: ref.Namespace, Name: ref.Name}, cl); err == nil && cl.UID == ref.UID {
+			claim = cl
+		}
+	}
+	return factsFor(host, claim)
+}
+
+// projectDeletionHold makes the claim protection visible: a Host whose
+// deletion was requested (its Asset or endpoint went away) but that a claim
+// still holds says so, instead of sitting silently in Terminating.
+func projectDeletionHold(host *metalv1alpha1.Host) {
+	if host.DeletionTimestamp.IsZero() || host.Spec.ClaimRef == nil {
+		meta.RemoveStatusCondition(&host.Status.Conditions, metalv1alpha1.ConditionDeletionHeld)
+		return
+	}
+	ref := host.Spec.ClaimRef
+	meta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
+		Type: metalv1alpha1.ConditionDeletionHeld, Status: metav1.ConditionTrue,
+		Reason: metalv1alpha1.ReasonHostClaimed, ObservedGeneration: host.Generation,
+		Message: fmt.Sprintf("deletion requested, held by claim %s/%s — delete the claim to release the machine", ref.Namespace, ref.Name),
+	})
 }
 
 // applyStatus declares the projected half of the host's status: what the
@@ -133,7 +184,7 @@ func (r *HostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 // observation the drift check compares against. The convergence lane's plan
 // memory and its two conditions are stripped rather than restated — naming
 // them here would claim them.
-func (r *HostReconciler) applyStatus(ctx context.Context, host *metalv1alpha1.Host) error {
+func (r *HostReconciler) applyStatus(ctx context.Context, host *metalv1alpha1.Host, facts phase.HostFacts) error {
 	apply := &metalv1alpha1.Host{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: metalv1alpha1.GroupVersion.String(),
@@ -144,7 +195,7 @@ func (r *HostReconciler) applyStatus(ctx context.Context, host *metalv1alpha1.Ho
 	}
 	apply.Status.FirmwareProposed = nil
 	apply.Status.Conditions = slices.DeleteFunc(apply.Status.Conditions, isConvergenceHostCondition)
-	phase.StampHostOnto(apply, host, phase.HostFacts{Claimed: host.Spec.ClaimRef != nil})
+	phase.StampHostOnto(apply, host, facts)
 	return applyOwnedStatus(ctx, r.Client, apply, fieldOwnerHost)
 }
 

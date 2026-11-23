@@ -1,9 +1,23 @@
 # The HostOperation human gate (design doc § Operations): approval is a CEL-guarded
 # FIELD, not a subresource — a ValidatingAdmissionPolicy (no webhook, no cert, no pod)
 # enforces the identity rules that schema CEL cannot (they need request.userInfo).
-# Structural immutability (hostRef, actions frozen) lives in the CRD schema, so
-# "patch" is "approve" and ordinary RBAC recovers the CSR permission split:
-# metal-operator may CREATE (propose), metal-approver may PATCH (approve).
+# Structural immutability (hostRef, actions, approval.required, proposedBy frozen)
+# lives in the CRD schema, so "patch" is "approve" and ordinary RBAC recovers the CSR
+# permission split: metal-operator may CREATE (propose), metal-approver may PATCH
+# (approve).
+#
+# The rules, in order:
+#   - nobody creates an operation pre-approved;
+#   - the creator records themselves in spec.proposedBy (admission checks the name,
+#     so the record cannot lie);
+#   - only the operator's own identity, or a member of the admin group, may create an
+#     operation that needs no approval — anyone else would simply skip the gate;
+#   - approval is write-once and stamped as yourself;
+#   - a person never approves their own proposal.
+#
+# Who the operator is and which group administers it are deployment facts, so they
+# come from the ConfigMap below (the binding's params). A missing ConfigMap denies
+# every create and update: the gate fails closed.
 #
 # CEL note: oldObject is null on CREATE — every reference to it sits behind a
 # lazily-evaluated request.operation ternary (the null-oldObject guard).
@@ -13,6 +27,9 @@ metadata:
   name: hostoperation-approval
 spec:
   failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
   matchConstraints:
     resourceRules:
       - apiGroups: ["metal.pk.io"]
@@ -29,9 +46,32 @@ spec:
         request.operation == 'UPDATE'
         && has(oldObject.spec.approval) && has(oldObject.spec.approval.approvedBy)
         ? oldObject.spec.approval.approvedBy : ''
+    - name: proposer
+      expression: "has(object.spec.proposedBy) ? object.spec.proposedBy : ''"
+    - name: approvalRequired
+      expression: >-
+        !has(object.spec.approval) || !has(object.spec.approval.required)
+        || object.spec.approval.required
+    - name: operator
+      expression: "has(params.data) && has(params.data.operator) ? params.data.operator : ''"
+    - name: isOperator
+      expression: "variables.operator != '' && request.userInfo.username == variables.operator"
+    - name: isAdmin
+      expression: >-
+        has(params.data) && has(params.data.adminGroup) && params.data.adminGroup != ''
+        && has(request.userInfo.groups) && params.data.adminGroup in request.userInfo.groups
   validations:
     - expression: "request.operation != 'CREATE' || variables.newApprover == ''"
       message: an operation cannot be created pre-approved
+      reason: Forbidden
+    - expression: "request.operation != 'CREATE' || variables.proposer == request.userInfo.username"
+      messageExpression: >-
+        'spec.proposedBy must name you: set it to ' + request.userInfo.username
+      reason: Forbidden
+    - expression: >-
+        request.operation != 'CREATE' || variables.approvalRequired
+        || variables.isOperator || variables.isAdmin
+      message: only the operator or an admin may create an operation that needs no approval
       reason: Forbidden
     - expression: "variables.oldApprover == '' || variables.newApprover == variables.oldApprover"
       message: approval is write-once
@@ -41,6 +81,12 @@ spec:
         || variables.newApprover == request.userInfo.username
       message: you may only approve as yourself (approvedBy must equal your username)
       reason: Forbidden
+    - expression: >-
+        variables.newApprover == variables.oldApprover
+        || variables.newApprover != variables.proposer
+        || variables.proposer == variables.operator
+      message: you may not approve your own proposal — another person must
+      reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
@@ -49,3 +95,18 @@ metadata:
 spec:
   policyName: hostoperation-approval
   validationActions: ["Deny"]
+  paramRef:
+    name: hostoperation-approval
+    namespace: pk-metal
+    parameterNotFoundAction: Deny
+---
+# The policy's parameters: who the operator runs as (the manager's service account)
+# and the group whose members may create pre-cleared operations by hand.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hostoperation-approval
+  namespace: pk-metal
+data:
+  operator: system:serviceaccount:pk-metal:pk-metal-manager
+  adminGroup: pk-metal:admins

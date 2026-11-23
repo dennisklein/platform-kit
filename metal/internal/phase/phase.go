@@ -116,6 +116,11 @@ func ForClaim(conds []metav1.Condition) (metalv1alpha1.ClaimPhase, string) {
 	case b == nil:
 		return metalv1alpha1.ClaimPending, ""
 	case b.Status == metav1.ConditionTrue:
+		// Bound; whatever stops provisioning is why the claim isn't advancing.
+		if p := meta.FindStatusCondition(conds, metalv1alpha1.ConditionProvisioned); p != nil &&
+			p.Status == metav1.ConditionFalse && provisioningHolds[p.Reason] {
+			return metalv1alpha1.ClaimBound, p.Reason
+		}
 		return metalv1alpha1.ClaimBound, ""
 	case b.Reason == metalv1alpha1.ReasonAmbiguousSystem:
 		return metalv1alpha1.ClaimAmbiguous, b.Reason
@@ -123,6 +128,15 @@ func ForClaim(conds []metav1.Condition) (metalv1alpha1.ClaimPhase, string) {
 		return metalv1alpha1.ClaimPending, ""
 	}
 	return metalv1alpha1.ClaimPending, b.Reason
+}
+
+// provisioningHolds are the Provisioned=False reasons that need a person —
+// the rest are in-flight waits, not blocks.
+var provisioningHolds = map[string]bool{
+	metalv1alpha1.ReasonSingleMediumUnsupported: true,
+	metalv1alpha1.ReasonNoBootableMedia:         true,
+	metalv1alpha1.ReasonOperationFailed:         true,
+	metalv1alpha1.ReasonReleaseFailed:           true,
 }
 
 // ForOperation derives the HostOperation phase from Approved + Executed. A

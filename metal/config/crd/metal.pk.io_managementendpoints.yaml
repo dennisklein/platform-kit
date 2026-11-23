@@ -236,6 +236,12 @@ spec:
                   items:
                     description: DiscoveredSystem is one ComputerSystem as seen through this endpoint — the projection the HostReconciler joins into identity-keyed Hosts. ID is a path coordinate (an opaque Redfish member id), never an identity; identity is normalized in internal/identity over the serial anchors.
                     properties:
+                      bootTargets:
+                        description: BootTargets are the boot override targets the system allows (BootSourceOverrideTarget@Redfish.AllowableValues) — what a proposed boot override picks from, never assumed.
+                        items:
+                          type: string
+                        type: array
+                        x-kubernetes-list-type: atomic
                       id:
                         description: ID is the Redfish ComputerSystem member id behind this endpoint.
                         type: string

@@ -12,9 +12,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
+	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/identity"
 	"github.com/dennisklein/platform-kit/metal/internal/phase"
@@ -27,14 +29,24 @@ const (
 	hostClaimIndex = ".spec.claimRef"
 )
 
-// HostClaimReconciler binds claims to Hosts PVC-style. The authoritative pointer is
-// Host.spec.claimRef: the first claim to write it wins (apiserver optimistic
-// concurrency — a conflicting writer errors, requeues, and observes the winner);
-// losers hold at HostAlreadyClaimed and retry level-triggered when the host is
-// released. Claim deletion releases the host by clearing the pointer — with no
-// cleanup work in the model yet, that is delete → Available.
+// HostClaimReconciler binds claims to Hosts PVC-style and provisions what they
+// bind. The authoritative pointer is Host.spec.claimRef: the first claim to
+// write it wins (apiserver optimistic concurrency — a conflicting writer errors,
+// requeues, and observes the winner); losers hold at HostAlreadyClaimed and
+// retry level-triggered when the host is released. A bound claim with OS intent
+// gets one boot operation proposed (provisioning.go). Claim deletion is held by
+// a finalizer until the machine is released: powered off by an operation if it
+// was handed an OS, then unbound — delete → Releasing → Available.
 type HostClaimReconciler struct {
 	client.Client
+	// OperationsNamespace is where boot and release operations are created
+	// (the operator's own).
+	OperationsNamespace string
+	// Proposer is the operator's own username, stamped as proposedBy.
+	Proposer string
+	// CheckInTimeoutSeconds bounds a boot operation's wait for the node's
+	// check-in; zero defaults to 30 minutes.
+	CheckInTimeoutSeconds int32
 }
 
 func (r *HostClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -46,10 +58,21 @@ func (r *HostClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	claim := &metalv1alpha1.HostClaim{}
 	if err := r.Get(ctx, req.NamespacedName, claim); err != nil {
 		if apierrors.IsNotFound(err) {
-			// The claim is gone — release everything it still holds.
+			// The claim is gone without passing through release (created
+			// before the finalizer existed, or the finalizer was removed by
+			// hand) — unbind what it still holds.
 			return ctrl.Result{}, r.releaseAll(ctx, bound, "")
 		}
 		return ctrl.Result{}, err
+	}
+
+	if !claim.DeletionTimestamp.IsZero() {
+		return r.finishRelease(ctx, claim, bound)
+	}
+	if controllerutil.AddFinalizer(claim, releaseFinalizer) {
+		if err := r.Update(ctx, claim); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
 	}
 
 	target, failReason, failMsg, err := r.resolveTarget(ctx, claim)
@@ -85,12 +108,45 @@ func (r *HostClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			r.setBound(claim, metav1.ConditionFalse, reason, msg)
 		}
 	}
+	if claim.Status.HostRef != nil {
+		if err := r.provision(ctx, claim, claim.Status.HostRef.Name); err != nil {
+			return ctrl.Result{}, err
+		}
+	} else {
+		meta.RemoveStatusCondition(&claim.Status.Conditions, metalv1alpha1.ConditionProvisioned)
+	}
+	return ctrl.Result{}, r.writeStatus(ctx, orig, claim)
+}
+
+func (r *HostClaimReconciler) writeStatus(ctx context.Context, orig, claim *metalv1alpha1.HostClaim) error {
 	phase.StampClaim(claim)
 	if !equality.Semantic.DeepEqual(orig.Status, claim.Status) {
 		if err := r.Status().Update(ctx, claim); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
+			return client.IgnoreNotFound(err)
 		}
 	}
+	return nil
+}
+
+// finishRelease runs the release while the finalizer holds the claim, and lets
+// the claim go once every machine it held is back.
+func (r *HostClaimReconciler) finishRelease(ctx context.Context, claim *metalv1alpha1.HostClaim, bound []metalv1alpha1.Host) (ctrl.Result, error) {
+	if !controllerutil.ContainsFinalizer(claim, releaseFinalizer) {
+		return ctrl.Result{}, nil
+	}
+	orig := claim.DeepCopy()
+	done, err := r.release(ctx, claim, bound)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !done {
+		return ctrl.Result{}, r.writeStatus(ctx, orig, claim)
+	}
+	controllerutil.RemoveFinalizer(claim, releaseFinalizer)
+	if err := r.Update(ctx, claim); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	logf.FromContext(ctx).Info("released claim", "claim", claim.Namespace+"/"+claim.Name)
 	return ctrl.Result{}, nil
 }
 
@@ -252,8 +308,56 @@ func (r *HostClaimReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&metalv1alpha1.HostClaim{}).
 		Watches(&metalv1alpha1.Host{}, handler.EnqueueRequestsFromMapFunc(r.claimsForHost)).
+		Watches(&metalv1alpha1.HostOperation{}, handler.EnqueueRequestsFromMapFunc(claimsForOperation)).
+		Watches(&metalv1alpha1.ManagementEndpoint{}, handler.EnqueueRequestsFromMapFunc(r.claimsForEndpoint)).
+		Watches(&osv1alpha1.TalosNode{}, handler.EnqueueRequestsFromMapFunc(r.claimsForNode)).
+		Watches(&osv1alpha1.BootAsset{}, handler.EnqueueRequestsFromMapFunc(r.claimsForBootAsset)).
 		Named("hostclaim").
 		Complete(r)
+}
+
+// claimsForNode re-runs the claims whose OS intent names the node — its render
+// and its check-in both move provisioning.
+func (r *HostClaimReconciler) claimsForNode(ctx context.Context, obj client.Object) []ctrl.Request {
+	return r.claimsNaming(ctx, obj.GetName())
+}
+
+// claimsForBootAsset re-runs the claims of the node a config medium carries;
+// an installer image change re-runs every claim with OS intent.
+func (r *HostClaimReconciler) claimsForBootAsset(ctx context.Context, obj client.Object) []ctrl.Request {
+	if ref := obj.(*osv1alpha1.BootAsset).Spec.NodeRef; ref != nil {
+		return r.claimsNaming(ctx, ref.Name)
+	}
+	return r.claimsNaming(ctx, "")
+}
+
+// claimsNaming lists the claims whose OS intent names node ("" = any).
+func (r *HostClaimReconciler) claimsNaming(ctx context.Context, node string) []ctrl.Request {
+	claims := &metalv1alpha1.HostClaimList{}
+	if err := r.List(ctx, claims); err != nil {
+		return nil
+	}
+	var reqs []ctrl.Request
+	for i := range claims.Items {
+		if os := claims.Items[i].Spec.OS; os != nil && (node == "" || os.NodeRef.Name == node) {
+			reqs = append(reqs, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&claims.Items[i])})
+		}
+	}
+	return reqs
+}
+
+// claimsForEndpoint re-runs the claims selecting the endpoint's asset — its
+// discovered media and boot targets shape the boot plan.
+func (r *HostClaimReconciler) claimsForEndpoint(ctx context.Context, obj client.Object) []ctrl.Request {
+	claims := &metalv1alpha1.HostClaimList{}
+	if err := r.List(ctx, claims, client.MatchingFields{claimAssetIndex: obj.(*metalv1alpha1.ManagementEndpoint).Spec.AssetRef.Name}); err != nil {
+		return nil
+	}
+	reqs := make([]ctrl.Request, 0, len(claims.Items))
+	for i := range claims.Items {
+		reqs = append(reqs, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&claims.Items[i])})
+	}
+	return reqs
 }
 
 // claimsForHost fans a host event out to its holder (release/re-check) and to every

@@ -62,6 +62,12 @@ func approveCmd(args []string) {
 		log.Fatalf("operation %s/%s is already approved by %s (approval is write-once)",
 			*namespace, name, op.Spec.Approval.ApprovedBy)
 	}
+	// Admission refuses this too; saying it here names the rule instead of
+	// quoting a policy.
+	if op.Spec.ProposedBy == user {
+		log.Fatalf("operation %s/%s was proposed by you (%s) — another person must approve it",
+			*namespace, name, user)
+	}
 	patch := []byte(fmt.Sprintf(`{"spec":{"approval":{"approvedBy":%q}}}`, user))
 	if err := cl.Patch(ctx, op, client.RawPatch(types.MergePatchType, patch)); err != nil {
 		log.Fatal(err)

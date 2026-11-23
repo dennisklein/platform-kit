@@ -19,7 +19,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -33,7 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
-	"sigs.k8s.io/yaml"
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
@@ -125,14 +123,8 @@ func TestReconcile(t *testing.T) {
 
 	// The committed policy IS what's tested: the approval gate loads from
 	// config/policy, not from a test-local copy.
-	policyDocs := strings.Split(readFile(t, filepath.Join("..", "..", "config", "policy", "hostoperation-approval.yaml")), "\n---")
-	require.Len(t, policyDocs, 2)
-	vap := &admissionregistrationv1.ValidatingAdmissionPolicy{}
-	require.NoError(t, yaml.Unmarshal([]byte(policyDocs[0]), vap))
-	require.NoError(t, cl.Create(ctx, vap))
-	vapBinding := &admissionregistrationv1.ValidatingAdmissionPolicyBinding{}
-	require.NoError(t, yaml.Unmarshal([]byte(policyDocs[1]), vapBinding))
-	require.NoError(t, cl.Create(ctx, vapBinding))
+	operator := whoAmI(t, ctx, cl)
+	installApprovalPolicy(t, ctx, cl, operator)
 
 	// Two humans: system:masters skips RBAC (not under test), usernames stay
 	// distinct — exactly what the VAP's request.userInfo rules see.
@@ -171,7 +163,9 @@ func TestReconcile(t *testing.T) {
 		Client: mgr.GetClient(),
 	}).SetupWithManager(mgr))
 	require.NoError(t, (&controller.HostClaimReconciler{
-		Client: mgr.GetClient(),
+		Client:              mgr.GetClient(),
+		OperationsNamespace: "default",
+		Proposer:            operator,
 	}).SetupWithManager(mgr))
 	require.NoError(t, (&controller.HostOperationReconciler{
 		Client:               mgr.GetClient(),
@@ -284,8 +278,9 @@ func TestReconcile(t *testing.T) {
 		return &metalv1alpha1.HostOperation{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
 			Spec: metalv1alpha1.HostOperationSpec{
-				HostRef: metalv1alpha1.Reference{Name: "simx12b000001"},
-				Actions: []metalv1alpha1.HostOperationAction{{PowerCycle: &metalv1alpha1.PowerCycleAction{}}},
+				HostRef:    metalv1alpha1.Reference{Name: "simx12b000001"},
+				ProposedBy: operator,
+				Actions:    []metalv1alpha1.HostOperationAction{{PowerCycle: &metalv1alpha1.PowerCycleAction{}}},
 			},
 		}
 	}
@@ -602,8 +597,9 @@ func TestReconcile(t *testing.T) {
 			"kind":       "HostOperation",
 			"metadata":   map[string]any{"name": "yaml-shaped", "namespace": "default"},
 			"spec": map[string]any{
-				"hostRef": map[string]any{"name": "simx12b000001"},
-				"actions": []any{map[string]any{"powerCycle": map[string]any{}}},
+				"hostRef":    map[string]any{"name": "simx12b000001"},
+				"proposedBy": operator,
+				"actions":    []any{map[string]any{"powerCycle": map[string]any{}}},
 			},
 		}}
 		require.NoError(t, cl.Create(ctx, yamlOp))

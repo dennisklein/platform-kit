@@ -313,6 +313,7 @@ func discoveredSystems(systems []bmc.System) []metalv1alpha1.DiscoveredSystem {
 			SerialNumber: s.SerialNumber,
 			Manufacturer: s.Manufacturer,
 			Model:        s.Model,
+			BootTargets:  s.BootTargets,
 		}
 		if !s.LastResetTime.IsZero() {
 			ds.LastResetTime = &metav1.MicroTime{Time: s.LastResetTime}
