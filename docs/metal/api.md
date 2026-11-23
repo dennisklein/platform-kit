@@ -1935,7 +1935,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `systemExtensions` _[SystemExtensions](#systemextensions)_ |  |  | Optional: \{\} <br /> |
-| `extraKernelArgs` _string array_ | ExtraKernelArgs append to the image's kernel command line. This is how a<br />boot medium is told to read its config off the second medium<br />(talos.config=metal-iso) and where to put the console (console=ttyS0,<br />what the BMC's serial-over-LAN shows). |  | Optional: \{\} <br /> |
+| `extraKernelArgs` _string array_ | ExtraKernelArgs append to the image's kernel command line, for example<br />where to put the console (console=ttyS0, what the BMC's serial-over-LAN<br />shows). Do not add talos.config=metal-iso: the operator adds it to the<br />boot medium itself, and the installed system must not carry it. |  | Optional: \{\} <br /> |
 
 
 #### SecretReference

@@ -169,10 +169,10 @@ type SchematicCustomization struct {
 	// +optional
 	SystemExtensions SystemExtensions `json:"systemExtensions,omitempty"`
 
-	// ExtraKernelArgs append to the image's kernel command line. This is how a
-	// boot medium is told to read its config off the second medium
-	// (talos.config=metal-iso) and where to put the console (console=ttyS0,
-	// what the BMC's serial-over-LAN shows).
+	// ExtraKernelArgs append to the image's kernel command line, for example
+	// where to put the console (console=ttyS0, what the BMC's serial-over-LAN
+	// shows). Do not add talos.config=metal-iso: the operator adds it to the
+	// boot medium itself, and the installed system must not carry it.
 	// +optional
 	ExtraKernelArgs []string `json:"extraKernelArgs,omitempty"`
 }
