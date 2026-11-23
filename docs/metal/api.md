@@ -1011,7 +1011,9 @@ claimed. Enrolling and Inspecting mean the cluster is still finding out what
 the machine is; Available means it is understood and free; Assigned means
 something claimed it; Provisioning means work is happening to it right now and
 Provisioned that the work finished; Releasing means it is being handed back.
-Failed and Maintenance are the two stops.
+Failed and Maintenance are the two stops: Failed when an install did not
+work, Maintenance while a person has set the metal.pk.io/maintenance
+annotation.
 
 Assigned and Provisioning are deliberately separate. A machine can be spoken
 for without anything disruptive happening to it, and conflating the two leaves

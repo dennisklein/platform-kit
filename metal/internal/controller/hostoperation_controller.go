@@ -211,6 +211,17 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, client.IgnoreNotFound(flush())
 	}
 
+	// A host in maintenance belongs to a person: an operation that has not
+	// started waits until it comes back. One already running finishes —
+	// stopping between a mount and its boot leaves the machine worse off.
+	if op.Status.Baseline == nil {
+		if _, ok := inMaintenance(host); ok {
+			setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonHostInMaintenance,
+				maintenanceNote(host)+"; this operation starts when it is given back: "+endMaintenanceCommand(host))
+			return ctrl.Result{}, client.IgnoreNotFound(flush())
+		}
+	}
+
 	// One context bounds the whole BMC pass (dial + steps + closing observation):
 	// gofish pins the connect context to every later request, so it must live as
 	// long as the client does.

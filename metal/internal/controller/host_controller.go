@@ -152,10 +152,49 @@ func (r *HostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 // factsFor derives the spec-side phase inputs: claimed while a pointer is set,
 // releasing while the claim holding it is being deleted.
 func factsFor(host *metalv1alpha1.Host, claim *metalv1alpha1.HostClaim) phase.HostFacts {
+	_, maintenance := inMaintenance(host)
 	return phase.HostFacts{
-		Claimed:   host.Spec.ClaimRef != nil,
-		Releasing: claim != nil && !claim.DeletionTimestamp.IsZero(),
+		Claimed:     host.Spec.ClaimRef != nil,
+		Releasing:   claim != nil && !claim.DeletionTimestamp.IsZero(),
+		Maintenance: maintenance,
 	}
+}
+
+// inMaintenance reports whether a person put the host in maintenance, and
+// their reason.
+func inMaintenance(host *metalv1alpha1.Host) (string, bool) {
+	why, ok := host.Annotations[metalv1alpha1.AnnotationMaintenance]
+	return strings.TrimSpace(why), ok
+}
+
+// maintenanceNote shapes a host's maintenance reason for a message:
+// "host X is in maintenance (reason)".
+func maintenanceNote(host *metalv1alpha1.Host) string {
+	why, _ := inMaintenance(host)
+	if why == "" {
+		return fmt.Sprintf("host %s is in maintenance", host.Name)
+	}
+	return fmt.Sprintf("host %s is in maintenance (%s)", host.Name, why)
+}
+
+// endMaintenanceCommand is what a person runs to give the host back.
+func endMaintenanceCommand(host *metalv1alpha1.Host) string {
+	return "kubectl annotate host " + host.Name + " " + metalv1alpha1.AnnotationMaintenance + "-"
+}
+
+// projectMaintenance mirrors the maintenance annotation into the Maintenance
+// condition, so the reason reads next to every other condition.
+func projectMaintenance(host *metalv1alpha1.Host, setCond func(string, metav1.ConditionStatus, string, string)) {
+	why, ok := inMaintenance(host)
+	if !ok {
+		meta.RemoveStatusCondition(&host.Status.Conditions, metalv1alpha1.ConditionMaintenance)
+		return
+	}
+	if why == "" {
+		why = "no reason given"
+	}
+	setCond(metalv1alpha1.ConditionMaintenance, metav1.ConditionTrue, metalv1alpha1.ReasonHostInMaintenance,
+		why+"; the operator proposes and starts nothing on it. To give it back: "+endMaintenanceCommand(host))
 }
 
 // hostFacts is factsFor for writers that have not read the claim yet — every
@@ -265,6 +304,7 @@ func projectHost(host *metalv1alpha1.Host, paths []hostPath, ops []metalv1alpha1
 	vstatus, vreason, vmsg := hostVerified(paths)
 	setCond(metalv1alpha1.ConditionVerified, vstatus, vreason, vmsg)
 
+	projectMaintenance(host, setCond)
 	projectApproval(setCond, ops)
 	projectDrift(host, setCond, paths, ops)
 	projectOS(host, setCond, node)

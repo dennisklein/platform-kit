@@ -269,6 +269,33 @@ func TestGracefulPowerOffForcesAfterTheWindow(t *testing.T) {
 	assert.Equal(t, bmc.PowerOff, power)
 }
 
+func TestMaintenanceHoldsAnOperationNotStarted(t *testing.T) {
+	op := preClearedOp(metalv1alpha1.HostOperationAction{PowerCycle: &metalv1alpha1.PowerCycleAction{}})
+	r, _, rec := executorFor(t, "huawei-2288h-v5", op)
+	host := &metalv1alpha1.Host{}
+	require.NoError(t, r.Get(t.Context(), client.ObjectKey{Name: "host-a"}, host))
+	host.Annotations = map[string]string{metalv1alpha1.AnnotationMaintenance: "replacing DIMM B2"}
+	require.NoError(t, r.Update(t.Context(), host))
+	key := client.ObjectKeyFromObject(op)
+
+	_, err := r.Reconcile(t.Context(), ctrl.Request{NamespacedName: key})
+	require.NoError(t, err)
+	got := &metalv1alpha1.HostOperation{}
+	require.NoError(t, r.Get(t.Context(), key, got))
+	assert.Empty(t, rec.powers, "nothing runs on a host in maintenance")
+	assert.Nil(t, got.Status.Baseline)
+	ex := meta.FindStatusCondition(got.Status.Conditions, metalv1alpha1.ConditionExecuted)
+	require.NotNil(t, ex)
+	assert.Equal(t, metalv1alpha1.ReasonHostInMaintenance, ex.Reason)
+	assert.Contains(t, ex.Message, "replacing DIMM B2")
+
+	// Given back, it runs.
+	host.Annotations = nil
+	require.NoError(t, r.Update(t.Context(), host))
+	got = runOp(t, r)
+	require.True(t, opSucceeded(got), "%+v", got.Status)
+}
+
 // resumedStatus is an executing operation whose first n steps are recorded,
 // whose baseline saw the machine on, and whose power cycle was seen off.
 func resumedStatus(n int) metalv1alpha1.HostOperationStatus {

@@ -30,6 +30,9 @@ const (
 	ConditionDrifted = "Drifted"
 	// ConditionApprovalPending: a proposed HostOperation awaits its human gate.
 	ConditionApprovalPending = "ApprovalPending"
+	// ConditionMaintenance: a person put the host in maintenance (annotation
+	// metal.pk.io/maintenance); the message is their reason. Absent otherwise.
+	ConditionMaintenance = "Maintenance"
 
 	// ConditionBound: the HostClaim holds its Host (the authoritative pointer is
 	// Host.spec.claimRef; this condition is the claim's view of it).
@@ -203,6 +206,12 @@ const (
 	// ReasonHeldByUser: the claim carries the metal.pk.io/hold annotation —
 	// nothing is proposed for it until the annotation is removed.
 	ReasonHeldByUser = "HeldByUser"
+	// ReasonHostInMaintenance: the bound host carries the
+	// metal.pk.io/maintenance annotation — nothing is proposed for it. Also
+	// the reason on Maintenance=True, on the blockedOn of a host in
+	// maintenance, and on Executed=Unknown of an operation that waits for
+	// the host to come out of maintenance.
+	ReasonHostInMaintenance = "HostInMaintenance"
 )
 
 // ConditionMaterialized: on an Asset — the operator found the BMC's address in

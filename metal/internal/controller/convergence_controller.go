@@ -73,6 +73,12 @@ func (r *ConvergenceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		// Host gone — the owned BiosSettings/BiosSchema follow via GC.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	// A host in maintenance belongs to a person: no reading its BIOS, no
+	// proposals. The lanes pick up where they were when it comes back (the
+	// annotation's removal is a Host event).
+	if _, ok := inMaintenance(host); ok {
+		return ctrl.Result{}, nil
+	}
 
 	biosProfiles, fwProfiles, err := r.matchedProfiles(ctx, host)
 	if err != nil {

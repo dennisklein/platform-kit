@@ -716,6 +716,37 @@ func TestReconcile(t *testing.T) {
 		assert.Equal(t, metalv1alpha1.ReasonUnexpectedReset, d.Reason)
 		assert.Equal(t, metalv1alpha1.HostAvailable, h.Status.Phase, "drift is not a failure")
 	})
+
+	t.Run("a host in maintenance starts nothing until it is given back", func(t *testing.T) {
+		annotate := func(value string) {
+			h, _ := hostByName("simx12b000001")
+			require.NoError(t, cl.Patch(ctx, &h, client.RawPatch(types.MergePatchType,
+				[]byte(`{"metadata":{"annotations":{"metal.pk.io/maintenance":`+value+`}}}`))))
+		}
+		annotate(`"replacing DIMM B2"`)
+		h := waitHost("simx12b000001", hostPhaseIs(metalv1alpha1.HostMaintenance))
+		assert.Equal(t, metalv1alpha1.ReasonHostInMaintenance, h.Status.BlockedOn)
+		m := findCondition(h.Status.Conditions, metalv1alpha1.ConditionMaintenance)
+		require.NotNil(t, m)
+		assert.Contains(t, m.Message, "replacing DIMM B2", "the person's reason is shown")
+
+		// Even a pre-cleared operation waits.
+		before := smcState.Resets("1")
+		op := powerCycleOp("cycle-in-maintenance")
+		op.Spec.Approval.Required = ptr.To(false)
+		require.NoError(t, cl.Create(ctx, op))
+		waitOp("cycle-in-maintenance", func(op metalv1alpha1.HostOperation) bool {
+			return op.Status.BlockedOn == metalv1alpha1.ReasonHostInMaintenance
+		})
+		time.Sleep(3 * pollInterval)
+		assert.Equal(t, before, smcState.Resets("1"), "nothing ran on the machine")
+
+		annotate(`null`)
+		waitOp("cycle-in-maintenance", opPhaseIs(metalv1alpha1.OperationSucceeded))
+		assert.Equal(t, before+1, smcState.Resets("1"))
+		h = waitHost("simx12b000001", hostPhaseIs(metalv1alpha1.HostAvailable))
+		assert.Nil(t, findCondition(h.Status.Conditions, metalv1alpha1.ConditionMaintenance))
+	})
 }
 
 func readFile(t *testing.T, path string) string {

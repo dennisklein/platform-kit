@@ -5,12 +5,26 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
+// AnnotationMaintenance on a Host takes the machine out of the operator's
+// hands, like setting a node offline in a cluster manager: the operator
+// proposes nothing for it (no install, no release, no BIOS or firmware
+// change) and starts no operation on it that has not started yet. An
+// operation already running finishes. The value is the reason, shown in the
+// Host's Maintenance condition and in the messages of claims on it. Remove
+// the annotation to give the machine back:
+//
+//	kubectl annotate host <host> metal.pk.io/maintenance="replacing DIMM B2"
+//	kubectl annotate host <host> metal.pk.io/maintenance-
+const AnnotationMaintenance = "metal.pk.io/maintenance"
+
 // HostPhase summarizes a machine's conditions together with whether it is
 // claimed. Enrolling and Inspecting mean the cluster is still finding out what
 // the machine is; Available means it is understood and free; Assigned means
 // something claimed it; Provisioning means work is happening to it right now and
 // Provisioned that the work finished; Releasing means it is being handed back.
-// Failed and Maintenance are the two stops.
+// Failed and Maintenance are the two stops: Failed when an install did not
+// work, Maintenance while a person has set the metal.pk.io/maintenance
+// annotation.
 //
 // Assigned and Provisioning are deliberately separate. A machine can be spoken
 // for without anything disruptive happening to it, and conflating the two leaves

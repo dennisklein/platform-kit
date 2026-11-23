@@ -176,6 +176,14 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 		}
 		return hold(metalv1alpha1.ReasonHeldByUser, msg)
 	}
+	// The same for a machine a person took into maintenance.
+	if _, ok := inMaintenance(host); ok {
+		if err := r.withdraw(ctx, ops, ""); err != nil {
+			return err
+		}
+		return hold(metalv1alpha1.ReasonHostInMaintenance, maintenanceNote(host)+
+			": no install is proposed until it is given back: "+endMaintenanceCommand(host))
+	}
 	if !meta.IsStatusConditionTrue(host.Status.Conditions, metalv1alpha1.ConditionVerified) {
 		return hold(metalv1alpha1.ReasonAwaitingVerification, fmt.Sprintf("host %s is not verified", hostName))
 	}
@@ -673,6 +681,7 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 	}
 
 	why, held := heldBy(claim)
+	keepRecords := held
 	done := true
 	for i := range bound {
 		host := &bound[i]
@@ -702,6 +711,12 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 					"held%s: the claim is deleted, but host %s is neither shut down nor released while the claim carries the %s annotation. To go on: %s",
 					why, host.Name, metalv1alpha1.AnnotationHold, releaseHoldCommand(claim)))
 				done = false
+				continue
+			}
+			if _, maint := inMaintenance(host); maint && op == nil {
+				set(metalv1alpha1.ReasonHostInMaintenance, maintenanceNote(host)+
+					": the claim is deleted, but the machine is shut down and released only after it is given back: "+endMaintenanceCommand(host))
+				done, keepRecords = false, true
 				continue
 			}
 			if op == nil {
@@ -738,9 +753,9 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 			return false, err
 		}
 	}
-	// A held claim keeps its boot records: they are what the release reads
-	// once the hold is lifted.
-	if held && !done {
+	// A held claim, or one whose host is in maintenance, keeps its boot
+	// records: they are what the release reads once the stop is lifted.
+	if keepRecords && !done {
 		return false, nil
 	}
 	// Running boot operations stop between steps once deleted; their grants

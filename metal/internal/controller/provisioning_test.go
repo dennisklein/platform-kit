@@ -307,6 +307,36 @@ func TestHoldKeepsADeletedClaimsMachine(t *testing.T) {
 	assert.Len(t, release, 1)
 }
 
+func TestMaintenanceStopsProposals(t *testing.T) {
+	host := &metalv1alpha1.Host{ObjectMeta: metav1.ObjectMeta{Name: "host-a",
+		Annotations: map[string]string{metalv1alpha1.AnnotationMaintenance: "replacing DIMM B2"}}}
+	node := &osv1alpha1.TalosNode{ObjectMeta: metav1.ObjectMeta{Name: "node-b"}}
+	waiting := bootOp("boot", "node-b", false, false)
+	waiting.Spec.Approval = metalv1alpha1.OperationApproval{Required: ptr.To(true)}
+	r := claimReconcilerFor(t, host, node, waiting)
+	claim := testClaim("node-b")
+
+	require.NoError(t, r.provision(t.Context(), claim, "host-a"))
+	c := meta.FindStatusCondition(claim.Status.Conditions, metalv1alpha1.ConditionProvisioned)
+	require.NotNil(t, c)
+	assert.Equal(t, metalv1alpha1.ReasonHostInMaintenance, c.Reason)
+	assert.Contains(t, c.Message, "replacing DIMM B2")
+	assert.Contains(t, c.Message, "kubectl annotate host host-a metal.pk.io/maintenance-")
+	ops, err := r.claimOps(t.Context(), claim, purposeProvision)
+	require.NoError(t, err)
+	assert.Empty(t, ops, "the waiting proposal is withdrawn, and none is made")
+
+	// A deleted claim's machine is not released while in maintenance.
+	claim.Status.HandOff = &metalv1alpha1.ClaimHandOff{Host: "host-a", Node: "node-b", Operation: "pk-metal/boot", At: metav1.Now()}
+	host.Spec.ClaimRef = &metalv1alpha1.ClaimReference{Namespace: claim.Namespace, Name: claim.Name, UID: claim.UID}
+	done, err := r.release(t.Context(), claim, []metalv1alpha1.Host{*host})
+	require.NoError(t, err)
+	assert.False(t, done)
+	release, err := r.claimOps(t.Context(), claim, purposeRelease)
+	require.NoError(t, err)
+	assert.Empty(t, release)
+}
+
 func TestMessagesSayHowToApproveRefuseAndRetry(t *testing.T) {
 	claim := testClaim("node-b")
 	op := bootOp("provision-host-a-12345678", "node-b", false, false)

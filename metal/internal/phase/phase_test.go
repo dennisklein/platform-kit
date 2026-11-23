@@ -138,7 +138,11 @@ func TestForHost(t *testing.T) {
 			phase: metalv1alpha1.HostReleasing},
 		{name: "maintenance outranks everything",
 			conds: inspected, facts: phase.HostFacts{Maintenance: true, Claimed: true},
-			phase: metalv1alpha1.HostMaintenance},
+			phase: metalv1alpha1.HostMaintenance, blocked: "HostInMaintenance"},
+		{name: "a failed verification still shows in maintenance",
+			conds: []metav1.Condition{c(metalv1alpha1.ConditionVerified, metav1.ConditionFalse, metalv1alpha1.ReasonSerialMismatch)},
+			facts: phase.HostFacts{Maintenance: true},
+			phase: metalv1alpha1.HostMaintenance, blocked: "SerialMismatch"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

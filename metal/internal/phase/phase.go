@@ -5,9 +5,9 @@
 // any other .Status.Phase / .Status.BlockedOn touch.
 //
 // The derivation is a precedence list, not a state machine — there is no memory of a
-// previous phase, every call re-derives from observations. Phases whose inputs aren't
-// observable yet (release/maintenance with the OS lane) hang off HostFacts booleans
-// the owning reconcilers compute from spec; until then callers pass the zero value.
+// previous phase, every call re-derives from observations. Phases whose inputs are
+// not observations (claimed, releasing, maintenance) hang off HostFacts booleans the
+// owning reconcilers compute from spec and metadata.
 package phase
 
 import (
@@ -53,15 +53,16 @@ func ForEndpoint(conds []metav1.Condition) (metalv1alpha1.EndpointPhase, string)
 }
 
 // HostFacts are the spec-derived inputs to the Host derivation — booleans the owning
-// reconcilers compute (Claimed from spec.claimRef; release/maintenance arrive with
-// the OS lane). They keep the function total: every phase in the enum is reachable
+// reconcilers compute (Claimed from spec.claimRef, Releasing from the claim's
+// deletion, Maintenance from the metal.pk.io/maintenance annotation). They keep the function total: every phase in the enum is reachable
 // and tested.
 type HostFacts struct {
 	// Claimed: a HostClaim is bound to this host.
 	Claimed bool
 	// Releasing: the claim is gone and cleanup (wipe, eject, unbind) is underway.
 	Releasing bool
-	// Maintenance: a human parked the machine outside the lifecycle.
+	// Maintenance: a person parked the machine outside the lifecycle
+	// (annotation metal.pk.io/maintenance).
 	Maintenance bool
 }
 
@@ -75,6 +76,11 @@ func ForHost(conds []metav1.Condition, f HostFacts) (metalv1alpha1.HostPhase, st
 
 	switch {
 	case f.Maintenance:
+		// An alarm (a failed verification) still outranks the person's
+		// own reason for the stop.
+		if blocked == "" {
+			blocked = metalv1alpha1.ReasonHostInMaintenance
+		}
 		return metalv1alpha1.HostMaintenance, blocked
 	case f.Releasing:
 		return metalv1alpha1.HostReleasing, blocked
@@ -138,6 +144,7 @@ var provisioningHolds = map[string]bool{
 	metalv1alpha1.ReasonOperationFailed:         true,
 	metalv1alpha1.ReasonReleaseFailed:           true,
 	metalv1alpha1.ReasonHeldByUser:              true,
+	metalv1alpha1.ReasonHostInMaintenance:       true,
 }
 
 // ForOperation derives the HostOperation phase from Approved + Executed. A
