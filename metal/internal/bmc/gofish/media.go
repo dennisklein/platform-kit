@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/url"
 	"slices"
 
@@ -110,7 +111,11 @@ func oemActions(raw []byte) map[string]string {
 			out[name] = a.Target
 		}
 	}
-	for name, body := range doc.Actions.Oem {
+	// Keys are walked in sorted order: when two vendor blocks declare the
+	// same action, the first one by name wins on every read, not whichever
+	// map iteration happens to visit first.
+	for _, name := range slices.Sorted(maps.Keys(doc.Actions.Oem)) {
+		body := doc.Actions.Oem[name]
 		var direct action
 		if json.Unmarshal(body, &direct) == nil && direct.Target != "" {
 			add(name, direct)
@@ -118,14 +123,15 @@ func oemActions(raw []byte) map[string]string {
 		}
 		var nested map[string]action
 		if json.Unmarshal(body, &nested) == nil {
-			for n, a := range nested {
-				add(n, a)
+			for _, n := range slices.Sorted(maps.Keys(nested)) {
+				add(n, nested[n])
 			}
 		}
 	}
-	for _, vendor := range doc.Oem {
-		for name, a := range vendor.Actions {
-			add(name, a)
+	for _, vendor := range slices.Sorted(maps.Keys(doc.Oem)) {
+		acts := doc.Oem[vendor].Actions
+		for _, name := range slices.Sorted(maps.Keys(acts)) {
+			add(name, acts[name])
 		}
 	}
 	return out
