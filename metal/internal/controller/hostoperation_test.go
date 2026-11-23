@@ -27,6 +27,7 @@ import (
 	"github.com/dennisklein/platform-kit/metal/internal/asset"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc/sim"
+	pkscheme "github.com/dennisklein/platform-kit/metal/internal/scheme"
 )
 
 // recordingClient counts the mutating calls the executor issues, over the
@@ -66,10 +67,8 @@ func (c *recordingClient) Close() error { return nil }
 
 func testScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
-	s := runtime.NewScheme()
-	require.NoError(t, corev1.AddToScheme(s))
-	require.NoError(t, metalv1alpha1.AddToScheme(s))
-	require.NoError(t, osv1alpha1.AddToScheme(s))
+	s, err := pkscheme.New()
+	require.NoError(t, err)
 	return s
 }
 

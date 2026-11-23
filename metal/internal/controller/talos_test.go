@@ -8,11 +8,10 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
+	pkscheme "github.com/dennisklein/platform-kit/metal/internal/scheme"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
 )
 
@@ -20,8 +19,8 @@ import (
 // Role grants nothing else. A reference that points elsewhere has to surface as
 // the semantic hold a person can act on, and must not reach the API at all.
 func TestReferencesOutsideTheOperatorNamespaceDoNotResolve(t *testing.T) {
-	scheme := runtime.NewScheme()
-	require.NoError(t, clientgoscheme.AddToScheme(scheme))
+	scheme, err := pkscheme.New()
+	require.NoError(t, err)
 
 	// Both objects exist, in the namespace the references name. A reader that
 	// followed the reference would find them, so finding nothing proves the guard.

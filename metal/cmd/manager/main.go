@@ -21,7 +21,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/cert"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -31,11 +30,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/asset"
 	"github.com/dennisklein/platform-kit/metal/internal/controller"
 	"github.com/dennisklein/platform-kit/metal/internal/ledger"
+	pkscheme "github.com/dennisklein/platform-kit/metal/internal/scheme"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/machineapi"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
 )
@@ -156,17 +155,9 @@ func main() {
 		registryClient = &http.Client{Transport: t}
 	}
 
-	scheme := runtime.NewScheme()
-	if err := clientgoscheme.AddToScheme(scheme); err != nil {
-		log.Error(err, "add client-go scheme")
-		os.Exit(1)
-	}
-	if err := metalv1alpha1.AddToScheme(scheme); err != nil {
-		log.Error(err, "add metal scheme")
-		os.Exit(1)
-	}
-	if err := osv1alpha1.AddToScheme(scheme); err != nil {
-		log.Error(err, "add os scheme")
+	scheme, err := pkscheme.New()
+	if err != nil {
+		log.Error(err, "build scheme")
 		os.Exit(1)
 	}
 

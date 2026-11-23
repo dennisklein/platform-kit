@@ -33,9 +33,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -46,6 +44,7 @@ import (
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/asset"
 	"github.com/dennisklein/platform-kit/metal/internal/controller"
+	pkscheme "github.com/dennisklein/platform-kit/metal/internal/scheme"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/fake"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
 )
@@ -145,10 +144,8 @@ func TestOSLane(t *testing.T) {
 		return "v1.36.2", nil
 	}
 
-	s := runtime.NewScheme()
-	require.NoError(t, clientgoscheme.AddToScheme(s))
-	require.NoError(t, osv1alpha1.AddToScheme(s))
-	require.NoError(t, metalv1alpha1.AddToScheme(s))
+	s, err := pkscheme.New()
+	require.NoError(t, err)
 	cl, err := client.New(cfg, client.Options{Scheme: s})
 	require.NoError(t, err)
 	ctx := t.Context()

@@ -13,12 +13,12 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/phase"
+	pkscheme "github.com/dennisklein/platform-kit/metal/internal/scheme"
 )
 
 func TestAPI(t *testing.T) {
@@ -36,8 +36,8 @@ func TestAPI(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, env.Stop()) })
 
-	s := runtime.NewScheme()
-	require.NoError(t, metalv1alpha1.AddToScheme(s))
+	s, err := pkscheme.New()
+	require.NoError(t, err)
 	cl, err := client.New(cfg, client.Options{Scheme: s})
 	require.NoError(t, err)
 	ctx := t.Context()

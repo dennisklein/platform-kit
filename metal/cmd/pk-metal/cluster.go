@@ -8,12 +8,11 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	pkscheme "github.com/dennisklein/platform-kit/metal/internal/scheme"
 )
 
 // operatorNamespace is where the operator creates its HostOperations (the
@@ -37,13 +36,9 @@ const claimNamespace = "default"
 
 // newScheme knows every kind the CLI reads or writes.
 func newScheme() *runtime.Scheme {
-	s := runtime.NewScheme()
-	for _, add := range []func(*runtime.Scheme) error{
-		clientgoscheme.AddToScheme, metalv1alpha1.AddToScheme, osv1alpha1.AddToScheme,
-	} {
-		if err := add(s); err != nil {
-			panic(err) // static registration; fails only on a programming error
-		}
+	s, err := pkscheme.New()
+	if err != nil {
+		panic(err) // static registration; fails only on a programming error
 	}
 	return s
 }

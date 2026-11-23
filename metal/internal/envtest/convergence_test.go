@@ -25,9 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -35,12 +33,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc/sim"
 	"github.com/dennisklein/platform-kit/metal/internal/controller"
 	"github.com/dennisklein/platform-kit/metal/internal/ledger"
+	pkscheme "github.com/dennisklein/platform-kit/metal/internal/scheme"
 )
 
 const (
@@ -103,10 +101,8 @@ func TestConvergence(t *testing.T) {
 	led, err := ledger.Load(ledgerPath)
 	require.NoError(t, err)
 
-	s := runtime.NewScheme()
-	require.NoError(t, clientgoscheme.AddToScheme(s))
-	require.NoError(t, metalv1alpha1.AddToScheme(s))
-	require.NoError(t, osv1alpha1.AddToScheme(s))
+	s, err := pkscheme.New()
+	require.NoError(t, err)
 	cl, err := client.New(cfg, client.Options{Scheme: s})
 	require.NoError(t, err)
 	ctx := t.Context()

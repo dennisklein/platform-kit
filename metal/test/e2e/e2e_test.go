@@ -32,9 +32,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -48,6 +46,7 @@ import (
 	"github.com/dennisklein/platform-kit/metal/internal/controller"
 	"github.com/dennisklein/platform-kit/metal/internal/ledger"
 	dockermachine "github.com/dennisklein/platform-kit/metal/internal/machine/docker"
+	pkscheme "github.com/dennisklein/platform-kit/metal/internal/scheme"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/machineapi"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
 )
@@ -127,10 +126,8 @@ func TestE2EKind(t *testing.T) {
 	require.NoError(t, err)
 
 	// ── the cluster side: CRDs, namespace, secrets, managers ─────────────────
-	s := runtime.NewScheme()
-	require.NoError(t, clientgoscheme.AddToScheme(s))
-	require.NoError(t, metalv1alpha1.AddToScheme(s))
-	require.NoError(t, osv1alpha1.AddToScheme(s))
+	s, err := pkscheme.New()
+	require.NoError(t, err)
 	cl, err := client.New(cfg, client.Options{Scheme: s})
 	require.NoError(t, err)
 
