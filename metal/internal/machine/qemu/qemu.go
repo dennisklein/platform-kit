@@ -249,7 +249,7 @@ func (m *Machine) Start(ctx context.Context) error {
 		m.mu.Unlock()
 		return err
 	}
-	cmd := exec.Command("qemu-system-x86_64", args...)
+	cmd := exec.Command(qemuBinary(), args...)
 	cmd.Stdout, cmd.Stderr = logf, logf
 	if err := cmd.Start(); err != nil {
 		_ = logf.Close()
@@ -798,4 +798,20 @@ func (m *Machine) logTail() string {
 	}
 	raw, _ := io.ReadAll(f)
 	return string(raw)
+}
+
+// qemuBinary names the QEMU system emulator: $PK_METAL_QEMU when set, else
+// qemu-system-x86_64 on PATH, else RHEL's /usr/libexec/qemu-kvm, which
+// RHEL ships off PATH and under another name.
+func qemuBinary() string {
+	if b := os.Getenv("PK_METAL_QEMU"); b != "" {
+		return b
+	}
+	if _, err := exec.LookPath("qemu-system-x86_64"); err == nil {
+		return "qemu-system-x86_64"
+	}
+	if _, err := os.Stat("/usr/libexec/qemu-kvm"); err == nil {
+		return "/usr/libexec/qemu-kvm"
+	}
+	return "qemu-system-x86_64"
 }

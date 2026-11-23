@@ -139,12 +139,16 @@ kvm_usable() { [[ -r /dev/kvm && -w /dev/kvm ]]; }
 
 net_tools_present() { have ip && have iptables; }
 
-# The fix for a missing qemu-system-x86_64. The fleet starts the binary of that
-# name from the PATH. RHEL and its rebuilds install QEMU as /usr/libexec/qemu-kvm
-# only, which runs the lab's machines just as well under the upstream name.
+# The fleet runs $PK_METAL_QEMU, else qemu-system-x86_64 from the PATH, else
+# /usr/libexec/qemu-kvm, where RHEL and its rebuilds install QEMU.
+qemu_present() {
+  if [[ -n "${PK_METAL_QEMU:-}" ]]; then [[ -x "$PK_METAL_QEMU" ]]; return; fi
+  have qemu-system-x86_64 || [[ -x /usr/libexec/qemu-kvm ]]
+}
+
 qemu_fix() {
-  if [[ -x /usr/libexec/qemu-kvm ]]; then
-    echo "the fleet runs qemu-system-x86_64 from the PATH, and this host has QEMU as /usr/libexec/qemu-kvm only. Link it: sudo ln -s /usr/libexec/qemu-kvm /usr/local/bin/qemu-system-x86_64"
+  if [[ -n "${PK_METAL_QEMU:-}" ]]; then
+    echo "PK_METAL_QEMU=$PK_METAL_QEMU is not an executable file; point it at the QEMU system emulator or unset it"
   else
     install_hint "qemu-system-x86 qemu-utils" "qemu-kvm qemu-img" "qemu-system-x86-core qemu-img"
   fi
@@ -274,7 +278,7 @@ doctor() {
   check "/dev/kvm is usable by $(id -un)" \
     "enable virtualization in the firmware setup, load the module (sudo modprobe kvm_intel || sudo modprobe kvm_amd) and join the group: sudo usermod -aG kvm \$USER (then log in again)" \
     kvm_usable || missing=$((missing + 1))
-  check "qemu-system-x86_64" "$(qemu_fix)" have qemu-system-x86_64 || missing=$((missing + 1))
+  check "QEMU (qemu-system-x86_64, /usr/libexec/qemu-kvm or \$PK_METAL_QEMU)" "$(qemu_fix)" qemu_present || missing=$((missing + 1))
   check "qemu-img" "$(install_hint qemu-utils qemu-img)" have qemu-img || missing=$((missing + 1))
   check "OVMF (UEFI firmware for the machines)" \
     "$(install_hint ovmf edk2-ovmf), or point PK_METAL_OVMF_CODE and PK_METAL_OVMF_VARS at a firmware pair (a CODE file and its VARS template, e.g. under /usr/share/edk2/ovmf or /usr/share/OVMF)" \

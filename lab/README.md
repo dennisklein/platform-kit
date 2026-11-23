@@ -71,10 +71,9 @@ talosctl, yq and jq at the versions the repository pins.
 sudo apt-get install qemu-system-x86 qemu-utils ovmf
 # Fedora
 sudo dnf install qemu-system-x86-core qemu-img edk2-ovmf
-# RHEL 9, Rocky, Alma: QEMU comes as /usr/libexec/qemu-kvm only; the fleet
-# runs qemu-system-x86_64 from the PATH, so link it once
+# RHEL 9, Rocky, Alma: QEMU comes as /usr/libexec/qemu-kvm, which the fleet
+# finds on its own (PK_METAL_QEMU names any other binary)
 sudo dnf install qemu-kvm qemu-img edk2-ovmf iptables-nft
-sudo ln -s /usr/libexec/qemu-kvm /usr/local/bin/qemu-system-x86_64
 
 mise install
 mise run lab:doctor   # checks every item and prints the fix for each miss

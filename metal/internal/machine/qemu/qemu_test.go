@@ -185,3 +185,10 @@ func TestSpawn(t *testing.T) {
 	assert.False(t, running)
 	assert.NoError(t, m.Stop(ctx), "Stop on a stopped VM is a no-op")
 }
+
+func TestQEMUBinaryHonoursOverride(t *testing.T) {
+	t.Setenv("PK_METAL_QEMU", "/opt/qemu/bin/qemu-kvm")
+	if got := qemuBinary(); got != "/opt/qemu/bin/qemu-kvm" {
+		t.Fatalf("qemuBinary() = %q, want the PK_METAL_QEMU value", got)
+	}
+}
