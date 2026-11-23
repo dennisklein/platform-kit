@@ -331,6 +331,34 @@ func (f *Fixture) validate() error {
 	if len(f.Systems) == 0 {
 		return fmt.Errorf("no systems")
 	}
+	// Ids and MACs tell resources apart: two systems with one id serve one
+	// URL, and two NICs with one MAC are one NIC to every client.
+	ids, macs := map[string]bool{}, map[string]string{}
+	mac := func(where, m string) error {
+		if m == "" {
+			return nil
+		}
+		key := strings.ToLower(m)
+		if other, dup := macs[key]; dup {
+			return fmt.Errorf("%s: MAC %s is also used by %s", where, m, other)
+		}
+		macs[key] = where
+		return nil
+	}
+	if err := mac("manager", f.Manager.MAC); err != nil {
+		return err
+	}
+	for _, s := range f.Systems {
+		if ids[s.ID] {
+			return fmt.Errorf("system id %q is used twice", s.ID)
+		}
+		ids[s.ID] = true
+		for _, n := range s.NICs {
+			if err := mac(fmt.Sprintf("system %q nic %q", s.ID, n.ID), n.MAC); err != nil {
+				return err
+			}
+		}
+	}
 	if f.AccountSlots > 0 && len(f.Accounts) > f.AccountSlots {
 		return fmt.Errorf("%d accounts seeded into %d slots", len(f.Accounts), f.AccountSlots)
 	}

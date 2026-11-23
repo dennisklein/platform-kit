@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("systems:\n  - nics:\n      - {mac: 2}\n      - {mac: 2} ")
