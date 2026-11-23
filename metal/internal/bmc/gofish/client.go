@@ -15,6 +15,7 @@
 package gofish
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -203,11 +204,14 @@ func (c *client) pollTask(ctx context.Context, uri string) error {
 		}
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		var task struct {
-			TaskState string
-			Messages  []struct{ Message string }
+		task, err := decodeTask(body)
+		if err != nil {
+			if resp.StatusCode == http.StatusAccepted {
+				// Still running; a monitor that answers 202 has not ended.
+				return false, nil
+			}
+			return false, fmt.Errorf("bmc: task %s: %w", uri, err)
 		}
-		_ = json.Unmarshal(body, &task)
 		switch task.TaskState {
 		case "Completed":
 			return true, nil
@@ -224,6 +228,51 @@ func (c *client) pollTask(ctx context.Context, uri string) error {
 		}
 		return false, nil
 	})
+}
+
+// taskAnswer is what pollTask reads from a task monitor.
+type taskAnswer struct {
+	TaskState string
+	Messages  []struct{ Message string }
+}
+
+// decodeTask reads a task monitor's answer. An empty body or a JSON object
+// with no TaskState is the operation's own response. Anything else that
+// cannot be read for sure is an error, never a finished task: a cut-off
+// {"TaskState":"Exception" must not read as success. encoding/json matches
+// keys without case, so every spelling of TaskState is checked, and two that
+// disagree are refused.
+func decodeTask(body []byte) (taskAnswer, error) {
+	var task taskAnswer
+	if len(bytes.TrimSpace(body)) == 0 {
+		return task, nil
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return task, fmt.Errorf("unreadable task monitor answer: %w", err)
+	}
+	state, seen := "", false
+	for k, v := range doc {
+		if !strings.EqualFold(k, "TaskState") {
+			continue
+		}
+		var s string
+		if err := json.Unmarshal(v, &s); err != nil {
+			return task, fmt.Errorf("TaskState is not a string: %s", v)
+		}
+		if seen && s != state {
+			return task, fmt.Errorf("TaskState given twice: %q and %q", state, s)
+		}
+		if s == "" {
+			return task, errors.New("TaskState is empty")
+		}
+		state, seen = s, true
+	}
+	// Messages are only the reason text; a body whose Messages do not decode
+	// still has a readable TaskState.
+	_ = json.Unmarshal(body, &task)
+	task.TaskState = state
+	return task, nil
 }
 
 // taskBackoff paces task and CSR polling. It starts short and backs off: a
