@@ -465,3 +465,49 @@ func TestDroppedIntentStopsARunningBoot(t *testing.T) {
 	require.NoError(t, r.List(t.Context(), ops))
 	assert.Empty(t, ops.Items, "the boot for the dropped intent is gone")
 }
+
+// The boot medium carries the operator's config argument exactly once, for
+// every combination of node and cluster schematic, and building it never
+// changes the schematics a person wrote.
+func TestBootSchematic(t *testing.T) {
+	schematics := map[string]*osv1alpha1.Schematic{
+		"none":  nil,
+		"empty": {},
+		"console": {Customization: osv1alpha1.SchematicCustomization{
+			ExtraKernelArgs: []string{"console=ttyS0"}}},
+		"already carries it": {Customization: osv1alpha1.SchematicCustomization{
+			ExtraKernelArgs: []string{bootConfigKernelArg, "console=ttyS0"}}},
+		"extensions": {Customization: osv1alpha1.SchematicCustomization{
+			SystemExtensions: osv1alpha1.SystemExtensions{OfficialExtensions: []string{"siderolabs/iscsi-tools"}}}},
+	}
+	for cn, cs := range schematics {
+		for nn, ns := range schematics {
+			t.Run("cluster "+cn+", node "+nn, func(t *testing.T) {
+				cluster := &osv1alpha1.TalosCluster{Spec: osv1alpha1.TalosClusterSpec{Schematic: cs.DeepCopy()}}
+				node := &osv1alpha1.TalosNode{Spec: osv1alpha1.TalosNodeSpec{Schematic: ns.DeepCopy()}}
+				before := []any{cluster.DeepCopy(), node.DeepCopy()}
+
+				got := bootSchematic(node, cluster)
+				n := 0
+				for _, a := range got.Customization.ExtraKernelArgs {
+					if a == bootConfigKernelArg {
+						n++
+					}
+				}
+				assert.Equal(t, 1, n, "args %v", got.Customization.ExtraKernelArgs)
+				assert.Equal(t, before, []any{cluster, node}, "the written schematics stay as they are")
+
+				eff := ns
+				if eff == nil {
+					eff = cs
+				}
+				if eff != nil {
+					assert.Equal(t, eff.Customization.SystemExtensions, got.Customization.SystemExtensions)
+					for _, a := range eff.Customization.ExtraKernelArgs {
+						assert.Contains(t, got.Customization.ExtraKernelArgs, a, "the person's arguments stay")
+					}
+				}
+			})
+		}
+	}
+}
