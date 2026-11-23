@@ -1,0 +1,104 @@
+# The virtual lab, end to end, on a hosted runner: a kind cluster with the
+# operator in it, three simulated BMCs each driving a QEMU machine, and the
+# whole provisioning path from an Asset to a Ready Kubernetes node. Nothing is
+# mocked between the operator and the machines except the hardware itself.
+#
+# The run stands in for the one human step by approving what the operator
+# proposes (lab/lab.sh wait), through the same `pk-metal approve` a person uses,
+# so the approval gate is exercised and not bypassed.
+name: lab-e2e
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "claude/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lab-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lab:
+    name: provision the virtual lab
+    runs-on: ubuntu-latest
+    # Doctor and up take about ten minutes on a cold runner, the wait is capped
+    # at forty, and a failed run still needs time to collect its evidence.
+    timeout-minutes: 75
+    env:
+      # A hosted runner promises 14 GB of free disk. The lab's sparse disks, the
+      # installer image and the container images stay well below that.
+      PK_LAB_MIN_FREE_GIB: "10"
+      PK_LAB_WAIT_TIMEOUT: "2400"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The runner has /dev/kvm, but only root may open it. This is the udev
+      # rule GitHub documents for hardware-accelerated virtual machines on
+      # hosted Linux runners.
+      - name: Enable KVM for the runner user
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install QEMU and the UEFI firmware
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends qemu-system-x86 qemu-utils ovmf
+
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
+
+      - name: Locate the Go caches
+        id: go
+        run: |
+          echo "modcache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "buildcache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go.outputs.modcache }}
+            ${{ steps.go.outputs.buildcache }}
+          key: go-lab-${{ runner.os }}-${{ hashFiles('metal/go.sum') }}
+          restore-keys: go-lab-${{ runner.os }}-
+
+      - name: What the runner has
+        run: |
+          nproc
+          free --giga
+          df --human-readable / /mnt || true
+
+      - name: Check the prerequisites
+        run: mise run lab:doctor
+
+      - name: Bring the lab up
+        run: mise run lab:up
+
+      - name: Approve and wait for three provisioned hosts and three Ready nodes
+        run: mise run lab:wait
+
+      - name: The result
+        run: |
+          mise run lab:status
+          mise run lab:kubeconfig
+          kubectl --kubeconfig .lab/workload.kubeconfig get nodes --output wide
+
+      # The diagnostics directory holds object dumps without Secret contents,
+      # the operator's and the fleet's logs and the machines' consoles. The
+      # secrets bundle, the kubeconfigs and the disks are not in it.
+      - name: Collect diagnostics
+        if: failure()
+        run: mise run lab:collect
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lab-diagnostics
+          path: .lab/diagnostics
+          if-no-files-found: warn
+          retention-days: 7
