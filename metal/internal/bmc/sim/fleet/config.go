@@ -9,8 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"regexp"
+	"strconv"
+	"strings"
 
 	"go.yaml.in/yaml/v4"
 )
@@ -196,10 +199,10 @@ func (c *Config) validate() error {
 			name = fmt.Sprintf("#%d", i+1)
 		}
 		unique(name, "name", m.Name)
-		if _, port, err := net.SplitHostPort(m.Listen); err != nil {
+		if key, err := listenKey(m.Listen); err != nil {
 			bad("machine %q: listen %q is not host:port", name, m.Listen)
-		} else if port != "0" { // port 0 is "any free port" and never clashes
-			unique(name, "listen address", m.Listen)
+		} else if key != "" { // port 0 is "any free port" and never clashes
+			unique(name, "listen address", key)
 		}
 		if (m.Credentials.Username == "") != (m.Credentials.Password == "") {
 			bad("machine %q: credentials need both a username and a password", name)
@@ -216,7 +219,8 @@ func (c *Config) validate() error {
 			if !macForm.MatchString(mac) {
 				bad("machine %q: %q is not a MAC address", name, mac)
 			}
-			unique(name, "MAC", mac)
+			// Compared in one case: 0A and 0a are the same NIC.
+			unique(name, "MAC", strings.ToLower(mac))
 		}
 
 		switch m.Backend {
@@ -249,4 +253,25 @@ func (c *Config) validate() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// listenKey is the address a listener binds, whatever its spelling, so that
+// two machines cannot claim one port as 127.0.0.1:1 and 127.0.0.1:01, or as
+// [::1]:1 and [0::1]:1: the port as a number and an IP host in its canonical
+// form. It is empty for port 0, which never clashes.
+func listenKey(listen string) (string, error) {
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return "", err
+	}
+	if n, err := strconv.Atoi(port); err == nil {
+		if n == 0 {
+			return "", nil
+		}
+		port = strconv.Itoa(n)
+	}
+	if ip, err := netip.ParseAddr(host); err == nil {
+		host = ip.String()
+	}
+	return net.JoinHostPort(host, port), nil
 }
