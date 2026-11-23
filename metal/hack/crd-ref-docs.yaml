@@ -1,7 +1,7 @@
-# Field reference generation (make docs). Field prose is generated from the API
-# godoc and nothing else — behavior prose is hand-written in the docs site and the
-# two never overlap. Status subresources are the operator's read surface, so they
-# stay: a reader needs to see the conditions a controller writes.
+# Field reference generation: `mise run generate` writes docs/metal/api.md from the
+# API godoc and nothing else, so the page cannot disagree with the types. Status
+# subresources are the operator's read surface, so they stay: a reader needs to
+# see the conditions a controller writes.
 processor:
   # List wrappers carry no user-facing fields of their own; every kind here has
   # one and none are worth a section.

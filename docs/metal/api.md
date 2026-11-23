@@ -1,0 +1,1991 @@
+# API Reference
+
+## Packages
+- [metal.pk.io/v1alpha1](#metalpkiov1alpha1)
+- [os.pk.io/v1alpha1](#ospkiov1alpha1)
+
+
+## metal.pk.io/v1alpha1
+
+Package v1alpha1 is the metal.pk.io API group: the machines in the
+rack, and what the cluster has been asked to do with them.
+
+Two kinds of truth live here and never mix. An Asset is what the organization
+asserts about a machine — the serial it was bought under, the MAC of its
+management controller, where it was installed. A ManagementEndpoint and a Host
+are what the cluster found when it went and looked. Where the two disagree the
+disagreement is reported rather than quietly resolved: a Host whose discovered
+serial contradicts its Asset stops and says so, because one of the two facts is
+wrong and only a human knows which.
+
+A HostClaim asks for a machine the way a PersistentVolumeClaim asks for storage;
+a HostOperation is one thing done to one machine — a power cycle, a BIOS apply,
+a firmware flash — and the record that it happened. The profile kinds
+(BiosProfile, FirmwareProfile, EndpointProfile) are the desired settings a
+machine is held against.
+
+Read status through conditions. Every kind reports what is true about it right
+now as a set of conditions; the phase and blockedOn fields summarize those for
+people and for kubectl's columns. Conditions are the contract — branch on them,
+not on the phase string.
+
+
+**Resources:** [Asset](#asset) · [BiosProfile](#biosprofile) · [BiosSchema](#biosschema) · [BiosSettings](#biossettings) · [EndpointProfile](#endpointprofile) · [FirmwareProfile](#firmwareprofile) · [Host](#host) · [HostClaim](#hostclaim) · [HostOperation](#hostoperation) · [ManagementEndpoint](#managementendpoint)
+
+
+
+### Asset
+
+
+
+Asset is what the organization asserts about one machine: the serial it was
+bought under, the MAC of its management controller, where it was installed. It
+is the entry point — creating an Asset is how a machine becomes known to the
+cluster at all.
+
+It has no status, because nothing about it is discovered. Everything the cluster
+learns by looking lands on the ManagementEndpoint and Host it materializes into.
+Those kinds keep a copy of the Asset spec they last resolved, so an outage of
+whatever authors Assets degrades to the last known values instead of stopping
+work.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `metal.pk.io/v1alpha1` | | |
+| `kind` _string_ | `Asset` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[AssetSpec](#assetspec)_ |  |  |  |
+
+
+### BiosProfile
+
+
+
+BiosProfile is a set of BIOS settings that some group of machines should share
+— authored in git, applying to whichever Hosts match its selector. Several may
+match one machine; they are layered, and the result of that layering is the
+machine's BiosSettings, which records which profile each value came from.
+
+Nothing reconciles a BiosProfile directly. It states intent; the settings it
+produces are what a machine is held against.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `metal.pk.io/v1alpha1` | | |
+| `kind` _string_ | `BiosProfile` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[BiosProfileSpec](#biosprofilespec)_ |  |  |  |
+
+
+### BiosSchema
+
+
+
+BiosSchema is the BIOS attribute registry discovered on one machine: which
+settings that machine's firmware actually has, what each one accepts, and which
+are read-only. It is written by the cluster, not by hand — it is how you find
+out what a BiosProfile is allowed to ask for.
+
+Cluster-scoped, named after its Host and owned by it.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `metal.pk.io/v1alpha1` | | |
+| `kind` _string_ | `BiosSchema` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[BiosSchemaSpec](#biosschemaspec)_ |  |  |  |
+
+
+### BiosSettings
+
+
+
+BiosSettings is one machine's BIOS state: what is wanted, what is actually set,
+and where each wanted value came from. It is the rendered result of the
+BiosProfiles that match the Host — read it to see what will change and why,
+before anything is applied.
+
+Cluster-scoped like its Host, named after it, and owned by it: deleting the
+machine takes its settings with it.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `metal.pk.io/v1alpha1` | | |
+| `kind` _string_ | `BiosSettings` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[BiosSettingsSpec](#biossettingsspec)_ |  |  | Optional: \{\} <br /> |
+| `status` _[BiosSettingsStatus](#biossettingsstatus)_ |  |  | Optional: \{\} <br /> |
+
+
+### EndpointProfile
+
+
+
+EndpointProfile is how management controllers themselves should be configured —
+their users, network settings, time sources — authored in git and applied to
+whichever endpoints match its selector.
+
+Unlike BIOS and firmware there is no approval step: nothing here disturbs the
+machine the controller is attached to, so merging the profile is the approval.
+When something cannot be applied the endpoint holds and says so on its
+Configured condition rather than retrying into a broken state.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `metal.pk.io/v1alpha1` | | |
+| `kind` _string_ | `EndpointProfile` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[EndpointProfileSpec](#endpointprofilespec)_ |  |  |  |
+
+
+### FirmwareProfile
+
+
+
+FirmwareProfile is the firmware some group of machines should be running —
+authored in git, applying to whichever Hosts match its selector. Like
+BiosProfile it states intent and is never reconciled directly: a machine that
+drifts from it gets a HostOperation proposed against it, and flashing firmware
+is disruptive enough that the operation waits for approval.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `metal.pk.io/v1alpha1` | | |
+| `kind` _string_ | `FirmwareProfile` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[FirmwareProfileSpec](#firmwareprofilespec)_ |  |  |  |
+
+
+### Host
+
+
+
+Host is one realized machine (Redfish ComputerSystem), keyed by identity, reached
+via managedBy paths. Cluster-scoped; bound by a namespaced HostClaim.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `metal.pk.io/v1alpha1` | | |
+| `kind` _string_ | `Host` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[HostSpec](#hostspec)_ |  |  | Optional: \{\} <br /> |
+| `status` _[HostStatus](#hoststatus)_ |  |  | Optional: \{\} <br /> |
+
+
+### HostClaim
+
+
+
+HostClaim binds one Host exclusively, PVC-style. Namespaced so the door to
+multi-team tenancy stays open (deferred: one core team today); lives in git —
+claiming a machine is a reviewed change, not a live write.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `metal.pk.io/v1alpha1` | | |
+| `kind` _string_ | `HostClaim` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[HostClaimSpec](#hostclaimspec)_ |  |  |  |
+| `status` _[HostClaimStatus](#hostclaimstatus)_ |  |  | Optional: \{\} <br /> |
+
+
+### HostOperation
+
+
+
+HostOperation is one disruptive thing done to one machine, and the record that
+it was done: a power cycle, a BIOS apply, a firmware flash. It is namespaced,
+short-lived, and never retried on its own — if it failed, it stays failed until
+a person looks at it.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `metal.pk.io/v1alpha1` | | |
+| `kind` _string_ | `HostOperation` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[HostOperationSpec](#hostoperationspec)_ |  |  |  |
+| `status` _[HostOperationStatus](#hostoperationstatus)_ |  |  | Optional: \{\} <br /> |
+
+
+### ManagementEndpoint
+
+
+
+ManagementEndpoint is one realized Redfish manager (any managerType — BMC was too
+narrow). Cluster-scoped; owned by the operator; verification = assertion vs discovery.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `metal.pk.io/v1alpha1` | | |
+| `kind` _string_ | `ManagementEndpoint` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[ManagementEndpointSpec](#managementendpointspec)_ |  |  |  |
+| `status` _[ManagementEndpointStatus](#managementendpointstatus)_ |  |  | Optional: \{\} <br /> |
+
+
+
+### Supporting types
+
+The shapes the resources above are made of. These are fields of a resource, not
+resources themselves — nothing here is created or reconciled on its own.
+
+
+#### ApplyBiosAction
+
+
+
+ApplyBiosAction stages a machine's wanted BIOS attributes onto the firmware's
+pending object. Staging on its own changes nothing that is running: BIOS
+settings take effect at the next reset, which is why a converging operation
+pairs this with a powerCycle.
+
+
+
+_Appears in:_
+- [HostOperationAction](#hostoperationaction)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `settingsRef` _[Reference](#reference)_ | SettingsRef names the BiosSettings the attributes came from — provenance<br />only: the executor never reads it, so an edit after approval cannot<br />change what runs. |  | Optional: \{\} <br /> |
+| `attributes` _object (keys:string, values:[JSON](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#json-v1-apiextensions-k8s-io))_ | Attributes are the values to stage, copied in at proposal time — what<br />the approver saw is exactly what is applied. Only the drifted subset is<br />PATCHed; already-staged keys are converged goals, not conflicts. |  | MinProperties: 1 <br /> |
+
+
+
+#### AssetSnapshot
+
+
+
+AssetSnapshot is the consumer-side cache of the last-resolved Asset spec.
+
+
+
+_Appears in:_
+- [ManagementEndpointStatus](#managementendpointstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `cid` _string_ |  |  |  |
+| `serial` _string_ |  |  |  |
+| `bmcMac` _string_ |  |  |  |
+| `vlan` _integer_ |  |  |  |
+| `observedGeneration` _integer_ | ObservedGeneration is the Asset generation this snapshot was resolved at. |  |  |
+
+
+#### AssetSpec
+
+
+
+AssetSpec is the org's assertion about one physical machine — what the CMDB *claims*,
+never what Redfish discovered (the two must stay independent origins or Verified
+compares Redfish to Redfish and can catch nothing). Filled today by Flux from git
+YAML; filled later by fnt-sync from FNT Command — same CR downstream.
+
+
+
+_Appears in:_
+- [Asset](#asset)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `cid` _string_ | CID is the org's durable identity for this machine (FNT Configuration Item ID). |  | MinLength: 1 <br /> |
+| `serial` _string_ | Serial is the org-asserted chassis/board serial — the Verify join key, checked<br />against discovery (assertion vs Redfish, two origins). |  | MinLength: 1 <br /> |
+| `bmcMac` _string_ | BMCMac is the management controller's own NIC MAC (the dnsmasq-ledger identity<br />on the 1034 island), lowercase colon-separated. |  | Pattern: `^([0-9a-f]\{2\}:)\{5\}[0-9a-f]\{2\}$` <br />Optional: \{\} <br /> |
+| `vlan` _integer_ | VLAN is the management network the endpoint lives on (1034 servers, 1035 routers). |  | Maximum: 4094 <br />Minimum: 1 <br />Optional: \{\} <br /> |
+| `credentialsRef` _[LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#localobjectreference-v1-core)_ | CredentialsRef names a Secret in the operator's namespace holding the endpoint<br />credentials — factory creds at adoption, rotated by EndpointProfile. |  |  |
+
+
+#### AwaitCheckInAction
+
+
+
+AwaitCheckInAction holds the operation until a TalosNode checks in.
+
+
+
+_Appears in:_
+- [HostOperationAction](#hostoperationaction)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `nodeRef` _[Reference](#reference)_ | NodeRef names the TalosNode (os.pk.io) whose check-in ends the wait:<br />MachineReachable=True over the authenticated machine API, or Ready=True. |  |  |
+| `timeoutSeconds` _integer_ | TimeoutSeconds bounds the wait, counted from the previous step's end.<br />Running out fails the step — the media are ejected and the grants<br />revoked either way. | 1800 | Maximum: 86400 <br />Minimum: 60 <br />Optional: \{\} <br /> |
+
+
+
+#### BiosProfileSpec
+
+
+
+BiosProfileSpec is one layer of desired BIOS configuration for the Hosts it
+matches. Profiles are git-authored data — no controller reconciles a profile;
+the convergence reconciler materializes the merged result per host into a
+BiosSettings object.
+
+
+
+_Appears in:_
+- [BiosProfile](#biosprofile)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `match` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#labelselector-v1-meta)_ | Match selects Hosts by label. Two label axes exist by construction: intent<br />labels stamped from the bound claim (role: worker — absent on unclaimed<br />machines) and discovered facts (metal.pk.io/vendor, …/model —<br />present regardless of claim state, the axis for hardware baselines). |  |  |
+| `layer` _integer_ | Layer orders overlapping profiles: materialization merges matched profiles<br />by (layer, name) and a later layer deliberately overrides an earlier one —<br />a role profile (layer 10) over a hardware baseline (layer 0). Two profiles<br />on the SAME layer setting the same attribute to different values are a<br />conflict, and conflict holds the whole materialization. | 0 | Optional: \{\} <br /> |
+| `attributes` _object (keys:string, values:[JSON](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#json-v1-apiextensions-k8s-io))_ | Attributes are the BIOS attributes this profile manages, values as the<br />vendor's attribute registry types them (enum string, boolean, integer).<br />An attribute omitted here is unmanaged — a higher layer can override a<br />value but not retract management. |  | MinProperties: 1 <br /> |
+
+
+
+#### BiosSchemaAttribute
+
+
+
+BiosSchemaAttribute is one registry entry, mirroring the seam's shape.
+
+
+
+_Appears in:_
+- [BiosSchemaSpec](#biosschemaspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ |  |  |  |
+| `type` _string_ | Type is the registry's attribute type: Enumeration, Boolean, Integer or<br />String — kept as served. |  |  |
+| `allowedValues` _string array_ | AllowedValues enumerates the legal values; empty for non-enumerations. |  | Optional: \{\} <br /> |
+
+
+#### BiosSchemaSpec
+
+
+
+BiosSchemaSpec is the discovered attribute registry of one host's BIOS. Like
+Asset it is spec-only — the object IS the data; nothing about it is derived
+further. Written by the convergence reconciler from the registry the Bios
+resource advertises (registry names are normalized on the client: the spelled
+identity differs between the Bios resource, the Registries member, and the
+file on both vendors).
+
+
+
+_Appears in:_
+- [BiosSchema](#biosschema)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `registry` _string_ | Registry is the registry identity as the Bios resource advertises it,<br />kept verbatim (e.g. BiosAttributeRegistry.v1_0_0). |  | Optional: \{\} <br /> |
+| `attributes` _[BiosSchemaAttribute](#biosschemaattribute) array_ | Attributes lists the registry's entries, sorted by name. Desired values<br />in a materialized BiosSettings are validated against this before any<br />operation is proposed — the machine would otherwise reject an unknown<br />attribute at PATCH and silently drop an out-of-range value at apply. |  |  |
+
+
+
+#### BiosSettingsSpec
+
+
+
+BiosSettingsSpec is the rendered desired BIOS state for ONE host — the merge
+of every matched BiosProfile, written by the convergence reconciler (its sole
+author). Named after its Host and owned by it.
+
+
+
+_Appears in:_
+- [BiosSettings](#biossettings)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `attributes` _object (keys:string, values:[JSON](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#json-v1-apiextensions-k8s-io))_ | Attributes is the merged desired attribute map. Under a profile conflict<br />the previous merge is retained unchanged (alert-and-hold — a conflicted<br />desired state is never partially applied); which profile won each key is<br />status.provenance. |  | Optional: \{\} <br /> |
+
+
+#### BiosSettingsStatus
+
+
+
+BiosSettingsStatus carries the observation side: the managed keys as the
+machine last served them, and the plan memory.
+
+
+
+_Appears in:_
+- [BiosSettings](#biossettings)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `observed` _object (keys:string, values:[JSON](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#json-v1-apiextensions-k8s-io))_ | Observed caches the managed attributes as last read from the machine —<br />status-as-cache: an unreachable pass keeps the last view. |  | Optional: \{\} <br /> |
+| `pending` _object (keys:string, values:[JSON](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#json-v1-apiextensions-k8s-io))_ | Pending caches the managed attributes staged in the @Redfish.Settings<br />object — applied at the next system reset. |  | Optional: \{\} <br /> |
+| `provenance` _object (keys:string, values:string)_ | Provenance names the profile that won each attribute — the rendered<br />merge's derivation, so the object answers "what does this host get and<br />why" without re-running the layering in your head. |  | Optional: \{\} <br /> |
+| `proposed` _[ProposedPlan](#proposedplan)_ | Proposed is the plan memory for the BIOS domain. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions are the truth — the only thing reconcilers branch on. |  | Optional: \{\} <br /> |
+
+
+#### CertificateSubject
+
+
+
+CertificateSubject is the organizational part of a certificate subject.
+
+
+
+_Appears in:_
+- [IdentityPolicy](#identitypolicy)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `country` _string_ |  |  | Optional: \{\} <br /> |
+| `state` _string_ |  |  | Optional: \{\} <br /> |
+| `locality` _string_ |  |  | Optional: \{\} <br /> |
+| `organization` _string_ |  |  | Optional: \{\} <br /> |
+| `organizationalUnit` _string_ |  |  | Optional: \{\} <br /> |
+
+
+#### ClaimOS
+
+
+
+ClaimOS is the claim's OS intent.
+
+
+
+_Appears in:_
+- [HostClaimSpec](#hostclaimspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `nodeRef` _[Reference](#reference)_ | NodeRef names the TalosNode (os.pk.io, cluster-scoped) whose<br />rendered config the machine boots. |  |  |
+
+
+#### ClaimPhase
+
+_Underlying type:_ _string_
+
+ClaimPhase is derived write-only from the Bound condition (internal/phase).
+ClaimPhase says how many machines the claim's selection resolved to: none yet
+(Pending), exactly one (Bound), or more than one with nothing to choose between
+them (Ambiguous). Ambiguous is a stop — the cluster will not guess.
+
+_Validation:_
+- Enum: [Pending Bound Ambiguous]
+
+_Appears in:_
+- [HostClaimStatus](#hostclaimstatus)
+
+| Field | Description |
+| --- | --- |
+| `Pending` |  |
+| `Bound` |  |
+| `Ambiguous` |  |
+
+
+#### ClaimProvisioning
+
+
+
+ClaimProvisioning is the claim's say in how its machine is provisioned.
+
+
+
+_Appears in:_
+- [HostClaimSpec](#hostclaimspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `approval` _[ProvisioningApproval](#provisioningapproval)_ | Approval: Required (default) or Automatic. | Required | Enum: [Required Automatic] <br />Optional: \{\} <br /> |
+
+
+#### ClaimReference
+
+
+
+ClaimReference points a Host at the namespaced HostClaim holding it.
+
+
+
+_Appears in:_
+- [HostSpec](#hostspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `namespace` _string_ |  |  |  |
+| `name` _string_ |  |  |  |
+| `uid` _[UID](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#uid-types-pkg)_ |  |  | Optional: \{\} <br /> |
+
+
+#### CredentialsPolicy
+
+
+
+CredentialsPolicy is the managed-account stanza of an EndpointProfile.
+
+
+
+_Appears in:_
+- [EndpointProfileSpec](#endpointprofilespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `username` _string_ | Username of the operator's managed account (role Administrator — the<br />executor flashes firmware and resets the manager over it). |  | Pattern: `^[a-z][a-z0-9-]\{0,15\}$` <br /> |
+| `maxAge` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#duration-v1-meta)_ | MaxAge rotates the managed password when the Secret grows older than<br />this. Unset rotates only when the Secret is missing or names another<br />account. |  | Optional: \{\} <br /> |
+
+
+#### DiscoveredSystem
+
+
+
+DiscoveredSystem is one ComputerSystem as seen through this endpoint — the
+projection the HostReconciler joins into identity-keyed Hosts. ID is a path
+coordinate (an opaque Redfish member id), never an identity; identity is
+normalized in internal/identity over the serial anchors.
+
+
+
+_Appears in:_
+- [ManagementEndpointStatus](#managementendpointstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `id` _string_ | ID is the Redfish ComputerSystem member id behind this endpoint. |  |  |
+| `uuid` _string_ |  |  | Optional: \{\} <br /> |
+| `serialNumber` _string_ | SerialNumber as served by the ComputerSystem — the Huawei anchor; empty on<br />Supermicro X12 (there the chassis board serial anchors). |  | Optional: \{\} <br /> |
+| `manufacturer` _string_ | Manufacturer as served by the ComputerSystem — the machine's vendor, which<br />on an aggregator path differs from the endpoint's vendor. |  | Optional: \{\} <br /> |
+| `model` _string_ |  |  | Optional: \{\} <br /> |
+| `lastResetTime` _[MicroTime](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#microtime-v1-meta)_ | LastResetTime as served by the ComputerSystem — the baseline-and-advance<br />observable (X12 serves it, iBMC doesn't). Micro precision so back-to-back<br />resets stay distinguishable. |  | Optional: \{\} <br /> |
+| `bootTargets` _string array_ | BootTargets are the boot override targets the system allows<br />(BootSourceOverrideTarget@Redfish.AllowableValues) — what a proposed<br />boot override picks from, never assumed. |  | Optional: \{\} <br /> |
+
+
+#### EjectMediaAction
+
+
+
+EjectMediaAction unmounts a virtual-media slot. Ejecting an empty slot is
+success — the goal is an empty slot, not the act of emptying it.
+
+
+
+_Appears in:_
+- [HostOperationAction](#hostoperationaction)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `mediaId` _string_ | MediaID is the virtual-media slot to empty. |  |  |
+
+
+#### EndpointCapabilities
+
+
+
+EndpointCapabilities is what the endpoint can DO — vendor asymmetries live in data,
+not types (the HOW-is-data rule). Values mirror internal/bmc, grounded in the hardware PoC.
+
+
+
+_Appears in:_
+- [ManagementEndpointStatus](#managementendpointstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `dualMedia` _boolean_ | DualMedia: two virtual media slots hold inserts concurrently (X12 yes,<br />iBMC no) — gates the `secondary` config-delivery strategy. |  | Optional: \{\} <br /> |
+| `mediaDialects` _object (keys:string, values:string)_ | MediaDialects maps media slot id → insert dialect<br />("insert-media" \| "vmm-control" \| "none"). |  | Optional: \{\} <br /> |
+| `updateDialect` _string_ | UpdateDialect is the firmware-update transport the endpoint advertises<br />("multipart-push" \| "simple-update" \| "none"). Only multipart-push is<br />proven on our hardware — the convergence reconciler proposes a flash<br />nowhere else. |  | Optional: \{\} <br /> |
+| `identityDialect` _string_ | IdentityDialect is how the manager's HTTPS certificate is replaced<br />("csr-native" \| "key-upload" \| "none"): the iBMC generates its CSR on<br />the manager — the key never leaves it — while the X12 takes a<br />locally-generated leaf and key over an OEM upload. |  | Optional: \{\} <br /> |
+
+
+#### EndpointPhase
+
+_Underlying type:_ _string_
+
+EndpointPhase summarizes an endpoint's conditions, in the order an endpoint
+normally moves through them: Pending until it is reachable, then Connecting,
+Inventorying and Verifying as the cluster learns what is there, Configuring
+while settings are applied, and Ready. Unreachable and Mismatch are the two
+stops — the first means nobody answered, the second that what answered was not
+the machine the Asset described.
+
+_Validation:_
+- Enum: [Pending Connecting Inventorying Verifying Configuring Ready Unreachable Mismatch]
+
+_Appears in:_
+- [ManagementEndpointStatus](#managementendpointstatus)
+
+| Field | Description |
+| --- | --- |
+| `Pending` |  |
+| `Connecting` |  |
+| `Inventorying` |  |
+| `Verifying` |  |
+| `Configuring` |  |
+| `Ready` |  |
+| `Unreachable` |  |
+| `Mismatch` |  |
+
+
+
+#### EndpointProfileSpec
+
+
+
+EndpointProfileSpec is a shared endpoint-configuration class: it selects
+ManagementEndpoints by label and declares how the manager itself is run —
+the operator's own account, the manager's time sources. Overlap follows
+the profile merge rules: profiles order by (layer, name), a later layer
+overrides a whole stanza, same-layer disagreement on a stanza holds the
+endpoint.
+
+
+
+_Appears in:_
+- [EndpointProfile](#endpointprofile)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `match` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#labelselector-v1-meta)_ | Match selects ManagementEndpoints by label. Endpoints carry only<br />discovered facts (vendor, model, vlan) — there is no claim, hence no<br />intent axis. An empty selector matches every endpoint. |  |  |
+| `layer` _integer_ | Layer orders overlapping profiles: higher layers override lower ones,<br />stanza by stanza. Profiles on the same layer must agree. | 0 | Optional: \{\} <br /> |
+| `credentials` _[CredentialsPolicy](#credentialspolicy)_ | Credentials makes the operator run its own account on the manager:<br />created through the asset's factory credentials, password kept in a<br />managed Secret, rotated on cadence. The factory account is left<br />untouched — it is the standing break-glass, and the reason every<br />credential fault self-heals instead of locking the operator out. |  | Optional: \{\} <br /> |
+| `ntp` _[NTPPolicy](#ntppolicy)_ | NTP converges the manager's own clock sources. A skewed BMC clock is<br />not cosmetic: it rejects freshly-issued certificates (NotBefore in its<br />future) and mistimes every log line. |  | Optional: \{\} <br /> |
+| `tls` _[IdentityPolicy](#identitypolicy)_ | TLS runs the manager's HTTPS identity: a cert-manager-signed<br />certificate for bmc-<endpoint>.<domain>, pushed over the vendor's<br />dialect and renewed on cadence. The factory certificate is replaced<br />and cannot be restored — a CA-signed identity is strictly better and<br />the intended end state. |  | Optional: \{\} <br /> |
+
+
+#### EndpointTLS
+
+
+
+EndpointTLS is the endpoint's server-certificate verification policy.
+
+
+
+_Appears in:_
+- [ManagementEndpointSpec](#managementendpointspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `caSecretRef` _[LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#localobjectreference-v1-core)_ | CASecretRef names a Secret (operator namespace, key ca.crt) whose bundle<br />verifies the endpoint's certificate. Wins over insecureSkipVerify. |  | Optional: \{\} <br /> |
+| `insecureSkipVerify` _boolean_ | InsecureSkipVerify accepts any certificate — the lab/sim fallback, never<br />the live default (identity is solved: internal-ca on every BMC). |  | Optional: \{\} <br /> |
+
+
+#### FirmwareInventoryItem
+
+
+
+FirmwareInventoryItem is one UpdateService SoftwareInventory member as
+discovered. IDs are vendor-shaped (X12: BMC/Backup_BMC/…, iBMC:
+ActiveBMC/…) and kept opaque.
+
+
+
+_Appears in:_
+- [ManagementEndpointStatus](#managementendpointstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `id` _string_ |  |  |  |
+| `version` _string_ |  |  | Optional: \{\} <br /> |
+| `updateable` _boolean_ |  |  | Optional: \{\} <br /> |
+
+
+
+#### FirmwareProfileSpec
+
+
+
+FirmwareProfileSpec is one layer of desired firmware for the Hosts it matches.
+Like BiosProfile it is controller-less data; the convergence reconciler
+compares the desired version against what the fronting endpoints serve and
+proposes a flash operation on drift. Firmware converges before BIOS — the
+BIOS schema depends on firmware.
+
+
+
+_Appears in:_
+- [FirmwareProfile](#firmwareprofile)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `match` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#labelselector-v1-meta)_ | Match selects Hosts by label (same two axes as BiosProfile.spec.match). |  |  |
+| `layer` _integer_ | Layer orders overlapping profiles exactly as on BiosProfile: (layer, name)<br />merge order, later overrides, same-layer disagreement is a conflict. | 0 | Optional: \{\} <br /> |
+| `manager` _[FirmwareTarget](#firmwaretarget)_ | Manager is the desired management-controller firmware. The only firmware<br />target so far — the flash transport is proven for the manager alone<br />(multipart push; endpoints advertising only SimpleUpdate hold at<br />NoUpdateTransport rather than flashing over an unproven path). |  |  |
+
+
+#### FirmwareTarget
+
+
+
+FirmwareTarget pairs a desired version with the image that realizes it.
+
+
+
+_Appears in:_
+- [FirmwareProfileSpec](#firmwareprofilespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `version` _string_ | Version is the desired firmware version, compared verbatim against the<br />version the endpoint serves — the convergence observable. |  | MinLength: 1 <br /> |
+| `image` _string_ | Image is a digest-pinned OCI reference to the firmware image (a single-<br />layer artifact in the internal registry, e.g.<br />registry.pk.internal:5000/firmware/x12-bmc@sha256:…). The digest is<br />required: the executor refuses to flash bytes it cannot verify. |  | Pattern: `@sha256:[a-f0-9]\{64\}$` <br /> |
+
+
+#### FlashFirmwareAction
+
+
+
+FlashFirmwareAction replaces the firmware on a machine's management controller.
+The controller reboots as part of it; the machine it manages keeps running.
+
+
+
+_Appears in:_
+- [HostOperationAction](#hostoperationaction)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `image` _string_ | Image is the digest-pinned OCI reference to fetch and push (the same<br />shape as FirmwareProfile.spec.manager.image). |  | Pattern: `@sha256:[a-f0-9]\{64\}$` <br /> |
+| `version` _string_ | Version is the version expected to read back after the flash — the<br />convergence goal: a manager already serving it makes this step a no-op. |  | MinLength: 1 <br /> |
+
+
+
+
+#### HostClaimSpec
+
+
+
+HostClaimSpec selects one machine and binds it exclusively — the system's ONLY
+claim (decisions attach to machines, not to controllers; the endpoint has none).
+Selection goes through the Asset: the org's durable identity is what a human
+commits, the Host name is discovered later.
+
+
+
+_Appears in:_
+- [HostClaim](#hostclaim)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `assetRef` _[Reference](#reference)_ | AssetRef names the Asset whose machine this claim binds. |  |  |
+| `systemRef` _[Reference](#reference)_ | SystemRef picks one ComputerSystem by its Redfish member id when the<br />endpoint fronts several; optional when it fronts one. |  | Optional: \{\} <br /> |
+| `labels` _object (keys:string, values:[LabelValue](#labelvalue))_ | Labels is the intent axis for profile matching: a free-form label map<br />(role: worker today; rack zone, tenant tier, GPU pool need no schema<br />change) stamped onto the bound Host's metadata labels and cleared on<br />release — an unclaimed machine carries no intent labels by construction.<br />Keys are unprefixed (no "/"), so they can never collide with the<br />discovered-fact labels stamped under metal.pk.io/. |  | MaxProperties: 16 <br />Optional: \{\} <br /> |
+| `os` _[ClaimOS](#claimos)_ | OS names the payload the bound machine runs. Without it the claim only<br />reserves the machine (Assigned) — provisioning starts when the intent<br />appears and the reconciler stamps it onto the Host. |  | Optional: \{\} <br /> |
+| `provisioning` _[ClaimProvisioning](#claimprovisioning)_ | Provisioning tunes how the operator installs the OS onto the machine. |  | Optional: \{\} <br /> |
+
+
+#### HostClaimStatus
+
+
+
+HostClaimStatus is the claim's side of the bind (the authoritative pointer is
+Host.spec.claimRef — PV/PVC-style, first writer wins).
+
+
+
+_Appears in:_
+- [HostClaim](#hostclaim)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `hostRef` _[Reference](#reference)_ | HostRef names the bound Host. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions are the truth — the only thing reconcilers branch on. |  | Optional: \{\} <br /> |
+| `phase` _[ClaimPhase](#claimphase)_ | Phase summarizes the conditions below for people and for kubectl columns.<br />It is a summary, not the contract: automation should read conditions. |  | Enum: [Pending Bound Ambiguous] <br />Optional: \{\} <br /> |
+| `blockedOn` _string_ | BlockedOn is derived — why the claim isn't binding (AssetNotFound,<br />HostAlreadyClaimed) or, once bound, why its machine isn't provisioning<br />(SingleMediumUnsupported, OperationFailed); a reason, not a phase. |  | Optional: \{\} <br /> |
+
+
+#### HostIdentity
+
+
+
+HostIdentity is the vendor-normalized anchor — independent of access path (the
+multipath discipline). Computed by a per-vendor strategy over bmc.Client: Huawei's
+ComputerSystem carries the chassis serial, Supermicro's carries none (the board
+serial lives on Chassis); the normalizer must return byte-identical identity for a
+system reached via two managers (the identity-invariant test).
+
+
+
+_Appears in:_
+- [HostStatus](#hoststatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `uuid` _string_ |  |  | Optional: \{\} <br /> |
+| `serial` _string_ | Serial is the normalized serial anchor (chassis board serial on Supermicro,<br />system serial on Huawei). |  | Optional: \{\} <br /> |
+| `vendor` _string_ |  |  | Optional: \{\} <br /> |
+
+
+#### HostOS
+
+
+
+HostOS is the osRef edge into the os API group.
+
+
+
+_Appears in:_
+- [HostSpec](#hostspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `nodeRef` _[Reference](#reference)_ | NodeRef points at the TalosNode (os.pk.io, cluster-scoped like<br />the Host) whose rendered config this machine boots. |  |  |
+
+
+
+#### HostOperationAction
+
+
+
+HostOperationAction is a one-of union: exactly one action per entry.
+
+_Validation:_
+- MaxProperties: 1
+- MinProperties: 1
+
+_Appears in:_
+- [HostOperationSpec](#hostoperationspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `powerCycle` _[PowerCycleAction](#powercycleaction)_ | PowerCycle restarts the system: off, observed off, on, observed on — or<br />just on when it was off at the baseline. Each half converges on the<br />reported power state, which every vendor serves, so a resumed operation<br />never cycles a machine twice (the iBMC serves no reset time to tell). |  | Optional: \{\} <br /> |
+| `powerOff` _[PowerOffAction](#poweroffaction)_ | PowerOff forces the system off and waits until it reports off. |  | Optional: \{\} <br /> |
+| `setBootOverride` _[SetBootOverrideAction](#setbootoverrideaction)_ | SetBootOverride sets the source the machine boots from next. The target<br />must be one the endpoint actually offers — machines disagree about what<br />they call a virtual CD, so the value is checked against what was<br />discovered rather than assumed. |  | Optional: \{\} <br /> |
+| `insertMedia` _[InsertMediaAction](#insertmediaaction)_ | InsertMedia mounts an image URL on a virtual-media slot, dispatching the<br />dialect the endpoint advertises (standard InsertMedia vs OEM VmmControl). |  | Optional: \{\} <br /> |
+| `ejectMedia` _[EjectMediaAction](#ejectmediaaction)_ | EjectMedia unmounts a virtual-media slot. |  | Optional: \{\} <br /> |
+| `applyBios` _[ApplyBiosAction](#applybiosaction)_ | ApplyBios stages a BiosSettings object's desired attributes into the<br />machine's pending (@Redfish.Settings) object. Staging changes nothing —<br />the world moves at the next system reset, so a convergence operation<br />pairs this with a powerCycle. |  | Optional: \{\} <br /> |
+| `flashFirmware` _[FlashFirmwareAction](#flashfirmwareaction)_ | FlashFirmware pushes a firmware image to the management controller and<br />waits for proof that it took: the controller rebooting, and the expected<br />version reading back afterwards. A reported success is not believed on<br />its own. |  | Optional: \{\} <br /> |
+| `awaitCheckIn` _[AwaitCheckInAction](#awaitcheckinaction)_ | AwaitCheckIn waits, without touching the machine, until the named<br />TalosNode reports that the machine runs its config — the point after<br />which the boot media are no longer needed. It changes nothing; it keeps<br />the operation (and the grants it issued) alive until the hand-off. |  | Optional: \{\} <br /> |
+
+
+#### HostOperationSpec
+
+
+
+HostOperationSpec is one disruptive thing to do to a machine, and the gate a
+human passes to let it happen.
+
+The cluster proposes an operation by creating it; a person approves it by
+patching it. That split works with ordinary RBAC because the target machine and
+the actions are frozen once created — the only thing left to change is the
+approval, so permission to patch is permission to approve. Who may approve, and
+the rule that nobody approves their own proposal in advance, are enforced at
+admission.
+
+
+
+_Appears in:_
+- [HostOperation](#hostoperation)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `hostRef` _[Reference](#reference)_ | HostRef names the Host this operation acts on. |  |  |
+| `reason` _string_ | Reason names the desired-state gate this operation serves (BiosConvergence,<br />FirmwareConvergence, …); empty for a human-requested op. It becomes the<br />Approval(<reason>) domain on the Host's blockedOn — hence the condition-reason<br />shape. |  | MaxLength: 128 <br />Pattern: `^[A-Za-z][A-Za-z0-9]*$` <br />Optional: \{\} <br /> |
+| `proposedBy` _string_ | ProposedBy is the username that created the operation. Admission checks<br />it against the creating request, so it cannot name someone else, and<br />refuses an approval stamped by the same person: nobody approves their<br />own proposal. |  | MinLength: 1 <br /> |
+| `planHash` _string_ | PlanHash binds a proposed operation to the desired state it serves — an<br />unchanged hash never spawns a second op (the convergence reconcilers' guard). |  | Optional: \{\} <br /> |
+| `actions` _[HostOperationAction](#hostoperationaction) array_ | Actions run in order; each entry is exactly one action. A failed step fails<br />the operation — disruptive one-shots never auto-retry. At most one power<br />action per operation: the power-cycle proof lives in status once. |  | MaxItems: 32 <br />MaxProperties: 1 <br />MinItems: 1 <br />MinProperties: 1 <br /> |
+| `approval` _[OperationApproval](#operationapproval)_ | Approval is the human gate. Omitted means required — the safe default is<br />a closed gate. | \{ required:true \} | Optional: \{\} <br /> |
+| `ttlSecondsAfterFinished` _integer_ | TTLSecondsAfterFinished garbage-collects a finished operation Job-style.<br />Unset keeps it forever (human-requested ops stay as their own record);<br />convergence proposals set it — the plan memory on the proposing object,<br />not the operation's existence, is what keeps an unchanged planHash from<br />spawning again. |  | Minimum: 0 <br />Optional: \{\} <br /> |
+
+
+#### HostOperationStatus
+
+
+
+HostOperationStatus is what happened: which steps ran and how they ended, plus
+the observations that prove the machine really did what was asked.
+
+
+
+_Appears in:_
+- [HostOperation](#hostoperation)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `baseline` _[OperationBaseline](#operationbaseline)_ | Baseline is captured (and persisted) before the first mutating call. |  | Optional: \{\} <br /> |
+| `observedResetTime` _[MicroTime](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#microtime-v1-meta)_ | ObservedResetTime is the reset-time observation after the last step — the<br />proof the reset happened, and what marks a Host reset-time advance as<br />explained rather than Drifted. |  | Optional: \{\} <br /> |
+| `offObserved` _[MicroTime](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#microtime-v1-meta)_ | OffObserved is when the executor saw the machine report off during a<br />power cycle — the first half of the cycle, recorded so that a resumed<br />operation finishes the cycle instead of starting a second one. |  | Optional: \{\} <br /> |
+| `steps` _[OperationStep](#operationstep) array_ | Steps records each action's outcome in execution order, written as each<br />step reaches its goal. A resumed operation continues after the last<br />recorded step: a goal that a later step consumed (a Once boot override<br />used up by the boot that followed) is never re-armed. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions are the truth — the only thing reconcilers branch on. |  | Optional: \{\} <br /> |
+| `phase` _[OperationPhase](#operationphase)_ | Phase summarizes the conditions below for people and for kubectl columns.<br />It is a summary, not the contract: automation should read conditions. |  | Enum: [Proposed AwaitingApproval Running Succeeded Failed] <br />Optional: \{\} <br /> |
+| `blockedOn` _string_ | BlockedOn is derived — why the operation isn't advancing (AwaitingApproval,<br />OperationQueued). |  | Optional: \{\} <br /> |
+
+
+#### HostPhase
+
+_Underlying type:_ _string_
+
+HostPhase summarizes a machine's conditions together with whether it is
+claimed. Enrolling and Inspecting mean the cluster is still finding out what
+the machine is; Available means it is understood and free; Assigned means
+something claimed it; Provisioning means work is happening to it right now and
+Provisioned that the work finished; Releasing means it is being handed back.
+Failed and Maintenance are the two stops.
+
+Assigned and Provisioning are deliberately separate. A machine can be spoken
+for without anything disruptive happening to it, and conflating the two leaves
+no way to say so.
+
+_Validation:_
+- Enum: [Enrolling Inspecting Available Assigned Provisioning Provisioned Releasing Failed Maintenance]
+
+_Appears in:_
+- [HostStatus](#hoststatus)
+
+| Field | Description |
+| --- | --- |
+| `Enrolling` |  |
+| `Inspecting` |  |
+| `Available` |  |
+| `Assigned` |  |
+| `Provisioning` |  |
+| `Provisioned` |  |
+| `Releasing` |  |
+| `Failed` |  |
+| `Maintenance` |  |
+
+
+#### HostSpec
+
+
+
+HostSpec carries the claim bind and the OS payload hand-off. Both are stamped
+by the HostClaimReconciler (single writer); everything else about a Host is
+discovered, not authored.
+
+
+
+_Appears in:_
+- [Host](#host)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `claimRef` _[ClaimReference](#claimreference)_ | ClaimRef is the authoritative bind pointer (PV-style): set by the<br />HostClaimReconciler, first writer wins via apiserver optimistic concurrency.<br />The UID pins the exact claim object — a deleted-and-recreated claim of the<br />same name is a different claimant. |  | Optional: \{\} <br /> |
+| `os` _[HostOS](#hostos)_ | OS is the operating system this machine should be running, copied here<br />from the claim that bound it and cleared when the claim is released.<br />Setting it is what starts provisioning: until it is present, a bound<br />machine is reserved and idle. |  | Optional: \{\} <br /> |
+
+
+#### HostStatus
+
+
+
+HostStatus is discovered truth about the machine itself.
+
+
+
+_Appears in:_
+- [Host](#host)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `identity` _[HostIdentity](#hostidentity)_ |  |  | Optional: \{\} <br /> |
+| `managedBy` _[ManagementPath](#managementpath) array_ | ManagedBy lists the discovered access paths — a list, length 1 today, N-ready<br />(multiple managers, moved boards, Redfish aggregators). Atomic: one writer<br />(the HostReconciler) replaces it whole. |  | Optional: \{\} <br /> |
+| `lastResetTime` _[MicroTime](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#microtime-v1-meta)_ | LastResetTime is the newest reset-time observation across paths — the drift<br />memory: an advance with no explaining HostOperation raises Drifted. Absent<br />where the vendor serves no such observable (iBMC) — drift detection then<br />degrades openly rather than being simulated. |  | Optional: \{\} <br /> |
+| `firmwareProposed` _[ProposedPlan](#proposedplan)_ | FirmwareProposed is the firmware domain's plan memory (the BIOS domain's<br />lives on the materialized BiosSettings). Written by the convergence<br />reconciler alone; the HostReconciler leaves it untouched — the two share<br />this status with disjoint fields. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions are the truth — the only thing reconcilers branch on. |  | Optional: \{\} <br /> |
+| `phase` _[HostPhase](#hostphase)_ | Phase summarizes the conditions below for people and for kubectl columns.<br />It is a summary, not the contract: automation should read conditions. |  | Enum: [Enrolling Inspecting Available Assigned Provisioning Provisioned Releasing Failed Maintenance] <br />Optional: \{\} <br /> |
+| `blockedOn` _string_ | BlockedOn is derived — why the host isn't advancing (Approval(bios),<br />SerialMismatch); a reason, not a phase, because it recurs across phases. |  | Optional: \{\} <br /> |
+
+
+#### IdentityPolicy
+
+
+
+IdentityPolicy is the HTTPS-identity stanza of an EndpointProfile.
+
+
+
+_Appears in:_
+- [EndpointProfileSpec](#endpointprofilespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `issuerRef` _[IssuerRef](#issuerref)_ | IssuerRef names the cert-manager issuer (group cert-manager.io) that<br />signs the identity. |  |  |
+| `domain` _string_ | Domain completes the identity: CN and DNS SAN are<br />bmc-<endpoint>.<domain>; the endpoint address, when an IP literal,<br />rides along as IP SAN (clients dial IP literals on the island). | metal.internal | MinLength: 1 <br />Optional: \{\} <br /> |
+| `duration` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#duration-v1-meta)_ | Duration of issued certificates. | 2160h | Optional: \{\} <br /> |
+| `renewBefore` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#duration-v1-meta)_ | RenewBefore re-issues when less than this remains on the served<br />certificate. Must stay below duration. | 720h | Optional: \{\} <br /> |
+| `subject` _[CertificateSubject](#certificatesubject)_ | Subject carries the organizational attributes of the identity. The<br />iBMC's on-manager CSR generation requires country; everything else is<br />cosmetic. |  | Optional: \{\} <br /> |
+
+
+#### IdentityPush
+
+
+
+IdentityPush records what was last pushed to a management controller, keyed by
+the hash of what was wanted at the time. Everything else about identity is
+re-derived from the certificate the controller actually serves; this exists for
+the one thing that cannot be observed — a push the controller reported success
+for but never began serving — so that it is not pushed again forever.
+
+
+
+_Appears in:_
+- [ManagementEndpointStatus](#managementendpointstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `planHash` _string_ | PlanHash of the desired identity the push belonged to. |  |  |
+| `fingerprint` _string_ | Fingerprint (sha256, hex) of the pushed leaf certificate. |  |  |
+
+
+#### InsertMediaAction
+
+
+
+InsertMediaAction mounts an image on one of the machine's virtual-media slots,
+the way you would put a disc in a drive attached to it. The image is either a
+plain URL or a BootAsset: a secret-free asset mounts from its stable URL, a
+secret-bearing one (configISO) is served by the operator's media service
+under a grant issued at execution time and revoked when the operation ends.
+
+
+
+_Appears in:_
+- [HostOperationAction](#hostoperationaction)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `mediaId` _string_ | MediaID is the virtual-media slot ("CD", "USBStick", …). |  |  |
+| `imageUrl` _string_ | ImageURL is what to mount. Already-mounted with the same URL is success —<br />steps converge to their goal, so a resumed operation never double-issues. |  | Optional: \{\} <br /> |
+| `bootAssetRef` _[Reference](#reference)_ | BootAssetRef names the BootAsset (os.pk.io) to mount. |  | Optional: \{\} <br /> |
+| `digest` _string_ | Digest pins the artifact bytes (sha256:<hex>) the approver saw: an<br />artifact rebuilt since the proposal fails the step instead of mounting<br />content nobody approved. configISO assets only. |  | Pattern: `^sha256:[a-f0-9]\{64\}$` <br />Optional: \{\} <br /> |
+
+
+#### IssuerRef
+
+
+
+IssuerRef names a cert-manager issuer.
+
+
+
+_Appears in:_
+- [IdentityPolicy](#identitypolicy)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ |  |  | MinLength: 1 <br /> |
+| `kind` _string_ |  | ClusterIssuer | Enum: [Issuer ClusterIssuer] <br />Optional: \{\} <br /> |
+
+
+#### LabelValue
+
+_Underlying type:_ _string_
+
+LabelValue is one intent label value, constrained to the k8s label-value
+shape at the schema level (a value the Host metadata would reject must
+already fail at claim admission).
+
+_Validation:_
+- MaxLength: 63
+- Pattern: `^(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])?$`
+
+_Appears in:_
+- [HostClaimSpec](#hostclaimspec)
+
+
+
+
+#### ManagementEndpointSpec
+
+
+
+ManagementEndpointSpec is written by the operator when it materializes an Asset —
+pure infrastructure, no claim (adoption is implied by a HostClaim on the Asset).
+
+
+
+_Appears in:_
+- [ManagementEndpoint](#managementendpoint)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `assetRef` _[Reference](#reference)_ | AssetRef names the Asset this endpoint materializes and verifies against. |  |  |
+| `address` _string_ | Address is the endpoint's base URL — an access path, never an identity<br />(the multipath discipline: identity lives on Host.status.identity). |  | Pattern: `^https://` <br /> |
+| `credentialsRef` _[LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#localobjectreference-v1-core)_ | CredentialsRef names the Secret (operator namespace) used to connect,<br />defaulted from the Asset at materialization — the factory credentials,<br />kept as standing break-glass. Once an EndpointProfile rotates the<br />endpoint onto a managed account, every connect prefers the managed<br />Secret and this ref is the repair fallback. |  | Optional: \{\} <br /> |
+| `tls` _[EndpointTLS](#endpointtls)_ | TLS pins how the endpoint's server certificate is verified. The hardware-PoC verdict:<br />both vendors serve internal-ca identities (CN=bmc-<node>.metal.internal),<br />so live endpoints pin that CA; unset falls back to the system trust store. |  | Optional: \{\} <br /> |
+
+
+#### ManagementEndpointStatus
+
+
+
+ManagementEndpointStatus is discovered truth (assertion lives on the Asset).
+
+
+
+_Appears in:_
+- [ManagementEndpoint](#managementendpoint)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `managerType` _string_ | ManagerType is the discovered Redfish Manager type, kept opaque<br />(BMC \| EnclosureManager \| RackManager \| …). |  | Optional: \{\} <br /> |
+| `vendor` _string_ | Vendor is the discovered manufacturer ("Huawei" \| "Supermicro" \| …). |  | Optional: \{\} <br /> |
+| `model` _string_ |  |  | Optional: \{\} <br /> |
+| `firmwareVersion` _string_ | FirmwareVersion is the manager's firmware as served. |  | Optional: \{\} <br /> |
+| `boardSerial` _string_ | BoardSerial is the chassis board serial — the Supermicro identity anchor<br />(its ComputerSystem serves none; Huawei's matches the system serial). |  | Optional: \{\} <br /> |
+| `firmware` _[FirmwareInventoryItem](#firmwareinventoryitem) array_ | Firmware lists the UpdateService inventory — the firmware-convergence<br />observable (desired version vs the entries here), small and bounded<br />(~5 members per vendor). Sorted by id. |  | Optional: \{\} <br /> |
+| `systems` _[DiscoveredSystem](#discoveredsystem) array_ | Systems lists the ComputerSystems this endpoint fronts (1 today, N-ready) —<br />cached discovery like the rest of status: an unreachable endpoint keeps its<br />last view. |  | Optional: \{\} <br /> |
+| `capabilities` _[EndpointCapabilities](#endpointcapabilities)_ |  |  | Optional: \{\} <br /> |
+| `asset` _[AssetSnapshot](#assetsnapshot)_ | Asset caches the last-resolved assertion, so an asset-source outage<br />degrades to the snapshot rather than failing resolution. |  | Optional: \{\} <br /> |
+| `identityPushed` _[IdentityPush](#identitypush)_ | IdentityPushed is written by the endpoint convergence reconciler<br />alone; the observing endpoint reconciler leaves it untouched — the<br />two share this status with disjoint fields. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions are the truth — the only thing reconcilers branch on. |  | Optional: \{\} <br /> |
+| `phase` _[EndpointPhase](#endpointphase)_ | Phase summarizes the conditions below for people and for kubectl columns.<br />It is a summary, not the contract: automation should read conditions. |  | Enum: [Pending Connecting Inventorying Verifying Configuring Ready Unreachable Mismatch] <br />Optional: \{\} <br /> |
+| `blockedOn` _string_ | BlockedOn is derived — why the endpoint isn't advancing (e.g. SerialMismatch). |  | Optional: \{\} <br /> |
+
+
+#### ManagementPath
+
+
+
+ManagementPath is one discovered way to reach this host (from Redfish
+Links.ManagedBy) — N fungible paths with independent health, never an identity.
+
+
+
+_Appears in:_
+- [HostStatus](#hoststatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `endpointRef` _[Reference](#reference)_ | EndpointRef names the ManagementEndpoint fronting this system. |  |  |
+| `systemId` _string_ | SystemID is the Redfish ComputerSystem member id behind that endpoint, opaque. |  |  |
+| `reachable` _boolean_ | Reachable is this path's independent health. |  |  |
+
+
+#### NTPPolicy
+
+
+
+NTPPolicy is the time-source stanza of an EndpointProfile. Declaring it
+enables NTP on the manager against exactly these servers.
+
+
+
+_Appears in:_
+- [EndpointProfileSpec](#endpointprofilespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `servers` _string array_ | Servers, in preference order. At most three — the iBMC carries exactly<br />three server slots. |  | MaxItems: 3 <br />MinItems: 1 <br />items:MinLength: 1 <br /> |
+
+
+#### OperationApproval
+
+
+
+OperationApproval is the CEL-guarded human gate (a field, not a subresource).
+
+
+
+_Appears in:_
+- [HostOperationSpec](#hostoperationspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `required` _boolean_ | Required: this operation must be approved before it runs (from the<br />disruption policy; explicit false only where the policy waives the gate,<br />and admission lets only the operator or an admin create such an<br />operation). A pointer so that EVERY client that says nothing — YAML<br />omitting the key, a Go zero value — gets the safe default: a closed gate.<br />Frozen: flipping it would be an approval without a name on it. | true | Optional: \{\} <br /> |
+| `approvedBy` _string_ | ApprovedBy is stamped by the approver — the ValidatingAdmissionPolicy<br />enforces that it equals the requesting username, is empty at creation, and<br />is write-once. |  | Optional: \{\} <br /> |
+
+
+#### OperationBaseline
+
+
+
+OperationBaseline is the observation captured at execution start — the
+re-derivable "did I already reboot for this request" predicate: completion is
+the world moving past it, never a remembered step counter.
+
+
+
+_Appears in:_
+- [HostOperationStatus](#hostoperationstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `powerState` _string_ |  |  | Optional: \{\} <br /> |
+| `lastResetTime` _[MicroTime](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#microtime-v1-meta)_ | LastResetTime as observed before any action ran. Micro precision: the sim<br />resets faster than a second, and second-precision would blind the advance<br />predicate. |  | Optional: \{\} <br /> |
+| `capturedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | CapturedAt is when the baseline was taken — the start of execution,<br />which bounds how long a power transition may take to show. |  | Optional: \{\} <br /> |
+
+
+#### OperationPhase
+
+_Underlying type:_ _string_
+
+OperationPhase summarizes an operation's conditions. Proposed means it exists
+but has not been approved; AwaitingApproval that it is waiting on a human;
+Running that steps are executing; Succeeded and Failed are terminal. A failed
+operation stays for inspection — nothing disruptive is retried automatically.
+
+_Validation:_
+- Enum: [Proposed AwaitingApproval Running Succeeded Failed]
+
+_Appears in:_
+- [HostOperationStatus](#hostoperationstatus)
+
+| Field | Description |
+| --- | --- |
+| `Proposed` |  |
+| `AwaitingApproval` |  |
+| `Running` |  |
+| `Succeeded` |  |
+| `Failed` |  |
+
+
+#### OperationStep
+
+
+
+OperationStep is one executed action's outcome.
+
+
+
+_Appears in:_
+- [HostOperationStatus](#hostoperationstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `action` _string_ | Action is the union key that ran (powerCycle, insertMedia, …). |  |  |
+| `phase` _string_ |  |  | Enum: [Succeeded Failed] <br /> |
+| `message` _string_ |  |  | Optional: \{\} <br /> |
+| `finishedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | FinishedAt is when the step reached its goal (or failed). |  | Optional: \{\} <br /> |
+
+
+#### PowerCycleAction
+
+
+
+PowerCycleAction restarts the machine. It takes no fields: there is only one
+way to do it, forcibly, and a machine that is already off is turned on instead.
+
+
+
+_Appears in:_
+- [HostOperationAction](#hostoperationaction)
+
+
+
+#### PowerOffAction
+
+
+
+PowerOffAction turns the machine off, forcibly. Already off is success.
+
+
+
+_Appears in:_
+- [HostOperationAction](#hostoperationaction)
+
+
+
+#### ProposedPlan
+
+
+
+ProposedPlan remembers that an operation was proposed for one exact desired
+state — the one fact that is not re-derivable from the world (the operation
+object may be gone: TTL-GC'd, or deleted by a human as a veto). An unchanged
+planHash never spawns a second operation; everything else about the outcome
+is read live from the operation or its absence.
+
+
+
+_Appears in:_
+- [BiosSettingsStatus](#biossettingsstatus)
+- [HostStatus](#hoststatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `planHash` _string_ | PlanHash is the sha256 of the desired state the operation serves. |  |  |
+| `operation` _string_ | Operation is the proposed HostOperation as namespace/name. |  |  |
+
+
+#### ProvisioningApproval
+
+_Underlying type:_ _string_
+
+ProvisioningApproval says whether the operator's boot operation for this
+claim waits for a person.
+
+_Validation:_
+- Enum: [Required Automatic]
+
+_Appears in:_
+- [ClaimProvisioning](#claimprovisioning)
+
+| Field | Description |
+| --- | --- |
+| `Required` | ProvisioningApprovalRequired: the boot operation waits for a person to<br />approve it — the default, because it powers the machine.<br /> |
+| `Automatic` | ProvisioningApprovalAutomatic: the operator creates the boot operation<br />pre-cleared — for cattle, where the claim itself is the decision.<br /> |
+
+
+#### Reference
+
+
+
+Reference names another cluster-scoped object of this group.
+
+
+
+_Appears in:_
+- [ApplyBiosAction](#applybiosaction)
+- [AwaitCheckInAction](#awaitcheckinaction)
+- [ClaimOS](#claimos)
+- [HostClaimSpec](#hostclaimspec)
+- [HostClaimStatus](#hostclaimstatus)
+- [HostOS](#hostos)
+- [HostOperationSpec](#hostoperationspec)
+- [InsertMediaAction](#insertmediaaction)
+- [ManagementEndpointSpec](#managementendpointspec)
+- [ManagementPath](#managementpath)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ |  |  |  |
+
+
+#### SetBootOverrideAction
+
+
+
+SetBootOverrideAction points the next boot at a particular source.
+
+
+
+_Appears in:_
+- [HostOperationAction](#hostoperationaction)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `target` _string_ | Target is the boot source (UsbCd, Cd, Pxe, …) — validated against the<br />endpoint's discovered AllowableValues at execution, not at admission. |  |  |
+| `once` _boolean_ | Once limits the override to the next boot (the default); false is Continuous. | true | Optional: \{\} <br /> |
+| `mode` _string_ | Mode is the firmware boot mode for the override. Omitted leaves the<br />machine's own setting alone (some firmware rejects the property). |  | Enum: [UEFI Legacy] <br />Optional: \{\} <br /> |
+
+
+
+## os.pk.io/v1alpha1
+
+Package v1alpha1 is the os.pk.io API group: the operating system payload
+rendered onto the machines the metal group manages.
+
+TalosCluster carries what every member of a cluster shares (the Talos and
+Kubernetes versions, the API endpoint and VIP, pod and service networking,
+registry mirrors, the reference to the secrets bundle) and reports what the
+members form together: whether etcd was bootstrapped, whether the Kubernetes
+API answers, and where the admin credentials were published. TalosNode
+carries what belongs to one machine (its role, install disk, links, labels
+and taints, image schematic) and reports its rendered config and check-in. A
+BootAsset is the artifact a machine actually boots: either the generic
+install image, shared by every node and free of secrets, or the small
+per-node medium carrying that one node's rendered configuration.
+
+The kinds describe intent in this operator's terms, not Talos' document
+layout: internal/talos/render turns them into a Talos 1.14 multi-document
+machine configuration, and patches reach anything the kinds do not model.
+
+
+**Resources:** [BootAsset](#bootasset) · [TalosCluster](#taloscluster) · [TalosNode](#talosnode)
+
+
+
+### BootAsset
+
+
+
+BootAsset is a built boot artifact and how to fetch it: the controller produces
+the artifact and reports readiness, digest, and — for grant-free strategies —
+a URL.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `os.pk.io/v1alpha1` | | |
+| `kind` _string_ | `BootAsset` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[BootAssetSpec](#bootassetspec)_ |  |  |  |
+| `status` _[BootAssetStatus](#bootassetstatus)_ |  |  | Optional: \{\} <br /> |
+
+
+### TalosCluster
+
+
+
+TalosCluster is one Talos cluster: what its members share, and the
+observed state of the cluster they form.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `os.pk.io/v1alpha1` | | |
+| `kind` _string_ | `TalosCluster` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[TalosClusterSpec](#talosclusterspec)_ |  |  |  |
+| `status` _[TalosClusterStatus](#talosclusterstatus)_ |  |  | Optional: \{\} <br /> |
+
+
+### TalosNode
+
+
+
+TalosNode is one member of a TalosCluster: the machine-specific half of its
+configuration, and what the machine reports once it runs.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `os.pk.io/v1alpha1` | | |
+| `kind` _string_ | `TalosNode` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[TalosNodeSpec](#talosnodespec)_ |  |  |  |
+| `status` _[TalosNodeStatus](#talosnodestatus)_ |  |  | Optional: \{\} <br /> |
+
+
+
+### Supporting types
+
+The shapes the resources above are made of. These are fields of a resource, not
+resources themselves — nothing here is created or reconciled on its own.
+
+
+
+#### BootAssetSpec
+
+
+
+BootAssetSpec declares one boot artifact. The strategy decides which of the
+remaining fields apply; the CEL rules on the kind enforce the pairing.
+
+
+
+_Appears in:_
+- [BootAsset](#bootasset)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `strategy` _[BootAssetStrategy](#bootassetstrategy)_ | Strategy selects how the artifact is produced. The per-node embedded<br />install image (imager-built, config baked in — the single-medium fallback<br />for BMCs that cannot mount two media) joins the enum with OS provisioning<br />on real hardware. |  | Enum: [configISO factory] <br /> |
+| `nodeRef` _[Reference](#reference)_ | NodeRef names the TalosNode whose rendered config the artifact carries.<br />configISO only. |  | Optional: \{\} <br /> |
+| `talosVersion` _string_ | TalosVersion pins the release of the generic install image. factory only. |  | Pattern: `^v[0-9]+\.[0-9]+\.[0-9]+$` <br />Optional: \{\} <br /> |
+| `schematic` _[Schematic](#schematic)_ | Schematic customizes the install image (system extensions). factory only;<br />omitted means the vanilla image. |  | Optional: \{\} <br /> |
+
+
+#### BootAssetStatus
+
+
+
+BootAssetStatus reports the built artifact. Secret-bearing artifacts never get
+a stable URL — their fetch URLs are minted per mount as grants and revoked on
+node check-in, eject, or expiry.
+
+
+
+_Appears in:_
+- [BootAsset](#bootasset)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions: Ready. |  | Optional: \{\} <br /> |
+| `url` _string_ | URL is where the artifact is fetched without a grant. factory only. |  | Optional: \{\} <br /> |
+| `digest` _string_ | Digest is sha256:<hex> of the artifact bytes. configISO only. |  | Optional: \{\} <br /> |
+| `size` _integer_ | Size is the artifact size in bytes. configISO only. |  | Optional: \{\} <br /> |
+| `artifactSecretRef` _[SecretReference](#secretreference)_ | ArtifactSecretRef is where the built artifact rests (key asset.iso), owned<br />by this BootAsset and GC'd with it. configISO only. |  | Optional: \{\} <br /> |
+
+
+#### BootAssetStrategy
+
+_Underlying type:_ _string_
+
+BootAssetStrategy selects how the artifact is produced.
+
+_Validation:_
+- Enum: [configISO factory]
+
+_Appears in:_
+- [BootAssetSpec](#bootassetspec)
+
+| Field | Description |
+| --- | --- |
+| `configISO` | StrategyConfigISO builds the ~10 KB per-node config medium Talos reads when<br />booted with talos.config=metal-iso: an ISO9660 volume labeled metal-iso<br />holding one config.yaml. Mounted as the second virtual medium beside a<br />generic install image — the `secondary` delivery path. Secret-bearing:<br />served only under a grant.<br /> |
+| `factory` | StrategyFactory points at the generic secret-free install ISO on the image<br />factory — content-addressed by schematic, shared across nodes, fetched<br />without a grant.<br /> |
+
+
+#### CNI
+
+
+
+CNI selects the pod network plugin.
+
+
+
+_Appears in:_
+- [ClusterNetwork](#clusternetwork)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _[CNIName](#cniname)_ |  |  | Enum: [flannel none custom] <br /> |
+| `urls` _string array_ | URLs are the manifests a custom CNI is installed from. |  | Optional: \{\} <br /> |
+
+
+#### CNIName
+
+_Underlying type:_ _string_
+
+CNIName selects the pod network plugin Talos deploys.
+
+_Validation:_
+- Enum: [flannel none custom]
+
+_Appears in:_
+- [CNI](#cni)
+
+| Field | Description |
+| --- | --- |
+| `flannel` | CNIFlannel deploys Talos' built-in Flannel.<br /> |
+| `none` | CNINone deploys nothing: the cluster's own tooling installs a CNI after<br />bootstrap, and nodes stay NotReady until it does.<br /> |
+| `custom` | CNICustom applies the manifests at CNI.URLs instead of Flannel.<br /> |
+
+
+#### ClusterNetwork
+
+
+
+ClusterNetwork is the cluster-wide Kubernetes networking.
+
+
+
+_Appears in:_
+- [TalosClusterSpec](#talosclusterspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `podSubnets` _string array_ | PodSubnets are the pod CIDRs, primary family first. Empty selects<br />Talos' default for the endpoint's address family. |  | Optional: \{\} <br /> |
+| `serviceSubnets` _string array_ | ServiceSubnets are the service CIDRs, primary family first. Empty<br />selects Talos' default for the endpoint's address family. |  | Optional: \{\} <br /> |
+| `cni` _[CNI](#cni)_ | CNI selects the pod network plugin. Empty means flannel. |  | Optional: \{\} <br /> |
+
+
+#### ConfigMapKeyReference
+
+
+
+ConfigMapKeyReference points at one key of a namespaced ConfigMap.
+
+
+
+_Appears in:_
+- [Patch](#patch)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `namespace` _string_ |  |  |  |
+| `name` _string_ |  |  |  |
+| `key` _string_ |  |  |  |
+
+
+#### ControlPlaneSpec
+
+
+
+ControlPlaneSpec holds control-plane-only rendering.
+
+
+
+_Appears in:_
+- [TalosClusterSpec](#talosclusterspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `vip` _string_ | VIP is a shared address the control-plane members announce over layer 2<br />(Talos' Layer2VIPConfig). Each control-plane node carries it on the link<br />whose static address shares a subnet with it. |  | Optional: \{\} <br /> |
+| `allowScheduling` _boolean_ | AllowScheduling lets ordinary workloads run on control-plane nodes (the<br />control-plane NoSchedule taint is not rendered). |  | Optional: \{\} <br /> |
+
+
+#### DiskSelector
+
+
+
+DiskSelector matches the install disk. String matchers take glob patterns
+(*, ?); Match is a raw Talos disk CEL expression for anything else.
+
+
+
+_Appears in:_
+- [TalosNodeSpec](#talosnodespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `serial` _string_ | Serial matches the disk serial number, the one fact that survives<br />re-cabling and enumeration order. |  | Optional: \{\} <br /> |
+| `model` _string_ | Model matches the disk model. |  | Optional: \{\} <br /> |
+| `wwid` _string_ | WWID matches the disk's world wide identifier. |  | Optional: \{\} <br /> |
+| `busPath` _string_ | BusPath matches the disk's bus path. |  | Optional: \{\} <br /> |
+| `match` _string_ | Match is a CEL expression over `disk` (Talos' disk locator<br />environment), for example `disk.size > 100u * GB && !disk.rotational`. |  | Optional: \{\} <br /> |
+
+
+#### Link
+
+
+
+Link is one physical link: Talos aliases the link with the MAC address to
+Name (LinkAliasConfig), then configures it under that name (LinkConfig, and
+DHCPv4Config when DHCP is on). Naming links by alias keeps the rest of the
+configuration, and every patch, independent of what the kernel calls the
+interface on a given board.
+
+
+
+_Appears in:_
+- [NodeNetwork](#nodenetwork)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | Name is the alias the link gets. Avoid kernel names (eth0, enp0s2):<br />an alias must not collide with a real interface. |  | Pattern: `^[a-z][a-z0-9-]\{0,14\}$` <br /> |
+| `hardwareAddr` _string_ | HardwareAddr is the link's permanent MAC address. |  | Pattern: `^([0-9a-f]\{2\}:)\{5\}[0-9a-f]\{2\}$` <br /> |
+| `addresses` _string array_ | Addresses are static addresses in CIDR form, primary family first. |  | Optional: \{\} <br /> |
+| `routes` _[Route](#route) array_ | Routes are static routes over this link. |  | Optional: \{\} <br /> |
+| `dhcp` _boolean_ | DHCP runs a DHCPv4 client on the link, alongside any static addresses. |  | Optional: \{\} <br /> |
+| `mtu` _integer_ | MTU overrides the link MTU. |  | Minimum: 576 <br />Optional: \{\} <br /> |
+
+
+#### NodeNetwork
+
+
+
+NodeNetwork is the node's link configuration.
+
+
+
+_Appears in:_
+- [TalosNodeSpec](#talosnodespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `links` _[Link](#link) array_ | Links configure physical links, each selected by its MAC address. |  | Optional: \{\} <br /> |
+
+
+#### NodeRole
+
+_Underlying type:_ _string_
+
+NodeRole is the part a machine plays in its cluster.
+
+_Validation:_
+- Enum: [controlplane worker]
+
+_Appears in:_
+- [TalosNodeSpec](#talosnodespec)
+
+| Field | Description |
+| --- | --- |
+| `controlplane` |  |
+| `worker` |  |
+
+
+#### Patch
+
+
+
+Patch is one Talos configuration patch: a multi-document YAML strategic
+merge patch (documents merge by apiVersion, kind and name; `$patch: delete`
+removes one), given inline or read from a ConfigMap key.
+
+
+
+_Appears in:_
+- [TalosClusterSpec](#talosclusterspec)
+- [TalosNodeSpec](#talosnodespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `inline` _string_ | Inline is the patch text. |  | Optional: \{\} <br /> |
+| `configMapRef` _[ConfigMapKeyReference](#configmapkeyreference)_ | ConfigMapRef reads the patch from a ConfigMap key. |  | Optional: \{\} <br /> |
+
+
+#### Reference
+
+
+
+Reference names another cluster-scoped object of this group. Declared here
+rather than shared with the metal group, so the two groups can version apart.
+
+
+
+_Appears in:_
+- [BootAssetSpec](#bootassetspec)
+- [TalosNodeSpec](#talosnodespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ |  |  |  |
+
+
+#### RegistryMirror
+
+
+
+RegistryMirror redirects pulls from one registry to mirror endpoints.
+
+
+
+_Appears in:_
+- [TalosClusterSpec](#talosclusterspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `registry` _string_ | Registry is the upstream registry host the mirror stands in for<br />(docker.io, ghcr.io, factory.talos.dev), or "*" for every registry. |  | MinLength: 1 <br /> |
+| `endpoints` _string array_ | Endpoints are the mirror URLs, tried in order. |  | MinItems: 1 <br /> |
+
+
+#### Route
+
+
+
+Route is a static route.
+
+
+
+_Appears in:_
+- [Link](#link)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `network` _string_ | Network is the destination CIDR; empty is the default route. |  | Optional: \{\} <br /> |
+| `gateway` _string_ | Gateway is the next hop. |  | Optional: \{\} <br /> |
+| `metric` _integer_ | Metric orders competing routes. |  | Optional: \{\} <br /> |
+
+
+#### Schematic
+
+
+
+Schematic is the Image Factory schematic subset this operator renders: the
+content its id is a hash of, so every field here changes the image.
+
+
+
+_Appears in:_
+- [BootAssetSpec](#bootassetspec)
+- [TalosClusterSpec](#talosclusterspec)
+- [TalosNodeSpec](#talosnodespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `customization` _[SchematicCustomization](#schematiccustomization)_ |  |  | Optional: \{\} <br /> |
+
+
+#### SchematicCustomization
+
+
+
+SchematicCustomization holds the image customization knobs.
+
+
+
+_Appears in:_
+- [Schematic](#schematic)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `systemExtensions` _[SystemExtensions](#systemextensions)_ |  |  | Optional: \{\} <br /> |
+| `extraKernelArgs` _string array_ | ExtraKernelArgs append to the image's kernel command line. This is how a<br />boot medium is told to read its config off the second medium<br />(talos.config=metal-iso) and where to put the console (console=ttyS0,<br />what the BMC's serial-over-LAN shows). |  | Optional: \{\} <br /> |
+
+
+#### SecretReference
+
+
+
+SecretReference points at a namespaced Secret from a cluster-scoped object.
+
+
+
+_Appears in:_
+- [BootAssetStatus](#bootassetstatus)
+- [TalosClusterSpec](#talosclusterspec)
+- [TalosClusterStatus](#talosclusterstatus)
+- [TalosNodeStatus](#talosnodestatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `namespace` _string_ |  |  |  |
+| `name` _string_ |  |  |  |
+
+
+#### SystemExtensions
+
+
+
+SystemExtensions bakes extensions into the image.
+
+
+
+_Appears in:_
+- [SchematicCustomization](#schematiccustomization)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `officialExtensions` _string array_ | OfficialExtensions are siderolabs/* extension names (siderolabs/drbd). |  | Optional: \{\} <br /> |
+
+
+#### Taint
+
+
+
+Taint is a Kubernetes node taint.
+
+
+
+_Appears in:_
+- [TalosNodeSpec](#talosnodespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `key` _string_ |  |  |  |
+| `value` _string_ |  |  | Optional: \{\} <br /> |
+| `effect` _[TaintEffect](#tainteffect)_ |  |  | Enum: [NoSchedule PreferNoSchedule NoExecute] <br /> |
+
+
+#### TaintEffect
+
+_Underlying type:_ _string_
+
+TaintEffect is a Kubernetes taint effect.
+
+_Validation:_
+- Enum: [NoSchedule PreferNoSchedule NoExecute]
+
+_Appears in:_
+- [Taint](#taint)
+
+
+
+
+#### TalosClusterSpec
+
+
+
+TalosClusterSpec is what every member of one Talos cluster shares. The cluster
+name is the object's metadata.name.
+
+
+
+_Appears in:_
+- [TalosCluster](#taloscluster)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `talosVersion` _string_ | TalosVersion is the Talos release the cluster runs. It selects the<br />configuration contract the render targets and the installer image tag, so<br />it must match what the machines boot. Talos v1.14 or later. |  | Pattern: `^v1\.(1[4-9]\|[2-9][0-9])\.[0-9]+$` <br /> |
+| `kubernetesVersion` _string_ | KubernetesVersion is the Kubernetes release the control plane runs. |  | Pattern: `^v[0-9]+\.[0-9]+\.[0-9]+$` <br /> |
+| `endpoint` _string_ | Endpoint is the Kubernetes API URL every member enrolls against and the<br />admin kubeconfig names: the control-plane VIP or a DNS name for it, with<br />the port (https://10.77.0.10:6443). |  | Pattern: `^https://[^/]+$` <br /> |
+| `controlPlane` _[ControlPlaneSpec](#controlplanespec)_ | ControlPlane carries the settings only control-plane members render. |  | Optional: \{\} <br /> |
+| `network` _[ClusterNetwork](#clusternetwork)_ | Network is the cluster's pod and service networking. |  | Optional: \{\} <br /> |
+| `certSANs` _string array_ | CertSANs are extra names the Kubernetes API server and the Talos API<br />certificates must be valid for, beyond the endpoint, the VIP and the<br />node addresses Talos adds on its own. |  | Optional: \{\} <br /> |
+| `registryMirrors` _[RegistryMirror](#registrymirror) array_ | RegistryMirrors redirect image pulls, one entry per upstream registry. A<br />site without internet access needs them before the first node installs,<br />which is why they live here rather than in a patch someone has to<br />remember. |  | Optional: \{\} <br /> |
+| `secretsRef` _[SecretReference](#secretreference)_ | SecretsRef names the Secret holding the cluster's Talos secrets bundle<br />under key secrets.yaml, as `talosctl gen secrets` writes it. A person<br />generates the bundle once and commits it sealed; the operator only reads<br />it. Every certificate and key in a rendered config, and the<br />kubeconfig and talosconfig the operator publishes, derive from it. |  |  |
+| `schematic` _[Schematic](#schematic)_ | Schematic is the installer image customization every node uses unless it<br />sets its own (a node's schematic replaces this one, it does not merge<br />with it). |  | Optional: \{\} <br /> |
+| `patches` _[Patch](#patch) array_ | Patches apply to every node, in order, after the operator's own<br />rendering and before the node's patches. |  | Optional: \{\} <br /> |
+
+
+#### TalosClusterStatus
+
+
+
+TalosClusterStatus is observed: whether etcd was bootstrapped, whether the
+Kubernetes API answers, how many members are Ready, and where the admin
+credentials derived from the secrets bundle were published.
+
+
+
+_Appears in:_
+- [TalosCluster](#taloscluster)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions: Bootstrapped and Available. |  | Optional: \{\} <br /> |
+| `controlPlanes` _integer_ | ControlPlanes and Workers count the TalosNodes that name this cluster;<br />the Ready counts are the ones whose Ready condition is True. |  | Optional: \{\} <br /> |
+| `readyControlPlanes` _integer_ |  |  | Optional: \{\} <br /> |
+| `workers` _integer_ |  |  | Optional: \{\} <br /> |
+| `readyWorkers` _integer_ |  |  | Optional: \{\} <br /> |
+| `kubernetesVersion` _string_ | KubernetesVersion is the version the Kubernetes API reports, empty<br />while it does not answer. |  | Optional: \{\} <br /> |
+| `kubeconfigSecretRef` _[SecretReference](#secretreference)_ | KubeconfigSecretRef points at the Secret (key kubeconfig) holding an<br />admin kubeconfig minted from the bundle's Kubernetes CA. |  | Optional: \{\} <br /> |
+| `talosconfigSecretRef` _[SecretReference](#secretreference)_ | TalosconfigSecretRef points at the Secret (key talosconfig) holding an<br />admin talosconfig minted from the bundle's Talos CA, with every<br />control-plane address as an endpoint. |  | Optional: \{\} <br /> |
+
+
+
+#### TalosNodeSpec
+
+
+
+TalosNodeSpec is what belongs to one machine. Its hostname is the object's
+metadata.name.
+
+
+
+_Appears in:_
+- [TalosNode](#talosnode)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `clusterRef` _[Reference](#reference)_ | ClusterRef names the TalosCluster this node is a member of. |  |  |
+| `role` _[NodeRole](#noderole)_ | Role is controlplane or worker. |  | Enum: [controlplane worker] <br /> |
+| `address` _string_ | Address is where the operator and talosctl reach the node's Talos API.<br />Empty means the first static address of the first link. A node that only<br />takes DHCP addresses needs it set, or its check-in has nothing to dial. |  | Optional: \{\} <br /> |
+| `installDiskSelector` _[DiskSelector](#diskselector)_ | InstallDiskSelector picks the disk Talos installs onto. Every matcher<br />that is set must hold (they are ANDed into one CEL expression). |  |  |
+| `network` _[NodeNetwork](#nodenetwork)_ | Network configures the node's links. |  | Optional: \{\} <br /> |
+| `labels` _object (keys:string, values:string)_ | Labels are Kubernetes node labels the kubelet registers with. Worker<br />nodes may only set labels the NodeRestriction admission plugin allows. |  | Optional: \{\} <br /> |
+| `taints` _[Taint](#taint) array_ | Taints are Kubernetes node taints the kubelet registers with. |  | Optional: \{\} <br /> |
+| `schematic` _[Schematic](#schematic)_ | Schematic customizes this node's installer image and replaces the<br />cluster's schematic when set. Extensions and kernel arguments both live<br />here: Talos takes the installed kernel command line from the image, so an<br />argument that is not part of the schematic does not survive the install. |  | Optional: \{\} <br /> |
+| `patches` _[Patch](#patch) array_ | Patches apply to this node only, in order, after the cluster's patches. |  | Optional: \{\} <br /> |
+
+
+#### TalosNodeStatus
+
+
+
+TalosNodeStatus reports the render and the machine's check-in. Rendered=False
+is alert-and-hold: the last rendered Secret stays in place, so a broken input
+never un-renders a machine's config.
+
+
+
+_Appears in:_
+- [TalosNode](#talosnode)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions: Rendered, plus the check-in observations MachineReachable<br />and Ready while a Host hands this node a machine. |  | Optional: \{\} <br /> |
+| `configSecretRef` _[SecretReference](#secretreference)_ | ConfigSecretRef points at the Secret holding this node's rendered<br />machine config (key config.yaml). Owned by the TalosNode and collected<br />with it; it is the one place the rendered secrets rest. |  | Optional: \{\} <br /> |
+| `configDigest` _string_ | ConfigDigest is sha256:<hex> of the rendered config, what BootAsset<br />builds key their rebuilds on. |  | Optional: \{\} <br /> |
+| `installerImage` _string_ | InstallerImage is the installer the rendered config installs from. |  | Optional: \{\} <br /> |
+| `address` _string_ | Address is where the check-in dials (spec.address, or the first static<br />link address). |  | Optional: \{\} <br /> |
+| `stage` _string_ | Stage is the machine's observed boot stage (maintenance, booting,<br />installing, running, ...), empty while no machine answers. |  | Optional: \{\} <br /> |
+| `version` _string_ | Version is the Talos version the machine reports. |  | Optional: \{\} <br /> |
+
+
