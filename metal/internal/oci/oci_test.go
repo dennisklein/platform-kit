@@ -96,3 +96,37 @@ func TestPull(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+func TestParseRef(t *testing.T) {
+	pin := digest.FromString("firmware").String()
+	for _, tc := range []struct {
+		ref        string
+		host, repo string
+	}{
+		{"registry.pk.internal:5000/firmware/x12-bmc@" + pin, "registry.pk.internal:5000", "firmware/x12-bmc"},
+		{"[fd00::1]:5000/fw@" + pin, "[fd00::1]:5000", "fw"},
+		{"localhost/fw@" + pin, "localhost", "fw"},
+	} {
+		t.Run(tc.ref, func(t *testing.T) {
+			host, repo, d, err := parseRef(tc.ref)
+			require.NoError(t, err)
+			assert.Equal(t, tc.host, host)
+			assert.Equal(t, tc.repo, repo)
+			assert.Equal(t, pin, d.String())
+		})
+	}
+
+	for name, ref := range map[string]string{
+		"tag only":             "registry.pk.internal:5000/firmware/x12-bmc:latest",
+		"short digest":         "registry.pk.internal:5000/firmware/x12-bmc@sha256:abc",
+		"uppercase repository": "registry.pk.internal:5000/Firmware/X12@" + pin,
+		"no registry":          "firmware/x12-bmc@" + pin,
+		"no repository":        "registry.pk.internal:5000@" + pin,
+		"two digests":          "registry.pk.internal:5000/fw@" + pin + "@" + pin,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, _, _, err := parseRef(ref)
+			assert.Error(t, err, "a reference that is not host/repo@sha256:<64 hex> must be refused")
+		})
+	}
+}

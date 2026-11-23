@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/opencontainers/go-digest"
 )
 
@@ -70,19 +71,19 @@ func Pull(ctx context.Context, hc *http.Client, ref string) ([]byte, error) {
 	return blob, nil
 }
 
+// parseRef splits a digest-pinned reference with the registry grammar of
+// go-containerregistry, which checks the host (host:port and bracketed IPv6
+// included), the repository and the digest. StrictValidation turns off the
+// Docker Hub default: a reference must name the internal registry itself.
 func parseRef(ref string) (host, repo string, d digest.Digest, err error) {
-	rest, pin, ok := strings.Cut(ref, "@")
-	if !ok || !strings.HasPrefix(pin, "sha256:") {
+	if !strings.Contains(ref, "@sha256:") {
 		return "", "", "", fmt.Errorf("oci: reference %q is not digest-pinned", ref)
 	}
-	if d, err = digest.Parse(pin); err != nil {
+	n, err := name.NewDigest(ref, name.StrictValidation)
+	if err != nil {
 		return "", "", "", fmt.Errorf("oci: reference %q: %w", ref, err)
 	}
-	host, repo, ok = strings.Cut(rest, "/")
-	if !ok || host == "" || repo == "" {
-		return "", "", "", fmt.Errorf("oci: reference %q has no host/repository split", ref)
-	}
-	return host, repo, d, nil
+	return n.Context().RegistryStr(), n.Context().RepositoryStr(), digest.Digest(n.DigestStr()), nil
 }
 
 func fetch(ctx context.Context, hc *http.Client, url string, want digest.Digest, accept string) ([]byte, error) {

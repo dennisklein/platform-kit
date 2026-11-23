@@ -27,6 +27,8 @@ go 1.26.5
 
 require (
 	github.com/cosi-project/runtime v1.16.3
+	// Already linked through machinery; its pkg/name checks the firmware image reference grammar.
+	github.com/google/go-containerregistry v0.21.7
 	github.com/kdomanski/iso9660 v0.4.0
 	// Already linked through machinery; formats and parses the sha256: digests the API stores.
 	github.com/opencontainers/go-digest v1.0.0
@@ -96,7 +98,6 @@ require (
 	github.com/google/cel-go v0.31.0 // indirect
 	github.com/google/gnostic-models v0.7.1 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
-	github.com/google/go-containerregistry v0.21.7 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
