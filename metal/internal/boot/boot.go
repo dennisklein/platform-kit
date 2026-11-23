@@ -10,10 +10,12 @@ package boot
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -45,6 +47,14 @@ type Options struct {
 	// Hold keeps serving with the medium mounted after the pull, until ctx is
 	// cancelled — for watching a node that needs the medium across re-reads.
 	Hold bool
+	// AllowRestart lets the ladder hard-reset a machine that is powered on.
+	// Without it, Run refuses a running machine before it changes anything:
+	// a restart kills whatever the machine runs.
+	AllowRestart bool
+	// NoPower mounts the medium and sets the boot override, but leaves power
+	// alone: the person restarts the machine (and Run serves until the image
+	// is read or the grant ends).
+	NoPower bool
 	// Logf reports each rung; nil is silent.
 	Logf func(format string, args ...any)
 }
@@ -58,6 +68,10 @@ type Result struct {
 	ServedBytes  int64
 	ReadComplete bool
 }
+
+// ErrMachineOn: the machine is powered on and the caller did not allow a
+// restart. Run returns it before it changes anything.
+var ErrMachineOn = errors.New("boot: the machine is powered on, and booting it means a hard reset")
 
 // Run climbs the ladder. On return the grant is revoked and the medium ejected
 // (best-effort on error paths), unless Hold kept them until ctx cancellation.
@@ -85,7 +99,28 @@ func Run(ctx context.Context, o Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	logf("boot: media %s (%s), system %s, boot target %s", slot, dialect, system.ID, target)
+	// Read the power state before anything changes, so that a refusal leaves
+	// the machine as it was. An unreadable state counts as on: the reset is
+	// what needs consent.
+	state, perr := o.Client.Power(ctx, system.ID)
+	running := perr != nil || state == bmc.PowerOn
+	power := "power the machine on"
+	switch {
+	case o.NoPower:
+		power = "leave power alone: restart the machine yourself to boot from the medium"
+	case running:
+		power = fmt.Sprintf("HARD-RESET the machine (it is %s now; the running OS is not shut down)", powerWord(state, perr))
+	}
+	logf("boot: plan for system %s (media slot %s, %s):", system.ID, slot, dialect)
+	logf("boot:   1. eject whatever is mounted on slot %s", slot)
+	logf("boot:   2. serve the config ISO for node %s for up to %s, under a one-time user and password", o.NodeName, o.TTL)
+	logf("boot:   3. mount it on slot %s", slot)
+	logf("boot:   4. boot from %s at the next start only", target)
+	logf("boot:   5. %s", power)
+	logf("boot:   6. wait until the machine has read the image, then eject it and stop serving")
+	if running && !o.NoPower && !o.AllowRestart {
+		return Result{}, ErrMachineOn
+	}
 
 	// The X12 lesson: a stale mount refuses InsertMedia — eject and verify
 	// Inserted=false before mounting.
@@ -150,14 +185,23 @@ func Run(ctx context.Context, o Options) (Result, error) {
 	}
 	logf("boot: boot override %s (once)", target)
 
-	action := bmc.ActionOn
-	if state, err := o.Client.Power(ctx, system.ID); err == nil && state == bmc.PowerOn {
-		action = bmc.ActionForceRestart
+	if o.NoPower {
+		logf("boot: power left alone; restart the machine to boot from the medium")
+	} else {
+		// Read again: the state may have changed while the medium went in,
+		// and a machine somebody switched on meanwhile needs consent too.
+		action := bmc.ActionOn
+		if state, err := o.Client.Power(ctx, system.ID); err == nil && state == bmc.PowerOn {
+			if !o.AllowRestart {
+				return res, cleanupAfter(ctx, o, grants, grant.Token, slot, ErrMachineOn)
+			}
+			action = bmc.ActionForceRestart
+		}
+		if err := o.Client.SetPower(ctx, system.ID, action); err != nil {
+			return res, cleanupAfter(ctx, o, grants, grant.Token, slot, err)
+		}
+		logf("boot: power %s", action)
 	}
-	if err := o.Client.SetPower(ctx, system.ID, action); err != nil {
-		return res, cleanupAfter(ctx, o, grants, grant.Token, slot, err)
-	}
-	logf("boot: power %s", action)
 
 	select {
 	case <-m.done:
@@ -196,6 +240,13 @@ func cleanupAfter(ctx context.Context, o Options, grants *asset.Grants, token, s
 		logf("boot: grant revoked")
 	}
 	return cause
+}
+
+func powerWord(s bmc.PowerState, err error) string {
+	if err != nil {
+		return "in an unknown power state"
+	}
+	return strings.ToLower(string(s))
 }
 
 func listener(o Options) (host string, ln net.Listener, err error) {

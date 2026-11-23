@@ -2,8 +2,11 @@ package boot_test
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/url"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,6 +41,8 @@ func TestLadderDirect(t *testing.T) {
 		TTL:      time.Minute,
 		Listen:   "127.0.0.1:0",
 		Logf:     t.Logf,
+		// The fixture's machine is on: these tests boot it anyway.
+		AllowRestart: true,
 	})
 	require.NoError(t, err)
 	assert.True(t, res.ReadComplete, "the boot pull must complete")
@@ -80,6 +85,8 @@ func TestLadderOverRelay(t *testing.T) {
 		TTL:      time.Minute,
 		Relay:    rc,
 		Logf:     t.Logf,
+		// The fixture's machine is on: this test boots it anyway.
+		AllowRestart: true,
 	})
 	require.NoError(t, err)
 	assert.True(t, res.ReadComplete, "the pull must complete through the relay")
@@ -100,6 +107,8 @@ func TestLadderVmmDialect(t *testing.T) {
 		TTL:      time.Minute,
 		Listen:   "127.0.0.1:0",
 		Logf:     t.Logf,
+		// The fixture's machine is on: these tests boot it anyway.
+		AllowRestart: true,
 	})
 	require.NoError(t, err)
 	assert.True(t, res.ReadComplete)
@@ -125,6 +134,8 @@ func TestLadderHold(t *testing.T) {
 			Listen:   "127.0.0.1:0",
 			Hold:     true,
 			Logf:     t.Logf,
+			// The fixture's machine is on: hold boots it anyway.
+			AllowRestart: true,
 		})
 		assert.NoError(t, err)
 	}()
@@ -169,7 +180,65 @@ func TestLadderRefusals(t *testing.T) {
 	assert.ErrorContains(t, err, "USBStick", "a slot without an insert mechanism is refused")
 
 	_, err = boot.Run(context.Background(), boot.Options{
-		Client: st, NodeName: "w", Config: nil, TTL: time.Minute, Listen: "127.0.0.1:0",
+		Client: st, NodeName: "w", Config: nil, TTL: time.Minute, Listen: "127.0.0.1:0", AllowRestart: true,
 	})
 	assert.Error(t, err, "an empty config must not pack")
+}
+
+// TestLadderRefusesRunningMachine: a machine that is on is not reset without
+// consent, and the refusal comes before anything on the BMC changes.
+func TestLadderRefusesRunningMachine(t *testing.T) {
+	st := simState(t, "supermicro-x12")
+	targetBefore, _ := st.BootOverride("1")
+	var lines []string
+	_, err := boot.Run(context.Background(), boot.Options{
+		Client: st, NodeName: "w", Config: config, TTL: time.Minute, Listen: "127.0.0.1:0",
+		Logf: func(format string, args ...any) { lines = append(lines, fmt.Sprintf(format, args...)) },
+	})
+	require.ErrorIs(t, err, boot.ErrMachineOn)
+
+	plan := strings.Join(lines, "\n")
+	assert.Contains(t, plan, "HARD-RESET", "the plan says the machine would be reset")
+	assert.Contains(t, plan, "boot from UsbCd")
+
+	state, err := st.Power(context.Background(), "1")
+	require.NoError(t, err)
+	assert.Equal(t, bmc.PowerOn, state, "power untouched")
+	target, _ := st.BootOverride("1")
+	assert.Equal(t, targetBefore, target, "boot override untouched")
+	media, err := st.Media(context.Background())
+	require.NoError(t, err)
+	for _, m := range media {
+		assert.False(t, m.Inserted, "nothing mounted on %s", m.ID)
+	}
+}
+
+// TestLadderNoPower mounts and sets the override but leaves power to the
+// person: the boot happens when they restart the machine themselves.
+func TestLadderNoPower(t *testing.T) {
+	st := simState(t, "supermicro-x12")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// The person: restart the machine once the medium is in.
+	go func() {
+		for ctx.Err() == nil {
+			media, err := st.Media(ctx)
+			if err == nil && slices.ContainsFunc(media, func(m bmc.VirtualMedia) bool { return m.Inserted }) {
+				target, _ := st.BootOverride("1")
+				if target == "UsbCd" {
+					_ = st.SetPower(ctx, "1", bmc.ActionForceRestart)
+					return
+				}
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}()
+
+	res, err := boot.Run(ctx, boot.Options{
+		Client: st, NodeName: "w", Config: config, TTL: 20 * time.Second, Listen: "127.0.0.1:0",
+		NoPower: true, Logf: t.Logf,
+	})
+	require.NoError(t, err, "a running machine needs no consent when pk-metal does not touch power")
+	assert.True(t, res.ReadComplete, "the person's restart boots the medium")
 }
