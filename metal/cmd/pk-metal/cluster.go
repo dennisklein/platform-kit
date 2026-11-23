@@ -23,7 +23,7 @@ const operatorNamespace = "pk-metal"
 
 // holdAnnotation on a HostClaim tells the operator to propose no new
 // operation for it. Its value is the reason a person gave, possibly empty.
-const holdAnnotation = "metal.pk.io/hold"
+const holdAnnotation = metalv1alpha1.AnnotationHold
 
 // The labels the operator puts on the operations it proposes for a claim.
 const (
