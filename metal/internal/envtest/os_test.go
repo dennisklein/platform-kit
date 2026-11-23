@@ -168,30 +168,14 @@ func TestOSLane(t *testing.T) {
 	})
 	require.NoError(t, err)
 	factory, posted := stubFactory(t)
-	require.NoError(t, (&controller.TalosNodeReconciler{
-		Client:        mgr.GetClient(),
-		Scheme:        mgr.GetScheme(),
-		Namespace:     "default",
-		Factory:       factory,
-		Dial:          fleet.Dialer(),
-		CheckInterval: 100 * time.Millisecond,
-		ReadyInterval: 200 * time.Millisecond,
-	}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.TalosClusterReconciler{
-		Client:          mgr.GetClient(),
-		Scheme:          mgr.GetScheme(),
-		Namespace:       "default",
-		Dial:            fleet.Dialer(),
-		ProbeKubernetes: probe,
-		CheckInterval:   100 * time.Millisecond,
-		ReadyInterval:   200 * time.Millisecond,
-	}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.BootAssetReconciler{
-		Client:    mgr.GetClient(),
-		Scheme:    mgr.GetScheme(),
-		Namespace: "default",
-		Factory:   factory,
-	}).SetupWithManager(mgr))
+	require.NoError(t, controller.SetupAll(mgr, controller.Options{
+		CredentialsNamespace: "default",
+		Factory:              factory,
+		TalosDial:            fleet.Dialer(),
+		ProbeKubernetes:      probe,
+		CheckInterval:        100 * time.Millisecond,
+		ReadyInterval:        200 * time.Millisecond,
+	}, controller.LaneTalosNode, controller.LaneTalosCluster, controller.LaneBootAsset))
 	go func() {
 		if err := mgr.Start(ctx); err != nil {
 			t.Logf("manager: %v", err)

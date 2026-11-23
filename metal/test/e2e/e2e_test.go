@@ -153,54 +153,27 @@ func TestE2EKind(t *testing.T) {
 		require.NoError(t, cl.Create(ctx, sec))
 	}
 
-	// The managers, wired exactly as cmd/manager wires them — in-process is the
-	// dev-run composition; in-cluster deployment fidelity arrives with the
+	// The reconcilers, built by controller.SetupAll as cmd/manager builds them,
+	// minus the lanes this suite does not exercise. In-process is the dev-run
+	// composition; in-cluster deployment fidelity arrives with the
 	// image lane. The approval VAP is envtest-proven and not re-tested here.
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:  s,
 		Metrics: metricsserver.Options{BindAddress: "0"},
 	})
 	require.NoError(t, err)
-	require.NoError(t, (&controller.AssetReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Ledger:   led,
-		TLS:      &metalv1alpha1.EndpointTLS{CASecretRef: &corev1.LocalObjectReference{Name: "bmc-ca"}},
-		Recorder: mgr.GetEventRecorder("pk-metal-e2e"),
-	}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.ManagementEndpointReconciler{
-		Client:               mgr.GetClient(),
+	require.NoError(t, controller.SetupAll(mgr, controller.Options{
 		CredentialsNamespace: ns,
+		EventSource:          "pk-metal-e2e",
+		Ledger:               led,
+		TLS:                  &metalv1alpha1.EndpointTLS{CASecretRef: &corev1.LocalObjectReference{Name: "bmc-ca"}},
 		PollInterval:         5 * time.Second,
-	}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.HostReconciler{Client: mgr.GetClient()}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.HostClaimReconciler{Client: mgr.GetClient()}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.HostOperationReconciler{
-		Client:               mgr.GetClient(),
-		CredentialsNamespace: ns,
-		Recorder:             mgr.GetEventRecorder("pk-metal-e2e"),
-	}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.TalosNodeReconciler{
-		Client:        mgr.GetClient(),
-		Scheme:        mgr.GetScheme(),
-		Namespace:     ns,
-		Factory:       kindFactory,
-		Dial:          machineapi.Dial,
-		CheckInterval: 2 * time.Second,
-	}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.TalosClusterReconciler{
-		Client:        mgr.GetClient(),
-		Scheme:        mgr.GetScheme(),
-		Namespace:     ns,
-		Dial:          machineapi.Dial,
-		CheckInterval: 2 * time.Second,
-	}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.BootAssetReconciler{
-		Client:    mgr.GetClient(),
-		Scheme:    mgr.GetScheme(),
-		Namespace: ns,
-		Factory:   kindFactory,
-	}).SetupWithManager(mgr))
+		Factory:              kindFactory,
+		TalosDial:            machineapi.Dial,
+		CheckInterval:        2 * time.Second,
+	}, controller.LaneAsset, controller.LaneEndpoint, controller.LaneHost, controller.LaneHostClaim,
+		controller.LaneHostOperation, controller.LaneTalosNode, controller.LaneTalosCluster,
+		controller.LaneBootAsset))
 	mgrCtx, cancel := context.WithCancel(ctx)
 	t.Cleanup(cancel)
 	go func() {

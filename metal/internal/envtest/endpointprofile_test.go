@@ -124,23 +124,12 @@ func TestEndpointConvergence(t *testing.T) {
 		Controller: config.Controller{SkipNameValidation: ptr.To(true)},
 	})
 	require.NoError(t, err)
-	require.NoError(t, (&controller.AssetReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Ledger:   led,
-		TLS:      &metalv1alpha1.EndpointTLS{CASecretRef: &corev1.LocalObjectReference{Name: "bmc-ca"}},
-		Recorder: mgr.GetEventRecorder("pk-metal"),
-	}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.ManagementEndpointReconciler{
-		Client:               mgr.GetClient(),
+	require.NoError(t, controller.SetupAll(mgr, controller.Options{
 		CredentialsNamespace: "default",
+		Ledger:               led,
+		TLS:                  &metalv1alpha1.EndpointTLS{CASecretRef: &corev1.LocalObjectReference{Name: "bmc-ca"}},
 		PollInterval:         pollInterval,
-	}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.EndpointConvergenceReconciler{
-		Client:               mgr.GetClient(),
-		CredentialsNamespace: "default",
-		PollInterval:         pollInterval,
-	}).SetupWithManager(mgr))
+	}, controller.LaneAsset, controller.LaneEndpoint, controller.LaneEndpointConvergence))
 	go func() {
 		if err := mgr.Start(ctx); err != nil {
 			t.Logf("manager: %v", err)

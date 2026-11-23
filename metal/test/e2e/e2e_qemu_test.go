@@ -202,33 +202,17 @@ func TestE2EQemu(t *testing.T) {
 		Metrics: metricsserver.Options{BindAddress: "0"},
 	})
 	require.NoError(t, err)
-	require.NoError(t, (&controller.AssetReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Ledger:   led,
-		TLS:      &metalv1alpha1.EndpointTLS{CASecretRef: &corev1.LocalObjectReference{Name: "bmc-ca"}},
-		Recorder: mgr.GetEventRecorder("pk-metal-e2e-qemu"),
-	}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.ManagementEndpointReconciler{
-		Client:               mgr.GetClient(),
+	require.NoError(t, controller.SetupAll(mgr, controller.Options{
 		CredentialsNamespace: qemuNS,
+		EventSource:          "pk-metal-e2e-qemu",
+		Ledger:               led,
+		TLS:                  &metalv1alpha1.EndpointTLS{CASecretRef: &corev1.LocalObjectReference{Name: "bmc-ca"}},
 		PollInterval:         5 * time.Second,
-	}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.HostReconciler{Client: mgr.GetClient()}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.HostClaimReconciler{Client: mgr.GetClient()}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.HostOperationReconciler{
-		Client:               mgr.GetClient(),
-		CredentialsNamespace: qemuNS,
-		Recorder:             mgr.GetEventRecorder("pk-metal-e2e-qemu"),
-	}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.TalosNodeReconciler{
-		Client:        mgr.GetClient(),
-		Scheme:        mgr.GetScheme(),
-		Namespace:     qemuNS,
-		Factory:       qemuFactory,
-		Dial:          machineapi.Dial,
-		CheckInterval: 2 * time.Second,
-	}).SetupWithManager(mgr))
+		Factory:              qemuFactory,
+		TalosDial:            machineapi.Dial,
+		CheckInterval:        2 * time.Second,
+	}, controller.LaneAsset, controller.LaneEndpoint, controller.LaneHost, controller.LaneHostClaim,
+		controller.LaneHostOperation, controller.LaneTalosNode))
 	mgrCtx, cancel := context.WithCancel(ctx)
 	t.Cleanup(cancel)
 	go func() {

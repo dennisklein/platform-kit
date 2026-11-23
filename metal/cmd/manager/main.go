@@ -209,112 +209,27 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&controller.AssetReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-		Ledger: led,
-		// The standard install mounts the ledger from this ConfigMap; the
-		// path is what this process actually read.
-		LedgerSource: fmt.Sprintf("the ledger (%s, from ledger.yaml in the pk-metal-ledger ConfigMap in namespace %s)", ledgerPath, credsNS),
-		LedgerReload: fmt.Sprintf("The manager reads the ledger when it starts: after an edit, run kubectl -n %s rollout restart deployment/pk-metal-manager.", credsNS),
-		TLS:          tlsDefault,
-		Recorder:     mgr.GetEventRecorder("pk-metal"),
-	}).SetupWithManager(mgr); err != nil {
-		log.Error(err, "setup asset reconciler")
-		os.Exit(1)
-	}
-	if err := (&controller.ManagementEndpointReconciler{
-		Client:               mgr.GetClient(),
-		CredentialsNamespace: credsNS,
-		PollInterval:         poll,
-	}).SetupWithManager(mgr); err != nil {
-		log.Error(err, "setup managementendpoint reconciler")
-		os.Exit(1)
-	}
-	if err := (&controller.HostReconciler{
-		Client: mgr.GetClient(),
-	}).SetupWithManager(mgr); err != nil {
-		log.Error(err, "setup host reconciler")
-		os.Exit(1)
-	}
-	if err := (&controller.HostClaimReconciler{
-		Client:                 mgr.GetClient(),
-		OperationsNamespace:    credsNS,
-		Proposer:               proposer,
-		CheckInTimeoutSeconds:  int32(checkIn.Seconds()),
-		ReleaseShutdownTimeout: shutdown,
-	}).SetupWithManager(mgr); err != nil {
-		log.Error(err, "setup hostclaim reconciler")
-		os.Exit(1)
-	}
-	if err := (&controller.ProtectionReconciler{
-		Client: mgr.GetClient(),
-	}).SetupWithManager(mgr); err != nil {
-		log.Error(err, "setup protection reconciler")
-		os.Exit(1)
-	}
-	if err := (&controller.HostOperationReconciler{
-		Client:               mgr.GetClient(),
-		CredentialsNamespace: credsNS,
-		RegistryClient:       registryClient,
-		Media:                media,
-		Recorder:             mgr.GetEventRecorder("pk-metal"),
-	}).SetupWithManager(mgr); err != nil {
-		log.Error(err, "setup hostoperation reconciler")
-		os.Exit(1)
-	}
-	if media != nil {
-		if err := mgr.Add(media); err != nil {
-			log.Error(err, "add media service")
-			os.Exit(1)
-		}
-	}
-	if err := (&controller.ConvergenceReconciler{
-		Client:               mgr.GetClient(),
+	// Each TalosCluster names its own secrets bundle (spec.secretsRef); a
+	// cluster whose bundle is missing holds its nodes at SecretsUnavailable.
+	if err := controller.SetupAll(mgr, controller.Options{
 		CredentialsNamespace: credsNS,
 		OperationsNamespace:  credsNS,
 		Proposer:             proposer,
-		PollInterval:         poll,
-	}).SetupWithManager(mgr); err != nil {
-		log.Error(err, "setup convergence reconciler")
-		os.Exit(1)
-	}
-	if err := (&controller.EndpointConvergenceReconciler{
-		Client:               mgr.GetClient(),
-		CredentialsNamespace: credsNS,
-		PollInterval:         poll,
-	}).SetupWithManager(mgr); err != nil {
-		log.Error(err, "setup endpoint convergence reconciler")
-		os.Exit(1)
-	}
-	// Each TalosCluster names its own secrets bundle (spec.secretsRef); a
-	// cluster whose bundle is missing holds its nodes at SecretsUnavailable.
-	if err := (&controller.TalosNodeReconciler{
-		Client:    mgr.GetClient(),
-		Scheme:    mgr.GetScheme(),
-		Namespace: credsNS,
-		Factory:   factory,
-		Dial:      machineapi.Dial,
-	}).SetupWithManager(mgr); err != nil {
-		log.Error(err, "setup talosnode reconciler")
-		os.Exit(1)
-	}
-	if err := (&controller.TalosClusterReconciler{
-		Client:    mgr.GetClient(),
-		Scheme:    mgr.GetScheme(),
-		Namespace: credsNS,
-		Dial:      machineapi.Dial,
-	}).SetupWithManager(mgr); err != nil {
-		log.Error(err, "setup taloscluster reconciler")
-		os.Exit(1)
-	}
-	if err := (&controller.BootAssetReconciler{
-		Client:    mgr.GetClient(),
-		Scheme:    mgr.GetScheme(),
-		Namespace: credsNS,
-		Factory:   factory,
-	}).SetupWithManager(mgr); err != nil {
-		log.Error(err, "setup bootasset reconciler")
+		Ledger:               led,
+		// The standard install mounts the ledger from this ConfigMap; the
+		// path is what this process actually read.
+		LedgerSource:           fmt.Sprintf("the ledger (%s, from ledger.yaml in the pk-metal-ledger ConfigMap in namespace %s)", ledgerPath, credsNS),
+		LedgerReload:           fmt.Sprintf("The manager reads the ledger when it starts: after an edit, run kubectl -n %s rollout restart deployment/pk-metal-manager.", credsNS),
+		TLS:                    tlsDefault,
+		PollInterval:           poll,
+		CheckInTimeout:         checkIn,
+		ReleaseShutdownTimeout: shutdown,
+		RegistryClient:         registryClient,
+		Media:                  media,
+		Factory:                factory,
+		TalosDial:              machineapi.Dial,
+	}, controller.AllLanes...); err != nil {
+		log.Error(err, "setup reconcilers")
 		os.Exit(1)
 	}
 

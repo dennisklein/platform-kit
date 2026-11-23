@@ -161,27 +161,18 @@ func TestProvisioning(t *testing.T) {
 		Controller: config.Controller{SkipNameValidation: ptr.To(true)},
 	})
 	require.NoError(t, err)
-	require.NoError(t, mgr.Add(media))
-	require.NoError(t, (&controller.AssetReconciler{
-		Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Ledger: led,
-		TLS:      &metalv1alpha1.EndpointTLS{InsecureSkipVerify: true},
-		Recorder: mgr.GetEventRecorder("pk-metal"),
-	}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.ManagementEndpointReconciler{
-		Client: mgr.GetClient(), CredentialsNamespace: "default", PollInterval: pollInterval,
-	}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.HostReconciler{Client: mgr.GetClient()}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.HostClaimReconciler{
-		Client: mgr.GetClient(), OperationsNamespace: "default", Proposer: operator,
-	}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.ProtectionReconciler{Client: mgr.GetClient()}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.HostOperationReconciler{
-		Client: mgr.GetClient(), CredentialsNamespace: "default", Media: media,
-		Recorder: mgr.GetEventRecorder("pk-metal"), WaitInterval: 200 * time.Millisecond,
-	}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.BootAssetReconciler{
-		Client: mgr.GetClient(), Scheme: mgr.GetScheme(), Namespace: "default", Factory: imageFactory,
-	}).SetupWithManager(mgr))
+	require.NoError(t, controller.SetupAll(mgr, controller.Options{
+		CredentialsNamespace: "default",
+		OperationsNamespace:  "default",
+		Proposer:             operator,
+		Ledger:               led,
+		TLS:                  &metalv1alpha1.EndpointTLS{InsecureSkipVerify: true},
+		PollInterval:         pollInterval,
+		Media:                media,
+		WaitInterval:         200 * time.Millisecond,
+		Factory:              imageFactory,
+	}, controller.LaneAsset, controller.LaneEndpoint, controller.LaneHost, controller.LaneHostClaim,
+		controller.LaneProtection, controller.LaneHostOperation, controller.LaneBootAsset))
 	go func() {
 		if err := mgr.Start(ctx); err != nil {
 			t.Logf("manager: %v", err)

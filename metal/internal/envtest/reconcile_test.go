@@ -149,31 +149,15 @@ func TestReconcile(t *testing.T) {
 		Controller: config.Controller{SkipNameValidation: ptr.To(true)},
 	})
 	require.NoError(t, err)
-	require.NoError(t, (&controller.AssetReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Ledger:   led,
-		TLS:      &metalv1alpha1.EndpointTLS{CASecretRef: &corev1.LocalObjectReference{Name: "bmc-ca"}},
-		Recorder: mgr.GetEventRecorder("pk-metal"),
-	}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.ManagementEndpointReconciler{
-		Client:               mgr.GetClient(),
+	require.NoError(t, controller.SetupAll(mgr, controller.Options{
 		CredentialsNamespace: "default",
+		OperationsNamespace:  "default",
+		Proposer:             operator,
+		Ledger:               led,
+		TLS:                  &metalv1alpha1.EndpointTLS{CASecretRef: &corev1.LocalObjectReference{Name: "bmc-ca"}},
 		PollInterval:         pollInterval,
-	}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.HostReconciler{
-		Client: mgr.GetClient(),
-	}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.HostClaimReconciler{
-		Client:              mgr.GetClient(),
-		OperationsNamespace: "default",
-		Proposer:            operator,
-	}).SetupWithManager(mgr))
-	require.NoError(t, (&controller.HostOperationReconciler{
-		Client:               mgr.GetClient(),
-		CredentialsNamespace: "default",
-		Recorder:             mgr.GetEventRecorder("pk-metal"),
-	}).SetupWithManager(mgr))
+	}, controller.LaneAsset, controller.LaneEndpoint, controller.LaneHost, controller.LaneHostClaim,
+		controller.LaneHostOperation))
 	go func() {
 		if err := mgr.Start(ctx); err != nil {
 			t.Logf("manager: %v", err)
