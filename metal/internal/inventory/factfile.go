@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -63,45 +64,45 @@ func Write(w io.Writer, node, address string, ts time.Time, f Facts) {
 		ts.UTC().Format(time.RFC3339))
 	fmt.Fprintf(w, "node: %s\n", node)
 	fmt.Fprintf(w, "bmc:\n")
-	fmt.Fprintf(w, "  address: %q\n", address)
-	fmt.Fprintf(w, "  mac: %q\n", orQ(f.Manager.MAC))
-	fmt.Fprintf(w, "  firmware: %q\n", orQ(f.Manager.FirmwareVersion))
-	fmt.Fprintf(w, "  hostname: %q # iBMC reports the chassis serial here\n", orQ(f.Manager.Hostname))
+	fmt.Fprintf(w, "  address: %s\n", q(address))
+	fmt.Fprintf(w, "  mac: %s\n", q(orQ(f.Manager.MAC)))
+	fmt.Fprintf(w, "  firmware: %s\n", q(orQ(f.Manager.FirmwareVersion)))
+	fmt.Fprintf(w, "  hostname: %s # iBMC reports the chassis serial here\n", q(orQ(f.Manager.Hostname)))
 	fmt.Fprintf(w, "  virtualmedia:\n")
 	for _, m := range f.Media {
-		fmt.Fprintf(w, "    - { id: %q, media_types: [%s], insert_standard: %t, oem_actions: [%s] }\n",
-			m.ID, quoteList(m.MediaTypes), m.InsertStandard, quoteList(m.OemActions))
+		fmt.Fprintf(w, "    - { id: %s, media_types: [%s], insert_standard: %t, oem_actions: [%s] }\n",
+			q(m.ID), quoteList(m.MediaTypes), m.InsertStandard, quoteList(m.OemActions))
 	}
 	fmt.Fprintf(w, "system:\n")
-	fmt.Fprintf(w, "  manufacturer: %q\n", orQ(sys.Manufacturer))
-	fmt.Fprintf(w, "  model: %q\n", orQ(sys.Model))
+	fmt.Fprintf(w, "  manufacturer: %s\n", q(orQ(sys.Manufacturer)))
+	fmt.Fprintf(w, "  model: %s\n", q(orQ(sys.Model)))
 	if f.Chassis.Model != "" && f.Chassis.Model != sys.Model {
-		fmt.Fprintf(w, "  board: %q # chassis Model — the real platform\n", f.Chassis.Model)
+		fmt.Fprintf(w, "  board: %s # chassis Model — the real platform\n", q(f.Chassis.Model))
 	}
 	if sys.SerialNumber != "" {
-		fmt.Fprintf(w, "  serial: %q\n", sys.SerialNumber)
+		fmt.Fprintf(w, "  serial: %s\n", q(sys.SerialNumber))
 	} else {
-		fmt.Fprintf(w, "  serial: %q # chassis board serial — Systems/1 exposes none\n", orQ(f.Chassis.BoardSerial))
+		fmt.Fprintf(w, "  serial: %s # chassis board serial — Systems/1 exposes none\n", q(orQ(f.Chassis.BoardSerial)))
 	}
-	fmt.Fprintf(w, "  uuid: %q\n", orQ(sys.UUID))
-	fmt.Fprintf(w, "  power: %q\n", string(sys.PowerState))
+	fmt.Fprintf(w, "  uuid: %s\n", q(orQ(sys.UUID)))
+	fmt.Fprintf(w, "  power: %s\n", q(string(sys.PowerState)))
 	fmt.Fprintf(w, "  memory_gib: %d\n", sys.MemoryGiB)
-	fmt.Fprintf(w, "  cpu: { model: %q, count: %d }\n", orQ(sys.CPUModel), sys.CPUCount)
+	fmt.Fprintf(w, "  cpu: { model: %s, count: %d }\n", q(orQ(sys.CPUModel)), sys.CPUCount)
 	fmt.Fprintf(w, "nics: # system/LOM view\n")
 	for _, n := range sys.NICs {
-		fmt.Fprintf(w, "  - { id: %q, mac: %q }\n", n.ID, orQ(n.MAC))
+		fmt.Fprintf(w, "  - { id: %s, mac: %s }\n", q(n.ID), q(orQ(n.MAC)))
 	}
 	if len(f.Chassis.Adapters) > 0 {
 		fmt.Fprintf(w, "adapters: # PCIe NICs (chassis NetworkAdapters view)\n")
 		for _, a := range f.Chassis.Adapters {
-			fmt.Fprintf(w, "  - { model: %q, port_macs: [%s] }\n", a.Model, quoteList(a.PortMACs))
+			fmt.Fprintf(w, "  - { model: %s, port_macs: [%s] }\n", q(a.Model), quoteList(a.PortMACs))
 		}
 	}
 	if len(sys.Drives) > 0 {
 		fmt.Fprintf(w, "drives:\n")
 		for _, d := range sys.Drives {
-			fmt.Fprintf(w, "  - { model: %q, serial: %q, capacity_gib: %d, media: %q, protocol: %q }\n",
-				d.Model, d.Serial, d.CapacityGiB, orQ(d.MediaType), orQ(d.Protocol))
+			fmt.Fprintf(w, "  - { model: %s, serial: %s, capacity_gib: %d, media: %s, protocol: %s }\n",
+				q(d.Model), q(d.Serial), d.CapacityGiB, q(orQ(d.MediaType)), q(orQ(d.Protocol)))
 		}
 	}
 }
@@ -119,7 +120,15 @@ func quoteList(items []string) string {
 	}
 	quoted := make([]string, len(items))
 	for i, s := range items {
-		quoted[i] = fmt.Sprintf("%q", s)
+		quoted[i] = q(s)
 	}
 	return strings.Join(quoted, ",")
+}
+
+// q double-quotes s for YAML. Go's %q escapes agree with YAML's on valid
+// UTF-8, but it writes a byte that is not UTF-8 as \xNN, which YAML reads
+// back as the code point U+00NN: a different, plausible value. YAML text is
+// Unicode and cannot carry such bytes, so they become U+FFFD instead.
+func q(s string) string {
+	return strconv.Quote(strings.ToValidUTF8(s, "\uFFFD"))
 }

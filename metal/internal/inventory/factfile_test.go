@@ -71,3 +71,72 @@ func TestGolden(t *testing.T) {
 		}
 	}
 }
+
+// TestRoundTrip parses the written file back with a YAML library and checks
+// every string arrives as written. The values are what a BMC can serve:
+// quotes, backslashes, '#', control characters, non-printable Unicode, and
+// bytes that are not UTF-8 at all. Go's %q and YAML's double-quoted escapes
+// agree on most of these but not on invalid UTF-8: Go writes the byte as
+// \xff, YAML reads \xff as the code point U+00FF.
+func TestRoundTrip(t *testing.T) {
+	odd := "a\"b\\c # d\te\x01f g h"
+	bad := "SN\xff\xfe01" // not UTF-8
+	facts := inventory.Facts{
+		Manager: bmc.Manager{FirmwareVersion: odd, Hostname: bad, MAC: "02:00:00:00:00:01"},
+		Chassis: bmc.Chassis{Model: "board " + odd, Adapters: []bmc.Adapter{{Model: bad, PortMACs: []string{odd}}}},
+		Media:   []bmc.VirtualMedia{{ID: bad, MediaTypes: []string{odd, bad}, OemActions: []string{"#X"}}},
+		Systems: []bmc.System{{
+			Manufacturer: odd, Model: "model", SerialNumber: bad, UUID: "u", PowerState: "On",
+			CPUModel: odd, NICs: []bmc.NIC{{ID: bad, MAC: odd}},
+			Drives: []bmc.Drive{{Model: odd, Serial: bad, MediaType: "SSD", Protocol: odd}},
+		}},
+	}
+	var buf bytes.Buffer
+	inventory.Write(&buf, "node-01", "192.0.2.10", time.Unix(0, 0), facts)
+
+	var got struct {
+		BMC struct {
+			Address, Firmware, Hostname string
+			VirtualMedia                []struct {
+				ID         string   `yaml:"id"`
+				MediaTypes []string `yaml:"media_types"`
+			} `yaml:"virtualmedia"`
+		} `yaml:"bmc"`
+		System struct {
+			Manufacturer, Board, Serial string
+			CPU                         struct{ Model string }
+		}
+		NICs     []struct{ ID, MAC string }
+		Adapters []struct {
+			Model    string
+			PortMACs []string `yaml:"port_macs"`
+		}
+		Drives []struct{ Model, Serial, Protocol string }
+	}
+	require.NoError(t, yaml.Unmarshal(buf.Bytes(), &got), "output must be valid YAML:\n%s", buf.String())
+
+	// YAML text is Unicode, so bytes that are not UTF-8 cannot survive as
+	// such; they must become U+FFFD rather than some other, plausible
+	// character.
+	badRead := "SN�01"
+	assert.Equal(t, "192.0.2.10", got.BMC.Address)
+	assert.Equal(t, odd, got.BMC.Firmware)
+	assert.Equal(t, badRead, got.BMC.Hostname)
+	require.Len(t, got.BMC.VirtualMedia, 1)
+	assert.Equal(t, badRead, got.BMC.VirtualMedia[0].ID)
+	assert.Equal(t, []string{odd, badRead}, got.BMC.VirtualMedia[0].MediaTypes)
+	assert.Equal(t, odd, got.System.Manufacturer)
+	assert.Equal(t, "board "+odd, got.System.Board)
+	assert.Equal(t, badRead, got.System.Serial)
+	assert.Equal(t, odd, got.System.CPU.Model)
+	require.Len(t, got.NICs, 1)
+	assert.Equal(t, badRead, got.NICs[0].ID)
+	assert.Equal(t, odd, got.NICs[0].MAC)
+	require.Len(t, got.Adapters, 1)
+	assert.Equal(t, badRead, got.Adapters[0].Model)
+	assert.Equal(t, []string{odd}, got.Adapters[0].PortMACs)
+	require.Len(t, got.Drives, 1)
+	assert.Equal(t, odd, got.Drives[0].Model)
+	assert.Equal(t, badRead, got.Drives[0].Serial)
+	assert.Equal(t, odd, got.Drives[0].Protocol)
+}
