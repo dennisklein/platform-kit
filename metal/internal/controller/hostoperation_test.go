@@ -2,7 +2,10 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
+	"net"
 	"testing"
 	"time"
 
@@ -21,6 +24,7 @@ import (
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/asset"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc/sim"
 )
@@ -31,6 +35,15 @@ type recordingClient struct {
 	bmc.Client
 	overrides int
 	powers    []bmc.PowerAction
+	// powerErr, when set, is what every power read answers.
+	powerErr error
+}
+
+func (c *recordingClient) Power(ctx context.Context, id string) (bmc.PowerState, error) {
+	if c.powerErr != nil {
+		return "", c.powerErr
+	}
+	return c.Client.Power(ctx, id)
 }
 
 func (c *recordingClient) SetBootOverride(ctx context.Context, id string, o bmc.BootOverride) error {
@@ -229,4 +242,126 @@ func rawJSON(t *testing.T, v any) apiextensionsv1.JSON {
 	raw, err := json.Marshal(v)
 	require.NoError(t, err)
 	return apiextensionsv1.JSON{Raw: raw}
+}
+
+func TestResumedOperationRemountsAForgottenGrant(t *testing.T) {
+	ctx := t.Context()
+	iso, err := asset.BuildConfigISO([]byte("version: v1alpha1\n"))
+	require.NoError(t, err)
+	digest := fmt.Sprintf("sha256:%x", sha256.Sum256(iso))
+	artifact := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-config-artifact", Namespace: "pk-metal"},
+		Data:       map[string][]byte{artifactKey: iso},
+	}
+	config := &osv1alpha1.BootAsset{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-config"},
+		Spec:       osv1alpha1.BootAssetSpec{Strategy: osv1alpha1.StrategyConfigISO, NodeRef: &osv1alpha1.Reference{Name: "node"}},
+		Status: osv1alpha1.BootAssetStatus{
+			Digest:            digest,
+			ArtifactSecretRef: &osv1alpha1.SecretReference{Namespace: "pk-metal", Name: artifact.Name},
+			Conditions: []metav1.Condition{{Type: osv1alpha1.ConditionReady, Status: metav1.ConditionTrue,
+				Reason: "Built", LastTransitionTime: metav1.Now()}},
+		},
+	}
+	op := preClearedOp(
+		metalv1alpha1.HostOperationAction{InsertMedia: &metalv1alpha1.InsertMediaAction{
+			MediaID: "VirtualMedia1", BootAssetRef: &metalv1alpha1.Reference{Name: config.Name}, Digest: digest,
+		}},
+		metalv1alpha1.HostOperationAction{PowerCycle: &metalv1alpha1.PowerCycleAction{}},
+	)
+	// The medium was mounted and the step recorded; then the process that
+	// held the grant went away, and the new one's table is empty.
+	op.Status = resumedStatus(1)
+	op.Status.Steps[0].Action = "insertMedia"
+	op.Status.OffObserved = nil
+	r, st, _ := executorFor(t, "supermicro-x12", op, config, artifact)
+	r.Media = startMedia(t)
+
+	creds, err := asset.MintCredentials()
+	require.NoError(t, err)
+	g, err := r.Media.Grants.Issue(grantHandle(client.ObjectKeyFromObject(op)), "node-config.iso", iso, time.Hour, creds)
+	require.NoError(t, err)
+	require.NoError(t, st.InsertMedia(ctx, "VirtualMedia1", r.Media.URL(g),
+		&bmc.MediaCredentials{Username: creds.Username, Password: creds.Password}))
+	r.Media.Grants.Revoke(g.Token)
+
+	got := runOp(t, r)
+	require.True(t, opSucceeded(got), "%+v", got.Status)
+	assert.Equal(t, iso, st.BootImage("VirtualMedia1"), "the machine booted the config, not a dead URL")
+}
+
+func TestUnreachableMachineHoldsTheStep(t *testing.T) {
+	for name, breakIt := range map[string]func(r *HostOperationReconciler, rec *recordingClient){
+		"no reachable path": func(r *HostOperationReconciler, _ *recordingClient) {
+			r.Connect = func(context.Context, *metalv1alpha1.Host) (bmc.Client, string, string, string, error) {
+				return nil, "", metalv1alpha1.ReasonNoReachablePath, "host host-a has no reachable management path", nil
+			}
+		},
+		"deadline": func(_ *HostOperationReconciler, rec *recordingClient) {
+			rec.powerErr = fmt.Errorf("get power: %w", context.DeadlineExceeded)
+		},
+		"connection refused": func(_ *HostOperationReconciler, rec *recordingClient) {
+			rec.powerErr = &net.OpError{Op: "dial", Net: "tcp", Err: fmt.Errorf("connection refused")}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			op := preClearedOp(metalv1alpha1.HostOperationAction{PowerOff: &metalv1alpha1.PowerOffAction{}})
+			// The baseline is on record: the failure meets the step itself.
+			op.Status = resumedStatus(0)
+			r, _, rec := executorFor(t, "huawei-2288h-v5", op)
+			connect := r.Connect
+			breakIt(r, rec)
+
+			key := client.ObjectKeyFromObject(op)
+			res, err := r.Reconcile(t.Context(), ctrl.Request{NamespacedName: key})
+			require.NoError(t, err)
+			got := &metalv1alpha1.HostOperation{}
+			require.NoError(t, r.Get(t.Context(), key, got))
+			require.False(t, opFinished(got), "a pass that could not reach the machine is no verdict: %+v", got.Status)
+			assert.Positive(t, res.RequeueAfter)
+			ex := meta.FindStatusCondition(got.Status.Conditions, metalv1alpha1.ConditionExecuted)
+			require.NotNil(t, ex)
+			assert.Contains(t, ex.Message, "BMC unavailable")
+
+			r.Connect, rec.powerErr = connect, nil
+			require.True(t, opSucceeded(runOp(t, r)))
+		})
+	}
+}
+
+func TestPassStopsBeforeItsBudgetRunsOut(t *testing.T) {
+	op := preClearedOp(
+		metalv1alpha1.HostOperationAction{SetBootOverride: &metalv1alpha1.SetBootOverrideAction{Target: "Cd"}},
+		metalv1alpha1.HostOperationAction{PowerOff: &metalv1alpha1.PowerOffAction{}},
+	)
+	r, _, _ := executorFor(t, "huawei-2288h-v5", op)
+	// Less is left after the first step than a settle window plus the margin.
+	r.PassTimeout = 2 * time.Second
+
+	key := client.ObjectKeyFromObject(op)
+	res, err := r.Reconcile(t.Context(), ctrl.Request{NamespacedName: key})
+	require.NoError(t, err)
+	got := &metalv1alpha1.HostOperation{}
+	require.NoError(t, r.Get(t.Context(), key, got))
+	require.Len(t, got.Status.Steps, 1, "one step, then the pass yields")
+	assert.False(t, opFinished(got))
+	assert.Positive(t, res.RequeueAfter)
+	require.True(t, opSucceeded(runOp(t, r)), "the next pass continues")
+}
+
+// startMedia runs a media service on a loopback port for the test's lifetime.
+func startMedia(t *testing.T) *asset.Service {
+	t.Helper()
+	cert, err := asset.EphemeralCert()
+	require.NoError(t, err)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := ln.Addr().String()
+	require.NoError(t, ln.Close())
+	media, err := asset.NewService(addr, "https://"+addr, cert)
+	require.NoError(t, err)
+	go func() { _ = media.Start(t.Context()) }()
+	_, err = media.Addr(t.Context())
+	require.NoError(t, err)
+	return media
 }

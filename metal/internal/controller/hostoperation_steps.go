@@ -275,6 +275,55 @@ func (x *exec) insertMedia(ctx context.Context, i int, a *metalv1alpha1.InsertMe
 	return nil
 }
 
+// remountGrants mounts again, under fresh grants, every granted medium a
+// recorded step mounted and this process no longer serves. Grants live in
+// memory only: after a restart or a leader change the slot still holds a URL
+// that answers 403, and the step that mounted it is never re-entered. Until
+// the machine is booted that dead URL is what it would boot from; once the
+// power cycle is recorded the boot has happened and the medium is left alone.
+func (x *exec) remountGrants(ctx context.Context, recorded int) error {
+	media := x.r.Media
+	if media == nil {
+		return nil
+	}
+	actions := x.op.Spec.Actions[:recorded]
+	for _, a := range actions {
+		if a.PowerCycle != nil {
+			return nil
+		}
+	}
+	handle := grantHandle(types.NamespacedName{Namespace: x.op.Namespace, Name: x.op.Name})
+	for j, a := range actions {
+		in := a.InsertMedia
+		if in == nil || in.BootAssetRef == nil || ejectedLater(actions[j+1:], in.MediaID) {
+			continue
+		}
+		if _, ok := media.Grants.Live(handle, in.BootAssetRef.Name+".iso"); ok {
+			continue
+		}
+		ba := &osv1alpha1.BootAsset{}
+		if err := x.r.Get(ctx, client.ObjectKey{Name: in.BootAssetRef.Name}, ba); err != nil {
+			return fmt.Errorf("boot asset %s: %w", in.BootAssetRef.Name, err)
+		}
+		if ba.Spec.Strategy != osv1alpha1.StrategyConfigISO {
+			continue // a stable URL, nothing granted
+		}
+		logf.FromContext(ctx).Info("re-mounting a medium whose grant this process no longer holds",
+			"operation", x.op.Name, "slot", in.MediaID)
+		if err := x.insertMedia(ctx, j, in); err != nil {
+			return fmt.Errorf("re-mount %s on %s: %w", ba.Name, in.MediaID, err)
+		}
+	}
+	return nil
+}
+
+// ejectedLater: one of the actions empties the slot.
+func ejectedLater(actions []metalv1alpha1.HostOperationAction, slot string) bool {
+	return slices.ContainsFunc(actions, func(a metalv1alpha1.HostOperationAction) bool {
+		return a.EjectMedia != nil && a.EjectMedia.MediaID == slot
+	})
+}
+
 // artifact loads a configISO BootAsset's built bytes and checks them against
 // the pinned digest — the approver saw that digest, so anything else is
 // content nobody approved.

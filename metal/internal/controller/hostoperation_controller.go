@@ -2,7 +2,9 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"slices"
 	"strings"
@@ -52,6 +54,13 @@ const (
 	// grantMargin outlives the longest wait an operation can still be in when
 	// its grant is minted, so a mount never dies under a machine still reading.
 	grantMargin = 15 * time.Minute
+	// passMargin is what a pass keeps in reserve beyond one power settle
+	// window before it starts another step: a step begun with less would run
+	// into the pass deadline halfway and fail an operation that was only
+	// slow, not broken.
+	passMargin = 10 * time.Second
+	// passResume paces the next pass after one ran out of budget.
+	passResume = time.Second
 )
 
 // HostOperationReconciler runs approved disruptive one-shots — the model's ONE
@@ -89,6 +98,9 @@ type HostOperationReconciler struct {
 	PowerTimeout time.Duration
 	// WaitInterval paces the requeue of a waiting step. Zero defaults.
 	WaitInterval time.Duration
+	// PassTimeout overrides the budget of one pass. Zero budgets by what the
+	// operation runs. A test seam.
+	PassTimeout time.Duration
 }
 
 // exec is one pass over one operation: the operation, its BMC session (opened
@@ -202,7 +214,11 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// One context bounds the whole BMC pass (dial + steps + closing observation):
 	// gofish pins the connect context to every later request, so it must live as
 	// long as the client does.
-	bctx, cancel := context.WithTimeout(ctx, passTimeout(op))
+	budget := r.PassTimeout
+	if budget == 0 {
+		budget = passTimeout(op)
+	}
+	bctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 	x := &exec{r: r, op: op, host: host, flush: flush}
 	defer x.close()
@@ -232,36 +248,71 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	for i := recordedSteps(op); i < len(op.Spec.Actions); i++ {
+	// fail records step i as failed — terminal, one-shots never auto-retry.
+	fail := func(i int, err error) (ctrl.Result, error) {
+		name := actionName(op.Spec.Actions[i])
+		op.Status.Steps = append(op.Status.Steps, metalv1alpha1.OperationStep{
+			Action: name, Phase: "Failed", Message: err.Error(), FinishedAt: ptrTime(metav1.Now()),
+		})
+		setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionFalse,
+			metalv1alpha1.ReasonStepFailed, fmt.Sprintf("step %d/%d %s: %v", i+1, len(op.Spec.Actions), name, err))
+		r.Recorder.Eventf(op, nil, corev1.EventTypeWarning, metalv1alpha1.ReasonStepFailed,
+			"Execute", "step %s failed: %v", name, err)
+		r.revokeGrants(req.NamespacedName)
+		return ctrl.Result{}, client.IgnoreNotFound(flush())
+	}
+	// wait leaves step i in flight and comes back after the given pause.
+	wait := func(i int, msg string, after time.Duration) (ctrl.Result, error) {
+		setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonExecuting,
+			fmt.Sprintf("step %d/%d %s: %s", i+1, len(op.Spec.Actions), actionName(op.Spec.Actions[i]), msg))
+		if err := flush(); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+		return ctrl.Result{RequeueAfter: after}, nil
+	}
+	// held reports an error that says the machine could not be reached this
+	// pass — a dial that failed, a deadline that ran out — as a wait. The
+	// step did not run to a verdict, and every step re-checks its goal when
+	// it is entered again, so trying later is safe where failing for good
+	// would end an operation over a network hiccup.
+	held := func(i int, err error) (ctrl.Result, error) {
+		return wait(i, "BMC unavailable, retrying: "+err.Error(), r.waitInterval())
+	}
+
+	start := recordedSteps(op)
+	if start < len(op.Spec.Actions) {
+		if err := x.remountGrants(bctx, start); err != nil {
+			if transient(bctx, err) {
+				return held(start, err)
+			}
+			return fail(start, err)
+		}
+	}
+	for i := start; i < len(op.Spec.Actions); i++ {
 		// A pass can outlive its operation: a release deletes an unfinished
 		// provisioning operation, and the steps after that must not run.
 		if gone, err := r.opGone(ctx, req.NamespacedName); err != nil || gone {
 			r.revokeGrants(req.NamespacedName)
 			return ctrl.Result{}, err
 		}
+		// A pass that cannot fit another power settle stops between steps
+		// and the next pass continues; at least one step runs per pass.
+		if i > start && !budgetLeft(bctx, r.powerSettle()+passMargin) {
+			return wait(i, "pass budget spent, continuing", passResume)
+		}
 		name := actionName(op.Spec.Actions[i])
 		st, err := x.step(bctx, i)
+		if err != nil && stepTransient(bctx, op.Spec.Actions[i], err) {
+			return held(i, err)
+		}
 		if err == nil && st.waiting != "" && time.Since(x.stepStart(i)) > x.stepBudget(i) {
 			err = fmt.Errorf("%s (gave up after %s)", st.waiting, x.stepBudget(i))
 		}
 		switch {
 		case err != nil:
-			op.Status.Steps = append(op.Status.Steps, metalv1alpha1.OperationStep{
-				Action: name, Phase: "Failed", Message: err.Error(), FinishedAt: ptrTime(metav1.Now()),
-			})
-			setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionFalse,
-				metalv1alpha1.ReasonStepFailed, fmt.Sprintf("step %d/%d %s: %v", i+1, len(op.Spec.Actions), name, err))
-			r.Recorder.Eventf(op, nil, corev1.EventTypeWarning, metalv1alpha1.ReasonStepFailed,
-				"Execute", "step %s failed: %v", name, err)
-			r.revokeGrants(req.NamespacedName)
-			return ctrl.Result{}, client.IgnoreNotFound(flush())
+			return fail(i, err)
 		case !st.done:
-			setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonExecuting,
-				fmt.Sprintf("step %d/%d %s: %s", i+1, len(op.Spec.Actions), name, st.waiting))
-			if err := flush(); err != nil {
-				return ctrl.Result{}, client.IgnoreNotFound(err)
-			}
-			return ctrl.Result{RequeueAfter: r.waitInterval()}, nil
+			return wait(i, st.waiting, r.waitInterval())
 		}
 		op.Status.Steps = append(op.Status.Steps, metalv1alpha1.OperationStep{
 			Action: name, Phase: "Succeeded", FinishedAt: ptrTime(metav1.Now()),
@@ -288,6 +339,39 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	r.Recorder.Eventf(op, nil, corev1.EventTypeNormal, metalv1alpha1.ReasonStepsSucceeded,
 		"Execute", "%d steps succeeded on host %s", len(op.Spec.Actions), op.Spec.HostRef.Name)
 	return ctrl.Result{}, client.IgnoreNotFound(flush())
+}
+
+// budgetLeft: the pass deadline is at least need away.
+func budgetLeft(ctx context.Context, need time.Duration) bool {
+	deadline, ok := ctx.Deadline()
+	return !ok || time.Until(deadline) >= need
+}
+
+// holdError is a connection hold — no reachable path, credentials not
+// readable — met by a step that needed the machine.
+type holdError struct{ reason, msg string }
+
+func (e *holdError) Error() string { return e.reason + ": " + e.msg }
+
+// transient: the error says this pass could not talk to the machine, not that
+// the machine refused — a hold, the pass deadline, or a network failure
+// (refused or reset connections, dial and read timeouts).
+func transient(passCtx context.Context, err error) bool {
+	var hold *holdError
+	var nerr net.Error
+	return errors.As(err, &hold) || passCtx.Err() != nil ||
+		errors.Is(err, context.DeadlineExceeded) || errors.As(err, &nerr)
+}
+
+// stepTransient is transient for a step. A flash is the exception for
+// everything but a hold: its deadline is the verdict that the upload was
+// accepted and never took, and a retry would push the image again.
+func stepTransient(passCtx context.Context, a metalv1alpha1.HostOperationAction, err error) bool {
+	if a.FlashFirmware != nil {
+		var hold *holdError
+		return errors.As(err, &hold)
+	}
+	return transient(passCtx, err)
 }
 
 // recordedSteps counts the leading Succeeded steps — where a resumed pass
@@ -446,7 +530,7 @@ func (x *exec) client(ctx context.Context) (bmc.Client, string, error) {
 		return nil, "", err
 	}
 	if reason != "" {
-		return nil, "", fmt.Errorf("%s: %s", reason, msg)
+		return nil, "", &holdError{reason: reason, msg: msg}
 	}
 	x.cl, x.systemID = cl, sysID
 	return cl, sysID, nil
