@@ -283,7 +283,11 @@ func (x *exec) insertMedia(ctx context.Context, i int, a *metalv1alpha1.InsertMe
 		return fmt.Errorf("boot asset %s is not Ready", ba.Name)
 	}
 	if ba.Spec.Strategy != osv1alpha1.StrategyConfigISO {
-		// Secret-free: the stable URL, no grant, no credentials.
+		// Secret-free: the stable URL, no grant, no credentials. No digest
+		// pin either: the URL is read when the step runs, not when the
+		// operation was approved. It is derived from the schematic id and
+		// the Talos version, so it names one build, and that build holds no
+		// secret.
 		if ba.Status.URL == "" {
 			return fmt.Errorf("boot asset %s carries no url", ba.Name)
 		}

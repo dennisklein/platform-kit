@@ -40,6 +40,25 @@ type recordingClient struct {
 	// ignoreGraceful takes GracefulShutdown and does nothing — an OS that
 	// does not react to the power button.
 	ignoreGraceful bool
+	// inserts and ejects name the image URLs and slots the executor mounted
+	// and emptied, in order.
+	inserts []string
+	ejects  []string
+	// insertErr, when set, is what every InsertMedia answers.
+	insertErr error
+}
+
+func (c *recordingClient) InsertMedia(ctx context.Context, id, imageURL string, creds *bmc.MediaCredentials) error {
+	c.inserts = append(c.inserts, imageURL)
+	if c.insertErr != nil {
+		return c.insertErr
+	}
+	return c.Client.InsertMedia(ctx, id, imageURL, creds)
+}
+
+func (c *recordingClient) EjectMedia(ctx context.Context, id string) error {
+	c.ejects = append(c.ejects, id)
+	return c.Client.EjectMedia(ctx, id)
 }
 
 func (c *recordingClient) Power(ctx context.Context, id string) (bmc.PowerState, error) {
