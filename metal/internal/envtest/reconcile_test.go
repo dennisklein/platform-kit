@@ -568,10 +568,42 @@ func TestReconcile(t *testing.T) {
 	})
 
 	t.Run("no ledger entry materializes nothing", func(t *testing.T) {
-		require.NoError(t, cl.Create(ctx, asset("ci-unknown", "X", "ff:ff:ff:ff:ff:ff")))
-		time.Sleep(3 * pollInterval)
+		require.NoError(t, cl.Create(ctx, asset("ci-unknown", "X", "FF-FF-FF-FF-FF-FF")))
+		var cond *metav1.Condition
+		require.Eventually(t, func() bool {
+			a := &metalv1alpha1.Asset{}
+			if cl.Get(ctx, client.ObjectKey{Name: "ci-unknown"}, a) != nil {
+				return false
+			}
+			cond = findCondition(a.Status.Conditions, metalv1alpha1.ConditionMaterialized)
+			return cond != nil
+		}, waitFor, tick, "the asset says whether it materialized")
+		assert.Equal(t, metav1.ConditionFalse, cond.Status)
+		assert.Equal(t, metalv1alpha1.ReasonNoLedgerEntry, cond.Reason)
+		assert.Contains(t, cond.Message, "FF-FF-FF-FF-FF-FF", "the message names the MAC")
+		assert.Contains(t, cond.Message, "not in the ledger")
 		_, p := endpointPhase("ci-unknown")
 		assert.Empty(t, p, "no endpoint should exist")
+
+		// A claim on it says the same, as a block rather than a wait.
+		require.NoError(t, cl.Create(ctx, &metalv1alpha1.HostClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: "unknown", Namespace: "default"},
+			Spec:       metalv1alpha1.HostClaimSpec{AssetRef: metalv1alpha1.Reference{Name: "ci-unknown"}},
+		}))
+		c := waitClaim("unknown", func(c metalv1alpha1.HostClaim) bool {
+			return c.Status.BlockedOn == metalv1alpha1.ReasonAssetNotMaterialized
+		})
+		b := findCondition(c.Status.Conditions, metalv1alpha1.ConditionBound)
+		require.NotNil(t, b)
+		assert.Contains(t, b.Message, "FF-FF-FF-FF-FF-FF")
+		require.NoError(t, cl.Delete(ctx, &c))
+
+		// A known asset's condition names its endpoint.
+		a := &metalv1alpha1.Asset{}
+		require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: "ci-smc"}, a))
+		m := findCondition(a.Status.Conditions, metalv1alpha1.ConditionMaterialized)
+		require.NotNil(t, m)
+		assert.Equal(t, metav1.ConditionTrue, m.Status)
 	})
 
 	t.Run("steady state writes no status", func(t *testing.T) {

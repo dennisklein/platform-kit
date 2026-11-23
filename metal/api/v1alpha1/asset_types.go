@@ -44,23 +44,40 @@ type AssetSpec struct {
 // is the entry point — creating an Asset is how a machine becomes known to the
 // cluster at all.
 //
-// It has no status, because nothing about it is discovered. Everything the cluster
-// learns by looking lands on the ManagementEndpoint and Host it materializes into.
-// Those kinds keep a copy of the Asset spec they last resolved, so an outage of
-// whatever authors Assets degrades to the last known values instead of stopping
-// work.
+// Its status says one thing only: whether the operator could turn it into a
+// ManagementEndpoint (condition Materialized), and if not, why — most often a
+// bmcMac that is not in the ledger. Everything the cluster learns by looking at
+// the machine lands on the ManagementEndpoint and Host. Those kinds keep a copy
+// of the Asset spec they last resolved, so an outage of whatever authors Assets
+// degrades to the last known values instead of stopping work.
 //
 // +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,categories=metal
 // +kubebuilder:printcolumn:name="CID",type=string,JSONPath=`.spec.cid`
 // +kubebuilder:printcolumn:name="Serial",type=string,JSONPath=`.spec.serial`
-// +kubebuilder:printcolumn:name="VLAN",type=integer,JSONPath=`.spec.vlan`
+// +kubebuilder:printcolumn:name="BMC MAC",type=string,JSONPath=`.spec.bmcMac`
+// +kubebuilder:printcolumn:name="Endpoint",type=string,JSONPath=`.status.conditions[?(@.type=="Materialized")].reason`
+// +kubebuilder:printcolumn:name="VLAN",type=integer,JSONPath=`.spec.vlan`,priority=1
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 type Asset struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	Spec AssetSpec `json:"spec"`
+	// +optional
+	Status AssetStatus `json:"status,omitempty"`
+}
+
+// AssetStatus says whether the Asset became a ManagementEndpoint.
+type AssetStatus struct {
+	// Conditions: Materialized. True names the endpoint; False says what is
+	// missing (NoBMCMac, NoLedgerEntry, LedgerEntryInvalid,
+	// MaterializeConflict) and how to fix it.
+	// +listType=map
+	// +listMapKey=type
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true

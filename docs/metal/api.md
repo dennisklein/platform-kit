@@ -43,11 +43,12 @@ bought under, the MAC of its management controller, where it was installed. It
 is the entry point — creating an Asset is how a machine becomes known to the
 cluster at all.
 
-It has no status, because nothing about it is discovered. Everything the cluster
-learns by looking lands on the ManagementEndpoint and Host it materializes into.
-Those kinds keep a copy of the Asset spec they last resolved, so an outage of
-whatever authors Assets degrades to the last known values instead of stopping
-work.
+Its status says one thing only: whether the operator could turn it into a
+ManagementEndpoint (condition Materialized), and if not, why — most often a
+bmcMac that is not in the ledger. Everything the cluster learns by looking at
+the machine lands on the ManagementEndpoint and Host. Those kinds keep a copy
+of the Asset spec they last resolved, so an outage of whatever authors Assets
+degrades to the last known values instead of stopping work.
 
 
 
@@ -59,6 +60,7 @@ work.
 | `kind` _string_ | `Asset` | | |
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[AssetSpec](#assetspec)_ |  |  |  |
+| `status` _[AssetStatus](#assetstatus)_ |  |  | Optional: \{\} <br /> |
 
 
 ### BiosProfile
@@ -332,6 +334,22 @@ _Appears in:_
 | `bmcMac` _string_ | BMCMac is the MAC address of the BMC's own network port, as printed on<br />the label or shown by `ipmitool lan print`. Either case, with ':' or '-'<br />between the bytes. The operator looks it up in the ledger to find the<br />BMC's address, and checks that the BMC at that address reports it. |  | MaxLength: 17 <br />Optional: \{\} <br /> |
 | `vlan` _integer_ | VLAN is the management network the endpoint lives on (1034 servers, 1035 routers). |  | Maximum: 4094 <br />Minimum: 1 <br />Optional: \{\} <br /> |
 | `credentialsRef` _[LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#localobjectreference-v1-core)_ | CredentialsRef names a Secret in the operator's namespace holding the endpoint<br />credentials — factory creds at adoption, rotated by EndpointProfile. |  |  |
+
+
+#### AssetStatus
+
+
+
+AssetStatus says whether the Asset became a ManagementEndpoint.
+
+
+
+_Appears in:_
+- [Asset](#asset)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions: Materialized. True names the endpoint; False says what is<br />missing (NoBMCMac, NoLedgerEntry, LedgerEntryInvalid,<br />MaterializeConflict) and how to fix it. |  | Optional: \{\} <br /> |
 
 
 #### AwaitCheckInAction

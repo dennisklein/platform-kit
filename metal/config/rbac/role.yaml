@@ -26,6 +26,7 @@ rules:
   - metal.pk.io
   resources:
   - assets/finalizers
+  - assets/status
   - biossettings/status
   - hostclaims/status
   - hostoperations/status

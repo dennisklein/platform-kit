@@ -216,9 +216,13 @@ func main() {
 	if err := (&controller.AssetReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Ledger:   led,
-		TLS:      tlsDefault,
-		Recorder: mgr.GetEventRecorder("pk-metal"),
+		Ledger: led,
+		// The standard install mounts the ledger from this ConfigMap; the
+		// path is what this process actually read.
+		LedgerSource: fmt.Sprintf("the ledger (%s, from ledger.yaml in the pk-metal-ledger ConfigMap in namespace %s)", ledgerPath, credsNS),
+		LedgerReload: fmt.Sprintf("The manager reads the ledger when it starts: after an edit, run kubectl -n %s rollout restart deployment/pk-metal-manager.", credsNS),
+		TLS:          tlsDefault,
+		Recorder:     mgr.GetEventRecorder("pk-metal"),
 	}).SetupWithManager(mgr); err != nil {
 		log.Error(err, "setup asset reconciler")
 		os.Exit(1)

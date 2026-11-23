@@ -187,6 +187,13 @@ func (r *HostClaimReconciler) resolveTarget(ctx context.Context, claim *metalv1a
 	ep := &metalv1alpha1.ManagementEndpoint{}
 	if err := r.Get(ctx, client.ObjectKey{Name: asset.Name}, ep); err != nil {
 		if apierrors.IsNotFound(err) {
+			// The asset says why it has no endpoint; waiting does not fix a
+			// MAC missing from the ledger.
+			if c := meta.FindStatusCondition(asset.Status.Conditions, metalv1alpha1.ConditionMaterialized); c != nil &&
+				c.Status == metav1.ConditionFalse {
+				return "", metalv1alpha1.ReasonAssetNotMaterialized,
+					fmt.Sprintf("asset %s has no endpoint (%s): %s", asset.Name, c.Reason, c.Message), nil
+			}
 			return "", metalv1alpha1.ReasonHostNotDiscovered,
 				fmt.Sprintf("asset %s has no endpoint yet", asset.Name), nil
 		}
@@ -325,6 +332,7 @@ func (r *HostClaimReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&metalv1alpha1.Host{}, handler.EnqueueRequestsFromMapFunc(r.claimsForHost)).
 		Watches(&metalv1alpha1.HostOperation{}, handler.EnqueueRequestsFromMapFunc(claimsForOperation)).
 		Watches(&metalv1alpha1.ManagementEndpoint{}, handler.EnqueueRequestsFromMapFunc(r.claimsForEndpoint)).
+		Watches(&metalv1alpha1.Asset{}, handler.EnqueueRequestsFromMapFunc(r.claimsForAsset)).
 		Watches(&osv1alpha1.TalosNode{}, handler.EnqueueRequestsFromMapFunc(r.claimsForNode)).
 		Watches(&osv1alpha1.BootAsset{}, handler.EnqueueRequestsFromMapFunc(r.claimsForBootAsset)).
 		Named("hostclaim").
@@ -364,8 +372,19 @@ func (r *HostClaimReconciler) claimsNaming(ctx context.Context, node string) []c
 // claimsForEndpoint re-runs the claims selecting the endpoint's asset — its
 // discovered media and boot targets shape the boot plan.
 func (r *HostClaimReconciler) claimsForEndpoint(ctx context.Context, obj client.Object) []ctrl.Request {
+	return r.claimsSelecting(ctx, obj.(*metalv1alpha1.ManagementEndpoint).Spec.AssetRef.Name)
+}
+
+// claimsForAsset re-runs the claims selecting the asset — its Materialized
+// condition is why a claim waits when the asset has no endpoint.
+func (r *HostClaimReconciler) claimsForAsset(ctx context.Context, obj client.Object) []ctrl.Request {
+	return r.claimsSelecting(ctx, obj.GetName())
+}
+
+// claimsSelecting lists the claims whose assetRef names the asset.
+func (r *HostClaimReconciler) claimsSelecting(ctx context.Context, asset string) []ctrl.Request {
 	claims := &metalv1alpha1.HostClaimList{}
-	if err := r.List(ctx, claims, client.MatchingFields{claimAssetIndex: obj.(*metalv1alpha1.ManagementEndpoint).Spec.AssetRef.Name}); err != nil {
+	if err := r.List(ctx, claims, client.MatchingFields{claimAssetIndex: asset}); err != nil {
 		return nil
 	}
 	reqs := make([]ctrl.Request, 0, len(claims.Items))

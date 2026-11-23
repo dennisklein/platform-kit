@@ -202,6 +202,32 @@ const (
 	ReasonReleaseFailed = "ReleaseFailed"
 )
 
+// ConditionMaterialized: on an Asset — the operator found the BMC's address in
+// the ledger and created the ManagementEndpoint for it. False says what is
+// missing; nothing about the machine is known until it is True.
+const ConditionMaterialized = "Materialized"
+
+// Reasons on the Asset's Materialized condition.
+const (
+	// ReasonEndpointMaterialized on Materialized=True: the endpoint exists.
+	ReasonEndpointMaterialized = "EndpointMaterialized"
+	// ReasonNoBMCMac on Materialized=False: the Asset names no bmcMac.
+	ReasonNoBMCMac = "NoBMCMac"
+	// ReasonNoLedgerEntry on Materialized=False: the bmcMac is not in the ledger.
+	ReasonNoLedgerEntry = "NoLedgerEntry"
+	// ReasonLedgerEntryInvalid on Materialized=False: the ledger lists the
+	// bmcMac on a line that could not be used (not an https URL, or the MAC
+	// listed twice with two addresses).
+	ReasonLedgerEntryInvalid = "LedgerEntryInvalid"
+	// ReasonMaterializeConflict on Materialized=False: an endpoint of the same
+	// name belongs to another Asset.
+	ReasonMaterializeConflict = "MaterializeConflict"
+)
+
+// ReasonAssetNotMaterialized on a claim's Bound=False: the Asset has no
+// endpoint, and its Materialized condition says why.
+const ReasonAssetNotMaterialized = "AssetNotMaterialized"
+
 // ReasonHostClaimed on DeletionHeld=True: a claim holds the machine.
 const ReasonHostClaimed = "HostClaimed"
 
