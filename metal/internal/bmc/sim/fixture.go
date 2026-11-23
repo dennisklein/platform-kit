@@ -289,6 +289,15 @@ func LoadFixture(name string) (*Fixture, error) {
 				name, strings.Join(Fixtures(), ", "))
 		}
 	}
+	f, err := parseFixture(data)
+	if err != nil {
+		return nil, fmt.Errorf("fixture %q: %w", name, err)
+	}
+	return f, nil
+}
+
+// parseFixture decodes and validates a fixture's content.
+func parseFixture(data []byte) (*Fixture, error) {
 	// Strict: a fixture can be a user's file, and a misspelled quirk key
 	// would otherwise be dropped, so the sim would stop reproducing that
 	// quirk without a word.
@@ -296,10 +305,10 @@ func LoadFixture(name string) (*Fixture, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&f); err != nil {
-		return nil, fmt.Errorf("fixture %q: %w", name, err)
+		return nil, err
 	}
 	if err := f.validate(); err != nil {
-		return nil, fmt.Errorf("fixture %q: %w", name, err)
+		return nil, err
 	}
 	return &f, nil
 }
