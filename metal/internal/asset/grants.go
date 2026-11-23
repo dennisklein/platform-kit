@@ -130,6 +130,25 @@ func (t *Grants) lookup(token string) *Grant {
 	return g
 }
 
+// Live finds the unexpired grant minted for asset under filename — how a
+// resumed mount tells whether the URL it left on a BMC still answers, or died
+// with a restart and must be re-minted.
+func (t *Grants) Live(asset, filename string) (*Grant, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for token, g := range t.byToken {
+		if g.Asset != asset || g.Filename != filename {
+			continue
+		}
+		if !t.clock().Before(g.ExpiresAt) {
+			delete(t.byToken, token)
+			continue
+		}
+		return g, true
+	}
+	return nil, false
+}
+
 func (t *Grants) sweepLocked() {
 	for token, g := range t.byToken {
 		if !t.clock().Before(g.ExpiresAt) {
