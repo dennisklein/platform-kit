@@ -569,10 +569,11 @@ func parseResetTime(s string) time.Time {
 }
 
 // oemVendor reads the vendor from the Oem key of a resource — the iBMC stamps
-// it there; empty when the endpoint doesn't.
+// it there; empty when the endpoint doesn't. A block with more than one key
+// names no single vendor, so it is empty too rather than a guess.
 func oemVendor(raw json.RawMessage) string {
 	var m map[string]json.RawMessage
-	if json.Unmarshal(raw, &m) != nil {
+	if json.Unmarshal(raw, &m) != nil || len(m) != 1 {
 		return ""
 	}
 	for k := range m {

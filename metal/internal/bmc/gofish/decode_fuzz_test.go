@@ -77,6 +77,25 @@ func keyIn(v any, key string) bool {
 	return false
 }
 
+// FuzzOemVendor: the vendor read from an Oem block is one of its keys, and
+// the same one on every read.
+func FuzzOemVendor(f *testing.F) {
+	for _, seed := range []string{`{"Huawei":{}}`, `{}`, `null`, `[]`, ``} {
+		f.Add([]byte(seed))
+	}
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		first := oemVendor(raw)
+		for range 20 {
+			require.Equal(t, first, oemVendor(raw), "oemVendor is not deterministic")
+		}
+		if first != "" {
+			var m map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(raw, &m))
+			assert.Contains(t, m, first)
+		}
+	})
+}
+
 // FuzzStripGzipSuffix: the tag is changed only when mod_deflate's suffix is
 // there, and then only that suffix is cut. A non-empty tag stays non-empty.
 func FuzzStripGzipSuffix(f *testing.F) {
