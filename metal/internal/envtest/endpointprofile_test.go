@@ -13,15 +13,10 @@
 package envtest_test
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/pem"
-	"math/big"
 	"net"
 	"net/http"
 	"slices"
@@ -41,6 +36,7 @@ import (
 	"github.com/dennisklein/platform-kit/metal/internal/asset"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc/sim"
 	"github.com/dennisklein/platform-kit/metal/internal/controller"
+	testpki "github.com/dennisklein/platform-kit/metal/internal/testpki"
 )
 
 const (
@@ -72,10 +68,10 @@ func TestEndpointConvergence(t *testing.T) {
 	// holds the sims' factory identities AND this CA — exactly the live
 	// posture, where the pinned bundle must cover both sides of an identity
 	// roll.
-	caCert, caKey := testCA(t)
-	go issuerLoop(t, cl, caCert, caKey)
+	ca := testpki.NewCA(t, "pk-test-ca")
+	go issuerLoop(t, cl, ca)
 
-	seedBMCSecrets(t, ctx, cl, huaweiSeed.Raw, smcSeed.Raw, caCert.Raw)
+	seedBMCSecrets(t, ctx, cl, huaweiSeed.Raw, smcSeed.Raw, ca.Cert.Raw)
 
 	mgr := st.newManager(t)
 	require.NoError(t, controller.SetupAll(mgr, controller.Options{
@@ -292,7 +288,7 @@ func TestEndpointConvergence(t *testing.T) {
 			}, waitFor, tick, "%s: the issued identity must end up served", name)
 
 			leaf := st.ServedLeaf()
-			require.NoError(t, leaf.CheckSignatureFrom(caCert), "%s: signed by the issuer", name)
+			require.NoError(t, leaf.CheckSignatureFrom(ca.Cert), "%s: signed by the issuer", name)
 			ep := waitEndpoint(name, configuredReason(metalv1alpha1.ReasonInSync))
 			require.NotNil(t, ep.Status.IdentityPushed, "%s: the push memory survives InSync", name)
 
@@ -304,7 +300,7 @@ func TestEndpointConvergence(t *testing.T) {
 			// The PoC's stage-4 proof, in-process: a handshake pinned to the
 			// issuing CA alone, dialing the identity's name.
 			pool := x509.NewCertPool()
-			pool.AddCert(caCert)
+			pool.AddCert(ca.Cert)
 			conn, err := tls.Dial("tcp", strings.TrimPrefix(urls[name], "https://"),
 				&tls.Config{RootCAs: pool, ServerName: cn, MinVersion: tls.VersionTLS12})
 			require.NoError(t, err, "%s: pinned-CA handshake against the served identity", name)
@@ -415,31 +411,10 @@ func authSimServer(t *testing.T, fixture string) (string, *sim.State, *x509.Cert
 	return "https://" + ln.Addr().String(), st, seedLeaf
 }
 
-// testCA mints the suite's issuing CA.
-func testCA(t *testing.T) (*x509.Certificate, *ecdsa.PrivateKey) {
-	t.Helper()
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-	tmpl := &x509.Certificate{
-		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "pk-test-ca"},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(24 * time.Hour),
-		IsCA:                  true,
-		KeyUsage:              x509.KeyUsageCertSign,
-		BasicConstraintsValid: true,
-	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
-	require.NoError(t, err)
-	cert, err := x509.ParseCertificate(der)
-	require.NoError(t, err)
-	return cert, key
-}
-
 // issuerLoop plays cert-manager: every unsigned CertificateRequest gets its
 // CSR honored verbatim (names, IPs, requested duration), signed by the test
 // CA, the chain and Ready condition stamped on status.
-func issuerLoop(t *testing.T, cl client.Client, caCert *x509.Certificate, caKey *ecdsa.PrivateKey) {
+func issuerLoop(t *testing.T, cl client.Client, ca *testpki.CA) {
 	ctx := t.Context()
 	for {
 		select {
@@ -478,22 +453,10 @@ func issuerLoop(t *testing.T, cl client.Client, caCert *x509.Certificate, caKey 
 					duration = d
 				}
 			}
-			leafDER, err := x509.CreateCertificate(rand.Reader, &x509.Certificate{
-				SerialNumber: big.NewInt(time.Now().UnixNano()),
-				Subject:      csr.Subject,
-				DNSNames:     csr.DNSNames,
-				IPAddresses:  csr.IPAddresses,
-				NotBefore:    time.Now().Add(-time.Hour),
-				NotAfter:     time.Now().Add(duration),
-				KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-				ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-			}, caCert, csr.PublicKey, caKey)
+			chain, err := ca.Sign(csr, duration)
 			if err != nil {
 				continue
 			}
-			chain := append(
-				pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER}),
-				pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caCert.Raw})...)
 			_ = unstructured.SetNestedField(cr.Object, base64.StdEncoding.EncodeToString(chain),
 				"status", "certificate")
 			_ = unstructured.SetNestedSlice(cr.Object, []any{map[string]any{

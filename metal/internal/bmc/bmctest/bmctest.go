@@ -7,14 +7,9 @@ package bmctest
 import (
 	"bytes"
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
-	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -28,6 +23,7 @@ import (
 
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc/sim"
+	"github.com/dennisklein/platform-kit/metal/internal/testpki"
 )
 
 // Run executes the v0 conformance assertions against c, with expectations derived from
@@ -518,64 +514,21 @@ func parseCSR(t *testing.T, csrPEM []byte) *x509.CertificateRequest {
 // Returns the chain PEM (leaf first) and the CA certificate.
 func signCSR(t *testing.T, csr *x509.CertificateRequest) ([]byte, *x509.Certificate) {
 	t.Helper()
-	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	ca := testpki.NewCA(t, "bmctest-ca")
+	chain, err := ca.Sign(csr, 24*time.Hour)
 	require.NoError(t, err)
-	caTmpl := &x509.Certificate{
-		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "bmctest-ca"},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(24 * time.Hour),
-		IsCA:                  true,
-		KeyUsage:              x509.KeyUsageCertSign,
-		BasicConstraintsValid: true,
-	}
-	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, &caKey.PublicKey, caKey)
-	require.NoError(t, err)
-	caCert, err := x509.ParseCertificate(caDER)
-	require.NoError(t, err)
-
-	leafTmpl := &x509.Certificate{
-		SerialNumber: big.NewInt(2),
-		Subject:      csr.Subject,
-		DNSNames:     csr.DNSNames,
-		IPAddresses:  csr.IPAddresses,
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(24 * time.Hour),
-		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-	}
-	leafDER, err := x509.CreateCertificate(rand.Reader, leafTmpl, caCert, csr.PublicKey, caKey)
-	require.NoError(t, err)
-	chain := append(
-		pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER}),
-		pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})...)
-	return chain, caCert
+	return chain, ca.Cert
 }
 
 // selfIdentity builds a local key and self-signed leaf — the key-upload
 // dialect's input shape.
 func selfIdentity(t *testing.T, subject bmc.CSRSubject) (certPEM, keyPEM []byte) {
 	t.Helper()
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
 	var ips []net.IP
 	for _, raw := range subject.IPAddresses {
 		ips = append(ips, net.ParseIP(raw))
 	}
-	tmpl := &x509.Certificate{
-		SerialNumber: big.NewInt(3),
-		Subject:      pkix.Name{CommonName: subject.CommonName},
-		DNSNames:     subject.DNSNames,
-		IPAddresses:  ips,
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(24 * time.Hour),
-	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
-	require.NoError(t, err)
-	keyDER, err := x509.MarshalECPrivateKey(key)
-	require.NoError(t, err)
-	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
-		pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	return testpki.SelfSigned(t, subject.CommonName, subject.DNSNames, ips)
 }
 
 // flippableAttribute picks a schema enumeration with an allowed value different

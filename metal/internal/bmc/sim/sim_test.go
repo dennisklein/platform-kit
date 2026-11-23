@@ -3,14 +3,7 @@ package sim_test
 import (
 	"bytes"
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/json"
-	"encoding/pem"
-	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -25,6 +18,7 @@ import (
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc/bmctest"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc/sim"
+	"github.com/dennisklein/platform-kit/metal/internal/testpki"
 )
 
 func TestConformance(t *testing.T) {
@@ -142,21 +136,7 @@ func TestIdentityApply(t *testing.T) {
 
 func selfSigned(t *testing.T, cn string) (certPEM, keyPEM []byte) {
 	t.Helper()
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-	tmpl := &x509.Certificate{
-		SerialNumber: big.NewInt(time.Now().UnixNano()),
-		Subject:      pkix.Name{CommonName: cn},
-		DNSNames:     []string{cn},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(24 * time.Hour),
-	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
-	require.NoError(t, err)
-	keyDER, err := x509.MarshalECPrivateKey(key)
-	require.NoError(t, err)
-	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
-		pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	return testpki.SelfSigned(t, cn, []string{cn}, nil)
 }
 
 func TestFaultInjection(t *testing.T) {
