@@ -40,6 +40,10 @@ type State struct {
 type bootOverride struct {
 	target string
 	once   bool
+	mode   string
+	// consumed marks a Once override the following boot used up: it reads
+	// back Disabled, as Redfish reports it.
+	consumed bool
 }
 
 type mountedMedia struct {
@@ -190,6 +194,15 @@ func (s *State) Systems(ctx context.Context) ([]bmc.System, error) {
 			CPUCount:      fs.CPUCount,
 			BootTargets:   fs.BootTargets,
 		}
+		if bo, ok := s.boot[fs.ID]; ok {
+			sys.BootOverride = bmc.BootOverride{Target: bo.target, Enabled: bmc.OverrideContinuous, Mode: bo.mode}
+			if bo.once {
+				sys.BootOverride.Enabled = bmc.OverrideOnce
+			}
+			if bo.consumed {
+				sys.BootOverride.Enabled = bmc.OverrideDisabled
+			}
+		}
 		for _, n := range fs.NICs {
 			sys.NICs = append(sys.NICs, bmc.NIC{ID: n.ID, MAC: n.MAC})
 		}
@@ -298,6 +311,11 @@ func (s *State) SetPower(ctx context.Context, systemID string, action bmc.PowerA
 		// A system coming out of reset applies its staged BIOS settings —
 		// the @Redfish.Settings pending→applied edge.
 		s.applyBios(systemID)
+		// And uses up a Once boot override.
+		if bo, ok := s.boot[systemID]; ok && bo.once {
+			bo.consumed = true
+			s.boot[systemID] = bo
+		}
 	}
 	s.mu.Unlock()
 	return nil
@@ -332,7 +350,7 @@ func (s *State) reset(systemID string) {
 	}
 }
 
-func (s *State) SetBootOverride(_ context.Context, systemID, target string, once bool) error {
+func (s *State) SetBootOverride(_ context.Context, systemID string, o bmc.BootOverride) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.reachable(); err != nil {
@@ -342,10 +360,13 @@ func (s *State) SetBootOverride(_ context.Context, systemID, target string, once
 		if fs.ID != systemID {
 			continue
 		}
-		if !slices.Contains(fs.BootTargets, target) {
-			return fmt.Errorf("sim: boot target %q not in AllowableValues %v", target, fs.BootTargets)
+		if !slices.Contains(fs.BootTargets, o.Target) {
+			return fmt.Errorf("sim: boot target %q not in AllowableValues %v", o.Target, fs.BootTargets)
 		}
-		s.boot[systemID] = bootOverride{target: target, once: once}
+		if o.Mode != "" && o.Mode != "UEFI" && o.Mode != "Legacy" {
+			return fmt.Errorf("sim: boot mode %q not in AllowableValues [UEFI Legacy]", o.Mode)
+		}
+		s.boot[systemID] = bootOverride{target: o.Target, once: o.Enabled != bmc.OverrideContinuous, mode: o.Mode}
 		return nil
 	}
 	return fmt.Errorf("sim: no system %q", systemID)

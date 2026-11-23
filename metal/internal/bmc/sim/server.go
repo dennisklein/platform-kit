@@ -556,9 +556,7 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 				"Count": sys.CPUCount,
 				"Model": sys.CPUModel,
 			},
-			"Boot": map[string]any{
-				"BootSourceOverrideTarget@Redfish.AllowableValues": sys.BootTargets,
-			},
+			"Boot": bootDoc(sys),
 			"EthernetInterfaces": map[string]string{
 				"@odata.id": "/redfish/v1/Systems/" + id + "/EthernetInterfaces",
 			},
@@ -584,6 +582,23 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	redfishError(w, 404, "no such system")
+}
+
+// bootDoc renders the Boot block: the allowable targets plus the override as
+// currently set, which a resumed caller reads back to check its goal.
+func bootDoc(sys bmc.System) map[string]any {
+	doc := map[string]any{
+		"BootSourceOverrideTarget@Redfish.AllowableValues": sys.BootTargets,
+		"BootSourceOverrideEnabled":                         bmc.OverrideDisabled,
+	}
+	if o := sys.BootOverride; o.Target != "" {
+		doc["BootSourceOverrideTarget"] = o.Target
+		doc["BootSourceOverrideEnabled"] = o.Enabled
+		if o.Mode != "" {
+			doc["BootSourceOverrideMode"] = o.Mode
+		}
+	}
+	return doc
 }
 
 func (s *Server) systemNICs(w http.ResponseWriter, r *http.Request) {
@@ -1251,14 +1266,20 @@ func (s *Server) patchSystem(w http.ResponseWriter, r *http.Request) {
 		Boot struct {
 			BootSourceOverrideTarget  string `json:"BootSourceOverrideTarget"`
 			BootSourceOverrideEnabled string `json:"BootSourceOverrideEnabled"`
+			BootSourceOverrideMode    string `json:"BootSourceOverrideMode"`
 		} `json:"Boot"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Boot.BootSourceOverrideTarget == "" {
 		redfishError(w, 400, "Boot.BootSourceOverrideTarget required")
 		return
 	}
-	once := !strings.EqualFold(body.Boot.BootSourceOverrideEnabled, "Continuous")
-	if err := s.st.SetBootOverride(r.Context(), r.PathValue("id"), body.Boot.BootSourceOverrideTarget, once); err != nil {
+	enabled := bmc.OverrideOnce
+	if strings.EqualFold(body.Boot.BootSourceOverrideEnabled, bmc.OverrideContinuous) {
+		enabled = bmc.OverrideContinuous
+	}
+	if err := s.st.SetBootOverride(r.Context(), r.PathValue("id"), bmc.BootOverride{
+		Target: body.Boot.BootSourceOverrideTarget, Enabled: enabled, Mode: body.Boot.BootSourceOverrideMode,
+	}); err != nil {
 		s.fail(w, err)
 		return
 	}

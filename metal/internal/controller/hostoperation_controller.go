@@ -343,7 +343,11 @@ func (r *HostOperationReconciler) executeAction(ctx context.Context, cl bmc.Clie
 
 	case a.SetBootOverride != nil:
 		once := a.SetBootOverride.Once == nil || *a.SetBootOverride.Once
-		return "setBootOverride", cl.SetBootOverride(ctx, systemID, a.SetBootOverride.Target, once)
+		o := bmc.BootOverride{Target: a.SetBootOverride.Target, Enabled: bmc.OverrideContinuous}
+		if once {
+			o.Enabled = bmc.OverrideOnce
+		}
+		return "setBootOverride", cl.SetBootOverride(ctx, systemID, o)
 
 	case a.InsertMedia != nil:
 		media, err := cl.Media(ctx)

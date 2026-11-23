@@ -28,7 +28,10 @@ type Client interface {
 
 	Power(ctx context.Context, systemID string) (PowerState, error)
 	SetPower(ctx context.Context, systemID string, action PowerAction) error
-	SetBootOverride(ctx context.Context, systemID, target string, once bool) error
+	// SetBootOverride points the next boot (Once) or every boot (Continuous) at
+	// a source. The current override reads back on System.BootOverride, which
+	// is what lets a resumed caller check its goal instead of re-arming it.
+	SetBootOverride(ctx context.Context, systemID string, o BootOverride) error
 
 	Media(ctx context.Context) ([]VirtualMedia, error)
 	// InsertMedia mounts an image URL on a media slot, dispatching the dialect the
@@ -192,10 +195,29 @@ type System struct {
 	CPUCount      int
 	NICs          []NIC
 	Drives        []Drive
+	// BootOverride is the override as currently set. A Once override reads
+	// Disabled after the boot that consumed it, so a goal check against it is
+	// only meaningful before the next power transition.
+	BootOverride BootOverride
 	// BootTargets are BootSourceOverrideTarget@AllowableValues — vmm-boot.sh's lesson:
 	// prefer UsbCd when offered (Supermicro boots nothing from Cd), never hardcode.
 	BootTargets []string
 }
+
+// BootOverride is the Redfish Boot override triple. Empty fields read as "not
+// served" and, on a write, as "leave as is" (Mode) or Once (Enabled).
+type BootOverride struct {
+	Target  string // BootSourceOverrideTarget: Cd, UsbCd, Pxe, Hdd, …
+	Enabled string // BootSourceOverrideEnabled: Once | Continuous | Disabled
+	Mode    string // BootSourceOverrideMode: UEFI | Legacy
+}
+
+// Boot override enablement values as Redfish spells them.
+const (
+	OverrideOnce       = "Once"
+	OverrideContinuous = "Continuous"
+	OverrideDisabled   = "Disabled"
+)
 
 type NIC struct {
 	ID  string

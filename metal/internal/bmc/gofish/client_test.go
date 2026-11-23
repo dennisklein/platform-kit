@@ -121,7 +121,7 @@ func TestReadOnlyRefusesMutation(t *testing.T) {
 
 	assert.Error(t, c.SetPower(ctx, "1", bmc.ActionForceOff), "SetPower on read-only")
 	assert.Error(t, c.InsertMedia(ctx, "VirtualMedia1", "https://x/i.iso", nil), "InsertMedia on read-only")
-	assert.Error(t, c.SetBootOverride(ctx, "1", "UsbCd", true), "SetBootOverride on read-only")
+	assert.Error(t, c.SetBootOverride(ctx, "1", bmc.BootOverride{Target: "UsbCd"}), "SetBootOverride on read-only")
 	assert.Error(t, c.UpdateFirmware(ctx, []byte("SIMFW 1")), "UpdateFirmware on read-only")
 	assert.Error(t, c.ResetManager(ctx, bmc.ActionGracefulRestart), "ResetManager on read-only")
 	assert.Error(t, c.SetBiosAttributes(ctx, "1", map[string]any{"QuietBoot": false}), "SetBiosAttributes on read-only")

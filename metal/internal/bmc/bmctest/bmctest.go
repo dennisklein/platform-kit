@@ -209,10 +209,14 @@ func Run(t *testing.T, c bmc.Client, f *sim.Fixture, readOnly bool) {
 
 	t.Run("boot-override-allowable-values", func(t *testing.T) {
 		id := f.Systems[0].ID
-		assert.Error(t, c.SetBootOverride(ctx, id, "NotARealTarget", true),
+		assert.Error(t, c.SetBootOverride(ctx, id, bmc.BootOverride{Target: "NotARealTarget"}),
 			"a target outside AllowableValues must be rejected")
 		if targets := f.Systems[0].BootTargets; len(targets) > 1 {
-			assert.NoError(t, c.SetBootOverride(ctx, id, targets[1], true))
+			want := bmc.BootOverride{Target: targets[1], Enabled: bmc.OverrideOnce, Mode: "UEFI"}
+			require.NoError(t, c.SetBootOverride(ctx, id, want))
+			systems, err := c.Systems(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, want, systems[0].BootOverride, "the override reads back as set")
 		}
 	})
 

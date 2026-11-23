@@ -167,6 +167,11 @@ func (c *client) Systems(ctx context.Context) ([]bmc.System, error) {
 			CPUModel:      s.ProcessorSummary.Model,
 			CPUCount:      int(derefU(s.ProcessorSummary.Count)),
 		}
+		sys.BootOverride = bmc.BootOverride{
+			Target:  string(s.Boot.BootSourceOverrideTarget),
+			Enabled: string(s.Boot.BootSourceOverrideEnabled),
+			Mode:    string(s.Boot.BootSourceOverrideMode),
+		}
 		for _, t := range s.Boot.AllowableBootSourceOverrideTargetValues {
 			sys.BootTargets = append(sys.BootTargets, string(t))
 		}
@@ -368,7 +373,7 @@ func (c *client) SetPower(ctx context.Context, systemID string, action bmc.Power
 	return nil
 }
 
-func (c *client) SetBootOverride(ctx context.Context, systemID, target string, once bool) error {
+func (c *client) SetBootOverride(ctx context.Context, systemID string, o bmc.BootOverride) error {
 	if c.readOnly {
 		return errReadOnly
 	}
@@ -376,15 +381,21 @@ func (c *client) SetBootOverride(ctx context.Context, systemID, target string, o
 	if err != nil {
 		return err
 	}
-	enabled := schemas.ContinuousBootSourceOverrideEnabled
-	if once {
-		enabled = schemas.OnceBootSourceOverrideEnabled
+	enabled := schemas.OnceBootSourceOverrideEnabled
+	if o.Enabled != "" {
+		enabled = schemas.BootSourceOverrideEnabled(o.Enabled)
 	}
-	if err := s.SetBoot(&schemas.Boot{
-		BootSourceOverrideTarget:  schemas.BootSource(target),
+	boot := &schemas.Boot{
+		BootSourceOverrideTarget:  schemas.BootSource(o.Target),
 		BootSourceOverrideEnabled: enabled,
-	}); err != nil {
-		return fmt.Errorf("bmc: boot override %s: %w", target, err)
+	}
+	// Mode travels only when asked for: firmware that serves no mode property
+	// rejects a PATCH naming it.
+	if o.Mode != "" {
+		boot.BootSourceOverrideMode = schemas.BootSourceOverrideMode(o.Mode)
+	}
+	if err := s.SetBoot(boot); err != nil {
+		return fmt.Errorf("bmc: boot override %s: %w", o.Target, err)
 	}
 	return nil
 }

@@ -1,5 +1,6 @@
 // Package boot runs the media boot ladder — the day-0 sequence the CLI's boot
-// verb fronts and the provisioning flow will drive in-cluster: pack a rendered
+// verb fronts — and holds the rungs the in-cluster executor shares with it
+// (slot and target choice, eject-and-verify, slot inspection): pack a rendered
 // machine config into its ISO, serve it under a fresh grant (directly or through
 // a relay), mount it on the BMC with the grant's credentials, point the boot
 // override at removable media, power the node, and withdraw grant and medium
@@ -8,9 +9,7 @@ package boot
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/tls"
-	"encoding/hex"
 	"fmt"
 	"net"
 	"net/http"
@@ -81,7 +80,7 @@ func Run(ctx context.Context, o Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	target, err := pickTarget(system.BootTargets)
+	target, err := PickTarget(system.BootTargets)
 	if err != nil {
 		return Result{}, err
 	}
@@ -89,7 +88,7 @@ func Run(ctx context.Context, o Options) (Result, error) {
 
 	// The X12 lesson: a stale mount refuses InsertMedia — eject and verify
 	// Inserted=false before mounting.
-	if err := ejectStale(ctx, o.Client, slot, logf); err != nil {
+	if err := EjectAndVerify(ctx, o.Client, slot, logf); err != nil {
 		return Result{}, err
 	}
 
@@ -99,7 +98,7 @@ func Run(ctx context.Context, o Options) (Result, error) {
 	}
 
 	grants := asset.NewGrants()
-	creds, err := mintCredentials()
+	creds, err := asset.MintCredentials()
 	if err != nil {
 		return Result{}, err
 	}
@@ -138,7 +137,7 @@ func Run(ctx context.Context, o Options) (Result, error) {
 	}
 	logf("boot: media mounted")
 
-	if err := o.Client.SetBootOverride(ctx, system.ID, target, true); err != nil {
+	if err := o.Client.SetBootOverride(ctx, system.ID, bmc.BootOverride{Target: target, Enabled: bmc.OverrideOnce}); err != nil {
 		return res, cleanupAfter(ctx, o, grants, grant.Token, slot, err)
 	}
 	logf("boot: boot override %s (once)", target)
@@ -180,7 +179,7 @@ func cleanupAfter(ctx context.Context, o Options, grants *asset.Grants, token, s
 		logf = func(string, ...any) {}
 	}
 	// The BMC may be mid-pull; eject first so the mount drops before its URL dies.
-	if err := ejectStale(context.WithoutCancel(ctx), o.Client, slot, logf); err != nil {
+	if err := EjectAndVerify(context.WithoutCancel(ctx), o.Client, slot, logf); err != nil {
 		logf("boot: eject on cleanup: %v", err)
 	} else {
 		logf("boot: media ejected")
@@ -217,12 +216,23 @@ func pickSlot(ctx context.Context, c bmc.Client, want string) (string, bmc.Media
 	if err != nil {
 		return "", "", fmt.Errorf("boot: media: %w", err)
 	}
-	for _, m := range media { // slot order is the endpoint's — deterministic
-		if d := caps.MediaDialect[m.ID]; d != "" && d != bmc.DialectNone {
-			return m.ID, d, nil
-		}
+	if slots := InsertableSlots(caps.MediaDialect, media); len(slots) > 0 {
+		return slots[0], caps.MediaDialect[slots[0]], nil
 	}
 	return "", "", fmt.Errorf("boot: endpoint advertises no insertable media slot")
+}
+
+// InsertableSlots lists the slots that advertise an insert mechanism, in the
+// endpoint's own order (deterministic). Its length is what decides whether an
+// installer and a config medium can be mounted side by side.
+func InsertableSlots(dialects map[string]bmc.MediaDialect, media []bmc.VirtualMedia) []string {
+	var out []string
+	for _, m := range media {
+		if d := dialects[m.ID]; d != "" && d != bmc.DialectNone {
+			out = append(out, m.ID)
+		}
+	}
+	return out
 }
 
 func pickSystem(ctx context.Context, c bmc.Client, want string) (bmc.System, error) {
@@ -244,9 +254,9 @@ func pickSystem(ctx context.Context, c bmc.Client, want string) (bmc.System, err
 	return bmc.System{}, fmt.Errorf("boot: no system %q", want)
 }
 
-// pickTarget prefers UsbCd where offered — the X12 boots nothing from Cd —
+// PickTarget prefers UsbCd where offered — the X12 boots nothing from Cd —
 // and never strays outside AllowableValues.
-func pickTarget(targets []string) (string, error) {
+func PickTarget(targets []string) (string, error) {
 	for _, want := range []string{"UsbCd", "Cd"} {
 		if slices.Contains(targets, want) {
 			return want, nil
@@ -255,9 +265,13 @@ func pickTarget(targets []string) (string, error) {
 	return "", fmt.Errorf("boot: no removable-media boot target in %v", targets)
 }
 
-// ejectStale clears the slot if occupied and verifies Inserted=false — InsertMedia
-// on a stale X12 mount answers "action not supported".
-func ejectStale(ctx context.Context, c bmc.Client, slot string, logf func(string, ...any)) error {
+// EjectAndVerify clears the slot if occupied and verifies Inserted=false —
+// InsertMedia on a stale X12 mount answers "action not supported". An empty
+// slot is success: the goal is an empty slot, not the act of emptying it.
+func EjectAndVerify(ctx context.Context, c bmc.Client, slot string, logf func(string, ...any)) error {
+	if logf == nil {
+		logf = func(string, ...any) {}
+	}
 	inserted, err := slotInserted(ctx, c, slot)
 	if err != nil || !inserted {
 		return err
@@ -293,14 +307,6 @@ func slotInserted(ctx context.Context, c bmc.Client, slot string) (bool, error) 
 		}
 	}
 	return false, fmt.Errorf("boot: no media slot %q", slot)
-}
-
-func mintCredentials() (*asset.Credentials, error) {
-	raw := make([]byte, 16)
-	if _, err := rand.Read(raw); err != nil {
-		return nil, err
-	}
-	return &asset.Credentials{Username: "media", Password: hex.EncodeToString(raw)}, nil
 }
 
 // meter watches the serving side for the node's pull: cumulative GET bytes
