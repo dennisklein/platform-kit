@@ -100,8 +100,8 @@ func (c *client) getRaw(uri string) (body []byte, etag string, err error) {
 		return nil, "", err
 	}
 	defer resp.Body.Close()
-	if body, err = io.ReadAll(resp.Body); err != nil {
-		return nil, "", err
+	if body, err = readBody(resp.Body); err != nil {
+		return nil, "", fmt.Errorf("%s: %w", uri, err)
 	}
 	if etag = resp.Header.Get("ETag"); etag == "" {
 		var tagged struct {
@@ -111,6 +111,23 @@ func (c *client) getRaw(uri string) (body []byte, etag string, err error) {
 		etag = tagged.ETag
 	}
 	return body, stripGzipSuffix(etag), nil
+}
+
+// maxBodyBytes caps a response body read here. The largest resource read
+// raw is a few hundred KiB; a BMC that sends more is broken, and must not
+// make the operator hold an unbounded body in memory.
+const maxBodyBytes = 32 << 20
+
+// readBody reads a response body of at most maxBodyBytes.
+func readBody(r io.Reader) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, maxBodyBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > maxBodyBytes {
+		return nil, fmt.Errorf("response body over %d MiB", maxBodyBytes>>20)
+	}
+	return body, nil
 }
 
 // stripGzipSuffix removes the "-gzip" that Apache mod_deflate appends inside
@@ -202,8 +219,11 @@ func (c *client) pollTask(ctx context.Context, uri string) error {
 		if err != nil {
 			return false, fmt.Errorf("%w: %s: %v", errTaskLost, uri, err)
 		}
-		body, _ := io.ReadAll(resp.Body)
+		body, err := readBody(resp.Body)
 		resp.Body.Close()
+		if err != nil {
+			return false, fmt.Errorf("bmc: task %s: %w", uri, err)
+		}
 		task, err := decodeTask(body)
 		if err != nil {
 			if resp.StatusCode == http.StatusAccepted {
