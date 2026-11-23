@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -163,12 +164,18 @@ func orDash(s string) string {
 }
 
 func simCmd(args []string) {
+	if len(args) > 0 && args[0] == "fleet" {
+		simFleetCmd(args[1:])
+		return
+	}
 	if len(args) < 1 || args[0] != "serve" {
-		fmt.Fprintln(os.Stderr, "usage: pk-metal sim serve --fixture <name|path> [--listen addr]")
+		fmt.Fprintln(os.Stderr, `usage: pk-metal sim serve [--fixture <name|path>] [--listen addr] [--tls]
+       pk-metal sim fleet --config <file>`)
 		os.Exit(2)
 	}
 	fs := flag.NewFlagSet("sim serve", flag.ExitOnError)
-	fixture := fs.String("fixture", "supermicro-x12", "embedded fixture name or a path to a fixture YAML")
+	fixture := fs.String("fixture", "generic",
+		"embedded fixture name ("+strings.Join(sim.Fixtures(), ", ")+") or a path to a fixture YAML")
 	listen := fs.String("listen", "127.0.0.1:8000", "listen address")
 	serveTLS := fs.Bool("tls", false, "serve HTTPS with an ephemeral self-signed certificate (what spec.address requires)")
 	verbose := fs.Bool("verbose", false, "log every request (default: only state-changing ones)")
@@ -192,32 +199,60 @@ func simCmd(args []string) {
 		ln = tls.NewListener(ln, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12})
 		scheme = "https"
 	}
-	log.Printf("sim: serving %s (%s) on %s://%s/redfish/v1", f.Name, f.Vendor, scheme, ln.Addr())
-	log.Fatal(http.Serve(ln, logRequests(sim.NewServer(sim.NewState(f)), *verbose)))
+	account := "no accounts, open"
+	if len(f.Accounts) > 0 {
+		// A fixture value, not a secret: the factory account is how anybody
+		// gets in at all.
+		account = "account " + f.Accounts[0].Username + " / " + f.Accounts[0].Password
+	}
+	log.Printf("sim: serving %s (%s) on %s://%s/redfish/v1 (%s)", f.Name, f.Vendor, scheme, ln.Addr(), account)
+	log.Fatal(http.Serve(ln, logRequests(sim.NewServer(sim.NewState(f)), "sim", *verbose)))
 }
 
 // logRequests is the sim's console: state-changing requests — power, media, boot,
 // the events a demo or a debugging session watches for — always log, with their
-// (tiny, Redfish-action) bodies; read-only poll traffic only with verbose.
-func logRequests(next http.Handler, verbose bool) http.Handler {
+// (tiny, Redfish-action) JSON bodies; read-only poll traffic only with verbose.
+// A body that is not JSON — a firmware image, a certificate upload — is not
+// read here at all, and what is logged has its secrets blanked.
+func logRequests(next http.Handler, prefix string, verbose bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body string
-		if r.Method != http.MethodGet && r.Body != nil {
+		if r.Method != http.MethodGet && r.Body != nil &&
+			strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 			b, _ := io.ReadAll(r.Body)
 			r.Body = io.NopCloser(bytes.NewReader(b))
-			body = strings.TrimSpace(string(b))
+			body = loggable(b)
 		}
 		rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK}
 		next.ServeHTTP(rec, r)
 		if r.Method == http.MethodGet && !verbose {
 			return
 		}
-		line := fmt.Sprintf("sim: %s %s -> %d", r.Method, r.URL.Path, rec.code)
+		line := fmt.Sprintf("%s: %s %s -> %d", prefix, r.Method, r.URL.Path, rec.code)
 		if body != "" {
 			line += " " + body
 		}
 		log.Print(line)
 	})
+}
+
+// Secrets a Redfish request body can carry: a Password property (session
+// login, account PATCH, media credentials) and userinfo in an image URL.
+var (
+	passwordValue = regexp.MustCompile(`("Password"\s*:\s*)"(?:[^"\\]|\\.)*"`)
+	urlUserinfo   = regexp.MustCompile(`://[^/@\s"]+@`)
+)
+
+// loggable renders a request body for the console: secrets blanked, one line,
+// cut to a readable length.
+func loggable(body []byte) string {
+	s := strings.Join(strings.Fields(string(body)), " ")
+	s = passwordValue.ReplaceAllString(s, `${1}"***"`)
+	s = urlUserinfo.ReplaceAllString(s, "://***@")
+	if len(s) > 512 {
+		s = s[:512] + "…"
+	}
+	return s
 }
 
 type statusRecorder struct {
@@ -236,6 +271,7 @@ func usage() {
 commands:
   version      print the build version (git sha8)
   sim serve    serve a simulated Redfish endpoint from a fixture
+  sim fleet    serve several simulated BMCs from a fleet file, a machine behind each
   inventory    Redfish inventory -> fact-file YAML on stdout (read-only)
   check        preflight an endpoint: reachability, dialects, systems (read-only)
   status       render the rack from the cluster: hosts, endpoints, pending claims
