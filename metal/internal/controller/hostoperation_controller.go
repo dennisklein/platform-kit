@@ -66,8 +66,8 @@ const (
 // writer to a BMC. The gate itself is admission (VAP: approve as yourself, never
 // your own proposal, never pre-approved, write-once) and RBAC (the controller
 // may create, humans may patch); this reconciler only observes its outcome. At
-// most one operation runs per Host (oldest first); a failed step is terminal —
-// one-shots never auto-retry.
+// most one operation runs per Host (a started one first, then the oldest); a
+// failed step is terminal — one-shots never auto-retry.
 //
 // Execution is resumable. Each step is written to status as it reaches its
 // goal, and a resumed pass continues after the last recorded step, so a goal a
@@ -187,7 +187,7 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			metalv1alpha1.ReasonApprovalNotRequired, "proposed by "+op.Spec.ProposedBy)
 	}
 
-	// One active operation per Host: the oldest unfinished one runs, the rest
+	// One active operation per Host (see hostHolder): the holder runs, the rest
 	// queue and re-enter through the sibling watch when it finishes.
 	if pred, err := r.activePredecessor(ctx, op); err != nil {
 		return ctrl.Result{}, err
@@ -507,17 +507,30 @@ func opActive(op *metalv1alpha1.HostOperation) bool {
 	return !opFinished(op) && !opAwaitsApproval(op)
 }
 
-// activePredecessor names an older active operation on the same host, if any.
-// Oldest creation wins; namespace/name breaks ties.
-func (r *HostOperationReconciler) activePredecessor(ctx context.Context, op *metalv1alpha1.HostOperation) (string, error) {
-	ops := &metalv1alpha1.HostOperationList{}
-	if err := r.List(ctx, ops, client.MatchingFields{opHostIndex: op.Spec.HostRef.Name}); err != nil {
-		return "", err
-	}
-	active := slices.DeleteFunc(ops.Items, func(o metalv1alpha1.HostOperation) bool {
+// opStarted: the operation captured its baseline, so it may have touched the
+// machine already.
+func opStarted(op *metalv1alpha1.HostOperation) bool { return op.Status.Baseline != nil }
+
+// hostHolder picks the one operation that may run on a host from all the
+// operations on it, or nil when none is active. A started operation holds the
+// host until it finishes: an older one approved later waits, because stopping
+// a run between its mount and its boot leaves the machine half-done. Among
+// operations that have not started, the oldest wins. Namespace and name break
+// ties, so every pass picks the same one.
+func hostHolder(ops []metalv1alpha1.HostOperation) *metalv1alpha1.HostOperation {
+	active := slices.DeleteFunc(slices.Clone(ops), func(o metalv1alpha1.HostOperation) bool {
 		return !opActive(&o) || !o.DeletionTimestamp.IsZero()
 	})
-	slices.SortFunc(active, func(a, b metalv1alpha1.HostOperation) int {
+	if len(active) == 0 {
+		return nil
+	}
+	h := slices.MinFunc(active, func(a, b metalv1alpha1.HostOperation) int {
+		if sa, sb := opStarted(&a), opStarted(&b); sa != sb {
+			if sa {
+				return -1
+			}
+			return 1
+		}
 		if c := a.CreationTimestamp.Compare(b.CreationTimestamp.Time); c != 0 {
 			return c
 		}
@@ -526,10 +539,21 @@ func (r *HostOperationReconciler) activePredecessor(ctx context.Context, op *met
 		}
 		return strings.Compare(a.Name, b.Name)
 	})
-	if len(active) == 0 || active[0].UID == op.UID {
+	return &h
+}
+
+// activePredecessor names the operation that holds the op's host, if it is
+// another one.
+func (r *HostOperationReconciler) activePredecessor(ctx context.Context, op *metalv1alpha1.HostOperation) (string, error) {
+	ops := &metalv1alpha1.HostOperationList{}
+	if err := r.List(ctx, ops, client.MatchingFields{opHostIndex: op.Spec.HostRef.Name}); err != nil {
+		return "", err
+	}
+	h := hostHolder(ops.Items)
+	if h == nil || h.UID == op.UID {
 		return "", nil
 	}
-	return active[0].Namespace + "/" + active[0].Name, nil
+	return h.Namespace + "/" + h.Name, nil
 }
 
 // client opens the write-capable session on first use. A hold (no reachable

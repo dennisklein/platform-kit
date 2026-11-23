@@ -67,7 +67,7 @@ const (
 	ReasonApproved = "Approved"
 	// ReasonApprovalNotRequired on Approved=True: the disruption policy waived the gate.
 	ReasonApprovalNotRequired = "ApprovalNotRequired"
-	// ReasonOperationQueued on Executed=Unknown: an older operation holds the host —
+	// ReasonOperationQueued on Executed=Unknown: another operation holds the host —
 	// at most one runs per Host.
 	ReasonOperationQueued = "OperationQueued"
 	// ReasonExecuting on Executed=Unknown: the baseline is persisted and steps are
