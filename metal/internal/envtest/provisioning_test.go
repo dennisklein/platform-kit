@@ -135,6 +135,7 @@ func TestProvisioning(t *testing.T) {
 	}
 	operator := whoAmI(t, ctx, cl)
 	installApprovalPolicy(t, ctx, cl, operator)
+	installClaimPolicy(t, ctx, cl)
 
 	userClient := func(name string, groups ...string) client.Client {
 		u, err := env.AddUser(envtest.User{Name: name, Groups: append(groups, "system:masters")}, nil)
@@ -428,6 +429,56 @@ func TestProvisioning(t *testing.T) {
 		require.NoError(t, cl.Delete(ctx, own))
 	})
 
+	t.Run("only an admin points a claim at a node or waives its approval", func(t *testing.T) {
+		claim := func(name string, node string, approval metalv1alpha1.ProvisioningApproval) *metalv1alpha1.HostClaim {
+			c := &metalv1alpha1.HostClaim{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+				Spec:       metalv1alpha1.HostClaimSpec{AssetRef: metalv1alpha1.Reference{Name: "no-such-asset"}},
+			}
+			if node != "" {
+				c.Spec.OS = &metalv1alpha1.ClaimOS{NodeRef: metalv1alpha1.Reference{Name: node}}
+			}
+			if approval != "" {
+				c.Spec.Provisioning = &metalv1alpha1.ClaimProvisioning{Approval: approval}
+			}
+			return c
+		}
+		// The claim policy came up after the operation policy was probed.
+		require.Eventually(t, func() bool {
+			err := bobCl.Create(ctx, claim("bob-cp", "control-plane-1", ""))
+			if err == nil {
+				require.NoError(t, cl.Delete(ctx, claim("bob-cp", "", "")))
+				return false
+			}
+			return strings.Contains(err.Error(), "only an admin")
+		}, waitFor, tick, "a claim author names a node: denied")
+
+		err := bobCl.Create(ctx, claim("bob-auto", "", metalv1alpha1.ProvisioningApprovalAutomatic))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "waive provisioning approval")
+
+		plain := claim("bob-plain", "", "")
+		require.NoError(t, bobCl.Create(ctx, plain), "reserving a machine needs no admin")
+		err = bobCl.Patch(ctx, plain, client.RawPatch(types.MergePatchType,
+			[]byte(`{"spec":{"os":{"nodeRef":{"name":"control-plane-1"}}}}`)))
+		require.Error(t, err, "nor does adding the intent later get around it")
+		assert.Contains(t, err.Error(), "only an admin")
+		err = bobCl.Patch(ctx, plain, client.RawPatch(types.MergePatchType,
+			[]byte(`{"spec":{"assetRef":{"name":"another-asset"}}}`)))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "assetRef is immutable")
+		require.NoError(t, carolCl.Patch(ctx, plain, client.RawPatch(types.MergePatchType,
+			[]byte(`{"spec":{"os":{"nodeRef":{"name":"control-plane-1"}},"provisioning":{"approval":"Automatic"}}}`))),
+			"an admin may")
+		require.NoError(t, bobCl.Patch(ctx, plain, client.RawPatch(types.MergePatchType,
+			[]byte(`{"metadata":{"labels":{"team":"bob"}}}`))), "other edits stay open to the author")
+		err = carolCl.Patch(ctx, plain, client.RawPatch(types.MergePatchType,
+			[]byte(`{"spec":{"os":{"nodeRef":{"name":"control-plane-2"}}}}`)))
+		require.Error(t, err, "not even an admin re-targets a standing intent")
+		assert.Contains(t, err.Error(), "os.nodeRef is immutable")
+		require.NoError(t, cl.Delete(ctx, plain))
+	})
+
 	var dualHost string
 	var configISO []byte
 
@@ -439,7 +490,7 @@ func TestProvisioning(t *testing.T) {
 		configISO, err = asset.BuildConfigISO(cfgBytes)
 		require.NoError(t, err)
 
-		require.NoError(t, cl.Create(ctx, &metalv1alpha1.HostClaim{
+		require.NoError(t, carolCl.Create(ctx, &metalv1alpha1.HostClaim{
 			ObjectMeta: metav1.ObjectMeta{Name: "dual", Namespace: "default"},
 			Spec: metalv1alpha1.HostClaimSpec{
 				AssetRef: metalv1alpha1.Reference{Name: "lab-dual"},
@@ -562,7 +613,7 @@ func TestProvisioning(t *testing.T) {
 		createAsset("lab-single", singleFix.Systems[0].Serial, singleFix.Manager.MAC)
 		singleHost := hostBehind("lab-single").Name
 		renderedNode("node-single", "lab")
-		require.NoError(t, cl.Create(ctx, &metalv1alpha1.HostClaim{
+		require.NoError(t, carolCl.Create(ctx, &metalv1alpha1.HostClaim{
 			ObjectMeta: metav1.ObjectMeta{Name: "single", Namespace: "default"},
 			Spec: metalv1alpha1.HostClaimSpec{
 				AssetRef:     metalv1alpha1.Reference{Name: "lab-single"},

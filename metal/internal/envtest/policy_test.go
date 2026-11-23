@@ -41,6 +41,20 @@ func installApprovalPolicy(t *testing.T, ctx context.Context, cl client.Client, 
 	require.NoError(t, cl.Create(ctx, params))
 }
 
+// installClaimPolicy loads the committed claim provisioning policy; its params
+// are the ones installApprovalPolicy created.
+func installClaimPolicy(t *testing.T, ctx context.Context, cl client.Client) {
+	t.Helper()
+	docs := strings.Split(readFile(t, filepath.Join("..", "..", "config", "policy", "hostclaim-provisioning.yaml")), "\n---")
+	require.Len(t, docs, 2)
+	vap := &admissionregistrationv1.ValidatingAdmissionPolicy{}
+	require.NoError(t, yaml.Unmarshal([]byte(docs[0]), vap))
+	require.NoError(t, cl.Create(ctx, vap))
+	binding := &admissionregistrationv1.ValidatingAdmissionPolicyBinding{}
+	require.NoError(t, yaml.Unmarshal([]byte(docs[1]), binding))
+	require.NoError(t, cl.Create(ctx, binding))
+}
+
 // whoAmI is the username a client acts as.
 func whoAmI(t *testing.T, ctx context.Context, cl client.Client) string {
 	t.Helper()

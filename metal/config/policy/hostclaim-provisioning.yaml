@@ -1,0 +1,73 @@
+# Who may point a claim at an OS and who may waive its boot approval. A claim that
+# names a TalosNode makes the operator mount that node's rendered config on the
+# machine — a control-plane config carries the cluster's CA keys — and
+# provisioning.approval: Automatic lets the operator boot it without a person. Both
+# are therefore an admin's decision, not any claim author's:
+#   - only a member of the admin group sets or changes spec.os.nodeRef;
+#   - only a member of the admin group turns provisioning.approval to Automatic.
+# Everything else on a claim stays open to its authors. Unchanged values pass on
+# UPDATE, so the operator's own writes (finalizers) and edits to other fields never
+# need the group.
+#
+# The admin group comes from the same parameters as the HostOperation approval
+# policy (hostoperation-approval.yaml); a missing ConfigMap denies every create and
+# update of a claim: the gate fails closed.
+#
+# CEL note: oldObject is null on CREATE — every reference to it sits behind a
+# lazily-evaluated request.operation ternary (the null-oldObject guard).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: hostclaim-provisioning
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["metal.pk.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["hostclaims"]
+  variables:
+    - name: newNode
+      expression: "has(object.spec.os) ? object.spec.os.nodeRef.name : ''"
+    - name: oldNode
+      expression: >-
+        request.operation == 'UPDATE' && has(oldObject.spec.os)
+        ? oldObject.spec.os.nodeRef.name : ''
+    - name: newAutomatic
+      expression: >-
+        has(object.spec.provisioning) && has(object.spec.provisioning.approval)
+        && object.spec.provisioning.approval == 'Automatic'
+    - name: oldAutomatic
+      expression: >-
+        request.operation == 'UPDATE' && has(oldObject.spec.provisioning)
+        && has(oldObject.spec.provisioning.approval)
+        && oldObject.spec.provisioning.approval == 'Automatic'
+    - name: isAdmin
+      expression: >-
+        has(params.data) && has(params.data.adminGroup) && params.data.adminGroup != ''
+        && has(request.userInfo.groups) && params.data.adminGroup in request.userInfo.groups
+  validations:
+    - expression: "variables.newNode == '' || variables.newNode == variables.oldNode || variables.isAdmin"
+      messageExpression: >-
+        'only an admin (group ' + params.data.adminGroup + ') may name the TalosNode a claim boots'
+      reason: Forbidden
+    - expression: "!variables.newAutomatic || variables.oldAutomatic || variables.isAdmin"
+      messageExpression: >-
+        'only an admin (group ' + params.data.adminGroup + ') may waive provisioning approval'
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: hostclaim-provisioning
+spec:
+  policyName: hostclaim-provisioning
+  validationActions: ["Deny"]
+  paramRef:
+    name: hostoperation-approval
+    namespace: pk-metal
+    parameterNotFoundAction: Deny

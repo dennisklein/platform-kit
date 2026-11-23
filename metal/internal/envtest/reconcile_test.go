@@ -415,13 +415,18 @@ func TestReconcile(t *testing.T) {
 		assert.Equal(t, metav1.ConditionUnknown, osReady.Status)
 		assert.Equal(t, metalv1alpha1.ReasonNodeNotFound, osReady.Reason)
 
-		// The intent is editable — the stamp follows.
-		editClaim("fleet-os", func(c *metalv1alpha1.HostClaim) {
-			c.Spec.OS.NodeRef.Name = "ref-2288h-b"
-		})
-		waitHost("simhw2288v5000391", func(h metalv1alpha1.Host) bool {
-			return h.Spec.OS != nil && h.Spec.OS.NodeRef.Name == "ref-2288h-b"
-		})
+		// The node the intent names is fixed while it stands, and so is the
+		// machine the claim binds.
+		c2 := claimByName("fleet-os")
+		c2.Spec.OS.NodeRef.Name = "ref-2288h-b"
+		err := cl.Update(ctx, &c2)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "os.nodeRef is immutable")
+		c2 = claimByName("fleet-os")
+		c2.Spec.AssetRef.Name = "some-other-asset"
+		err = cl.Update(ctx, &c2)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "assetRef is immutable")
 
 		// Dropping the intent clears the hand-off but keeps the bind.
 		editClaim("fleet-os", func(c *metalv1alpha1.HostClaim) { c.Spec.OS = nil })
@@ -431,7 +436,7 @@ func TestReconcile(t *testing.T) {
 		require.NotNil(t, h.Spec.ClaimRef, "the bind survives the dropped intent")
 
 		// Release clears bind and hand-off together.
-		c2 := claimByName("fleet-os")
+		c2 = claimByName("fleet-os")
 		require.NoError(t, cl.Delete(ctx, &c2))
 		waitHost("simhw2288v5000391", hostPhaseIs(metalv1alpha1.HostAvailable))
 	})

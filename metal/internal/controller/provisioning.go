@@ -89,9 +89,21 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 		return err
 	}
 	if claim.Spec.OS == nil {
-		// Intent dropped: a proposal nobody approved yet goes with it.
+		// Intent dropped: every boot not finished goes with it — a proposal
+		// nobody approved yet, and a boot still running, which stops between
+		// steps. The node a claim boots changes only through here, so no boot
+		// for the old node survives into the new intent.
 		meta.RemoveStatusCondition(&claim.Status.Conditions, metalv1alpha1.ConditionProvisioned)
-		return r.withdraw(ctx, ops, "")
+		for i := range ops {
+			if opFinished(&ops[i]) || !ops[i].DeletionTimestamp.IsZero() {
+				continue
+			}
+			logf.FromContext(ctx).Info("stopped boot operation of a dropped OS intent", "operation", ops[i].Namespace+"/"+ops[i].Name)
+			if err := r.Delete(ctx, &ops[i]); client.IgnoreNotFound(err) != nil {
+				return err
+			}
+		}
+		return nil
 	}
 
 	host := &metalv1alpha1.Host{}
@@ -109,10 +121,11 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 		set(metav1.ConditionTrue, metalv1alpha1.ReasonHandedOff, fmt.Sprintf("host %s runs TalosNode %s", hostName, node.Name))
 		return r.withdraw(ctx, ops, "")
 	}
-	// A succeeded boot operation is the hand-off record: the node may simply be
-	// down now, and that is not a reason to install it again.
+	// A succeeded boot operation of this node onto this host is the hand-off
+	// record: the node may simply be down now, and that is not a reason to
+	// install it again. A boot of any other node is no record of this one.
 	for i := range ops {
-		if opSucceeded(&ops[i]) {
+		if opSucceeded(&ops[i]) && bootsNode(&ops[i], hostName, node.Name) {
 			set(metav1.ConditionTrue, metalv1alpha1.ReasonHandedOff,
 				fmt.Sprintf("operation %s/%s booted host %s", ops[i].Namespace, ops[i].Name, hostName))
 			return nil
@@ -213,6 +226,16 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 		return hold(metalv1alpha1.ReasonAwaitingOperation, "boot operation "+ref+": "+ex.Message)
 	}
 	return hold(metalv1alpha1.ReasonAwaitingOperation, "boot operation "+ref+" in flight")
+}
+
+// bootsNode: the operation acts on the host and waits for the node to check in.
+func bootsNode(op *metalv1alpha1.HostOperation, hostName, nodeName string) bool {
+	if op.Spec.HostRef.Name != hostName {
+		return false
+	}
+	return slices.ContainsFunc(op.Spec.Actions, func(a metalv1alpha1.HostOperationAction) bool {
+		return a.AwaitCheckIn != nil && a.AwaitCheckIn.NodeRef.Name == nodeName
+	})
 }
 
 // provisionOp builds the boot operation for a plan.

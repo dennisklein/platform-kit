@@ -50,7 +50,10 @@ spec:
             metadata:
               type: object
             spec:
-              description: 'HostClaimSpec selects one machine and binds it exclusively — the system''s ONLY claim (decisions attach to machines, not to controllers; the endpoint has none). Selection goes through the Asset: the org''s durable identity is what a human commits, the Host name is discovered later.'
+              description: |-
+                HostClaimSpec selects one machine and binds it exclusively — the system's ONLY claim (decisions attach to machines, not to controllers; the endpoint has none). Selection goes through the Asset: the org's durable identity is what a human commits, the Host name is discovered later.
+
+                What the claim binds is fixed for its lifetime: pointing it elsewhere would leave the machine it already bound without a release (power off, media out) and a boot in flight for the old target. Re-targeting is a new claim.
               properties:
                 assetRef:
                   description: AssetRef names the Asset whose machine this claim binds.
@@ -86,6 +89,9 @@ spec:
                   required:
                     - nodeRef
                   type: object
+                  x-kubernetes-validations:
+                    - message: 'os.nodeRef is immutable: drop the OS intent first, or create another claim'
+                      rule: self.nodeRef == oldSelf.nodeRef
                 provisioning:
                   description: Provisioning tunes how the operator installs the OS onto the machine.
                   properties:
@@ -108,6 +114,11 @@ spec:
               required:
                 - assetRef
               type: object
+              x-kubernetes-validations:
+                - message: 'assetRef is immutable: delete the claim and create another'
+                  rule: self.assetRef == oldSelf.assetRef
+                - message: 'systemRef is immutable: delete the claim and create another'
+                  rule: has(self.systemRef) == has(oldSelf.systemRef) && (!has(self.systemRef) || self.systemRef == oldSelf.systemRef)
             status:
               description: HostClaimStatus is the claim's side of the bind (the authoritative pointer is Host.spec.claimRef — PV/PVC-style, first writer wins).
               properties:

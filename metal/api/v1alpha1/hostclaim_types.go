@@ -21,6 +21,12 @@ const (
 // claim (decisions attach to machines, not to controllers; the endpoint has none).
 // Selection goes through the Asset: the org's durable identity is what a human
 // commits, the Host name is discovered later.
+//
+// What the claim binds is fixed for its lifetime: pointing it elsewhere would
+// leave the machine it already bound without a release (power off, media
+// out) and a boot in flight for the old target. Re-targeting is a new claim.
+// +kubebuilder:validation:XValidation:rule="self.assetRef == oldSelf.assetRef",message="assetRef is immutable: delete the claim and create another"
+// +kubebuilder:validation:XValidation:rule="has(self.systemRef) == has(oldSelf.systemRef) && (!has(self.systemRef) || self.systemRef == oldSelf.systemRef)",message="systemRef is immutable: delete the claim and create another"
 type HostClaimSpec struct {
 	// AssetRef names the Asset whose machine this claim binds.
 	AssetRef Reference `json:"assetRef"`
@@ -81,7 +87,11 @@ type ClaimProvisioning struct {
 // +kubebuilder:validation:Pattern=`^(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])?$`
 type LabelValue string
 
-// ClaimOS is the claim's OS intent.
+// ClaimOS is the claim's OS intent. The node it names is fixed while the
+// intent stands: a boot operation and its hand-off record belong to one node,
+// and dropping the intent (which stops a boot still running) is the only way
+// to another.
+// +kubebuilder:validation:XValidation:rule="self.nodeRef == oldSelf.nodeRef",message="os.nodeRef is immutable: drop the OS intent first, or create another claim"
 type ClaimOS struct {
 	// NodeRef names the TalosNode (os.pk.io, cluster-scoped) whose
 	// rendered config the machine boots.

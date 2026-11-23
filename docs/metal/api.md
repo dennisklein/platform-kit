@@ -478,7 +478,10 @@ _Appears in:_
 
 
 
-ClaimOS is the claim's OS intent.
+ClaimOS is the claim's OS intent. The node it names is fixed while the
+intent stands: a boot operation and its hand-off record belong to one node,
+and dropping the intent (which stops a boot still running) is the only way
+to another.
 
 
 
@@ -785,6 +788,10 @@ HostClaimSpec selects one machine and binds it exclusively — the system's ONLY
 claim (decisions attach to machines, not to controllers; the endpoint has none).
 Selection goes through the Asset: the org's durable identity is what a human
 commits, the Host name is discovered later.
+
+What the claim binds is fixed for its lifetime: pointing it elsewhere would
+leave the machine it already bound without a release (power off, media
+out) and a boot in flight for the old target. Re-targeting is a new claim.
 
 
 
@@ -1669,7 +1676,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `name` _string_ | Name is the alias the link gets. Avoid kernel names (eth0, enp0s2):<br />an alias must not collide with a real interface. |  | Pattern: `^[a-z][a-z0-9-]\{0,14\}$` <br /> |
-| `hardwareAddr` _string_ | HardwareAddr is the link's permanent MAC address. |  | Pattern: `^([0-9a-f]\{2\}:)\{5\}[0-9a-f]\{2\}$` <br /> |
+| `hardwareAddr` _string_ | HardwareAddr is the link's permanent MAC address. A physical link<br />whose driver reports no permanent address is matched on its current<br />one instead. |  | Pattern: `^([0-9a-f]\{2\}:)\{5\}[0-9a-f]\{2\}$` <br /> |
 | `addresses` _string array_ | Addresses are static addresses in CIDR form, primary family first. |  | Optional: \{\} <br /> |
 | `routes` _[Route](#route) array_ | Routes are static routes over this link. |  | Optional: \{\} <br /> |
 | `dhcp` _boolean_ | DHCP runs a DHCPv4 client on the link, alongside any static addresses. |  | Optional: \{\} <br /> |
