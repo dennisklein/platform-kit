@@ -40,9 +40,14 @@ machines:
     backend: qemu
     qemu: { tap: pktap2, memoryMiB: 2048, cpus: 2, diskGiB: 20, diskSerial: pklab-disk-2 }
 
+  # node-3 speaks the Supermicro X12 dialect (OEM board serial, three
+  # virtual media slots, a UsbCd boot target), so a vendor other than the
+  # generic one goes through the whole path. A Huawei iBMC holds one medium
+  # only, and a blank lab machine has no maintenance-mode Talos to boot into,
+  # so that personality would hold the install by design.
   - name: node-3
     listen: 10.77.0.1:8443
-    personality: generic
+    personality: supermicro-x12
     credentials: { username: admin, password: admin-pass }
     identity:
       serial: PKLAB0003
