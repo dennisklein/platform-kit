@@ -3,3 +3,5 @@ metal/.cache/
 .claude/
 mise.local.toml
 .lab/
+/metal/manager
+/metal/pk-metal
