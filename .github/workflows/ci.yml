@@ -1,0 +1,107 @@
+# Everything that needs no hardware and no virtual machine: build, unit tests,
+# controller tests against a real API server, the linters, and a check that
+# every generated file is what its source says it should be.
+#
+# Each job runs the same `mise run` task a person runs locally, on the tool
+# versions pinned in mise.toml. Actions are pinned to a commit; the tag is in
+# the comment next to it.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+# A newer push to the same ref makes the older run pointless.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
+      - name: Locate the Go caches
+        id: go
+        run: |
+          echo "modcache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "buildcache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go.outputs.modcache }}
+            ${{ steps.go.outputs.buildcache }}
+          key: go-${{ runner.os }}-${{ hashFiles('metal/go.sum') }}
+          restore-keys: go-${{ runner.os }}-
+      - name: Build
+        run: mise run build
+      - name: Unit tests
+        run: mise run test
+      - name: Controller tests (envtest)
+        run: mise run envtest
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
+      - name: Locate the Go caches
+        id: go
+        run: |
+          echo "modcache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "buildcache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go.outputs.modcache }}
+            ${{ steps.go.outputs.buildcache }}
+          key: go-lint-${{ runner.os }}-${{ hashFiles('metal/go.sum') }}
+          restore-keys: go-lint-${{ runner.os }}-
+      # Separate steps rather than `mise run lint`, so that one failing linter
+      # does not hide what the others have to say.
+      - name: Phase invariant
+        run: mise run lint:phase
+      - name: Shell scripts
+        if: always()
+        run: mise run lint:shell
+      - name: golangci-lint
+        if: always()
+        run: mise run lint:go
+
+  generate:
+    name: generated files are current
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
+      - name: Locate the Go caches
+        id: go
+        run: |
+          echo "modcache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "buildcache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go.outputs.modcache }}
+            ${{ steps.go.outputs.buildcache }}
+          key: go-generate-${{ runner.os }}-${{ hashFiles('metal/go.sum') }}
+          restore-keys: go-generate-${{ runner.os }}-
+      # Regenerates deepcopy code, CRDs, RBAC and the API reference, and fails
+      # when the result differs from what is committed.
+      - name: Regenerate and compare
+        run: mise run generate:check
+      # The manifests have to render, too: a kustomization that names a file
+      # which is not there is not caught by anything else.
+      - name: Render the manifests
+        run: |
+          kubectl kustomize metal/config/default > /dev/null
+          kubectl kustomize metal/config/lab > /dev/null

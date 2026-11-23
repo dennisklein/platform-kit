@@ -97,6 +97,20 @@ run = [
   "go tool crd-ref-docs --log-level=WARN --source-path=./api --config=hack/crd-ref-docs.yaml --renderer=markdown --templates-dir=hack/crd-ref-docs-templates --output-path=../docs/metal/api.md",
 ]
 
+[tasks."generate:check"]
+description = "Fail when a generated file is out of date with its source"
+depends = ["generate"]
+run = '''
+drift=$(git status --porcelain -- metal/api metal/config docs/metal)
+if [ -n "$drift" ]; then
+  echo "generate:check: generated files are out of date. Run 'mise run generate' and commit the result:" >&2
+  echo "$drift" >&2
+  git --no-pager diff --stat -- metal/api metal/config docs/metal >&2
+  exit 1
+fi
+echo "generate:check: clean"
+'''
+
 [tasks."sim:demo"]
 description = "Curl walk over two generic simulated BMCs: service root, media, boot override, reset, task monitor"
 dir = "metal"
