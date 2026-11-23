@@ -39,8 +39,11 @@ func fakeFactory(t *testing.T, answer func(id string) string) (*render.Factory, 
 		if answer != nil {
 			id = answer(id)
 		}
+		normalized, err := sch.Marshal()
+		require.NoError(t, err)
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(map[string]string{"id": id})
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": id, "schematic": string(normalized)})
 	}))
 	t.Cleanup(srv.Close)
 	return &render.Factory{
@@ -124,6 +127,27 @@ func TestRegisterSchematic(t *testing.T) {
 		_, err := f.Register(ctx, args)
 		require.Error(t, err)
 	})
+}
+
+// TestRegisterWire pins what goes over the wire for one schematic: the body
+// and the id. The id names every image URL already handed out, so a change in
+// how the request is built must not change it.
+func TestRegisterWire(t *testing.T) {
+	const wantID = "316db6ac7fce93457e38a70ace023e57e4b76853a8c1f0108437e7a06e330d53"
+	const wantBody = "customization:\n    extraKernelArgs:\n        - talos.config=metal-iso\n        - console=ttyS0\n" +
+		"    systemExtensions:\n        officialExtensions:\n            - siderolabs/intel-ucode\n"
+	f, _, body := fakeFactory(t, nil)
+	id, err := f.Register(context.Background(), &osv1alpha1.Schematic{
+		Customization: osv1alpha1.SchematicCustomization{
+			ExtraKernelArgs: []string{"talos.config=metal-iso", "console=ttyS0"},
+			SystemExtensions: osv1alpha1.SystemExtensions{
+				OfficialExtensions: []string{"siderolabs/intel-ucode"},
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, wantID, id, "the schematic id must not change for the same input")
+	assert.Equal(t, wantBody, body.Load(), "the posted schematic must not change for the same input")
 }
 
 // The host the operator is given must reach both halves — the URL it hands out

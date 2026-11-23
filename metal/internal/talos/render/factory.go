@@ -1,14 +1,13 @@
 package render
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
 	"time"
 
+	factoryclient "github.com/siderolabs/image-factory/pkg/client"
 	"github.com/siderolabs/image-factory/pkg/schematic"
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
@@ -103,33 +102,21 @@ func (f *Factory) Register(ctx context.Context, s *osv1alpha1.Schematic) (string
 	if _, done := f.registered.Load(want); done {
 		return want, nil
 	}
-	body, err := sch.Marshal()
-	if err != nil {
-		return "", fmt.Errorf("marshal schematic %s: %w", want, err)
-	}
 
-	endpoint := f.schematicsURL()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	// The factory's own client posts the same YAML body sch.Marshal gives,
+	// so the id the factory computes is the one computed above.
+	base := f.baseURL()
+	fc, err := factoryclient.New(base, factoryclient.WithClient(*f.httpClient()))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("image factory %s: %w", base, err)
 	}
-	resp, err := f.httpClient().Do(req)
+	got, _, err := fc.SchematicCreate(ctx, *sch)
 	if err != nil {
-		return "", fmt.Errorf("post schematic %s to %s: %w", want, endpoint, err)
+		return "", fmt.Errorf("register schematic %s with %s: %w", want, base, err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusCreated {
-		return "", fmt.Errorf("%s answered %s registering schematic %s", endpoint, resp.Status, want)
-	}
-	var got struct {
-		ID string `json:"id"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
-		return "", fmt.Errorf("decode the answer from %s: %w", endpoint, err)
-	}
-	if got.ID != want {
+	if got != want {
 		return "", fmt.Errorf("%s registered the schematic as %s but it was computed locally as %s — the schematic mapping has drifted from the factory's",
-			endpoint, got.ID, want)
+			base, got, want)
 	}
 
 	f.registered.Store(want, struct{}{})
@@ -144,8 +131,8 @@ func (f *Factory) host() string {
 	return PublicFactory
 }
 
-func (f *Factory) schematicsURL() string {
-	return "https://" + f.host() + "/schematics"
+func (f *Factory) baseURL() string {
+	return "https://" + f.host()
 }
 
 func (f *Factory) httpClient() *http.Client {

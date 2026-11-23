@@ -84,8 +84,9 @@ func stubFactory(t *testing.T) (*render.Factory, func() []string) {
 		mu.Lock()
 		ids = append(ids, id)
 		mu.Unlock()
+		normalized, _ := sch.Marshal()
 		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(map[string]string{"id": id})
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": id, "schematic": string(normalized)})
 	}))
 	t.Cleanup(srv.Close)
 	return &render.Factory{

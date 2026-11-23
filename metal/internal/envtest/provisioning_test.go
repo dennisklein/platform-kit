@@ -65,8 +65,9 @@ func fakeFactory(t *testing.T) *httptest.Server {
 			return
 		}
 		id, _ := s.ID()
+		normalized, _ := s.Marshal()
 		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(map[string]string{"id": id})
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": id, "schematic": string(normalized)})
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, ".iso") {
