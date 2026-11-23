@@ -151,6 +151,25 @@ type DiscoveredSystem struct {
 	// +listType=atomic
 	// +optional
 	BootTargets []string `json:"bootTargets,omitempty"`
+
+	// BootOverrideMode is the BootSourceOverrideMode the system serves
+	// ("UEFI" | "Legacy"); empty when it serves none. A boot override asks for
+	// UEFI only where this says otherwise — the X12 reports Legacy on a
+	// machine that boots UEFI, and a system that serves no mode may refuse one.
+	// +optional
+	BootOverrideMode string `json:"bootOverrideMode,omitempty"`
+}
+
+// DiscoveredMedia is one virtual media slot as the endpoint lists it.
+type DiscoveredMedia struct {
+	// ID is the slot's Redfish member id ("CD", "VirtualMedia1", …).
+	ID string `json:"id"`
+
+	// MediaTypes the slot advertises ("CD", "DVD", "USBStick", …). Empty says
+	// nothing — the iBMC's CD slot serves none.
+	// +listType=atomic
+	// +optional
+	MediaTypes []string `json:"mediaTypes,omitempty"`
 }
 
 // ManagementEndpointStatus is discovered truth (assertion lives on the Asset).
@@ -192,6 +211,14 @@ type ManagementEndpointStatus struct {
 
 	// +optional
 	Capabilities *EndpointCapabilities `json:"capabilities,omitempty"`
+
+	// VirtualMedia lists the media slots in the endpoint's collection order,
+	// with the media types each advertises — what a boot picks its slots by
+	// (optical first, in this order), next to capabilities.mediaDialects,
+	// which says how each is inserted.
+	// +listType=atomic
+	// +optional
+	VirtualMedia []DiscoveredMedia `json:"virtualMedia,omitempty"`
 
 	// Asset caches the last-resolved assertion, so an asset-source outage
 	// degrades to the snapshot rather than failing resolution.

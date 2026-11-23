@@ -69,6 +69,7 @@ type provisionPlan struct {
 	Installer      string   `json:"installer,omitempty"`
 	Slots          []string `json:"slots"`
 	Target         string   `json:"target,omitempty"`
+	Mode           string   `json:"mode,omitempty"`
 }
 
 // provision drives the claim's Provisioned condition and, when everything a
@@ -146,10 +147,11 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 		return hold(metalv1alpha1.ReasonAwaitingRender, fmt.Sprintf("TalosNode %s has no rendered config yet", node.Name))
 	}
 
-	slots, targets, err := r.endpointShape(ctx, host)
+	shape, err := r.endpointShape(ctx, host)
 	if err != nil {
 		return err
 	}
+	slots := shape.bootSlots
 	if len(slots) == 0 {
 		return hold(metalv1alpha1.ReasonNoBootableMedia, fmt.Sprintf("host %s advertises no insertable media slot", hostName))
 	}
@@ -180,11 +182,12 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 		if !meta.IsStatusConditionTrue(installer.Status.Conditions, osv1alpha1.ConditionReady) || installer.Status.URL == "" {
 			return hold(metalv1alpha1.ReasonAwaitingBootAsset, fmt.Sprintf("installer image %s is not Ready", installer.Name))
 		}
-		target, err := boot.PickTarget(targets)
+		target, err := boot.PickTarget(shape.targets)
 		if err != nil {
 			return hold(metalv1alpha1.ReasonNoBootableMedia, err.Error())
 		}
 		plan.Installer, plan.Slots, plan.Target = installer.Status.URL, slots[:2], target
+		plan.Mode = overrideMode(shape.mode)
 	} else {
 		plan.Slots = slots[:1]
 	}
@@ -228,6 +231,17 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 	return hold(metalv1alpha1.ReasonAwaitingOperation, "boot operation "+ref+" in flight")
 }
 
+// overrideMode is the override mode a boot asks for, given the one the system
+// serves. The media boot UEFI: a system serving another mode would take the
+// override as a legacy boot, so the mode goes along; one serving UEFI already
+// needs nothing, and one serving none is not asked for it (it may refuse).
+func overrideMode(served string) string {
+	if served != "" && served != "UEFI" {
+		return "UEFI"
+	}
+	return ""
+}
+
 // bootsNode: the operation acts on the host and waits for the node to check in.
 func bootsNode(op *metalv1alpha1.HostOperation, hostName, nodeName string) bool {
 	if op.Spec.HostRef.Name != hostName {
@@ -256,7 +270,7 @@ func (r *HostClaimReconciler) provisionOp(claim *metalv1alpha1.HostClaim, hostNa
 	}})
 	if plan.Target != "" {
 		actions = append(actions, metalv1alpha1.HostOperationAction{SetBootOverride: &metalv1alpha1.SetBootOverrideAction{
-			Target: plan.Target, Once: ptr.To(true), Mode: "UEFI",
+			Target: plan.Target, Once: ptr.To(true), Mode: plan.Mode,
 		}})
 	}
 	actions = append(actions,
@@ -329,9 +343,25 @@ func (r *HostClaimReconciler) withdraw(ctx context.Context, ops []metalv1alpha1.
 	return nil
 }
 
-// endpointShape reads the insertable media slots (sorted — a deterministic
-// plan) and the allowed boot targets of the host's first reachable path.
-func (r *HostClaimReconciler) endpointShape(ctx context.Context, host *metalv1alpha1.Host) ([]string, []string, error) {
+// endpointView is what a boot plan reads off the host's endpoint.
+type endpointView struct {
+	// insertable lists every slot with an insert mechanism, best boot slot
+	// first (bmc.InsertableSlots) — what a release empties.
+	insertable []string
+	// bootSlots are the insertable slots an ISO boots from: optical ones,
+	// then untyped ones (a slot that advertises nothing may still be one),
+	// in the endpoint's order. A slot typed as something else (a USB stick)
+	// is left out — an installer and its config both need an optical slot.
+	bootSlots []string
+	// targets are the boot override targets the path's system allows.
+	targets []string
+	// mode is the override mode the path's system serves.
+	mode string
+}
+
+// endpointShape reads the media slots and the boot facts of the host's first
+// reachable path.
+func (r *HostClaimReconciler) endpointShape(ctx context.Context, host *metalv1alpha1.Host) (endpointView, error) {
 	for _, path := range host.Status.ManagedBy {
 		if !path.Reachable {
 			continue
@@ -341,25 +371,35 @@ func (r *HostClaimReconciler) endpointShape(ctx context.Context, host *metalv1al
 			if apierrors.IsNotFound(err) {
 				continue
 			}
-			return nil, nil, err
+			return endpointView{}, err
 		}
-		var slots, targets []string
-		if caps := ep.Status.Capabilities; caps != nil {
-			for id, d := range caps.MediaDialects {
-				if d != "" && d != string(bmc.DialectNone) {
-					slots = append(slots, id)
-				}
+		v := endpointView{}
+		caps := bmc.Capabilities{MediaDialect: map[string]bmc.MediaDialect{}}
+		if c := ep.Status.Capabilities; c != nil {
+			for id, d := range c.MediaDialects {
+				caps.MediaDialect[id] = bmc.MediaDialect(d)
 			}
 		}
-		slices.Sort(slots)
+		media := make([]bmc.VirtualMedia, 0, len(ep.Status.VirtualMedia))
+		types := map[string][]string{}
+		for _, m := range ep.Status.VirtualMedia {
+			media = append(media, bmc.VirtualMedia{ID: m.ID, MediaTypes: m.MediaTypes})
+			types[m.ID] = m.MediaTypes
+		}
+		v.insertable = bmc.InsertableSlots(media, caps)
+		for _, id := range v.insertable {
+			if t := types[id]; len(t) == 0 || slices.Contains(t, "CD") || slices.Contains(t, "DVD") {
+				v.bootSlots = append(v.bootSlots, id)
+			}
+		}
 		for _, sys := range ep.Status.Systems {
 			if sys.ID == path.SystemID {
-				targets = sys.BootTargets
+				v.targets, v.mode = sys.BootTargets, sys.BootOverrideMode
 			}
 		}
-		return slots, targets, nil
+		return v, nil
 	}
-	return nil, nil, nil
+	return endpointView{}, nil
 }
 
 // ensureConfigAsset finds the node's configISO BootAsset, creating one owned
@@ -580,8 +620,8 @@ func bootRan(ops []metalv1alpha1.HostOperation, hostName string) bool {
 // only the operator create such an operation.
 func (r *HostClaimReconciler) releaseOp(ctx context.Context, claim *metalv1alpha1.HostClaim, host *metalv1alpha1.Host, name string) *metalv1alpha1.HostOperation {
 	actions := []metalv1alpha1.HostOperationAction{{PowerOff: &metalv1alpha1.PowerOffAction{}}}
-	if slots, _, err := r.endpointShape(ctx, host); err == nil {
-		for _, s := range slots {
+	if shape, err := r.endpointShape(ctx, host); err == nil {
+		for _, s := range shape.insertable {
 			actions = append(actions, metalv1alpha1.HostOperationAction{EjectMedia: &metalv1alpha1.EjectMediaAction{MediaID: s}})
 		}
 	}

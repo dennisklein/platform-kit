@@ -158,6 +158,7 @@ func (r *ManagementEndpointReconciler) observe(ctx context.Context, ep *metalv1a
 	ep.Status.Firmware = firmwareItems(d.firmware)
 	ep.Status.Systems = discoveredSystems(d.systems)
 	ep.Status.Capabilities = endpointCapabilities(d.caps)
+	ep.Status.VirtualMedia = discoveredMedia(d.media)
 	setCond(metalv1alpha1.ConditionInventoried, metav1.ConditionTrue, "FactsGathered", "")
 
 	status, reason, msg := verifiedCondition(ep.Status.Asset, d.mgr.MAC, serialAnchors(d.chassis, d.systems))
@@ -248,6 +249,7 @@ type discovered struct {
 	mgr      bmc.Manager
 	chassis  bmc.Chassis
 	caps     bmc.Capabilities
+	media    []bmc.VirtualMedia
 	systems  []bmc.System
 	firmware []bmc.Firmware
 }
@@ -264,6 +266,9 @@ func discover(ctx context.Context, cl bmc.Client) (discovered, error) {
 	if d.caps, err = cl.Capabilities(ctx); err != nil {
 		return d, err
 	}
+	// The media collection only shapes boot plans; an endpoint that will not
+	// list it is still inventoried, it just offers no slot to boot from.
+	d.media, _ = cl.Media(ctx)
 	if d.systems, err = cl.Systems(ctx); err != nil {
 		return d, err
 	}
@@ -317,12 +322,13 @@ func discoveredSystems(systems []bmc.System) []metalv1alpha1.DiscoveredSystem {
 	out := make([]metalv1alpha1.DiscoveredSystem, 0, len(systems))
 	for _, s := range systems {
 		ds := metalv1alpha1.DiscoveredSystem{
-			ID:           s.ID,
-			UUID:         s.UUID,
-			SerialNumber: s.SerialNumber,
-			Manufacturer: s.Manufacturer,
-			Model:        s.Model,
-			BootTargets:  s.BootTargets,
+			ID:               s.ID,
+			UUID:             s.UUID,
+			SerialNumber:     s.SerialNumber,
+			Manufacturer:     s.Manufacturer,
+			Model:            s.Model,
+			BootTargets:      s.BootTargets,
+			BootOverrideMode: s.BootOverride.Mode,
 		}
 		if !s.LastResetTime.IsZero() {
 			ds.LastResetTime = &metav1.MicroTime{Time: s.LastResetTime}
@@ -332,6 +338,19 @@ func discoveredSystems(systems []bmc.System) []metalv1alpha1.DiscoveredSystem {
 	slices.SortFunc(out, func(a, b metalv1alpha1.DiscoveredSystem) int {
 		return strings.Compare(a.ID, b.ID)
 	})
+	return out
+}
+
+// discoveredMedia projects the media slots in collection order — the order a
+// boot plan picks from, so it is kept, not sorted.
+func discoveredMedia(media []bmc.VirtualMedia) []metalv1alpha1.DiscoveredMedia {
+	if len(media) == 0 {
+		return nil
+	}
+	out := make([]metalv1alpha1.DiscoveredMedia, 0, len(media))
+	for _, m := range media {
+		out = append(out, metalv1alpha1.DiscoveredMedia{ID: m.ID, MediaTypes: m.MediaTypes})
+	}
 	return out
 }
 

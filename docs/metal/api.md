@@ -566,6 +566,23 @@ _Appears in:_
 | `maxAge` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#duration-v1-meta)_ | MaxAge rotates the managed password when the Secret grows older than<br />this. Unset rotates only when the Secret is missing or names another<br />account. |  | Optional: \{\} <br /> |
 
 
+#### DiscoveredMedia
+
+
+
+DiscoveredMedia is one virtual media slot as the endpoint lists it.
+
+
+
+_Appears in:_
+- [ManagementEndpointStatus](#managementendpointstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `id` _string_ | ID is the slot's Redfish member id ("CD", "VirtualMedia1", …). |  |  |
+| `mediaTypes` _string array_ | MediaTypes the slot advertises ("CD", "DVD", "USBStick", …). Empty says<br />nothing — the iBMC's CD slot serves none. |  | Optional: \{\} <br /> |
+
+
 #### DiscoveredSystem
 
 
@@ -589,6 +606,7 @@ _Appears in:_
 | `model` _string_ |  |  | Optional: \{\} <br /> |
 | `lastResetTime` _[MicroTime](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#microtime-v1-meta)_ | LastResetTime as served by the ComputerSystem — the baseline-and-advance<br />observable (X12 serves it, iBMC doesn't). Micro precision so back-to-back<br />resets stay distinguishable. |  | Optional: \{\} <br /> |
 | `bootTargets` _string array_ | BootTargets are the boot override targets the system allows<br />(BootSourceOverrideTarget@Redfish.AllowableValues) — what a proposed<br />boot override picks from, never assumed. |  | Optional: \{\} <br /> |
+| `bootOverrideMode` _string_ | BootOverrideMode is the BootSourceOverrideMode the system serves<br />("UEFI" \| "Legacy"); empty when it serves none. A boot override asks for<br />UEFI only where this says otherwise — the X12 reports Legacy on a<br />machine that boots UEFI, and a system that serves no mode may refuse one. |  | Optional: \{\} <br /> |
 
 
 #### EjectMediaAction
@@ -1159,6 +1177,7 @@ _Appears in:_
 | `firmware` _[FirmwareInventoryItem](#firmwareinventoryitem) array_ | Firmware lists the UpdateService inventory — the firmware-convergence<br />observable (desired version vs the entries here), small and bounded<br />(~5 members per vendor). Sorted by id. |  | Optional: \{\} <br /> |
 | `systems` _[DiscoveredSystem](#discoveredsystem) array_ | Systems lists the ComputerSystems this endpoint fronts (1 today, N-ready) —<br />cached discovery like the rest of status: an unreachable endpoint keeps its<br />last view. |  | Optional: \{\} <br /> |
 | `capabilities` _[EndpointCapabilities](#endpointcapabilities)_ |  |  | Optional: \{\} <br /> |
+| `virtualMedia` _[DiscoveredMedia](#discoveredmedia) array_ | VirtualMedia lists the media slots in the endpoint's collection order,<br />with the media types each advertises — what a boot picks its slots by<br />(optical first, in this order), next to capabilities.mediaDialects,<br />which says how each is inserted. |  | Optional: \{\} <br /> |
 | `asset` _[AssetSnapshot](#assetsnapshot)_ | Asset caches the last-resolved assertion, so an asset-source outage<br />degrades to the snapshot rather than failing resolution. |  | Optional: \{\} <br /> |
 | `identityPushed` _[IdentityPush](#identitypush)_ | IdentityPushed is written by the endpoint convergence reconciler<br />alone; the observing endpoint reconciler leaves it untouched — the<br />two share this status with disjoint fields. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions are the truth — the only thing reconcilers branch on. |  | Optional: \{\} <br /> |

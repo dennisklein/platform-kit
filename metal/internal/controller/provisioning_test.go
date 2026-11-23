@@ -132,6 +132,58 @@ func TestReleasePowersOffOnlyWhatABootTouched(t *testing.T) {
 	}
 }
 
+func TestBootSlotsFollowMediaTypes(t *testing.T) {
+	ep := &metalv1alpha1.ManagementEndpoint{
+		ObjectMeta: metav1.ObjectMeta{Name: "ep"},
+		Status: metalv1alpha1.ManagementEndpointStatus{
+			Capabilities: &metalv1alpha1.EndpointCapabilities{MediaDialects: map[string]string{
+				"Floppy1": "insert-media", "USBStick1": "insert-media", "VirtualMedia2": "insert-media",
+				"VirtualMedia10": "insert-media", "CD9": "none",
+			}},
+			// Collection order; lexical order would put the USB stick first.
+			VirtualMedia: []metalv1alpha1.DiscoveredMedia{
+				{ID: "USBStick1", MediaTypes: []string{"USBStick"}},
+				{ID: "VirtualMedia2", MediaTypes: []string{"CD", "DVD"}},
+				{ID: "CD9", MediaTypes: []string{"CD"}},
+				{ID: "Floppy1", MediaTypes: []string{"Floppy"}},
+				{ID: "VirtualMedia10", MediaTypes: []string{"DVD"}},
+			},
+		},
+	}
+	host := &metalv1alpha1.Host{
+		ObjectMeta: metav1.ObjectMeta{Name: "host-a"},
+		Status: metalv1alpha1.HostStatus{ManagedBy: []metalv1alpha1.ManagementPath{
+			{EndpointRef: metalv1alpha1.Reference{Name: "ep"}, SystemID: "1", Reachable: true},
+		}},
+	}
+	r := claimReconcilerFor(t, ep)
+	v, err := r.endpointShape(t.Context(), host)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"VirtualMedia2", "VirtualMedia10"}, v.bootSlots,
+		"optical slots only, in the endpoint's order; a slot without an insert mechanism is none")
+	assert.Equal(t, []string{"VirtualMedia2", "VirtualMedia10", "USBStick1", "Floppy1"}, v.insertable,
+		"a release empties every insertable slot")
+}
+
+func TestBootOverrideAsksForUEFIOnlyWhereNeeded(t *testing.T) {
+	r := &HostClaimReconciler{OperationsNamespace: "pk-metal"}
+	node := &osv1alpha1.TalosNode{ObjectMeta: metav1.ObjectMeta{Name: "node"}}
+	config := &osv1alpha1.BootAsset{ObjectMeta: metav1.ObjectMeta{Name: "node-config"}}
+	installer := &osv1alpha1.BootAsset{ObjectMeta: metav1.ObjectMeta{Name: "installer"}}
+	for served, want := range map[string]string{"Legacy": "UEFI", "UEFI": "", "": ""} {
+		plan := provisionPlan{Slots: []string{"VirtualMedia1", "VirtualMedia2"}, Target: "UsbCd", Mode: overrideMode(served)}
+		op := r.provisionOp(testClaim("node"), "host-a", "op", plan, node, config, installer)
+		var got *metalv1alpha1.SetBootOverrideAction
+		for _, a := range op.Spec.Actions {
+			if a.SetBootOverride != nil {
+				got = a.SetBootOverride
+			}
+		}
+		require.NotNil(t, got)
+		assert.Equal(t, want, got.Mode, "system serves %q", served)
+	}
+}
+
 func TestDroppedIntentStopsARunningBoot(t *testing.T) {
 	r := claimReconcilerFor(t, bootOp("boot", "node-b", false, true))
 	require.NoError(t, r.provision(t.Context(), testClaim(""), "host-a"))
