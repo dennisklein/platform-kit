@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - deployment.yaml
+  - services.yaml
+# The manager reads the ledger once, at start. Generating the ConfigMap gives it
+# a name that changes with its content, so a new ledger rolls the Deployment by
+# itself instead of needing a restart somebody has to remember.
+configMapGenerator:
+  - name: pk-metal-ledger
+    namespace: pk-metal
+    files:
+      - ledger.yaml

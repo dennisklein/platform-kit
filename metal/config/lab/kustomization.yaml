@@ -1,0 +1,16 @@
+# The operator as the virtual lab runs it (lab/README.md). `mise run lab:up` does
+# not apply this directory directly: it generates .lab/deploy/, a kustomization
+# on top of this one that adds the three things only known at run time, which
+# are the image tag just built, the ledger derived from lab/fleet.yaml, and the
+# Talos secrets bundle generated on the workstation.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../default
+patches:
+  - path: manager_args.yaml
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: pk-metal-manager

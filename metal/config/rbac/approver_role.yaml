@@ -1,0 +1,17 @@
+# The human side of the approval gate. An operation's target and actions are
+# frozen at creation, so the only thing a patch can change is the approval:
+# permission to patch IS permission to approve, and the admission policy checks
+# that an approver signs with their own name. Bind this to the people (or the
+# group) who may let a disruptive operation run. Nothing binds it by default,
+# and the manager's own role has no patch on operations.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pk-metal-approver
+rules:
+  - apiGroups: ["metal.pk.io"]
+    resources: ["hostoperations"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["metal.pk.io"]
+    resources: ["hosts"]
+    verbs: ["get", "list", "watch"]

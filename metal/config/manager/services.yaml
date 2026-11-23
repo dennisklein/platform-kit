@@ -1,0 +1,42 @@
+# The media server: where a BMC fetches a granted medium (the per-node config
+# ISO) from. A BMC sits outside the cluster network, so the port has to answer
+# on a node address; a NodePort is the one Service type that does that without
+# assuming a load balancer. --media-url must name an address that leads here (in
+# the virtual lab: the kind port mapping on the lab bridge address).
+apiVersion: v1
+kind: Service
+metadata:
+  name: pk-metal-media
+  namespace: pk-metal
+  labels:
+    app.kubernetes.io/name: pk-metal
+    app.kubernetes.io/component: media
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: pk-metal
+    app.kubernetes.io/component: manager
+  ports:
+    - name: media
+      port: 443
+      targetPort: media
+      nodePort: 30443
+---
+# Prometheus metrics of the controller-runtime manager, plain HTTP inside the
+# cluster network.
+apiVersion: v1
+kind: Service
+metadata:
+  name: pk-metal-metrics
+  namespace: pk-metal
+  labels:
+    app.kubernetes.io/name: pk-metal
+    app.kubernetes.io/component: metrics
+spec:
+  selector:
+    app.kubernetes.io/name: pk-metal
+    app.kubernetes.io/component: manager
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: metrics
