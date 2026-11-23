@@ -33,6 +33,9 @@ func FuzzGrantTable(f *testing.F) {
 	f.Add([]byte{0, 0, 0, 1, 0, 2, 3, 4, 5})
 	f.Add([]byte{0, 1, 0, 0, 1, 0, 2, 0, 5, 3, 0})
 	f.Add([]byte{0, 0, 0, 0, 0, 1, 4, 0, 4, 6, 4, 0})
+	// Two live grants for one asset and filename, minted at one instant
+	// with one ttl: Live answered with either, in map order.
+	f.Add([]byte{0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 4, 0, 0, 4, 0, 0})
 	f.Fuzz(func(t *testing.T, ops []byte) {
 		assets := []string{"asset-a", "asset-b", "asset-c"}
 		files := []string{"one.iso", "two.iso"}
@@ -83,11 +86,14 @@ func FuzzGrantTable(f *testing.F) {
 				}
 				require.Equal(t, len(want) > 0, ok, "Live(%s, %s)", a, fn)
 				if ok {
-					found := false
-					for _, m := range want {
-						found = found || m.token == g.Token
+					newest := want[0]
+					for _, m := range want[1:] {
+						if m.expires.After(newest.expires) ||
+							(m.expires.Equal(newest.expires) && m.token > newest.token) {
+							newest = m
+						}
 					}
-					assert.True(t, found, "Live returned a grant that is not live")
+					assert.Equal(t, newest.token, g.Token, "Live must answer with the newest live grant")
 				}
 			case 5: // lookup of every token
 				for _, m := range model {
