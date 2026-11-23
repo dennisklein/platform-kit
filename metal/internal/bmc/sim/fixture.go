@@ -362,6 +362,20 @@ func (f *Fixture) validate() error {
 	if f.AccountSlots > 0 && len(f.Accounts) > f.AccountSlots {
 		return fmt.Errorf("%d accounts seeded into %d slots", len(f.Accounts), f.AccountSlots)
 	}
+	return f.checkRoutes()
+}
+
+// checkRoutes builds the server once. Some fixture values (the registry
+// URI, the push URI, the vendor) become routes, and the router panics on a
+// route that is malformed or clashes with another; that must be an error
+// when the fixture is loaded, not a crash when the sim starts.
+func (f *Fixture) checkRoutes() (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("the sim cannot serve this fixture: %v", r)
+		}
+	}()
+	NewServer(NewState(f))
 	return nil
 }
 

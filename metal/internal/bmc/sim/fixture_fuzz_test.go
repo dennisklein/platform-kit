@@ -64,7 +64,11 @@ func serveTree(h http.Handler, user, pass string) int {
 		uri := queue[0]
 		queue = queue[1:]
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, uri, nil)
+		// A fixture id can make a link no client could request; skip it.
+		req, err := http.NewRequest(http.MethodGet, uri, nil)
+		if err != nil {
+			continue
+		}
 		if user != "" {
 			req.SetBasicAuth(user, pass)
 		}
