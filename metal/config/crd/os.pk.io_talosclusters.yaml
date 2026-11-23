@@ -27,10 +27,19 @@ spec:
         - jsonPath: .spec.endpoint
           name: Endpoint
           type: string
+        - jsonPath: .status.readyControlPlanes
+          name: CP
+          type: string
+        - jsonPath: .status.readyWorkers
+          name: Workers
+          type: string
+        - jsonPath: .status.conditions[?(@.type=="Available")].status
+          name: Available
+          type: string
       name: v1alpha1
       schema:
         openAPIV3Schema:
-          description: 'TalosCluster is the cluster-level half of the rendered OS config. Spec-only for now: status arrives with the reconciler that projects render/convergence state not before something writes it.'
+          description: 'TalosCluster is one Talos cluster: what its members share, and the observed state of the cluster they form.'
           properties:
             apiVersion:
               description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
@@ -41,56 +50,253 @@ spec:
             metadata:
               type: object
             spec:
-              description: TalosClusterSpec is everything talconfig.yaml says above `nodes:` — the render inputs every member shares. The cluster name is the CR's metadata.name.
+              description: TalosClusterSpec is what every member of one Talos cluster shares. The cluster name is the object's metadata.name.
               properties:
-                additionalApiServerCertSans:
-                  description: AdditionalApiServerCertSans lets the API server answer on every VIP and name admins reach it by.
+                certSANs:
+                  description: CertSANs are extra names the Kubernetes API server and the Talos API certificates must be valid for, beyond the endpoint, the VIP and the node addresses Talos adds on its own.
                   items:
                     type: string
                   type: array
-                additionalMachineCertSans:
-                  description: AdditionalMachineCertSans is the same for the machine (apid) certificate.
-                  items:
-                    type: string
-                  type: array
-                allowSchedulingOnControlPlanes:
-                  description: 'AllowSchedulingOnControlPlanes lets workloads run on control-plane nodes (ADR 0001: few nodes — use all).'
-                  type: boolean
-                clusterPodNets:
-                  description: ClusterPodNets are the pod subnets, primary family first (IPv6-primary).
-                  items:
-                    type: string
-                  type: array
-                clusterSvcNets:
-                  description: ClusterSvcNets are the service subnets, primary family first.
-                  items:
-                    type: string
-                  type: array
+                  x-kubernetes-list-type: set
+                controlPlane:
+                  description: ControlPlane carries the settings only control-plane members render.
+                  properties:
+                    allowScheduling:
+                      description: AllowScheduling lets ordinary workloads run on control-plane nodes (the control-plane NoSchedule taint is not rendered).
+                      type: boolean
+                    vip:
+                      description: VIP is a shared address the control-plane members announce over layer 2 (Talos' Layer2VIPConfig). Each control-plane node carries it on the link whose static address shares a subnet with it.
+                      type: string
+                  type: object
                 endpoint:
-                  description: Endpoint is the cluster-internal control-plane endpoint machines enroll against (the 1035 VIP — org/admin access rides the 138 VIP via cert SANs).
-                  pattern: ^https://
+                  description: 'Endpoint is the Kubernetes API URL every member enrolls against and the admin kubeconfig names: the control-plane VIP or a DNS name for it, with the port (https://10.77.0.10:6443).'
+                  pattern: ^https://[^/]+$
                   type: string
                 kubernetesVersion:
-                  description: KubernetesVersion pins the Kubernetes release to install.
+                  description: KubernetesVersion is the Kubernetes release the control plane runs.
                   pattern: ^v[0-9]+\.[0-9]+\.[0-9]+$
                   type: string
+                network:
+                  description: Network is the cluster's pod and service networking.
+                  properties:
+                    cni:
+                      description: CNI selects the pod network plugin. Empty means flannel.
+                      properties:
+                        name:
+                          description: CNIName selects the pod network plugin Talos deploys.
+                          enum:
+                            - flannel
+                            - none
+                            - custom
+                          type: string
+                        urls:
+                          description: URLs are the manifests a custom CNI is installed from.
+                          items:
+                            type: string
+                          type: array
+                      required:
+                        - name
+                      type: object
+                      x-kubernetes-validations:
+                        - message: urls are required with name custom and refused otherwise
+                          rule: (self.name == 'custom') == (has(self.urls) && size(self.urls) > 0)
+                    podSubnets:
+                      description: PodSubnets are the pod CIDRs, primary family first. Empty selects Talos' default for the endpoint's address family.
+                      items:
+                        type: string
+                      type: array
+                    serviceSubnets:
+                      description: ServiceSubnets are the service CIDRs, primary family first. Empty selects Talos' default for the endpoint's address family.
+                      items:
+                        type: string
+                      type: array
+                  type: object
                 patches:
-                  description: 'Patches apply to every node: inline strategic-merge YAML, or "@./path" references resolved against the render''s patch root (the ConfigMap-mounted mirror of control/talos/ in-cluster, the CR directory on the CLI).'
+                  description: Patches apply to every node, in order, after the operator's own rendering and before the node's patches.
                   items:
-                    type: string
+                    description: 'Patch is one Talos configuration patch: a multi-document YAML strategic merge patch (documents merge by apiVersion, kind and name; `$patch: delete` removes one), given inline or read from a ConfigMap key.'
+                    properties:
+                      configMapRef:
+                        description: ConfigMapRef reads the patch from a ConfigMap key.
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                          namespace:
+                            type: string
+                        required:
+                          - key
+                          - name
+                          - namespace
+                        type: object
+                      inline:
+                        description: Inline is the patch text.
+                        type: string
+                    type: object
+                    x-kubernetes-validations:
+                      - message: exactly one of inline or configMapRef
+                        rule: has(self.inline) != has(self.configMapRef)
                   type: array
+                registryMirrors:
+                  description: RegistryMirrors redirect image pulls, one entry per upstream registry. A site without internet access needs them before the first node installs, which is why they live here rather than in a patch someone has to remember.
+                  items:
+                    description: RegistryMirror redirects pulls from one registry to mirror endpoints.
+                    properties:
+                      endpoints:
+                        description: Endpoints are the mirror URLs, tried in order.
+                        items:
+                          type: string
+                        minItems: 1
+                        type: array
+                      registry:
+                        description: Registry is the upstream registry host the mirror stands in for (docker.io, ghcr.io, factory.talos.dev), or "*" for every registry.
+                        minLength: 1
+                        type: string
+                    required:
+                      - endpoints
+                      - registry
+                    type: object
+                  type: array
+                  x-kubernetes-list-map-keys:
+                    - registry
+                  x-kubernetes-list-type: map
+                schematic:
+                  description: Schematic is the installer image customization every node uses unless it sets its own (a node's schematic replaces this one, it does not merge with it).
+                  properties:
+                    customization:
+                      description: SchematicCustomization holds the image customization knobs.
+                      properties:
+                        extraKernelArgs:
+                          description: ExtraKernelArgs append to the image's kernel command line. This is how a boot medium is told to read its config off the second medium (talos.config=metal-iso) and where to put the console (console=ttyS0, what the BMC's serial-over-LAN shows).
+                          items:
+                            type: string
+                          type: array
+                        systemExtensions:
+                          description: SystemExtensions bakes extensions into the image.
+                          properties:
+                            officialExtensions:
+                              description: OfficialExtensions are siderolabs/* extension names (siderolabs/drbd).
+                              items:
+                                type: string
+                              type: array
+                          type: object
+                      type: object
+                  type: object
+                secretsRef:
+                  description: SecretsRef names the Secret holding the cluster's Talos secrets bundle under key secrets.yaml, as `talosctl gen secrets` writes it. A person generates the bundle once and commits it sealed; the operator only reads it. Every certificate and key in a rendered config, and the kubeconfig and talosconfig the operator publishes, derive from it.
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                  required:
+                    - name
+                    - namespace
+                  type: object
                 talosVersion:
-                  description: TalosVersion pins the Talos release whose config contract the render targets (talenv.yaml's TALOS_VERSION, resolved — CRs carry literals, never ${VAR}).
-                  pattern: ^v[0-9]+\.[0-9]+\.[0-9]+$
+                  description: TalosVersion is the Talos release the cluster runs. It selects the configuration contract the render targets and the installer image tag, so it must match what the machines boot. Talos v1.14 or later.
+                  pattern: ^v1\.(1[4-9]|[2-9][0-9])\.[0-9]+$
                   type: string
               required:
                 - endpoint
                 - kubernetesVersion
+                - secretsRef
                 - talosVersion
+              type: object
+            status:
+              description: 'TalosClusterStatus is observed: whether etcd was bootstrapped, whether the Kubernetes API answers, how many members are Ready, and where the admin credentials derived from the secrets bundle were published.'
+              properties:
+                conditions:
+                  description: 'Conditions: Bootstrapped and Available.'
+                  items:
+                    description: Condition contains details for one aspect of the current state of this API Resource.
+                    properties:
+                      lastTransitionTime:
+                        description: lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                        format: date-time
+                        type: string
+                      message:
+                        description: message is a human readable message indicating details about the transition. This may be an empty string.
+                        maxLength: 32768
+                        type: string
+                      observedGeneration:
+                        description: observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      reason:
+                        description: reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty.
+                        maxLength: 1024
+                        minLength: 1
+                        pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                        type: string
+                      status:
+                        description: status of the condition, one of True, False, Unknown.
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                        type: string
+                      type:
+                        description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                        maxLength: 316
+                        pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                        type: string
+                    required:
+                      - lastTransitionTime
+                      - message
+                      - reason
+                      - status
+                      - type
+                    type: object
+                  type: array
+                  x-kubernetes-list-map-keys:
+                    - type
+                  x-kubernetes-list-type: map
+                controlPlanes:
+                  description: ControlPlanes and Workers count the TalosNodes that name this cluster; the Ready counts are the ones whose Ready condition is True.
+                  format: int32
+                  type: integer
+                kubeconfigSecretRef:
+                  description: KubeconfigSecretRef points at the Secret (key kubeconfig) holding an admin kubeconfig minted from the bundle's Kubernetes CA.
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                  required:
+                    - name
+                    - namespace
+                  type: object
+                kubernetesVersion:
+                  description: KubernetesVersion is the version the Kubernetes API reports, empty while it does not answer.
+                  type: string
+                readyControlPlanes:
+                  format: int32
+                  type: integer
+                readyWorkers:
+                  format: int32
+                  type: integer
+                talosconfigSecretRef:
+                  description: TalosconfigSecretRef points at the Secret (key talosconfig) holding an admin talosconfig minted from the bundle's Talos CA, with every control-plane address as an endpoint.
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                  required:
+                    - name
+                    - namespace
+                  type: object
+                workers:
+                  format: int32
+                  type: integer
               type: object
           required:
             - spec
           type: object
       served: true
       storage: true
-      subresources: {}
+      subresources:
+        status: {}

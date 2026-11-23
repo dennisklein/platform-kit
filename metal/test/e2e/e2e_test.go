@@ -24,12 +24,10 @@ import (
 	"testing"
 	"time"
 
-	thtalos "github.com/budimanjojo/talhelper/v3/pkg/talos"
-	tconfig "github.com/siderolabs/talos/pkg/machinery/config"
 	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	yamlv3 "gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v4"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -92,7 +90,7 @@ func TestE2EKind(t *testing.T) {
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Fatal("docker not on PATH — the machine tier needs it")
 	}
-	talosVersion := readTalosVersion(t)
+	talosVersion := e2eTalosVersion
 
 	// ── the machine: a blank Talos container behind a static address ─────────
 	docker := func(args ...string) error {
@@ -145,12 +143,7 @@ func TestE2EKind(t *testing.T) {
 	require.NoError(t, cl.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}))
 	t.Cleanup(func() { cleanSlate(context.Background(), t, cl) })
 
-	vc, err := tconfig.ParseContractFromVersion(talosVersion)
-	require.NoError(t, err)
-	bundle, err := thtalos.NewSecretBundle(secrets.NewClock(), *vc)
-	require.NoError(t, err)
-	bundleBytes, err := yamlv3.Marshal(bundle)
-	require.NoError(t, err)
+	bundleBytes := newBundle(t, talosVersion)
 	for _, sec := range []*corev1.Secret{
 		{ObjectMeta: metav1.ObjectMeta{Name: "bmc-ca", Namespace: ns},
 			Data: map[string][]byte{"ca.crt": pem.EncodeToMemory(
@@ -158,7 +151,7 @@ func TestE2EKind(t *testing.T) {
 		{ObjectMeta: metav1.ObjectMeta{Name: "bmc-factory", Namespace: ns},
 			Data: map[string][]byte{"username": []byte("admin"), "password": []byte("dev")}},
 		{ObjectMeta: metav1.ObjectMeta{Name: "talos-secrets", Namespace: ns},
-			Data: map[string][]byte{"talsecret.yaml": bundleBytes}},
+			Data: map[string][]byte{render.BundleKey: bundleBytes}},
 	} {
 		require.NoError(t, cl.Create(ctx, sec))
 	}
@@ -193,9 +186,15 @@ func TestE2EKind(t *testing.T) {
 	require.NoError(t, (&controller.TalosNodeReconciler{
 		Client:        mgr.GetClient(),
 		Scheme:        mgr.GetScheme(),
-		SecretsSecret: "talos-secrets",
 		Namespace:     ns,
 		Factory:       kindFactory,
+		Dial:          machineapi.Dial,
+		CheckInterval: 2 * time.Second,
+	}).SetupWithManager(mgr))
+	require.NoError(t, (&controller.TalosClusterReconciler{
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		Namespace:     ns,
 		Dial:          machineapi.Dial,
 		CheckInterval: 2 * time.Second,
 	}).SetupWithManager(mgr))
@@ -234,26 +233,27 @@ func TestE2EKind(t *testing.T) {
 		return last
 	}
 
-	// The OS payload, shaped for the container platform (no VIP, no interface
-	// pinning; talhelper requires an install disk, the container ignores the
-	// whole install section). Built once: subtests create copies on the
-	// cluster, the bootstrap verb reads the same shape from a CR dir — the
-	// git-native story in miniature.
+	// The OS payload, shaped for the container platform: no VIP and no links,
+	// because docker owns the container's network. The API requires an install
+	// disk selector; the container ignores the install document. Built once:
+	// subtests create copies on the cluster, and the bootstrap verb reads the
+	// same shape from a CR dir, which is the git-native story in miniature.
 	talosCluster := &osv1alpha1.TalosCluster{
 		ObjectMeta: metav1.ObjectMeta{Name: clusterName},
 		Spec: osv1alpha1.TalosClusterSpec{
 			TalosVersion:      talosVersion,
-			KubernetesVersion: readKubernetesVersion(t),
+			KubernetesVersion: e2eKubernetesVersion,
 			Endpoint:          "https://" + machineIP + ":6443",
+			SecretsRef:        osv1alpha1.SecretReference{Namespace: ns, Name: "talos-secrets"},
 		},
 	}
 	talosNode := &osv1alpha1.TalosNode{
 		ObjectMeta: metav1.ObjectMeta{Name: nodeName},
 		Spec: osv1alpha1.TalosNodeSpec{
 			ClusterRef:          osv1alpha1.Reference{Name: clusterName},
-			IPAddress:           machineIP,
-			ControlPlane:        true,
-			InstallDiskSelector: &osv1alpha1.InstallDiskSelector{Serial: "e2e-no-disk"},
+			Role:                osv1alpha1.RoleControlPlane,
+			Address:             machineIP,
+			InstallDiskSelector: osv1alpha1.DiskSelector{Serial: "e2e-no-disk"},
 		},
 	}
 
@@ -339,11 +339,14 @@ func TestE2EKind(t *testing.T) {
 		require.NoError(t, render.WriteFiles(crDir, talosCluster, []osv1alpha1.TalosNode{*talosNode}))
 		// The secret lives NEXT TO the CR dir, never in it — LoadDir walks the
 		// whole directory and rightly refuses foreign documents.
-		secretPath := filepath.Join(t.TempDir(), "talsecret.yaml")
+		secretPath := filepath.Join(t.TempDir(), render.BundleKey)
 		require.NoError(t, os.WriteFile(secretPath, bundleBytes, 0o600))
 
+		// The TalosCluster reconciler watches the same machine and may call
+		// Bootstrap before the verb does; the loser sees AlreadyExists, which
+		// both treat as done, so the race is part of what this rung proves.
 		cmd := exec.CommandContext(ctx, "go", "run", "../../cmd/pk-metal",
-			"bootstrap", "--dir", crDir, "--secret", secretPath, "--node", nodeName,
+			"bootstrap", "--dir", crDir, "--secrets", secretPath, "--node", nodeName,
 			"--apply-insecure", "--timeout", "8m")
 		out, err := cmd.CombinedOutput()
 		t.Logf("bootstrap output:\n%s", out)
@@ -358,7 +361,29 @@ func TestE2EKind(t *testing.T) {
 		n := &osv1alpha1.TalosNode{}
 		require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: nodeName}, n))
 		assert.Equal(t, "running", n.Status.Stage)
-		assert.Equal(t, talosVersion, n.Status.MachineVersion)
+		assert.Equal(t, talosVersion, n.Status.Version)
+	})
+
+	rung("cluster reports Bootstrapped and Available", func(t *testing.T) {
+		var last osv1alpha1.TalosCluster
+		if !assert.Eventually(t, func() bool {
+			c := osv1alpha1.TalosCluster{}
+			if err := cl.Get(ctx, client.ObjectKey{Name: clusterName}, &c); err != nil {
+				return false
+			}
+			last = c
+			return meta.IsStatusConditionTrue(c.Status.Conditions, osv1alpha1.ConditionAvailable)
+		}, waitFor, tick) {
+			t.Fatalf("cluster never became Available (last conditions=%+v)", last.Status.Conditions)
+		}
+		assert.True(t, meta.IsStatusConditionTrue(last.Status.Conditions, osv1alpha1.ConditionBootstrapped))
+		assert.Equal(t, int32(1), last.Status.ReadyControlPlanes)
+		require.NotNil(t, last.Status.KubeconfigSecretRef)
+		kc := &corev1.Secret{}
+		require.NoError(t, cl.Get(ctx, client.ObjectKey{
+			Namespace: last.Status.KubeconfigSecretRef.Namespace, Name: last.Status.KubeconfigSecretRef.Name}, kc))
+		_, err := controller.ProbeKubernetes(ctx, kc.Data[controller.KubeconfigKey])
+		require.NoError(t, err, "the published kubeconfig reaches the API server")
 	})
 
 	rung("release returns the machine", func(t *testing.T) {
@@ -394,22 +419,25 @@ func cleanSlate(ctx context.Context, t *testing.T, cl client.Client) {
 	}, waitFor, tick, "the %s namespace never finished deleting", ns)
 }
 
-// readTalosVersion pins the machine to the repo's declared Talos version —
-// control/talos/talenv.yaml, the same source mise and the parity gate use.
-func readTalosVersion(t *testing.T) string {
-	return readTalenv(t, "TALOS_VERSION")
-}
+// The versions both tiers run. They match the lab sample in config/samples,
+// which pins the same pair, so a bump changes them together.
+const (
+	e2eTalosVersion      = "v1.14.6"
+	e2eKubernetesVersion = "v1.36.2"
+)
 
-func readKubernetesVersion(t *testing.T) string {
-	return readTalenv(t, "KUBERNETES_VERSION")
-}
-
-func readTalenv(t *testing.T, key string) string {
+// newBundle generates a fresh secrets bundle in the file format `talosctl gen
+// secrets` writes. Each run gets its own, so no key material is checked in
+// for the tiers that boot real machines.
+func newBundle(t *testing.T, talosVersion string) []byte {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "control", "talos", "talenv.yaml"))
+	contract, err := render.Contract(talosVersion)
 	require.NoError(t, err)
-	var env map[string]string
-	require.NoError(t, yamlv3.Unmarshal(raw, &env))
-	require.NotEmpty(t, env[key], "%s missing from talenv.yaml", key)
-	return env[key]
+	bundle, err := secrets.NewBundle(secrets.NewClock(), contract)
+	require.NoError(t, err)
+	data, err := yaml.Marshal(bundle)
+	require.NoError(t, err)
+	_, err = render.LoadBundle(data, talosVersion)
+	require.NoError(t, err, "the generated bundle round-trips through the operator's decoder")
+	return data
 }

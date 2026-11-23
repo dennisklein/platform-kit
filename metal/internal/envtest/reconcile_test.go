@@ -448,8 +448,10 @@ func TestReconcile(t *testing.T) {
 		node := &osv1alpha1.TalosNode{
 			ObjectMeta: metav1.ObjectMeta{Name: "ref-x12-b"},
 			Spec: osv1alpha1.TalosNodeSpec{
-				ClusterRef: osv1alpha1.Reference{Name: "fleet"},
-				IPAddress:  "127.0.0.1",
+				ClusterRef:          osv1alpha1.Reference{Name: "fleet"},
+				Role:                osv1alpha1.RoleWorker,
+				Address:             "127.0.0.1",
+				InstallDiskSelector: osv1alpha1.DiskSelector{Serial: "pklab-disk-9"},
 			},
 		}
 		require.NoError(t, cl.Create(ctx, node))

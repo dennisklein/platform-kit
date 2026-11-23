@@ -9,8 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/budimanjojo/talhelper/v3/pkg/config"
-	thtalos "github.com/budimanjojo/talhelper/v3/pkg/talos"
 	"github.com/siderolabs/image-factory/pkg/schematic"
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
@@ -56,14 +54,27 @@ func Schematic(s *osv1alpha1.Schematic) *schematic.Schematic {
 }
 
 // ISOURL computes the content-addressed URL of the generic secret-free install
-// ISO for a schematic — offline (the id is a content hash), through talhelper's
-// own URL template and defaults, so a boot medium and the install image inside
-// a rendered config always name the same factory artifact. A nil schematic is
+// ISO for a schematic, offline: the id is a content hash. A nil schematic is
 // the vanilla image.
 //
 // Computing a URL is not knowing that anything answers it: see Register.
 func (f *Factory) ISOURL(s *osv1alpha1.Schematic, talosVersion string) (string, error) {
-	return thtalos.GetImageURL(Schematic(s), f.imageFactory(), (&config.Node{}).GetMachineSpec(), talosVersion, true)
+	id, err := Schematic(s).ID()
+	if err != nil {
+		return "", fmt.Errorf("compute schematic id: %w", err)
+	}
+	return "https://" + f.host() + "/image/" + id + "/" + talosVersion + "/metal-amd64.iso", nil
+}
+
+// InstallerImage is the installer reference for a schematic: the same factory
+// and the same id as ISOURL, so the boot medium and the image a rendered
+// config installs from are one build.
+func (f *Factory) InstallerImage(s *osv1alpha1.Schematic, talosVersion string) (string, error) {
+	id, err := Schematic(s).ID()
+	if err != nil {
+		return "", fmt.Errorf("compute schematic id: %w", err)
+	}
+	return f.host() + "/metal-installer/" + id + ":" + talosVersion, nil
 }
 
 // Register tells the factory about a schematic, and returns the id it answers
@@ -125,19 +136,16 @@ func (f *Factory) Register(ctx context.Context, s *osv1alpha1.Schematic) (string
 	return want, nil
 }
 
-// imageFactory is talhelper's view of the same factory: our host, its defaults
-// for everything else (protocol, endpoint, URL templates).
-func (f *Factory) imageFactory() *config.ImageFactory {
-	c := &config.TalhelperConfig{}
-	if f != nil {
-		c.ImageFactory.RegistryURL = f.RegistryURL
+// host is the factory's host[:port], PublicFactory when unset.
+func (f *Factory) host() string {
+	if f != nil && f.RegistryURL != "" {
+		return f.RegistryURL
 	}
-	return c.GetImageFactory()
+	return PublicFactory
 }
 
 func (f *Factory) schematicsURL() string {
-	c := f.imageFactory()
-	return c.Protocol + "://" + c.RegistryURL + c.SchematicEndpoint
+	return "https://" + f.host() + "/schematics"
 }
 
 func (f *Factory) httpClient() *http.Client {

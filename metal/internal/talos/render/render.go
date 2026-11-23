@@ -1,282 +1,437 @@
-// Package render turns the os.pk.io CRs into Talos machine configs by
-// filling talhelper's own config structs and running its generate pipeline — the
-// engine decision: parity with `talhelper genconfig` holds by construction, not by
-// reimplementation. The mapping is deliberately narrow: it carries exactly the fields
-// the raven talconfig uses, and Convert refuses to translate a talconfig that uses
-// anything the CR schema does not carry yet (the round-trip guard), so nothing is
-// ever dropped silently.
 package render
 
 import (
-	"bytes"
+	"errors"
 	"fmt"
-	"path/filepath"
+	"net/netip"
+	"net/url"
+	"slices"
+	"strconv"
 	"strings"
 
-	"github.com/budimanjojo/talhelper/v3/pkg/config"
-	"github.com/budimanjojo/talhelper/v3/pkg/generate"
-	"github.com/siderolabs/image-factory/pkg/schematic"
-	"github.com/siderolabs/talos/pkg/machinery/config/types/v1alpha1"
-	"github.com/siderolabs/talos/pkg/machinery/constants"
-	"gopkg.in/yaml.v3"
+	"github.com/siderolabs/talos/pkg/machinery/cel"
+	"github.com/siderolabs/talos/pkg/machinery/cel/celenv"
+	tconfig "github.com/siderolabs/talos/pkg/machinery/config"
+	"github.com/siderolabs/talos/pkg/machinery/config/config"
+	"github.com/siderolabs/talos/pkg/machinery/config/configpatcher"
+	"github.com/siderolabs/talos/pkg/machinery/config/container"
+	"github.com/siderolabs/talos/pkg/machinery/config/encoder"
+	"github.com/siderolabs/talos/pkg/machinery/config/generate"
+	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
+	"github.com/siderolabs/talos/pkg/machinery/config/machine"
+	"github.com/siderolabs/talos/pkg/machinery/config/types/k8s"
+	"github.com/siderolabs/talos/pkg/machinery/config/types/meta"
+	"github.com/siderolabs/talos/pkg/machinery/config/types/network"
+	"github.com/siderolabs/talos/pkg/machinery/config/types/runtime"
+	"github.com/siderolabs/talos/pkg/machinery/config/validation"
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 )
 
-// LoadTalconfig reads a talconfig.yaml the way the talhelper CLI does: env
-// substitution from envFiles, "@./" refs made absolute, node groups merged,
-// validated. The source of Convert.
-func LoadTalconfig(path string, envFiles []string) (*config.TalhelperConfig, error) {
-	return config.LoadAndValidateFromFile(path, envFiles, false)
+// Input is everything one node's configuration derives from. Patches arrive
+// resolved: the caller reads ConfigMap references (from the API server, or
+// from manifests on disk) so that rendering stays a pure function.
+type Input struct {
+	Cluster *osv1alpha1.TalosCluster
+	Node    *osv1alpha1.TalosNode
+	Bundle  *secrets.Bundle
+
+	// InstallerImage is the installer reference the config installs from;
+	// Factory.InstallerImage computes it for the node's effective schematic.
+	InstallerImage string
+
+	// ClusterPatches and NodePatches are the resolved patch texts, applied in
+	// that order.
+	ClusterPatches [][]byte
+	NodePatches    [][]byte
 }
 
-// Map fills talhelper's TalhelperConfig from the CRs — the CR-to-IR half of the
-// engine. Relative "@" patch references resolve against patchRoot (the directory
-// that holds patches/: control/talos on the CLI, the ConfigMap mount in-cluster).
-// The node-group merge and validation mirror talhelper's own loader sequence so a
-// Map-built config is indistinguishable from a file-loaded one.
-func Map(cluster *osv1alpha1.TalosCluster, nodes []osv1alpha1.TalosNode, patchRoot string) (*config.TalhelperConfig, error) {
-	c := &config.TalhelperConfig{
-		ClusterName:                    cluster.Name,
-		TalosVersion:                   cluster.Spec.TalosVersion,
-		KubernetesVersion:              cluster.Spec.KubernetesVersion,
-		Endpoint:                       cluster.Spec.Endpoint,
-		AllowSchedulingOnControlPlanes: cluster.Spec.AllowSchedulingOnControlPlanes,
-		AdditionalApiServerCertSans:    cluster.Spec.AdditionalApiServerCertSans,
-		AdditionalMachineCertSans:      cluster.Spec.AdditionalMachineCertSans,
-		ClusterPodNets:                 cluster.Spec.ClusterPodNets,
-		ClusterSvcNets:                 cluster.Spec.ClusterSvcNets,
-		Patches:                        resolvePatches(cluster.Spec.Patches, patchRoot),
+// Mode is the runtime mode a rendered config is validated for.
+type Mode struct {
+	name      string
+	install   bool
+	container bool
+}
+
+var (
+	// Metal is a machine that boots from media and installs to disk: the only
+	// mode the operator renders for.
+	Metal = Mode{name: "metal", install: true}
+	// Container is a Talos container, which never installs. Tests validate the
+	// same render there too, so a config that only passes because of the
+	// install requirement does not go unnoticed.
+	Container = Mode{name: "container", container: true}
+)
+
+func (m Mode) String() string        { return m.name }
+func (m Mode) RequiresInstall() bool { return m.install }
+func (m Mode) InContainer() bool     { return m.container }
+
+var _ validation.RuntimeMode = Mode{}
+
+// MinTalosVersion is the oldest release whose configuration contract this
+// package renders. Older contracts put networking, install and Kubernetes
+// settings into the v1alpha1 document, which this renderer never writes.
+const MinTalosVersion = "v1.14.0"
+
+// Node renders one node's machine configuration, validated for metal.
+func Node(in Input) ([]byte, error) {
+	cfg, err := Build(in)
+	if err != nil {
+		return nil, err
+	}
+	if err := Validate(cfg, Metal); err != nil {
+		return nil, err
+	}
+	return cfg.EncodeBytes(encoder.WithComments(encoder.CommentsDisabled))
+}
+
+// Validate runs Talos' own client-side validation in the given mode.
+func Validate(cfg tconfig.Provider, mode Mode) error {
+	if _, err := cfg.ValidateAsClient(mode); err != nil {
+		return fmt.Errorf("invalid config for %s: %w", mode, err)
+	}
+	return nil
+}
+
+// Build renders the configuration without validating it.
+func Build(in Input) (tconfig.Provider, error) {
+	c, n := in.Cluster, in.Node
+	if c == nil || n == nil || in.Bundle == nil {
+		return nil, errors.New("render needs a cluster, a node and a secrets bundle")
+	}
+	if n.Spec.ClusterRef.Name != c.Name {
+		return nil, fmt.Errorf("node %s is a member of %q, not %q", n.Name, n.Spec.ClusterRef.Name, c.Name)
+	}
+	contract, err := Contract(c.Spec.TalosVersion)
+	if err != nil {
+		return nil, err
+	}
+	if in.InstallerImage == "" {
+		return nil, errors.New("no installer image")
 	}
 
-	for i := range nodes {
-		n := &nodes[i]
-		if n.Spec.ClusterRef.Name != cluster.Name {
-			return nil, fmt.Errorf("node %s references cluster %q, rendering %q", n.Name, n.Spec.ClusterRef.Name, cluster.Name)
+	sans := slices.Clone(c.Spec.CertSANs)
+	if vip := controlPlaneVIP(c); vip != "" && !slices.Contains(sans, vip) {
+		sans = append(sans, vip)
+	}
+	opts := []generate.Option{
+		generate.WithVersionContract(contract),
+		generate.WithSecretsBundle(in.Bundle),
+		generate.WithInstallImage(in.InstallerImage),
+		generate.WithAdditionalSubjectAltNames(sans),
+		generate.WithAllowSchedulingOnControlPlanes(c.Spec.ControlPlane != nil && c.Spec.ControlPlane.AllowScheduling),
+	}
+	for _, m := range c.Spec.RegistryMirrors {
+		opts = append(opts, generate.WithRegistryMirror(m.Registry, m.Endpoints...))
+	}
+
+	gen, err := generate.NewInput(c.Name, c.Spec.Endpoint, strings.TrimPrefix(c.Spec.KubernetesVersion, "v"), opts...)
+	if err != nil {
+		return nil, err
+	}
+	if len(c.Spec.Network.PodSubnets) > 0 {
+		gen.PodNet = c.Spec.Network.PodSubnets
+	}
+	if len(c.Spec.Network.ServiceSubnets) > 0 {
+		gen.ServiceNet = c.Spec.Network.ServiceSubnets
+	}
+	for _, subnet := range slices.Concat(gen.PodNet, gen.ServiceNet) {
+		// generate parses these with MustParsePrefix: a typo would panic the
+		// reconciler instead of failing the render.
+		if _, err := netip.ParsePrefix(subnet); err != nil {
+			return nil, fmt.Errorf("network subnet %q: %w", subnet, err)
 		}
-		node := config.Node{
-			Hostname:     n.Name,
-			IPAddress:    n.Spec.IPAddress,
-			ControlPlane: n.Spec.ControlPlane,
-		}
-		if s := n.Spec.Schematic; s != nil {
-			node.Schematic = &schematic.Schematic{Customization: schematic.Customization{
-				SystemExtensions: schematic.SystemExtensions{
-					OfficialExtensions: s.Customization.SystemExtensions.OfficialExtensions,
-				},
-				ExtraKernelArgs: s.Customization.ExtraKernelArgs,
-			}}
-		}
-		if d := n.Spec.InstallDiskSelector; d != nil {
-			node.InstallDiskSelector = &v1alpha1.InstallDiskSelector{
-				Serial:  d.Serial,
-				Model:   d.Model,
-				Name:    d.Name,
-				BusPath: d.BusPath,
+	}
+
+	machineType := machine.TypeWorker
+	if n.Spec.Role == osv1alpha1.RoleControlPlane {
+		machineType = machine.TypeControlPlane
+	}
+	base, err := gen.Config(machineType)
+	if err != nil {
+		return nil, err
+	}
+
+	docs, err := adjust(base.Documents(), c, n)
+	if err != nil {
+		return nil, err
+	}
+	extra, err := nodeDocuments(c, n, in.InstallerImage)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := container.New(append(docs, extra...)...)
+	if err != nil {
+		return nil, err
+	}
+
+	return applyPatches(cfg, in.ClusterPatches, in.NodePatches)
+}
+
+// Contract parses a Talos version into its configuration contract and refuses
+// anything older than MinTalosVersion.
+func Contract(talosVersion string) (*tconfig.VersionContract, error) {
+	contract, err := tconfig.ParseContractFromVersion(talosVersion)
+	if err != nil {
+		return nil, err
+	}
+	if !contract.Greater(tconfig.TalosVersion1_13) {
+		return nil, fmt.Errorf("talosVersion %s: this renderer targets %s or later", talosVersion, MinTalosVersion)
+	}
+	return contract, nil
+}
+
+// adjust edits the generated documents where the kinds say something the
+// generator options cannot: the fixed hostname, the node's labels and taints,
+// and the CNI choice.
+func adjust(docs []config.Document, c *osv1alpha1.TalosCluster, n *osv1alpha1.TalosNode) ([]config.Document, error) {
+	out := make([]config.Document, 0, len(docs))
+	for _, doc := range docs {
+		switch d := doc.(type) {
+		case *network.HostnameConfigV1Alpha1:
+			// The generator picks a stable random name; the node's name is
+			// the one the cluster, the Host and every person know it by.
+			d.ConfigAuto = nil
+			d.ConfigHostname = n.Name
+		case *k8s.KubeNodeConfigV1Alpha1:
+			if len(n.Spec.Labels) > 0 && d.LabelsConfig == nil {
+				d.LabelsConfig = map[string]string{}
+			}
+			for k, v := range n.Spec.Labels {
+				d.LabelsConfig[k] = v
+			}
+			if len(n.Spec.Taints) > 0 && d.TaintsConfig == nil {
+				d.TaintsConfig = map[string]string{}
+			}
+			for _, t := range n.Spec.Taints {
+				v := string(t.Effect)
+				if t.Value != "" {
+					v = t.Value + ":" + v
+				}
+				d.TaintsConfig[t.Key] = v
+			}
+		case *k8s.KubeFlannelCNIConfigV1Alpha1:
+			// Flannel is deployed exactly when this document exists.
+			if cni := c.Spec.Network.CNI; cni != nil && cni.Name != osv1alpha1.CNIFlannel {
+				continue
 			}
 		}
-		node.NodeLabels = n.Spec.NodeLabels
-		node.Patches = resolvePatches(n.Spec.Patches, patchRoot)
-		for _, ni := range n.Spec.NetworkInterfaces {
-			dev := &v1alpha1.Device{
-				DeviceInterface: ni.Interface,
-				DeviceDHCP:      ni.DHCP,
-				DeviceMTU:       ni.MTU,
-				DeviceAddresses: ni.Addresses,
+		out = append(out, doc)
+	}
+
+	// The manifests are control-plane work: workers never apply them, and
+	// Talos refuses the document on a worker.
+	if cni := c.Spec.Network.CNI; cni != nil && cni.Name == osv1alpha1.CNICustom && n.Spec.Role == osv1alpha1.RoleControlPlane {
+		for i, raw := range cni.URLs {
+			u, err := url.Parse(raw)
+			if err != nil {
+				return nil, fmt.Errorf("cni url %q: %w", raw, err)
 			}
-			if sel := ni.DeviceSelector; sel != nil {
-				dev.DeviceSelector = &v1alpha1.NetworkDeviceSelector{
-					NetworkDeviceHardwareAddress: sel.HardwareAddr,
-					NetworkDeviceBus:             sel.BusPath,
+			m := k8s.NewKubeExternalManifestConfigV1Alpha1()
+			m.MetaName = "custom-cni-" + strconv.Itoa(i)
+			m.URLSpec = meta.URL{URL: u}
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+
+// nodeDocuments renders what only the node object knows: the install target
+// and its links, plus the VIP a control-plane member announces.
+func nodeDocuments(c *osv1alpha1.TalosCluster, n *osv1alpha1.TalosNode, installer string) ([]config.Document, error) {
+	match, err := DiskMatch(n.Spec.InstallDiskSelector)
+	if err != nil {
+		return nil, err
+	}
+	install := runtime.NewUnattendedInstallConfigV1Alpha1()
+	install.Installer.Image = installer
+	install.ProvisioningSpec.DiskSelector.Match = match
+	// Never wipe on its own: reinstalling over a disk is a decision for the
+	// HostOperation that reprovisions the machine, not a side effect of a
+	// config that happens to reach it.
+	install.ProvisioningSpec.Wipe = new(false)
+	docs := []config.Document{install}
+
+	for _, l := range n.Spec.Network.Links {
+		alias := network.NewLinkAliasConfigV1Alpha1(l.Name)
+		expr, err := cel.ParseBooleanExpression(LinkMatch(l.HardwareAddr), celenv.LinkLocator())
+		if err != nil {
+			return nil, fmt.Errorf("link %s: %w", l.Name, err)
+		}
+		alias.Selector.Match = expr
+
+		link := network.NewLinkConfigV1Alpha1(l.Name)
+		link.LinkUp = new(true)
+		link.LinkMTU = uint32(l.MTU)
+		for _, a := range l.Addresses {
+			p, err := netip.ParsePrefix(a)
+			if err != nil {
+				return nil, fmt.Errorf("link %s address %q: want CIDR form: %w", l.Name, a, err)
+			}
+			link.LinkAddresses = append(link.LinkAddresses, network.AddressConfig{AddressAddress: p})
+		}
+		for _, r := range l.Routes {
+			rc := network.RouteConfig{RouteMetric: uint32(r.Metric)}
+			if r.Network != "" {
+				p, err := netip.ParsePrefix(r.Network)
+				if err != nil {
+					return nil, fmt.Errorf("link %s route %q: %w", l.Name, r.Network, err)
+				}
+				// A default route is no destination at all in Talos' terms.
+				if p.Bits() != 0 {
+					rc.RouteDestination = meta.Prefix{Prefix: p}
 				}
 			}
-			for _, r := range ni.Routes {
-				dev.DeviceRoutes = append(dev.DeviceRoutes, &v1alpha1.Route{
-					RouteNetwork: r.Network,
-					RouteGateway: r.Gateway,
-					RouteMetric:  r.Metric,
-				})
-			}
-			if ni.VIP != nil {
-				dev.DeviceVIPConfig = &v1alpha1.DeviceVIPConfig{SharedIP: ni.VIP.IP}
-			}
-			node.NetworkInterfaces = append(node.NetworkInterfaces, dev)
-		}
-		c.Nodes = append(c.Nodes, node)
-	}
-
-	// Mirror the loader: merge (empty) node groups, then validate.
-	for k := range c.Nodes {
-		node := &c.Nodes[k]
-		if node.ControlPlane {
-			node.OverrideGlobalCfg(c.ControlPlane)
-		} else {
-			node.OverrideGlobalCfg(c.Worker)
-		}
-	}
-	errs, _ := c.Validate()
-	if len(errs) > 0 {
-		var msgs []string
-		for _, e := range errs {
-			msgs = append(msgs, fmt.Sprintf("%s: %v", e.Field, e.Message))
-		}
-		return nil, fmt.Errorf("invalid config: %s", strings.Join(msgs, "; "))
-	}
-	return c, nil
-}
-
-// Render runs talhelper's generate pipeline with the CLI's own defaults (the spike
-// call sequence): per-node machine configs plus a talosconfig into outDir. The
-// secret bundle comes from secretFile verbatim — talhelper sops-decrypts encrypted
-// files in memory, plain YAML passes through, so sops never enters this codebase.
-func Render(c *config.TalhelperConfig, outDir, secretFile string, offline bool) error {
-	return generate.GenerateConfig(c, false, outDir, secretFile, "metal", offline, false,
-		constants.TalosAPIDefaultCertificateValidityDuration)
-}
-
-// Convert splits a loaded talconfig into the CR pair — the cutover migration tool and the
-// parity harness's front half. sourceDir is the talconfig's directory: the loader
-// made "@" references absolute, Convert makes them "@./" relative again so the CRs
-// stay portable. It then maps the CRs back and requires the round trip to reproduce
-// the input exactly — a talconfig field the CR schema does not carry is an error
-// here, never a silent drop.
-func Convert(c *config.TalhelperConfig, sourceDir string) (*osv1alpha1.TalosCluster, []osv1alpha1.TalosNode, error) {
-	absDir, err := filepath.Abs(sourceDir)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	cluster := &osv1alpha1.TalosCluster{}
-	cluster.Name = c.ClusterName
-	cluster.TypeMeta = clusterTypeMeta()
-	cluster.Spec = osv1alpha1.TalosClusterSpec{
-		TalosVersion:                   c.TalosVersion,
-		KubernetesVersion:              c.KubernetesVersion,
-		Endpoint:                       c.Endpoint,
-		AllowSchedulingOnControlPlanes: c.AllowSchedulingOnControlPlanes,
-		ClusterPodNets:                 c.ClusterPodNets,
-		ClusterSvcNets:                 c.ClusterSvcNets,
-		AdditionalApiServerCertSans:    c.AdditionalApiServerCertSans,
-		AdditionalMachineCertSans:      c.AdditionalMachineCertSans,
-		Patches:                        relativizePatches(c.Patches, absDir),
-	}
-
-	var nodes []osv1alpha1.TalosNode
-	for i := range c.Nodes {
-		n := &c.Nodes[i]
-		node := osv1alpha1.TalosNode{}
-		node.Name = n.Hostname
-		node.TypeMeta = nodeTypeMeta()
-		node.Spec = osv1alpha1.TalosNodeSpec{
-			ClusterRef:   osv1alpha1.Reference{Name: c.ClusterName},
-			IPAddress:    n.IPAddress,
-			ControlPlane: n.ControlPlane,
-			NodeLabels:   n.NodeLabels,
-			Patches:      relativizePatches(n.Patches, absDir),
-		}
-		if s := n.Schematic; s != nil {
-			node.Spec.Schematic = &osv1alpha1.Schematic{Customization: osv1alpha1.SchematicCustomization{
-				SystemExtensions: osv1alpha1.SystemExtensions{
-					OfficialExtensions: s.Customization.SystemExtensions.OfficialExtensions,
-				},
-				ExtraKernelArgs: s.Customization.ExtraKernelArgs,
-			}}
-		}
-		if d := n.InstallDiskSelector; d != nil {
-			node.Spec.InstallDiskSelector = &osv1alpha1.InstallDiskSelector{
-				Serial:  d.Serial,
-				Model:   d.Model,
-				Name:    d.Name,
-				BusPath: d.BusPath,
-			}
-		}
-		for _, dev := range n.NetworkInterfaces {
-			ni := osv1alpha1.NetworkInterface{
-				Interface: dev.DeviceInterface,
-				DHCP:      dev.DeviceDHCP,
-				MTU:       dev.DeviceMTU,
-				Addresses: dev.DeviceAddresses,
-			}
-			if sel := dev.DeviceSelector; sel != nil {
-				ni.DeviceSelector = &osv1alpha1.DeviceSelector{
-					HardwareAddr: sel.NetworkDeviceHardwareAddress,
-					BusPath:      sel.NetworkDeviceBus,
+			if r.Gateway != "" {
+				gw, err := netip.ParseAddr(r.Gateway)
+				if err != nil {
+					return nil, fmt.Errorf("link %s route gateway %q: %w", l.Name, r.Gateway, err)
 				}
+				rc.RouteGateway = meta.Addr{Addr: gw}
 			}
-			for _, r := range dev.DeviceRoutes {
-				ni.Routes = append(ni.Routes, osv1alpha1.Route{
-					Network: r.RouteNetwork,
-					Gateway: r.RouteGateway,
-					Metric:  r.RouteMetric,
-				})
-			}
-			if dev.DeviceVIPConfig != nil {
-				ni.VIP = &osv1alpha1.VIP{IP: dev.DeviceVIPConfig.SharedIP}
-			}
-			node.Spec.NetworkInterfaces = append(node.Spec.NetworkInterfaces, ni)
+			link.LinkRoutes = append(link.LinkRoutes, rc)
 		}
-		nodes = append(nodes, node)
+		docs = append(docs, alias, link)
+		if l.DHCP {
+			docs = append(docs, network.NewDHCPv4ConfigV1Alpha1(l.Name))
+		}
 	}
 
-	back, err := Map(cluster, nodes, absDir)
-	if err != nil {
-		return nil, nil, fmt.Errorf("round-trip guard: mapping the converted CRs back failed: %w", err)
+	if vip := controlPlaneVIP(c); vip != "" && n.Spec.Role == osv1alpha1.RoleControlPlane {
+		link, err := vipLink(vip, n)
+		if err != nil {
+			return nil, err
+		}
+		v := network.NewLayer2VIPConfigV1Alpha1(vip)
+		v.LinkName = link
+		docs = append(docs, v)
 	}
-	want, err := yaml.Marshal(c)
-	if err != nil {
-		return nil, nil, err
-	}
-	got, err := yaml.Marshal(back)
-	if err != nil {
-		return nil, nil, err
-	}
-	if !bytes.Equal(want, got) {
-		return nil, nil, fmt.Errorf(
-			"round-trip guard: the talconfig uses fields the CR schema does not carry yet — first divergence:\n%s",
-			firstDiff(string(want), string(got)))
-	}
-	return cluster, nodes, nil
+	return docs, nil
 }
 
-// resolvePatches makes relative "@" file references absolute against root —
-// talhelper's own rule (pkg/substitute): only "@"-prefixed strings are file
-// references, everything else is an inline patch.
-func resolvePatches(patches []string, root string) []string {
+// vipLink picks the link that announces the VIP: the one whose static address
+// shares a subnet with it. Gratuitous ARP for an address outside the link's
+// subnet reaches nobody who would route to it.
+func vipLink(vip string, n *osv1alpha1.TalosNode) (string, error) {
+	addr, err := netip.ParseAddr(vip)
+	if err != nil {
+		return "", fmt.Errorf("controlPlane.vip %q: %w", vip, err)
+	}
+	for _, l := range n.Spec.Network.Links {
+		for _, a := range l.Addresses {
+			if p, err := netip.ParsePrefix(a); err == nil && p.Masked().Contains(addr) {
+				return l.Name, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("controlPlane.vip %s: no link of %s has a static address in its subnet", vip, n.Name)
+}
+
+func controlPlaneVIP(c *osv1alpha1.TalosCluster) string {
+	if c.Spec.ControlPlane == nil {
+		return ""
+	}
+	return c.Spec.ControlPlane.VIP
+}
+
+// LinkMatch is the LinkAliasConfig selector for a link's MAC address.
+//
+// Talos fills permanent_addr from the ETHTOOL_GPERMADDR ioctl and has no
+// fallback, so a driver that reports no permanent address leaves it empty.
+// virtio-net does report one when the device offers VIRTIO_NET_F_MAC, which
+// QEMU does by default, but a NIC without it would never match. The second
+// arm matches the current address of a physical link (kind "") that has no
+// permanent one. It excludes bonds, bridges and VLANs, which take a member's
+// MAC as theirs: an alias must match exactly one link, and those would
+// otherwise match alongside their member.
+func LinkMatch(hardwareAddr string) string {
+	mac := strings.ToLower(hardwareAddr)
+	return fmt.Sprintf(`mac(link.permanent_addr) == %q || (size(link.permanent_addr) == 0 && link.kind == "" && mac(link.hardware_addr) == %q)`,
+		mac, mac)
+}
+
+// DiskMatchcompiles the install disk selector into the CEL expression
+// UnattendedInstallConfig matches disks with. Every set matcher must hold;
+// string matchers containing glob metacharacters use glob().
+func DiskMatch(s osv1alpha1.DiskSelector) (cel.Expression, error) {
+	var terms []string
+	field := func(name, value string) {
+		if value == "" {
+			return
+		}
+		if strings.ContainsAny(value, "*?[") {
+			terms = append(terms, fmt.Sprintf("glob(%q, disk.%s)", value, name))
+			return
+		}
+		terms = append(terms, fmt.Sprintf("disk.%s == %q", name, value))
+	}
+	field("serial", s.Serial)
+	field("model", s.Model)
+	field("wwid", s.WWID)
+	field("bus_path", s.BusPath)
+	if s.Match != "" {
+		terms = append(terms, "("+s.Match+")")
+	}
+	if len(terms) == 0 {
+		return cel.Expression{}, errors.New("installDiskSelector matches nothing: set at least one matcher")
+	}
+	expr, err := cel.ParseBooleanExpression(strings.Join(terms, " && "), celenv.DiskLocator())
+	if err != nil {
+		return cel.Expression{}, fmt.Errorf("installDiskSelector: %w", err)
+	}
+	return expr, nil
+}
+
+// applyPatches applies the cluster's patches, then the node's. Only strategic
+// merge patches are accepted: a JSON6902 patch addresses one document by path,
+// and a multi-document config is not one document.
+func applyPatches(cfg tconfig.Provider, lists ...[][]byte) (tconfig.Provider, error) {
+	var patches []configpatcher.Patch
+	for _, list := range lists {
+		for i, raw := range list {
+			p, err := configpatcher.LoadPatch(raw)
+			if err != nil {
+				return nil, fmt.Errorf("patch %d: %w", i, err)
+			}
+			if _, ok := p.(configpatcher.StrategicMergePatch); !ok {
+				return nil, fmt.Errorf("patch %d: only strategic merge patches apply to a multi-document config", i)
+			}
+			patches = append(patches, p)
+		}
+	}
 	if len(patches) == 0 {
-		return nil
+		return cfg, nil
 	}
-	out := make([]string, len(patches))
-	for i, p := range patches {
-		path, found := strings.CutPrefix(p, "@")
-		if found && path != "" && !filepath.IsAbs(path) {
-			p = "@" + filepath.Join(root, path)
-		}
-		out[i] = p
+	out, err := configpatcher.Apply(configpatcher.WithConfig(cfg), patches)
+	if err != nil {
+		return nil, err
 	}
-	return out
+	return out.Config()
 }
 
-// relativizePatches is the inverse: "@<absDir>/x" becomes "@./x".
-func relativizePatches(patches []string, absDir string) []string {
-	if len(patches) == 0 {
-		return nil
+// NodeAddress is where a node's Talos API is reached: spec.address, or the
+// first static address of its first link that has one. Empty when the node
+// only takes DHCP addresses and names none.
+func NodeAddress(n *osv1alpha1.TalosNode) string {
+	if n.Spec.Address != "" {
+		return n.Spec.Address
 	}
-	out := make([]string, len(patches))
-	for i, p := range patches {
-		if rest, found := strings.CutPrefix(p, "@"+absDir+"/"); found {
-			p = "@./" + rest
+	for _, l := range n.Spec.Network.Links {
+		for _, a := range l.Addresses {
+			if p, err := netip.ParsePrefix(a); err == nil {
+				return p.Addr().String()
+			}
 		}
-		out[i] = p
 	}
-	return out
+	return ""
 }
 
-func firstDiff(want, got string) string {
-	w, g := strings.Split(want, "\n"), strings.Split(got, "\n")
-	for i := range min(len(w), len(g)) {
-		if w[i] != g[i] {
-			return fmt.Sprintf("line %d:\n  talconfig: %s\n  round-trip: %s", i+1, w[i], g[i])
-		}
+// EffectiveSchematic is the schematic a node's installer is built from: its
+// own when set, the cluster's otherwise. Nil is the vanilla image.
+func EffectiveSchematic(c *osv1alpha1.TalosCluster, n *osv1alpha1.TalosNode) *osv1alpha1.Schematic {
+	if n.Spec.Schematic != nil {
+		return n.Spec.Schematic
 	}
-	return fmt.Sprintf("line %d: one side ends early", min(len(w), len(g))+1)
+	return c.Spec.Schematic
 }

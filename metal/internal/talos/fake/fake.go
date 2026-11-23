@@ -33,7 +33,17 @@ type Machine struct {
 	etcdData       bool
 	etcdRunning    bool
 	bootstrapCalls int
+	etcdStartsLate bool
 	unreachable    bool
+}
+
+// SetEtcdStartsLate makes a successful Bootstrap write etcd data without
+// starting etcd: it stays not-running until SetEtcdRunning(true), the window
+// a real node spends pulling and starting etcd after accepting the call.
+func (m *Machine) SetEtcdStartsLate(v bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.etcdStartsLate = v
 }
 
 // NewMachine returns a blank machine in maintenance mode: the state a
@@ -178,7 +188,7 @@ func (c *conn) Bootstrap(context.Context) error {
 	case c.m.etcdData:
 		return fmt.Errorf("fake: %w: etcd data directory is not empty", talos.ErrAlreadyBootstrapped)
 	}
-	c.m.etcdData, c.m.etcdRunning = true, true
+	c.m.etcdData, c.m.etcdRunning = true, !c.m.etcdStartsLate
 	return nil
 }
 

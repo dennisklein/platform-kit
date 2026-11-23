@@ -4,50 +4,154 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// TalosNodeSpec is one `nodes:` entry of talconfig.yaml. The hostname is the CR's
-// metadata.name. Disk and interface selectors are copied facts today (serials, MACs
-// from the inventory ledger); resolving them as hints against discovered hardware is
-// the M-later step that retires the copy.
+// NodeRole is the part a machine plays in its cluster.
+// +kubebuilder:validation:Enum=controlplane;worker
+type NodeRole string
+
+const (
+	RoleControlPlane NodeRole = "controlplane"
+	RoleWorker       NodeRole = "worker"
+)
+
+// TalosNodeSpec is what belongs to one machine. Its hostname is the object's
+// metadata.name.
 type TalosNodeSpec struct {
-	// ClusterRef names the TalosCluster this node renders against.
+	// ClusterRef names the TalosCluster this node is a member of.
 	ClusterRef Reference `json:"clusterRef"`
 
-	// IPAddress is where talosctl reaches the node (feeds the rendered talosconfig
-	// and cert SANs; comma-separated addresses allowed, talhelper semantics).
-	// +kubebuilder:validation:MinLength=1
-	IPAddress string `json:"ipAddress"`
+	// Role is controlplane or worker.
+	Role NodeRole `json:"role"`
 
-	// ControlPlane marks the node a control-plane member.
+	// Address is where the operator and talosctl reach the node's Talos API.
+	// Empty means the first static address of the first link. A node that only
+	// takes DHCP addresses needs it set, or its check-in has nothing to dial.
 	// +optional
-	ControlPlane bool `json:"controlPlane,omitempty"`
+	Address string `json:"address,omitempty"`
 
-	// NodeLabels are Kubernetes labels the node registers with.
+	// InstallDiskSelector picks the disk Talos installs onto. Every matcher
+	// that is set must hold (they are ANDed into one CEL expression).
+	InstallDiskSelector DiskSelector `json:"installDiskSelector"`
+
+	// Network configures the node's links.
 	// +optional
-	NodeLabels map[string]string `json:"nodeLabels,omitempty"`
+	Network NodeNetwork `json:"network,omitempty"`
 
-	// Schematic customizes the Image Factory install image (system extensions such
-	// as siderolabs/drbd). Shape mirrors talconfig/the factory schematic.
+	// Labels are Kubernetes node labels the kubelet registers with. Worker
+	// nodes may only set labels the NodeRestriction admission plugin allows.
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
+
+	// Taints are Kubernetes node taints the kubelet registers with.
+	// +optional
+	Taints []Taint `json:"taints,omitempty"`
+
+	// Schematic customizes this node's installer image and replaces the
+	// cluster's schematic when set. Extensions and kernel arguments both live
+	// here: Talos takes the installed kernel command line from the image, so an
+	// argument that is not part of the schematic does not survive the install.
 	// +optional
 	Schematic *Schematic `json:"schematic,omitempty"`
 
-	// InstallDiskSelector looks up the install disk on the machine (serial is the
-	// raven convention — the one fact that survives cabling and enumeration).
+	// Patches apply to this node only, in order, after the cluster's patches.
 	// +optional
-	InstallDiskSelector *InstallDiskSelector `json:"installDiskSelector,omitempty"`
-
-	// Patches apply to this node only, after the cluster-wide ones: inline
-	// strategic-merge YAML or "@./path" references (same resolution as cluster
-	// patches).
-	// +optional
-	Patches []string `json:"patches,omitempty"`
-
-	// NetworkInterfaces configure the node's links. CP nodes use named interfaces
-	// (talhelper derives a VIP's link from the name); workers may select by MAC.
-	// +optional
-	NetworkInterfaces []NetworkInterface `json:"networkInterfaces,omitempty"`
+	Patches []Patch `json:"patches,omitempty"`
 }
 
-// Schematic mirrors the Image Factory schematic subset raven uses.
+// DiskSelector matches the install disk. String matchers take glob patterns
+// (*, ?); Match is a raw Talos disk CEL expression for anything else.
+// +kubebuilder:validation:XValidation:rule="has(self.serial) || has(self.model) || has(self.wwid) || has(self.busPath) || has(self.match)",message="at least one matcher is required: a node that does not say where to install does not install"
+type DiskSelector struct {
+	// Serial matches the disk serial number, the one fact that survives
+	// re-cabling and enumeration order.
+	// +optional
+	Serial string `json:"serial,omitempty"`
+	// Model matches the disk model.
+	// +optional
+	Model string `json:"model,omitempty"`
+	// WWID matches the disk's world wide identifier.
+	// +optional
+	WWID string `json:"wwid,omitempty"`
+	// BusPath matches the disk's bus path.
+	// +optional
+	BusPath string `json:"busPath,omitempty"`
+	// Match is a CEL expression over `disk` (Talos' disk locator
+	// environment), for example `disk.size > 100u * GB && !disk.rotational`.
+	// +optional
+	Match string `json:"match,omitempty"`
+}
+
+// NodeNetwork is the node's link configuration.
+type NodeNetwork struct {
+	// Links configure physical links, each selected by its MAC address.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	Links []Link `json:"links,omitempty"`
+}
+
+// Link is one physical link: Talos aliases the link with the MAC address to
+// Name (LinkAliasConfig), then configures it under that name (LinkConfig, and
+// DHCPv4Config when DHCP is on). Naming links by alias keeps the rest of the
+// configuration, and every patch, independent of what the kernel calls the
+// interface on a given board.
+// +kubebuilder:validation:XValidation:rule="(has(self.dhcp) && self.dhcp) || (has(self.addresses) && size(self.addresses) > 0)",message="a link without DHCP needs at least one static address"
+type Link struct {
+	// Name is the alias the link gets. Avoid kernel names (eth0, enp0s2):
+	// an alias must not collide with a real interface.
+	// +kubebuilder:validation:Pattern=`^[a-z][a-z0-9-]{0,14}$`
+	Name string `json:"name"`
+
+	// HardwareAddr is the link's permanent MAC address. A physical link
+	// whose driver reports no permanent address is matched on its current
+	// one instead.
+	// +kubebuilder:validation:Pattern=`^([0-9a-f]{2}:){5}[0-9a-f]{2}$`
+	HardwareAddr string `json:"hardwareAddr"`
+
+	// Addresses are static addresses in CIDR form, primary family first.
+	// +optional
+	Addresses []string `json:"addresses,omitempty"`
+
+	// Routes are static routes over this link.
+	// +optional
+	Routes []Route `json:"routes,omitempty"`
+
+	// DHCP runs a DHCPv4 client on the link, alongside any static addresses.
+	// +optional
+	DHCP bool `json:"dhcp,omitempty"`
+
+	// MTU overrides the link MTU.
+	// +kubebuilder:validation:Minimum=576
+	// +optional
+	MTU int32 `json:"mtu,omitempty"`
+}
+
+// Route is a static route.
+type Route struct {
+	// Network is the destination CIDR; empty is the default route.
+	// +optional
+	Network string `json:"network,omitempty"`
+	// Gateway is the next hop.
+	// +optional
+	Gateway string `json:"gateway,omitempty"`
+	// Metric orders competing routes.
+	// +optional
+	Metric int32 `json:"metric,omitempty"`
+}
+
+// TaintEffect is a Kubernetes taint effect.
+// +kubebuilder:validation:Enum=NoSchedule;PreferNoSchedule;NoExecute
+type TaintEffect string
+
+// Taint is a Kubernetes node taint.
+type Taint struct {
+	Key string `json:"key"`
+	// +optional
+	Value  string      `json:"value,omitempty"`
+	Effect TaintEffect `json:"effect"`
+}
+
+// Schematic is the Image Factory schematic subset this operator renders: the
+// content its id is a hash of, so every field here changes the image.
 type Schematic struct {
 	// +optional
 	Customization SchematicCustomization `json:"customization,omitempty"`
@@ -60,137 +164,91 @@ type SchematicCustomization struct {
 
 	// ExtraKernelArgs append to the image's kernel command line. This is how a
 	// boot medium is told to read its config off the second medium
-	// (talos.config=metal-iso) and where to put the console
-	// (console=ttyS0 — what the BMC's serial-over-LAN shows).
+	// (talos.config=metal-iso) and where to put the console (console=ttyS0,
+	// what the BMC's serial-over-LAN shows).
 	// +optional
 	ExtraKernelArgs []string `json:"extraKernelArgs,omitempty"`
 }
 
-// SystemExtensions bakes extensions into the install image.
+// SystemExtensions bakes extensions into the image.
 type SystemExtensions struct {
-	// OfficialExtensions are siderolabs/* extension names (drbd, intel-ucode).
+	// OfficialExtensions are siderolabs/* extension names (siderolabs/drbd).
 	// +optional
 	OfficialExtensions []string `json:"officialExtensions,omitempty"`
 }
 
-// InstallDiskSelector is the machinery disk matcher subset raven uses — all
-// matchers are ANDed by Talos; wildcards supported.
-type InstallDiskSelector struct {
-	// Serial matches the disk serial number.
+// Patch is one Talos configuration patch: a multi-document YAML strategic
+// merge patch (documents merge by apiVersion, kind and name; `$patch: delete`
+// removes one), given inline or read from a ConfigMap key.
+// +kubebuilder:validation:XValidation:rule="has(self.inline) != has(self.configMapRef)",message="exactly one of inline or configMapRef"
+type Patch struct {
+	// Inline is the patch text.
 	// +optional
-	Serial string `json:"serial,omitempty"`
-	// Model matches the disk model string.
+	Inline string `json:"inline,omitempty"`
+	// ConfigMapRef reads the patch from a ConfigMap key.
 	// +optional
-	Model string `json:"model,omitempty"`
-	// Name matches the kernel device name (least stable — prefer serial).
-	// +optional
-	Name string `json:"name,omitempty"`
-	// BusPath matches the device bus path.
-	// +optional
-	BusPath string `json:"busPath,omitempty"`
+	ConfigMapRef *ConfigMapKeyReference `json:"configMapRef,omitempty"`
 }
 
-// NetworkInterface is one machine.network.interfaces entry. Exactly one of
-// Interface or DeviceSelector picks the link.
-// +kubebuilder:validation:XValidation:rule="has(self.interface) != has(self.deviceSelector)",message="exactly one of interface or deviceSelector must pick the link"
-type NetworkInterface struct {
-	// Interface names the link (eno1np0). CP nodes must use names where a VIP
-	// rides the link — talhelper derives the VIP's link from the interface name.
-	// +optional
-	Interface string `json:"interface,omitempty"`
-
-	// DeviceSelector picks the link by hardware fact instead of name.
-	// +optional
-	DeviceSelector *DeviceSelector `json:"deviceSelector,omitempty"`
-
-	// DHCP; nil renders nothing, an explicit false renders `dhcp: false` — the
-	// talconfig convention for statically-addressed links.
-	// +optional
-	DHCP *bool `json:"dhcp,omitempty"`
-
-	// MTU overrides the link MTU.
-	// +optional
-	MTU int `json:"mtu,omitempty"`
-
-	// Addresses are the static addresses, primary family first.
-	// +optional
-	Addresses []string `json:"addresses,omitempty"`
-
-	// Routes are static routes over this link.
-	// +optional
-	Routes []Route `json:"routes,omitempty"`
-
-	// VIP is the Talos-managed shared virtual IP on this link (CP only).
-	// +optional
-	VIP *VIP `json:"vip,omitempty"`
+// ConfigMapKeyReference points at one key of a namespaced ConfigMap.
+type ConfigMapKeyReference struct {
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+	Key       string `json:"key"`
 }
 
-// DeviceSelector matches a link by hardware fact (wildcards supported).
-type DeviceSelector struct {
-	// HardwareAddr matches the MAC address.
-	// +optional
-	HardwareAddr string `json:"hardwareAddr,omitempty"`
-	// BusPath matches the PCI/USB bus prefix.
-	// +optional
-	BusPath string `json:"busPath,omitempty"`
-}
-
-// Route is a static route.
-type Route struct {
-	// Network is the destination CIDR.
-	Network string `json:"network"`
-	// Gateway is the next hop.
-	// +optional
-	Gateway string `json:"gateway,omitempty"`
-	// Metric orders competing routes.
-	// +optional
-	Metric uint32 `json:"metric,omitempty"`
-}
-
-// VIP is a Talos-managed shared virtual IP.
-type VIP struct {
-	IP string `json:"ip"`
-}
-
-// TalosNodeStatus reports the render. Rendered=False is alert-and-hold: the last
-// rendered Secret stays in place — a broken input never un-renders a machine's
-// config.
+// TalosNodeStatus reports the render and the machine's check-in. Rendered=False
+// is alert-and-hold: the last rendered Secret stays in place, so a broken input
+// never un-renders a machine's config.
 type TalosNodeStatus struct {
-	// Conditions: Rendered, plus the check-in observations MachineReachable and
-	// Ready while a Host hands this node a machine.
+	// Conditions: Rendered, plus the check-in observations MachineReachable
+	// and Ready while a Host hands this node a machine.
 	// +optional
+	// +listType=map
+	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// ConfigSecretRef points at the Secret holding this node's rendered machine
-	// config (key config.yaml). Owned by the TalosNode and GC'd with it — the
-	// single place the rendered secrets exist at rest.
+	// ConfigSecretRef points at the Secret holding this node's rendered
+	// machine config (key config.yaml). Owned by the TalosNode and collected
+	// with it; it is the one place the rendered secrets rest.
 	// +optional
 	ConfigSecretRef *SecretReference `json:"configSecretRef,omitempty"`
 
-	// ConfigDigest is sha256:<hex> of the rendered config — what BootAsset builds
-	// key their rebuilds on.
+	// ConfigDigest is sha256:<hex> of the rendered config, what BootAsset
+	// builds key their rebuilds on.
 	// +optional
 	ConfigDigest string `json:"configDigest,omitempty"`
 
-	// Stage is the machine's observed boot stage (maintenance | booting |
-	// running | …) — empty while no machine has answered the check-in.
+	// InstallerImage is the installer the rendered config installs from.
+	// +optional
+	InstallerImage string `json:"installerImage,omitempty"`
+
+	// Address is where the check-in dials (spec.address, or the first static
+	// link address).
+	// +optional
+	Address string `json:"address,omitempty"`
+
+	// Stage is the machine's observed boot stage (maintenance, booting,
+	// installing, running, ...), empty while no machine answers.
 	// +optional
 	Stage string `json:"stage,omitempty"`
 
-	// MachineVersion is the Talos version the machine reports.
+	// Version is the Talos version the machine reports.
 	// +optional
-	MachineVersion string `json:"machineVersion,omitempty"`
+	Version string `json:"version,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,categories=metal;os
 // +kubebuilder:printcolumn:name="Cluster",type=string,JSONPath=`.spec.clusterRef.name`
-// +kubebuilder:printcolumn:name="CP",type=boolean,JSONPath=`.spec.controlPlane`
-// +kubebuilder:printcolumn:name="Address",type=string,JSONPath=`.spec.ipAddress`
+// +kubebuilder:printcolumn:name="Role",type=string,JSONPath=`.spec.role`
+// +kubebuilder:printcolumn:name="Address",type=string,JSONPath=`.status.address`
 // +kubebuilder:printcolumn:name="Stage",type=string,JSONPath=`.status.stage`
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 
-// TalosNode is the per-machine half of the rendered OS config.
+// TalosNode is one member of a TalosCluster: the machine-specific half of its
+// configuration, and what the machine reports once it runs.
 type TalosNode struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

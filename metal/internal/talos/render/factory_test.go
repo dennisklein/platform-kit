@@ -66,10 +66,14 @@ func TestRegisterSchematic(t *testing.T) {
 		// What is posted is the schematic, not our CRD wrapper around it.
 		assert.Contains(t, body.Load().(string), "console=ttyS0")
 
-		url, err := f.ISOURL(args, "v1.13.4")
+		url, err := f.ISOURL(args, "v1.14.6")
 		require.NoError(t, err)
 		assert.Contains(t, url, id,
 			"the image URL must address the schematic that was registered")
+		installer, err := f.InstallerImage(args, "v1.14.6")
+		require.NoError(t, err)
+		assert.Equal(t, f.RegistryURL+"/metal-installer/"+id+":v1.14.6", installer,
+			"the installer a config names must be the boot medium's build")
 	})
 
 	t.Run("registration is remembered, not repeated", func(t *testing.T) {
@@ -127,7 +131,7 @@ func TestRegisterSchematic(t *testing.T) {
 // would serve images nobody registered with it.
 func TestFactoryHostReachesBothHalves(t *testing.T) {
 	f, _, _ := fakeFactory(t, nil)
-	url, err := f.ISOURL(nil, "v1.13.4")
+	url, err := f.ISOURL(nil, "v1.14.6")
 	require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(url, "https://"+f.RegistryURL+"/image/"), "got %s", url)
 

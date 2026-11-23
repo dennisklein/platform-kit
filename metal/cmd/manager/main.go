@@ -1,7 +1,8 @@
-// manager is the in-cluster pk-metal operator (ADR 0012): the Asset materializer,
+// manager is the in-cluster pk-metal operator: the Asset materializer,
 // the ManagementEndpoint reconciler, the Host projection, the claim bind, the
-// HostOperation executor behind its VAP approval gate, and the OS payload lane —
-// TalosNode configs rendered into Secrets, BootAsset artifacts built from them.
+// HostOperation executor behind its VAP approval gate, and the OS payload lane:
+// TalosNode configs rendered into Secrets, BootAsset artifacts built from them,
+// TalosClusters bootstrapped and their admin credentials published.
 // Runs equally against kind (day-0, `go run` with a kubeconfig) and in-cluster —
 // the git-native handover means the process carries no state worth pivoting.
 package main
@@ -41,8 +42,6 @@ func main() {
 		caSecret     string
 		bmcInsecure  bool
 		poll         time.Duration
-		talosSecrets string
-		patchRoot    string
 		imageFactory string
 		registryCA   string
 		metricsAddr  string
@@ -52,11 +51,7 @@ func main() {
 	flag.StringVar(&ledgerPath, "ledger", "",
 		"path to the MAC→URL BMC ledger YAML (required; projection of the bmc-access dnsmasq ledger)")
 	flag.StringVar(&credsNS, "credentials-namespace", "pk-metal",
-		"namespace holding endpoint credential and CA secrets, the cluster secrets bundle, and rendered configs")
-	flag.StringVar(&talosSecrets, "talos-secrets-secret", "",
-		"secret (key talsecret.yaml) with the cluster secrets bundle; empty disables config rendering")
-	flag.StringVar(&patchRoot, "talos-patch-root", "",
-		`directory "@./" patch references resolve against (the mounted mirror of control/talos)`)
+		"namespace holding endpoint credential and CA secrets; receives rendered configs and published cluster credentials")
 	flag.StringVar(&caSecret, "bmc-ca-secret", "",
 		"secret (key ca.crt) that materialized endpoints pin for TLS (live: internal-ca)")
 	flag.StringVar(&imageFactory, "image-factory", render.PublicFactory,
@@ -204,21 +199,26 @@ func main() {
 		log.Error(err, "setup endpoint convergence reconciler")
 		os.Exit(1)
 	}
-	// The render lane needs the cluster secrets bundle; without it TalosNodes
-	// stay spec-only and configISO BootAssets hold at ConfigNotRendered.
-	if talosSecrets != "" {
-		if err := (&controller.TalosNodeReconciler{
-			Client:        mgr.GetClient(),
-			Scheme:        mgr.GetScheme(),
-			SecretsSecret: talosSecrets,
-			Namespace:     credsNS,
-			PatchRoot:     patchRoot,
-			Factory:       factory,
-			Dial:          machineapi.Dial,
-		}).SetupWithManager(mgr); err != nil {
-			log.Error(err, "setup talosnode reconciler")
-			os.Exit(1)
-		}
+	// Each TalosCluster names its own secrets bundle (spec.secretsRef); a
+	// cluster whose bundle is missing holds its nodes at SecretsUnavailable.
+	if err := (&controller.TalosNodeReconciler{
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		Namespace: credsNS,
+		Factory:   factory,
+		Dial:      machineapi.Dial,
+	}).SetupWithManager(mgr); err != nil {
+		log.Error(err, "setup talosnode reconciler")
+		os.Exit(1)
+	}
+	if err := (&controller.TalosClusterReconciler{
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		Namespace: credsNS,
+		Dial:      machineapi.Dial,
+	}).SetupWithManager(mgr); err != nil {
+		log.Error(err, "setup taloscluster reconciler")
+		os.Exit(1)
 	}
 	if err := (&controller.BootAssetReconciler{
 		Client:    mgr.GetClient(),

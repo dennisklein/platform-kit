@@ -1,90 +1,133 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
+	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
+
+	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
 )
 
-// renderCmd: TalosCluster/TalosNode CR manifests in, Talos machine
-// configs out — `talhelper genconfig` with CRs instead of talconfig.yaml, byte-
-// identical output (the parity gate). Day-0 shape: reads manifest FILES, no API
-// server; the secret file may be sops-encrypted (decrypted in memory by talhelper's
-// machinery, plaintext never touches disk here).
+// renderCmd: TalosCluster/TalosNode manifests in, Talos machine configs out,
+// through the same renderer the operator runs. Day-0 shape: it reads manifest
+// files (ConfigMaps for patches included), no API server involved. The secrets
+// bundle is read from a file or stdin, so a sealed bundle can be decrypted
+// straight into it without plaintext touching disk.
 func renderCmd(args []string) {
 	fs := flag.NewFlagSet("render", flag.ExitOnError)
-	dir := fs.String("dir", "", "directory with TalosCluster/TalosNode manifests (required)")
-	secret := fs.String("secret", "", "talsecret file — plain or sops-encrypted (required)")
-	out := fs.String("out", "clusterconfig", "output directory")
-	patchRoot := fs.String("patch-root", "", `directory "@./" patch refs resolve against (default: --dir)`)
-	offline := fs.Bool("offline", true, "compute schematic IDs locally instead of asking the image factory")
+	dir := fs.String("dir", "", "directory with TalosCluster/TalosNode (and patch ConfigMap) manifests (required)")
+	secretsFile := fs.String("secrets", "", "secrets bundle from `talosctl gen secrets`, or - for stdin (required)")
+	out := fs.String("out", "clusterconfig", "output directory: <node>.yaml per node, talosconfig, kubeconfig")
+	factoryHost := fs.String("image-factory", render.PublicFactory, "image factory host the installer image is named on")
+	register := fs.Bool("register", false, "tell the image factory about each schematic (needs network); off computes ids offline")
 	_ = fs.Parse(args)
-	if fs.NArg() != 0 || *dir == "" || *secret == "" {
-		fmt.Fprintln(os.Stderr, "usage: pk-metal render --dir <cr-dir> --secret <talsecret.yaml> [--out clusterconfig] [--patch-root dir] [--offline=false]")
+	if fs.NArg() != 0 || *dir == "" || *secretsFile == "" {
+		fmt.Fprintln(os.Stderr, "usage: pk-metal render --dir <manifests> --secrets <secrets.yaml|-> [--out clusterconfig] [--image-factory host] [--register]")
 		os.Exit(2)
 	}
-	if *patchRoot == "" {
-		*patchRoot = *dir
-	}
 
-	cluster, nodes, err := render.LoadDir(*dir)
+	m, bundle := loadInputs(*dir, *secretsFile)
+	configs, err := renderAll(context.Background(), m, bundle, render.NewFactory(*factoryHost), *register)
 	if err != nil {
 		log.Fatal(err)
 	}
-	cfg, err := render.Map(cluster, nodes, *patchRoot)
-	if err != nil {
+	if err := os.MkdirAll(*out, 0o700); err != nil {
 		log.Fatal(err)
 	}
-	if err := render.Render(cfg, *out, *secret, *offline); err != nil {
-		log.Fatal(err)
+	for name, cfg := range configs {
+		writeSecretFile(filepath.Join(*out, name+".yaml"), cfg)
 	}
-}
 
-// convertCmd translates talconfig.yaml into the CR pair — the parity harness's
-// front half today, the migration tool at cutover. Refuses (rather than drops) any
-// talconfig field the CR schema does not carry.
-func convertCmd(args []string) {
-	fs := flag.NewFlagSet("convert", flag.ExitOnError)
-	talosDir := fs.String("talos-dir", "", "directory with talconfig.yaml (+ talenv files, patches/) (required)")
-	out := fs.String("out", "", "directory to write the CR manifests into (required)")
-	var envFiles stringsFlag
-	fs.Var(&envFiles, "env-file", "env file for ${VAR} substitution, repeatable (default: talenv.yaml, talenv.inventory.yaml if present)")
-	_ = fs.Parse(args)
-	if fs.NArg() != 0 || *talosDir == "" || *out == "" {
-		fmt.Fprintln(os.Stderr, "usage: pk-metal convert --talos-dir <dir> --out <dir> [--env-file talenv.yaml]...")
-		os.Exit(2)
-	}
-	if len(envFiles) == 0 {
-		for _, name := range []string{"talenv.yaml", "talenv.inventory.yaml"} {
-			if _, err := os.Stat(filepath.Join(*talosDir, name)); err == nil {
-				envFiles = append(envFiles, filepath.Join(*talosDir, name))
+	var endpoints []string
+	for _, n := range m.Nodes {
+		if n.Spec.Role == osv1alpha1.RoleControlPlane {
+			if addr := render.NodeAddress(&n); addr != "" {
+				endpoints = append(endpoints, addr)
 			}
 		}
 	}
-
-	cfg, err := render.LoadTalconfig(filepath.Join(*talosDir, "talconfig.yaml"), envFiles)
+	tc, err := render.Talosconfig(bundle, m.Cluster.Name, endpoints, 365*24*time.Hour)
 	if err != nil {
 		log.Fatal(err)
 	}
-	cluster, nodes, err := render.Convert(cfg, *talosDir)
+	writeSecretFile(filepath.Join(*out, "talosconfig"), tc)
+	kc, err := render.Kubeconfig(bundle, m.Cluster.Name, m.Cluster.Spec.Endpoint, 365*24*time.Hour)
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := render.WriteFiles(*out, cluster, nodes); err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("converted %s into %d manifests in %s\n", cfg.ClusterName, 1+len(nodes), *out)
+	writeSecretFile(filepath.Join(*out, "kubeconfig"), kc)
+	fmt.Printf("rendered %d node configs, talosconfig and kubeconfig for %s into %s\n", len(configs), m.Cluster.Name, *out)
 }
 
-// stringsFlag is a repeatable string flag.
-type stringsFlag []string
+// loadInputs reads the manifests and the secrets bundle, or exits.
+func loadInputs(dir, secretsFile string) (*render.Manifests, *secrets.Bundle) {
+	m, err := render.LoadDir(dir)
+	if err != nil {
+		log.Fatal(err)
+	}
+	var data []byte
+	if secretsFile == "-" {
+		data, err = io.ReadAll(os.Stdin)
+	} else {
+		data, err = os.ReadFile(secretsFile)
+	}
+	if err != nil {
+		log.Fatal(err)
+	}
+	bundle, err := render.LoadBundle(data, m.Cluster.Spec.TalosVersion)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return m, bundle
+}
 
-func (s *stringsFlag) String() string { return fmt.Sprint([]string(*s)) }
-func (s *stringsFlag) Set(v string) error {
-	*s = append(*s, v)
-	return nil
+// renderAll renders every node in the manifests, keyed by node name.
+func renderAll(ctx context.Context, m *render.Manifests, bundle *secrets.Bundle, f *render.Factory, register bool) (map[string][]byte, error) {
+	read := m.ConfigMapReader()
+	clusterPatches, err := render.ResolvePatches(m.Cluster.Spec.Patches, read)
+	if err != nil {
+		return nil, fmt.Errorf("cluster %s: %w", m.Cluster.Name, err)
+	}
+	out := map[string][]byte{}
+	for i := range m.Nodes {
+		n := &m.Nodes[i]
+		schematic := render.EffectiveSchematic(m.Cluster, n)
+		if register {
+			if _, err := f.Register(ctx, schematic); err != nil {
+				return nil, fmt.Errorf("node %s: %w", n.Name, err)
+			}
+		}
+		installer, err := f.InstallerImage(schematic, m.Cluster.Spec.TalosVersion)
+		if err != nil {
+			return nil, fmt.Errorf("node %s: %w", n.Name, err)
+		}
+		nodePatches, err := render.ResolvePatches(n.Spec.Patches, read)
+		if err != nil {
+			return nil, fmt.Errorf("node %s: %w", n.Name, err)
+		}
+		cfg, err := render.Node(render.Input{
+			Cluster: m.Cluster, Node: n, Bundle: bundle, InstallerImage: installer,
+			ClusterPatches: clusterPatches, NodePatches: nodePatches,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("node %s: %w", n.Name, err)
+		}
+		out[n.Name] = cfg
+	}
+	return out, nil
+}
+
+// writeSecretFile writes owner-only: every output here carries key material.
+func writeSecretFile(path string, data []byte) {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		log.Fatal(err)
+	}
 }

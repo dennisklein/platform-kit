@@ -1,4 +1,0 @@
-machine:
-  network:
-    nameservers:
-      - 10.77.253.1

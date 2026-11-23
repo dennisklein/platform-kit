@@ -50,8 +50,6 @@ func main() {
 		approveCmd(os.Args[2:])
 	case "render":
 		renderCmd(os.Args[2:])
-	case "convert":
-		convertCmd(os.Args[2:])
 	case "relay":
 		relayCmd(os.Args[2:])
 	case "boot":
@@ -242,9 +240,8 @@ commands:
   check        preflight an endpoint: reachability, dialects, systems (read-only)
   status       render the rack from the cluster: hosts, endpoints, pending claims
   approve      approve a HostOperation as yourself (VAP-gated)
-  render       TalosCluster/TalosNode manifests -> Talos machine configs
-  convert      talconfig.yaml -> TalosCluster/TalosNode manifests (parity + cutover)
+  render       TalosCluster/TalosNode manifests -> Talos 1.14 machine configs, talosconfig, kubeconfig
   relay        L4 reverse tunnel on a BMC-reachable box (media in, Redfish out)
   boot         media boot ladder: grant-serve a config ISO, mount, override, power
-  bootstrap    day-0: wait for a machine, etcd-bootstrap the first CP, wait Ready`)
+  bootstrap    day-0 without an operator: [apply configs], bootstrap etcd once, wait Ready`)
 }

@@ -1,40 +1,191 @@
-// Package bootstrap is the day-0 executor's last rung: bring one machine to a
-// bootstrapped, Ready Talos node over the machine API. On metal the config
-// arrives via the BMC's media channel and this package only bootstraps and
-// waits; ApplyInsecure (container/dev tiers — no media) additionally delivers
-// the config over the unauthenticated maintenance service, a choice the caller
-// makes loudly at the flag.
+// Package bootstrap brings a Talos cluster's etcd into existence, once. Ensure
+// is one observation and at most one Bootstrap call: the TalosCluster
+// reconciler runs it on every pass, and Run (the CLI's day-0 ladder, for a
+// cluster without an operator) loops it between delivering configs and waiting
+// for the nodes to become Ready.
+//
+// Whether a cluster is bootstrapped is observed, never remembered: a
+// control-plane member that lists etcd members, or a Kubernetes API that
+// answers, proves it. The dangerous mistake is the opposite one, bootstrapping
+// a second etcd beside a first that merely did not answer, so Ensure calls
+// Bootstrap only when every control-plane member answers its authenticated API
+// and none of them runs etcd, and then only on the first member by name. Talos
+// itself refuses a second bootstrap on a node with etcd data (AlreadyExists),
+// which Ensure reads as "bootstrapped".
+//
+// The one thing a caller does carry between rounds is when a request was
+// accepted. etcd starts some time after the call returns, and in that time an
+// observer that asks etcd sees exactly what it saw before the call; without
+// the request time every round would ask again. The TalosCluster reconciler
+// keeps it as the transition time of Bootstrapped=Unknown/BootstrapRequested,
+// so it survives a restart; Run keeps it in its loop.
 package bootstrap
 
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
+	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/talos"
 )
 
-type Options struct {
-	Dial     talos.Dialer
+// Member is one control-plane node to observe.
+type Member struct {
+	Name     string
 	Endpoint string
+}
+
+// Result is what one Ensure round established. Reason is one of the
+// os.pk.io Bootstrapped reasons.
+type Result struct {
+	Bootstrapped bool
+	Reason       string
+	Message      string
+	// RequestedAt is when the outstanding bootstrap request was accepted:
+	// the Observation's value carried forward, or the moment this round's
+	// call was accepted. Zero when no request is outstanding.
+	RequestedAt time.Time
+}
+
+// RequestGrace is how long an accepted bootstrap request is given to show up
+// as a running etcd before Ensure may ask again. etcd takes seconds to tens of
+// seconds to start after the call is accepted (longer while its image is
+// pulled), and until then nothing distinguishes "starting" from "never asked"
+// to an observer that asks etcd. The window is generous because a repeated
+// request is the expensive mistake and a slow one only delays.
+const RequestGrace = 10 * time.Minute
+
+// Observation is what the caller knows beyond the machines themselves.
+type Observation struct {
+	// KubernetesAnswers counts a Kubernetes API that answered as proof of a
+	// bootstrapped cluster.
+	KubernetesAnswers bool
+	// RequestedAt is when a bootstrap request was last accepted, as the
+	// caller recorded it from an earlier Result; zero if never.
+	RequestedAt time.Time
+	// Now defaults to time.Now; Grace to RequestGrace.
+	Now   time.Time
+	Grace time.Duration
+}
+
+// Ensure observes the control-plane members and bootstraps etcd when, and only
+// when, it is safe to. Errors are observations (in the Result), never
+// returned: an unreachable machine is a state the next round re-observes.
+//
+// A request accepted less than the grace window ago is not repeated: the
+// result stays BootstrapRequested, carrying the request time, until etcd is
+// observed or the window passes. Only then, if the first member still runs no
+// etcd, is the request sent again; Talos answers AlreadyExists if etcd got as
+// far as writing data, which reads as bootstrapped.
+func Ensure(ctx context.Context, dial talos.Dialer, talosconfig []byte, members []Member, obs Observation) Result {
+	now := obs.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+	grace := cmp.Or(obs.Grace, RequestGrace)
+	if len(members) == 0 {
+		return Result{Reason: osv1alpha1.ReasonNoControlPlane, Message: "no control-plane member"}
+	}
+	members = slices.Clone(members)
+	slices.SortFunc(members, func(a, b Member) int { return strings.Compare(a.Name, b.Name) })
+
+	var silent []string
+	for _, m := range members {
+		etcd, err := etcdMembers(ctx, dial, talosconfig, m.Endpoint)
+		switch {
+		case err == nil && len(etcd) > 0:
+			return Result{Bootstrapped: true, Reason: osv1alpha1.ReasonEtcdRunning,
+				Message: fmt.Sprintf("%s lists etcd members %s", m.Name, strings.Join(etcd, ", "))}
+		case errors.Is(err, errUnreachable):
+			silent = append(silent, m.Name)
+		}
+	}
+	if obs.KubernetesAnswers {
+		return Result{Bootstrapped: true, Reason: osv1alpha1.ReasonKubernetesAnswers,
+			Message: "the Kubernetes API answers"}
+	}
+	if !obs.RequestedAt.IsZero() && now.Sub(obs.RequestedAt) < grace {
+		msg := fmt.Sprintf("bootstrap requested at %s; waiting for etcd on %s",
+			obs.RequestedAt.UTC().Format(time.RFC3339), members[0].Name)
+		if len(silent) > 0 {
+			msg += "; not answering: " + strings.Join(silent, ", ")
+		}
+		return Result{Reason: osv1alpha1.ReasonBootstrapRequested, Message: msg, RequestedAt: obs.RequestedAt}
+	}
+	if len(silent) > 0 {
+		return Result{Reason: osv1alpha1.ReasonAwaitingControlPlane,
+			Message: "waiting for every control-plane member to answer before bootstrapping: " + strings.Join(silent, ", ")}
+	}
+
+	first := members[0]
+	c, err := dial(ctx, talos.Target{Endpoint: first.Endpoint, Talosconfig: talosconfig})
+	if err != nil {
+		return Result{Reason: osv1alpha1.ReasonAwaitingControlPlane, Message: err.Error()}
+	}
+	defer func() { _ = c.Close() }()
+	switch err := c.Bootstrap(ctx); {
+	case errors.Is(err, talos.ErrAlreadyBootstrapped):
+		return Result{Bootstrapped: true, Reason: osv1alpha1.ReasonEtcdRunning,
+			Message: first.Name + " already holds etcd data"}
+	case err != nil:
+		return Result{Reason: osv1alpha1.ReasonBootstrapRefused, Message: fmt.Sprintf("%s: %v", first.Name, err)}
+	}
+	return Result{Reason: osv1alpha1.ReasonBootstrapRequested, Message: "bootstrap accepted by " + first.Name,
+		RequestedAt: now}
+}
+
+var errUnreachable = errors.New("authenticated API does not answer")
+
+// etcdMembers asks one member for its etcd members. A dial or version failure
+// is errUnreachable; an etcd that is not running yet is another error.
+func etcdMembers(ctx context.Context, dial talos.Dialer, talosconfig []byte, endpoint string) ([]string, error) {
+	c, err := dial(ctx, talos.Target{Endpoint: endpoint, Talosconfig: talosconfig})
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errUnreachable, err)
+	}
+	defer func() { _ = c.Close() }()
+	if _, err := c.Version(ctx); err != nil {
+		return nil, fmt.Errorf("%w: %w", errUnreachable, err)
+	}
+	return c.EtcdMembers(ctx)
+}
+
+// Node is one node the day-0 ladder drives.
+type Node struct {
+	Name         string
+	Endpoint     string
+	ControlPlane bool
 	// MachineConfig is the node's rendered config; consumed only with
 	// ApplyInsecure (on metal it already rode the media).
 	MachineConfig []byte
-	// Talosconfig is the cluster's client credentials for the authenticated rungs.
-	Talosconfig []byte
-	// ApplyInsecure delivers MachineConfig over the maintenance service.
-	ApplyInsecure bool
-	// Poll is the probe cadence between rungs (default 2s). The overall
-	// deadline is the caller's ctx.
-	Poll time.Duration
-	Logf func(format string, args ...any)
 }
 
-// Run climbs: (already Ready? done) → [apply over maintenance] → authenticated
-// API answers → etcd bootstrap accepted → stage running + ready. Every wait is
-// bounded by ctx; re-runs are safe — a Ready node returns immediately, an
-// already-applied config skips the apply.
+// Options configure Run.
+type Options struct {
+	Dial  talos.Dialer
+	Nodes []Node
+	// Talosconfig is the cluster's client credentials for the authenticated
+	// rungs.
+	Talosconfig []byte
+	// ApplyInsecure delivers each node's MachineConfig over the maintenance
+	// service, for tiers without a media channel.
+	ApplyInsecure bool
+	// Poll is the probe cadence between rounds (default 2s). The overall
+	// deadline is the caller's ctx.
+	Poll time.Duration
+	// Grace overrides RequestGrace (tests).
+	Grace time.Duration
+	Logf  func(format string, args ...any)
+}
+
+// Run climbs: [apply over maintenance] → etcd bootstrapped (Ensure, repeated)
+// → every node running and ready. Re-runs are safe: a configured node is not
+// re-applied, and a bootstrapped cluster is not bootstrapped again.
 func Run(ctx context.Context, o Options) error {
 	poll := cmp.Or(o.Poll, 2*time.Second)
 	logf := o.Logf
@@ -42,91 +193,77 @@ func Run(ctx context.Context, o Options) error {
 		logf = func(string, ...any) {}
 	}
 
-	ready, st := o.probeReady(ctx)
-	if ready {
-		logf("bootstrap: %s already running and ready", o.Endpoint)
-		return nil
-	}
-	// A non-empty stage means the authenticated API answered: the machine is
-	// configured, so there is no maintenance service left to apply through.
-	if st.Stage != "" {
-		logf("bootstrap: machine answers in stage %q", st.Stage)
-	} else if o.ApplyInsecure {
-		if err := o.applyInsecure(ctx, poll, logf); err != nil {
-			return err
+	if o.ApplyInsecure {
+		for _, n := range o.Nodes {
+			if err := o.applyInsecure(ctx, n, poll, logf); err != nil {
+				return err
+			}
 		}
 	}
 
-	// The authenticated API proves the machine runs a config from our PKI.
-	if err := wait(ctx, poll, func() error {
-		c, err := o.Dial(ctx, talos.Target{Endpoint: o.Endpoint, Talosconfig: o.Talosconfig})
-		if err != nil {
-			return err
+	var members []Member
+	for _, n := range o.Nodes {
+		if n.ControlPlane {
+			members = append(members, Member{Name: n.Name, Endpoint: n.Endpoint})
 		}
-		defer func() { _ = c.Close() }()
-		_, err = c.Version(ctx)
-		return err
-	}); err != nil {
-		return fmt.Errorf("bootstrap: machine API never answered at %s: %w", o.Endpoint, err)
 	}
-	logf("bootstrap: machine API answering at %s", o.Endpoint)
-
-	// Bootstrap needs etcd's pre-state up — retry until the node takes it.
+	// The request time lives only in this loop: a re-run of the CLI starts
+	// without it, which is what an operator re-running day-0 by hand means.
+	var last Result
 	if err := wait(ctx, poll, func() error {
-		c, err := o.Dial(ctx, talos.Target{Endpoint: o.Endpoint, Talosconfig: o.Talosconfig})
-		if err != nil {
-			return err
+		r := Ensure(ctx, o.Dial, o.Talosconfig, members, Observation{RequestedAt: last.RequestedAt, Grace: o.Grace})
+		if r.Reason != last.Reason || r.Message != last.Message {
+			logf("bootstrap: %s: %s", r.Reason, r.Message)
 		}
-		defer func() { _ = c.Close() }()
-		return c.Bootstrap(ctx)
-	}); err != nil {
-		return fmt.Errorf("bootstrap: never accepted at %s: %w", o.Endpoint, err)
-	}
-	logf("bootstrap: etcd bootstrap accepted")
-
-	if err := wait(ctx, poll, func() error {
-		c, err := o.Dial(ctx, talos.Target{Endpoint: o.Endpoint, Talosconfig: o.Talosconfig})
-		if err != nil {
-			return err
-		}
-		defer func() { _ = c.Close() }()
-		st, err := c.Status(ctx)
-		if err != nil {
-			return err
-		}
-		if st.Stage != "running" || !st.Ready {
-			return fmt.Errorf("stage %q, unmet %v", st.Stage, st.UnmetConditions)
+		last = r
+		if !r.Bootstrapped {
+			return errors.New(r.Message)
 		}
 		return nil
 	}); err != nil {
-		return fmt.Errorf("bootstrap: node never reached ready at %s: %w", o.Endpoint, err)
+		return fmt.Errorf("bootstrap: etcd never came up: %w", err)
 	}
-	logf("bootstrap: node running and ready")
+
+	for _, n := range o.Nodes {
+		if err := wait(ctx, poll, func() error {
+			st, err := status(ctx, o.Dial, o.Talosconfig, n.Endpoint)
+			if err != nil {
+				return err
+			}
+			if st.Stage != "running" || !st.Ready {
+				return fmt.Errorf("stage %q, unmet %v", st.Stage, st.UnmetConditions)
+			}
+			return nil
+		}); err != nil {
+			return fmt.Errorf("bootstrap: %s never became ready: %w", n.Name, err)
+		}
+		logf("bootstrap: %s running and ready", n.Name)
+	}
 	return nil
 }
 
-// probeReady is the idempotence rung: an authenticated Status that reports
-// running+ready means everything below already happened.
-func (o *Options) probeReady(ctx context.Context) (bool, talos.Status) {
-	c, err := o.Dial(ctx, talos.Target{Endpoint: o.Endpoint, Talosconfig: o.Talosconfig})
+func status(ctx context.Context, dial talos.Dialer, talosconfig []byte, endpoint string) (talos.Status, error) {
+	c, err := dial(ctx, talos.Target{Endpoint: endpoint, Talosconfig: talosconfig})
 	if err != nil {
-		return false, talos.Status{}
+		return talos.Status{}, err
 	}
 	defer func() { _ = c.Close() }()
-	st, err := c.Status(ctx)
-	if err != nil {
-		return false, talos.Status{}
-	}
-	return st.Stage == "running" && st.Ready, st
+	return c.Status(ctx)
 }
 
-// applyInsecure waits for the maintenance service and delivers the config.
-func (o *Options) applyInsecure(ctx context.Context, poll time.Duration, logf func(string, ...any)) error {
-	if len(o.MachineConfig) == 0 {
-		return fmt.Errorf("bootstrap: apply-insecure without a machine config")
+// applyInsecure delivers a node's config over the maintenance service, unless
+// the node already answers its authenticated API (it is configured, and the
+// maintenance service is gone).
+func (o *Options) applyInsecure(ctx context.Context, n Node, poll time.Duration, logf func(string, ...any)) error {
+	if _, err := status(ctx, o.Dial, o.Talosconfig, n.Endpoint); err == nil {
+		logf("bootstrap: %s is already configured", n.Name)
+		return nil
+	}
+	if len(n.MachineConfig) == 0 {
+		return fmt.Errorf("bootstrap: apply-insecure without a machine config for %s", n.Name)
 	}
 	if err := wait(ctx, poll, func() error {
-		c, err := o.Dial(ctx, talos.Target{Endpoint: o.Endpoint, Insecure: true})
+		c, err := o.Dial(ctx, talos.Target{Endpoint: n.Endpoint, Insecure: true})
 		if err != nil {
 			return err
 		}
@@ -134,15 +271,15 @@ func (o *Options) applyInsecure(ctx context.Context, poll time.Duration, logf fu
 		if _, err := c.Version(ctx); err != nil {
 			return err
 		}
-		return c.ApplyConfiguration(ctx, o.MachineConfig)
+		return c.ApplyConfiguration(ctx, n.MachineConfig)
 	}); err != nil {
-		return fmt.Errorf("bootstrap: maintenance service never took the config at %s: %w", o.Endpoint, err)
+		return fmt.Errorf("bootstrap: maintenance service of %s never took the config: %w", n.Name, err)
 	}
-	logf("bootstrap: config applied over the maintenance service")
+	logf("bootstrap: config applied to %s over the maintenance service", n.Name)
 	return nil
 }
 
-// wait retries fn every poll until it succeeds or ctx ends — the last error
+// wait retries fn every poll until it succeeds or ctx ends; the last error
 // wins the report.
 func wait(ctx context.Context, poll time.Duration, fn func() error) error {
 	var last error

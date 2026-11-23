@@ -7,85 +7,70 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
-	"github.com/budimanjojo/talhelper/v3/pkg/decrypt"
-
+	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/bootstrap"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/machineapi"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
 )
 
-// bootstrapCertTTL bounds the session's client cert — one day-0 run, no file
+// bootstrapCertTTL bounds the session's client cert: one day-0 run, nothing
 // left behind worth stealing for long.
 const bootstrapCertTTL = time.Hour
 
-// bootstrapCmd is the day-0 rung after a machine boots: wait for it, deliver
-// the config where no media channel exists (--apply-insecure — container/dev
-// tiers only; on metal the config rides the BMC's virtual media), etcd-bootstrap
-// the first control-plane node, wait for Ready.
+// bootstrapCmd is day-0 for a cluster without an operator, on the same library
+// the TalosCluster reconciler runs: deliver configs where no media channel
+// exists (--apply-insecure, container/dev tiers only; on metal the config
+// rides the BMC's virtual media), bootstrap etcd exactly once, wait for every
+// node to be Ready.
 func bootstrapCmd(args []string) {
 	fs := flag.NewFlagSet("bootstrap", flag.ExitOnError)
 	dir := fs.String("dir", "", "directory with TalosCluster/TalosNode manifests (required)")
-	secret := fs.String("secret", "", "talsecret file — plain or sops-encrypted (required)")
-	nodeName := fs.String("node", "", "TalosNode to bootstrap — exactly one CP, exactly once per cluster (required)")
-	endpoint := fs.String("endpoint", "", "machine address (default: the node's first ipAddress)")
-	patchRoot := fs.String("patch-root", "", `directory "@./" patch refs resolve against (default: --dir)`)
+	secretsFile := fs.String("secrets", "", "secrets bundle from `talosctl gen secrets`, or - for stdin (required)")
+	nodeName := fs.String("node", "", "drive only this TalosNode (default: every node in --dir)")
+	endpoint := fs.String("endpoint", "", "address of --node (default: its spec.address or first static address)")
+	factoryHost := fs.String("image-factory", render.PublicFactory, "image factory host the installer image is named on")
 	applyInsecure := fs.Bool("apply-insecure", false,
-		"deliver the config over the UNAUTHENTICATED maintenance API — container/dev tiers only; on metal the config rides the BMC media channel")
-	timeout := fs.Duration("timeout", 10*time.Minute, "overall deadline: waiting, apply, bootstrap retries, readiness")
+		"deliver configs over the UNAUTHENTICATED maintenance API: container/dev tiers only; on metal the config rides the BMC media channel")
+	timeout := fs.Duration("timeout", 15*time.Minute, "overall deadline: apply, bootstrap retries, readiness")
 	_ = fs.Parse(args)
-	if fs.NArg() != 0 || *dir == "" || *secret == "" || *nodeName == "" {
-		fmt.Fprintln(os.Stderr, "usage: pk-metal bootstrap --dir <crs> --secret <talsecret.yaml> --node <name> [flags]")
+	if fs.NArg() != 0 || *dir == "" || *secretsFile == "" || (*endpoint != "" && *nodeName == "") {
+		fmt.Fprintln(os.Stderr, "usage: pk-metal bootstrap --dir <manifests> --secrets <secrets.yaml|-> [--node name [--endpoint addr]] [--apply-insecure]")
 		os.Exit(2)
 	}
 
-	cluster, nodes, err := render.LoadDir(*dir)
+	m, bundle := loadInputs(*dir, *secretsFile)
+	if *nodeName != "" {
+		n := m.Node(*nodeName)
+		if n == nil {
+			log.Fatalf("bootstrap: %s names no TalosNode in %s", *nodeName, *dir)
+		}
+		m.Nodes = []osv1alpha1.TalosNode{*n}
+	}
+	configs, err := renderAll(context.Background(), m, bundle, render.NewFactory(*factoryHost), false)
 	if err != nil {
 		log.Fatal(err)
-	}
-	node := nodes[:0:0]
-	for _, n := range nodes {
-		if n.Name == *nodeName {
-			node = append(node, n)
-		}
-	}
-	if len(node) != 1 {
-		log.Fatalf("bootstrap: %s names no TalosNode in %s", *nodeName, *dir)
 	}
 
-	target := *endpoint
-	if target == "" {
-		target = node[0].Spec.IPAddress
-		if i := strings.IndexByte(target, ','); i >= 0 {
-			target = target[:i]
+	var nodes []bootstrap.Node
+	var endpoints []string
+	for _, n := range m.Nodes {
+		addr := render.NodeAddress(&n)
+		if *endpoint != "" {
+			addr = *endpoint
 		}
+		if addr == "" {
+			log.Fatalf("bootstrap: %s has no address to dial; set spec.address", n.Name)
+		}
+		cp := n.Spec.Role == osv1alpha1.RoleControlPlane
+		if cp {
+			endpoints = append(endpoints, addr)
+		}
+		nodes = append(nodes, bootstrap.Node{Name: n.Name, Endpoint: addr, ControlPlane: cp, MachineConfig: configs[n.Name]})
 	}
-
-	root := *patchRoot
-	if root == "" {
-		root = filepath.Clean(*dir)
-	}
-	bundle, err := decrypt.DecryptYamlWithSops(*secret)
-	if err != nil {
-		log.Fatal(err)
-	}
-	cfg, err := render.Map(cluster, node, root)
-	if err != nil {
-		log.Fatal(err)
-	}
-	input, err := render.Input(cfg, bundle)
-	if err != nil {
-		log.Fatal(err)
-	}
-	machineConfig, err := render.RenderNode(cfg, *nodeName, input, true)
-	if err != nil {
-		log.Fatal(err)
-	}
-	talosconfig, err := render.Talosconfig(cfg, input, bootstrapCertTTL)
+	talosconfig, err := render.Talosconfig(bundle, m.Cluster.Name, endpoints, bootstrapCertTTL)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -97,13 +82,12 @@ func bootstrapCmd(args []string) {
 
 	if err := bootstrap.Run(ctx, bootstrap.Options{
 		Dial:          machineapi.Dial,
-		Endpoint:      target,
-		MachineConfig: machineConfig,
+		Nodes:         nodes,
 		Talosconfig:   talosconfig,
 		ApplyInsecure: *applyInsecure,
 		Logf:          log.Printf,
 	}); err != nil {
-		log.Fatalf("bootstrap: FAIL — %v", err)
+		log.Fatalf("bootstrap: FAIL: %v", err)
 	}
-	log.Printf("bootstrap: OK — %s is running and ready", *nodeName)
+	log.Printf("bootstrap: OK: %s is bootstrapped and its nodes are ready", m.Cluster.Name)
 }

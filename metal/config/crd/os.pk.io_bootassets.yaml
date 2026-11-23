@@ -58,15 +58,15 @@ spec:
                       description: SchematicCustomization holds the image customization knobs.
                       properties:
                         extraKernelArgs:
-                          description: ExtraKernelArgs append to the image's kernel command line. This is how a boot medium is told to read its config off the second medium (talos.config=metal-iso) and where to put the console (console=ttyS0 — what the BMC's serial-over-LAN shows).
+                          description: ExtraKernelArgs append to the image's kernel command line. This is how a boot medium is told to read its config off the second medium (talos.config=metal-iso) and where to put the console (console=ttyS0, what the BMC's serial-over-LAN shows).
                           items:
                             type: string
                           type: array
                         systemExtensions:
-                          description: SystemExtensions bakes extensions into the install image.
+                          description: SystemExtensions bakes extensions into the image.
                           properties:
                             officialExtensions:
-                              description: OfficialExtensions are siderolabs/* extension names (drbd, intel-ucode).
+                              description: OfficialExtensions are siderolabs/* extension names (siderolabs/drbd).
                               items:
                                 type: string
                               type: array

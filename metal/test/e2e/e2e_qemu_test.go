@@ -31,12 +31,8 @@ import (
 	"testing"
 	"time"
 
-	thtalos "github.com/budimanjojo/talhelper/v3/pkg/talos"
-	tconfig "github.com/siderolabs/talos/pkg/machinery/config"
-	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	yamlv3 "gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -123,7 +119,7 @@ func TestE2EQemu(t *testing.T) {
 	if _, err := os.Stat("/dev/kvm"); err != nil {
 		t.Fatalf("no usable /dev/kvm — the VM tier needs hardware acceleration: %v", err)
 	}
-	talosVersion := readTalosVersion(t)
+	talosVersion := e2eTalosVersion
 	installerISO := ensureTalosISO(ctx, t, talosVersion, qemuBootKernelArgs)
 	// The installer image the rendered config names is pulled by the guest, mid
 	// install, where the only witness is a serial port. Register it here so an
@@ -187,12 +183,7 @@ func TestE2EQemu(t *testing.T) {
 	require.NoError(t, cl.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: qemuNS}}))
 	t.Cleanup(func() { cleanSlateQemu(context.Background(), t, cl) })
 
-	vc, err := tconfig.ParseContractFromVersion(talosVersion)
-	require.NoError(t, err)
-	bundle, err := thtalos.NewSecretBundle(secrets.NewClock(), *vc)
-	require.NoError(t, err)
-	bundleBytes, err := yamlv3.Marshal(bundle)
-	require.NoError(t, err)
+	bundleBytes := newBundle(t, talosVersion)
 	for _, sec := range []*corev1.Secret{
 		{ObjectMeta: metav1.ObjectMeta{Name: "bmc-ca", Namespace: qemuNS},
 			Data: map[string][]byte{"ca.crt": pem.EncodeToMemory(
@@ -200,7 +191,7 @@ func TestE2EQemu(t *testing.T) {
 		{ObjectMeta: metav1.ObjectMeta{Name: "bmc-factory", Namespace: qemuNS},
 			Data: map[string][]byte{"username": []byte("admin"), "password": []byte("dev")}},
 		{ObjectMeta: metav1.ObjectMeta{Name: "talos-secrets", Namespace: qemuNS},
-			Data: map[string][]byte{"talsecret.yaml": bundleBytes}},
+			Data: map[string][]byte{render.BundleKey: bundleBytes}},
 	} {
 		require.NoError(t, cl.Create(ctx, sec))
 	}
@@ -236,7 +227,6 @@ func TestE2EQemu(t *testing.T) {
 	require.NoError(t, (&controller.TalosNodeReconciler{
 		Client:        mgr.GetClient(),
 		Scheme:        mgr.GetScheme(),
-		SecretsSecret: "talos-secrets",
 		Namespace:     qemuNS,
 		Factory:       qemuFactory,
 		Dial:          machineapi.Dial,
@@ -265,24 +255,25 @@ func TestE2EQemu(t *testing.T) {
 
 	// The OS payload, metal-shaped: a real install disk selected by the VM
 	// disk's serial, and the loopback address in both certificates so the
-	// secure dials verify on it.
+	// secure dials verify on it. No links: the guest takes its user-mode
+	// address over the default DHCP, which any link document would disable.
 	talosCluster := &osv1alpha1.TalosCluster{
 		ObjectMeta: metav1.ObjectMeta{Name: qemuCluster},
 		Spec: osv1alpha1.TalosClusterSpec{
-			TalosVersion:                talosVersion,
-			KubernetesVersion:           readKubernetesVersion(t),
-			Endpoint:                    "https://" + qemuNodeIP + ":6443",
-			AdditionalApiServerCertSans: []string{qemuNodeIP},
-			AdditionalMachineCertSans:   []string{qemuNodeIP},
+			TalosVersion:      talosVersion,
+			KubernetesVersion: e2eKubernetesVersion,
+			Endpoint:          "https://" + qemuNodeIP + ":6443",
+			CertSANs:          []string{qemuNodeIP},
+			SecretsRef:        osv1alpha1.SecretReference{Namespace: qemuNS, Name: "talos-secrets"},
 		},
 	}
 	talosNode := &osv1alpha1.TalosNode{
 		ObjectMeta: metav1.ObjectMeta{Name: qemuNodeName},
 		Spec: osv1alpha1.TalosNodeSpec{
 			ClusterRef:          osv1alpha1.Reference{Name: qemuCluster},
-			IPAddress:           qemuNodeIP,
-			ControlPlane:        true,
-			InstallDiskSelector: &osv1alpha1.InstallDiskSelector{Serial: qemuDiskSerial},
+			Role:                osv1alpha1.RoleControlPlane,
+			Address:             qemuNodeIP,
+			InstallDiskSelector: osv1alpha1.DiskSelector{Serial: qemuDiskSerial},
 			Schematic:           kernelArgsSchematic(qemuInstallKernelArgs),
 		},
 	}
@@ -329,14 +320,16 @@ func TestE2EQemu(t *testing.T) {
 	})
 
 	rung("boot verb delivers the config over the BMC's media", func(t *testing.T) {
-		// The config, rendered in-process (the render path is parity-locked
-		// elsewhere); the boot verb is what is under test — the day-0 media
-		// ladder against a BMC whose machine really boots what it mounts.
-		thc, err := render.Map(talosCluster, []osv1alpha1.TalosNode{*talosNode}, "")
+		// The config, rendered in-process (the renderer has its own golden
+		// tests); the boot verb is what is under test: the day-0 media ladder
+		// against a BMC whose machine really boots what it mounts.
+		bundle, err := render.LoadBundle(bundleBytes, talosVersion)
 		require.NoError(t, err)
-		input, err := render.Input(thc, bundleBytes)
+		installer, err := qemuFactory.InstallerImage(talosNode.Spec.Schematic, talosVersion)
 		require.NoError(t, err)
-		cfgBytes, err := render.RenderNode(thc, qemuNodeName, input, true)
+		cfgBytes, err := render.Node(render.Input{
+			Cluster: talosCluster, Node: talosNode, Bundle: bundle, InstallerImage: installer,
+		})
 		require.NoError(t, err)
 		cfgPath := filepath.Join(t.TempDir(), "machineconfig.yaml")
 		require.NoError(t, os.WriteFile(cfgPath, cfgBytes, 0o600))
@@ -361,11 +354,11 @@ func TestE2EQemu(t *testing.T) {
 		// flow, end to end. The wait covers install, reboot, and etcd.
 		crDir := t.TempDir()
 		require.NoError(t, render.WriteFiles(crDir, talosCluster, []osv1alpha1.TalosNode{*talosNode}))
-		secretPath := filepath.Join(t.TempDir(), "talsecret.yaml")
+		secretPath := filepath.Join(t.TempDir(), render.BundleKey)
 		require.NoError(t, os.WriteFile(secretPath, bundleBytes, 0o600))
 
 		cmd := exec.CommandContext(ctx, "go", "run", "../../cmd/pk-metal",
-			"bootstrap", "--dir", crDir, "--secret", secretPath, "--node", qemuNodeName,
+			"bootstrap", "--dir", crDir, "--secrets", secretPath, "--node", qemuNodeName,
 			"--timeout", "20m")
 		out, err := cmd.CombinedOutput()
 		t.Logf("bootstrap output:\n%s", out)
@@ -383,7 +376,7 @@ func TestE2EQemu(t *testing.T) {
 		n := &osv1alpha1.TalosNode{}
 		require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: qemuNodeName}, n))
 		assert.Equal(t, "running", n.Status.Stage)
-		assert.Equal(t, talosVersion, n.Status.MachineVersion)
+		assert.Equal(t, talosVersion, n.Status.Version)
 	})
 
 	rung("the installed disk boots alone", func(t *testing.T) {

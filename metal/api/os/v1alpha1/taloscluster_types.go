@@ -4,66 +4,192 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// TalosClusterSpec is everything talconfig.yaml says above `nodes:` — the render
-// inputs every member shares. The cluster name is the CR's metadata.name.
+// TalosClusterSpec is what every member of one Talos cluster shares. The cluster
+// name is the object's metadata.name.
 type TalosClusterSpec struct {
-	// TalosVersion pins the Talos release whose config contract the render targets
-	// (talenv.yaml's TALOS_VERSION, resolved — CRs carry literals, never ${VAR}).
-	// +kubebuilder:validation:Pattern=`^v[0-9]+\.[0-9]+\.[0-9]+$`
+	// TalosVersion is the Talos release the cluster runs. It selects the
+	// configuration contract the render targets and the installer image tag, so
+	// it must match what the machines boot. Talos v1.14 or later.
+	// +kubebuilder:validation:Pattern=`^v1\.(1[4-9]|[2-9][0-9])\.[0-9]+$`
 	TalosVersion string `json:"talosVersion"`
 
-	// KubernetesVersion pins the Kubernetes release to install.
+	// KubernetesVersion is the Kubernetes release the control plane runs.
 	// +kubebuilder:validation:Pattern=`^v[0-9]+\.[0-9]+\.[0-9]+$`
 	KubernetesVersion string `json:"kubernetesVersion"`
 
-	// Endpoint is the cluster-internal control-plane endpoint machines enroll
-	// against (the 1035 VIP — org/admin access rides the 138 VIP via cert SANs).
-	// +kubebuilder:validation:Pattern=`^https://`
+	// Endpoint is the Kubernetes API URL every member enrolls against and the
+	// admin kubeconfig names: the control-plane VIP or a DNS name for it, with
+	// the port (https://10.77.0.10:6443).
+	// +kubebuilder:validation:Pattern=`^https://[^/]+$`
 	Endpoint string `json:"endpoint"`
 
-	// AllowSchedulingOnControlPlanes lets workloads run on control-plane nodes
-	// (ADR 0001: few nodes — use all).
+	// ControlPlane carries the settings only control-plane members render.
 	// +optional
-	AllowSchedulingOnControlPlanes bool `json:"allowSchedulingOnControlPlanes,omitempty"`
+	ControlPlane *ControlPlaneSpec `json:"controlPlane,omitempty"`
 
-	// ClusterPodNets are the pod subnets, primary family first (IPv6-primary).
+	// Network is the cluster's pod and service networking.
 	// +optional
-	ClusterPodNets []string `json:"clusterPodNets,omitempty"`
+	Network ClusterNetwork `json:"network,omitempty"`
 
-	// ClusterSvcNets are the service subnets, primary family first.
+	// CertSANs are extra names the Kubernetes API server and the Talos API
+	// certificates must be valid for, beyond the endpoint, the VIP and the
+	// node addresses Talos adds on its own.
 	// +optional
-	ClusterSvcNets []string `json:"clusterSvcNets,omitempty"`
+	// +listType=set
+	CertSANs []string `json:"certSANs,omitempty"`
 
-	// AdditionalApiServerCertSans lets the API server answer on every VIP and name
-	// admins reach it by.
+	// RegistryMirrors redirect image pulls, one entry per upstream registry. A
+	// site without internet access needs them before the first node installs,
+	// which is why they live here rather than in a patch someone has to
+	// remember.
 	// +optional
-	AdditionalApiServerCertSans []string `json:"additionalApiServerCertSans,omitempty"`
+	// +listType=map
+	// +listMapKey=registry
+	RegistryMirrors []RegistryMirror `json:"registryMirrors,omitempty"`
 
-	// AdditionalMachineCertSans is the same for the machine (apid) certificate.
-	// +optional
-	AdditionalMachineCertSans []string `json:"additionalMachineCertSans,omitempty"`
+	// SecretsRef names the Secret holding the cluster's Talos secrets bundle
+	// under key secrets.yaml, as `talosctl gen secrets` writes it. A person
+	// generates the bundle once and commits it sealed; the operator only reads
+	// it. Every certificate and key in a rendered config, and the
+	// kubeconfig and talosconfig the operator publishes, derive from it.
+	SecretsRef SecretReference `json:"secretsRef"`
 
-	// Patches apply to every node: inline strategic-merge YAML, or "@./path"
-	// references resolved against the render's patch root (the ConfigMap-mounted
-	// mirror of control/talos/ in-cluster, the CR directory on the CLI).
+	// Schematic is the installer image customization every node uses unless it
+	// sets its own (a node's schematic replaces this one, it does not merge
+	// with it).
 	// +optional
-	Patches []string `json:"patches,omitempty"`
+	Schematic *Schematic `json:"schematic,omitempty"`
+
+	// Patches apply to every node, in order, after the operator's own
+	// rendering and before the node's patches.
+	// +optional
+	Patches []Patch `json:"patches,omitempty"`
+}
+
+// ControlPlaneSpec holds control-plane-only rendering.
+type ControlPlaneSpec struct {
+	// VIP is a shared address the control-plane members announce over layer 2
+	// (Talos' Layer2VIPConfig). Each control-plane node carries it on the link
+	// whose static address shares a subnet with it.
+	// +optional
+	VIP string `json:"vip,omitempty"`
+
+	// AllowScheduling lets ordinary workloads run on control-plane nodes (the
+	// control-plane NoSchedule taint is not rendered).
+	// +optional
+	AllowScheduling bool `json:"allowScheduling,omitempty"`
+}
+
+// CNIName selects the pod network plugin Talos deploys.
+// +kubebuilder:validation:Enum=flannel;none;custom
+type CNIName string
+
+const (
+	// CNIFlannel deploys Talos' built-in Flannel.
+	CNIFlannel CNIName = "flannel"
+	// CNINone deploys nothing: the cluster's own tooling installs a CNI after
+	// bootstrap, and nodes stay NotReady until it does.
+	CNINone CNIName = "none"
+	// CNICustom applies the manifests at CNI.URLs instead of Flannel.
+	CNICustom CNIName = "custom"
+)
+
+// ClusterNetwork is the cluster-wide Kubernetes networking.
+type ClusterNetwork struct {
+	// PodSubnets are the pod CIDRs, primary family first. Empty selects
+	// Talos' default for the endpoint's address family.
+	// +optional
+	PodSubnets []string `json:"podSubnets,omitempty"`
+
+	// ServiceSubnets are the service CIDRs, primary family first. Empty
+	// selects Talos' default for the endpoint's address family.
+	// +optional
+	ServiceSubnets []string `json:"serviceSubnets,omitempty"`
+
+	// CNI selects the pod network plugin. Empty means flannel.
+	// +optional
+	CNI *CNI `json:"cni,omitempty"`
+}
+
+// CNI selects the pod network plugin.
+// +kubebuilder:validation:XValidation:rule="(self.name == 'custom') == (has(self.urls) && size(self.urls) > 0)",message="urls are required with name custom and refused otherwise"
+type CNI struct {
+	Name CNIName `json:"name"`
+
+	// URLs are the manifests a custom CNI is installed from.
+	// +optional
+	URLs []string `json:"urls,omitempty"`
+}
+
+// RegistryMirror redirects pulls from one registry to mirror endpoints.
+type RegistryMirror struct {
+	// Registry is the upstream registry host the mirror stands in for
+	// (docker.io, ghcr.io, factory.talos.dev), or "*" for every registry.
+	// +kubebuilder:validation:MinLength=1
+	Registry string `json:"registry"`
+
+	// Endpoints are the mirror URLs, tried in order.
+	// +kubebuilder:validation:MinItems=1
+	Endpoints []string `json:"endpoints"`
+}
+
+// TalosClusterStatus is observed: whether etcd was bootstrapped, whether the
+// Kubernetes API answers, how many members are Ready, and where the admin
+// credentials derived from the secrets bundle were published.
+type TalosClusterStatus struct {
+	// Conditions: Bootstrapped and Available.
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// ControlPlanes and Workers count the TalosNodes that name this cluster;
+	// the Ready counts are the ones whose Ready condition is True.
+	// +optional
+	ControlPlanes int32 `json:"controlPlanes,omitempty"`
+	// +optional
+	ReadyControlPlanes int32 `json:"readyControlPlanes,omitempty"`
+	// +optional
+	Workers int32 `json:"workers,omitempty"`
+	// +optional
+	ReadyWorkers int32 `json:"readyWorkers,omitempty"`
+
+	// KubernetesVersion is the version the Kubernetes API reports, empty
+	// while it does not answer.
+	// +optional
+	KubernetesVersion string `json:"kubernetesVersion,omitempty"`
+
+	// KubeconfigSecretRef points at the Secret (key kubeconfig) holding an
+	// admin kubeconfig minted from the bundle's Kubernetes CA.
+	// +optional
+	KubeconfigSecretRef *SecretReference `json:"kubeconfigSecretRef,omitempty"`
+
+	// TalosconfigSecretRef points at the Secret (key talosconfig) holding an
+	// admin talosconfig minted from the bundle's Talos CA, with every
+	// control-plane address as an endpoint.
+	// +optional
+	TalosconfigSecretRef *SecretReference `json:"talosconfigSecretRef,omitempty"`
 }
 
 // +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,categories=metal;os
 // +kubebuilder:printcolumn:name="Talos",type=string,JSONPath=`.spec.talosVersion`
 // +kubebuilder:printcolumn:name="Kubernetes",type=string,JSONPath=`.spec.kubernetesVersion`
 // +kubebuilder:printcolumn:name="Endpoint",type=string,JSONPath=`.spec.endpoint`
+// +kubebuilder:printcolumn:name="CP",type=string,JSONPath=`.status.readyControlPlanes`
+// +kubebuilder:printcolumn:name="Workers",type=string,JSONPath=`.status.readyWorkers`
+// +kubebuilder:printcolumn:name="Available",type=string,JSONPath=`.status.conditions[?(@.type=="Available")].status`
 
-// TalosCluster is the cluster-level half of the rendered OS config. Spec-only for
-// now: status arrives with the reconciler that projects render/convergence state
-// not before something writes it.
+// TalosCluster is one Talos cluster: what its members share, and the
+// observed state of the cluster they form.
 type TalosCluster struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	Spec TalosClusterSpec `json:"spec"`
+	// +optional
+	Status TalosClusterStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
