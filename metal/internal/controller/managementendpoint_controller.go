@@ -89,10 +89,6 @@ func (r *ManagementEndpointReconciler) Reconcile(ctx context.Context, req ctrl.R
 // here would claim them, which is the erasure this is meant to end.
 func (r *ManagementEndpointReconciler) applyStatus(ctx context.Context, ep *metalv1alpha1.ManagementEndpoint) error {
 	apply := &metalv1alpha1.ManagementEndpoint{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: metalv1alpha1.GroupVersion.String(),
-			Kind:       "ManagementEndpoint",
-		},
 		ObjectMeta: metav1.ObjectMeta{Name: ep.Name},
 		Status:     *ep.Status.DeepCopy(),
 	}

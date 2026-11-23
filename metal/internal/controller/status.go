@@ -60,8 +60,15 @@ func setCondition(conds *[]metav1.Condition, gen int64, t string, s metav1.Condi
 }
 
 // applyOwnedStatus sends obj's status as a server-side apply under owner. The
-// caller passes an object carrying ONLY what that owner means to own.
+// caller passes an object carrying ONLY what that owner means to own. The
+// apiVersion and kind come from the client's scheme, so the caller does not
+// spell them out.
 func applyOwnedStatus(ctx context.Context, c client.Client, obj client.Object, owner string) error {
+	gvk, err := c.GroupVersionKindFor(obj)
+	if err != nil {
+		return err
+	}
+	obj.GetObjectKind().SetGroupVersionKind(gvk)
 	u, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
 	if err != nil {
 		return err

@@ -129,7 +129,6 @@ func (r *ProtectionReconciler) markEndpointHold(ctx context.Context, ep *metalv1
 	}
 	cond.LastTransitionTime = metav1.Now()
 	apply := &metalv1alpha1.ManagementEndpoint{
-		TypeMeta:   metav1.TypeMeta{APIVersion: metalv1alpha1.GroupVersion.String(), Kind: "ManagementEndpoint"},
 		ObjectMeta: metav1.ObjectMeta{Name: ep.Name},
 	}
 	apply.Status.Conditions = []metav1.Condition{cond}

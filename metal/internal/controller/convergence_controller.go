@@ -123,10 +123,6 @@ func (r *ConvergenceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 // and nothing is done twice.
 func (r *ConvergenceReconciler) applyStatus(ctx context.Context, host *metalv1alpha1.Host, facts phase.HostFacts) error {
 	apply := &metalv1alpha1.Host{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: metalv1alpha1.GroupVersion.String(),
-			Kind:       "Host",
-		},
 		ObjectMeta: metav1.ObjectMeta{Name: host.Name},
 	}
 	apply.Status.FirmwareProposed = host.Status.FirmwareProposed

@@ -133,10 +133,6 @@ func (r *EndpointConvergenceReconciler) Reconcile(ctx context.Context, req ctrl.
 // already consumed. The lane then wedges on an error no retry can clear.
 func (r *EndpointConvergenceReconciler) applyStatus(ctx context.Context, ep *metalv1alpha1.ManagementEndpoint) error {
 	apply := &metalv1alpha1.ManagementEndpoint{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: metalv1alpha1.GroupVersion.String(),
-			Kind:       "ManagementEndpoint",
-		},
 		ObjectMeta: metav1.ObjectMeta{Name: ep.Name},
 	}
 	if c := meta.FindStatusCondition(ep.Status.Conditions, metalv1alpha1.ConditionConfigured); c != nil {
