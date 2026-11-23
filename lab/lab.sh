@@ -17,6 +17,9 @@ HELP="usage: $SCRIPT <verb>
   up           network, kind cluster, operator, simulated fleet, lab manifests
   status       the rack as the operator sees it, then every kind
   approve      approve every operation that waits for a person
+  apply [path...]
+               kubectl apply as a member of the admin group (pk-metal:admins), which
+               the claim policy asks for; default: lab/manifests/
   kubeconfig   write the workload cluster's kubeconfig and talosconfig into the lab directory
   wait         approve and wait until every Host is Provisioned and every node Ready
   collect      write logs and object dumps to <lab directory>/diagnostics
@@ -582,13 +585,24 @@ fleet_down() {
   rm -f "$lab_dir/fleet.pid"
 }
 
+# Applies manifests as a member of the platform admins. The claim policy lets
+# only that group give a claim an OS (spec.os) or waive its approval, and kind's
+# own admin is not in it, so this impersonates a member: the group
+# metal/config/lab binds. A real site binds its own people to the group instead.
+admin_apply() {
+  local path args=()
+  for path in "$@"; do
+    [[ -e $path ]] || die "$path does not exist. Name manifest files or directories, e.g.: mise run lab:apply lab/manifests/30-claims.yaml"
+    args+=(-f "$path")
+  done
+  kubectl apply --server-side --as=lab-admin --as-group=pk-metal:admins \
+    --as-group=system:authenticated "${args[@]}" >&2
+}
+
 manifests_apply() {
   local root=$1
   step "lab manifests"
-  # As a platform admin: the claim policy lets only that group give a claim an
-  # OS intent. kind's own admin is not in it, so impersonate a member.
-  kubectl apply --server-side --as=lab-admin --as-group=pk-metal:admins \
-    --as-group=system:authenticated -f "$root/lab/manifests/" >&2
+  admin_apply "$root/lab/manifests/"
 }
 
 up() {
@@ -889,6 +903,15 @@ main() {
     manifests)
       require_cluster "$LAB_DIR"
       manifests_apply "$ROOT"
+      ;;
+    apply)
+      require_cluster "$LAB_DIR"
+      shift
+      if (( $# == 0 )); then
+        manifests_apply "$ROOT"
+      else
+        admin_apply "$@"
+      fi
       ;;
     status) status "$ROOT" "$LAB_DIR" ;;
     approve) approve "$ROOT" "$LAB_DIR" ;;

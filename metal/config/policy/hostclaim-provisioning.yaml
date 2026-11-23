@@ -50,14 +50,26 @@ spec:
       expression: >-
         has(params.data) && has(params.data.adminGroup) && params.data.adminGroup != ''
         && has(request.userInfo.groups) && params.data.adminGroup in request.userInfo.groups
+    # The second half of every refusal: who the request came from and how to
+    # get into the group. Being cluster-admin (system:masters) is not enough,
+    # the policy asks for the group by name.
+    - name: howToJoin
+      expression: >-
+        '; you are ' + request.userInfo.username + ' (groups: '
+        + (has(request.userInfo.groups) ? request.userInfo.groups.join(', ') : 'none')
+        + '). Bind your admins to the group ' + params.data.adminGroup
+        + ' (a ClusterRoleBinding to the group, or a group from your identity provider).'
+        + ' In the virtual lab, apply as a member: mise run lab:apply <file>'
   validations:
     - expression: "variables.newNode == '' || variables.newNode == variables.oldNode || variables.isAdmin"
       messageExpression: >-
         'only an admin (group ' + params.data.adminGroup + ') may name the TalosNode a claim boots'
+        + ' (spec.os installs that OS onto the machine)' + variables.howToJoin
       reason: Forbidden
     - expression: "!variables.newAutomatic || variables.oldAutomatic || variables.isAdmin"
       messageExpression: >-
         'only an admin (group ' + params.data.adminGroup + ') may waive provisioning approval'
+        + variables.howToJoin
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1

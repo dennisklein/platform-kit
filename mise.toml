@@ -151,6 +151,10 @@ run = "lab/lab.sh status"
 description = "Approve every operation that waits for a person"
 run = "lab/lab.sh approve"
 
+[tasks."lab:apply"]
+description = "Apply manifests as a member of the admin group the claim policy asks for (default: lab/manifests/)"
+run = "lab/lab.sh apply"
+
 [tasks."lab:kubeconfig"]
 description = "Write the workload cluster's kubeconfig and talosconfig to .lab/"
 run = "lab/lab.sh kubeconfig"
