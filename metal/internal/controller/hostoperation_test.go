@@ -2,13 +2,13 @@ package controller
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net"
 	"testing"
 	"time"
 
+	godigest "github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -358,7 +358,7 @@ func TestResumedOperationRemountsAForgottenGrant(t *testing.T) {
 	ctx := t.Context()
 	iso, err := asset.BuildConfigISO([]byte("version: v1alpha1\n"))
 	require.NoError(t, err)
-	digest := fmt.Sprintf("sha256:%x", sha256.Sum256(iso))
+	digest := godigest.FromBytes(iso).String()
 	artifact := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "node-config-artifact", Namespace: "pk-metal"},
 		Data:       map[string][]byte{artifactKey: iso},

@@ -2,12 +2,12 @@ package controller
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"net/url"
 	"slices"
 	"time"
 
+	"github.com/opencontainers/go-digest"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -402,7 +402,7 @@ func (x *exec) artifact(ctx context.Context, ba *osv1alpha1.BootAsset, pinned st
 	if len(iso) == 0 {
 		return nil, fmt.Errorf("artifact secret %s/%s holds no %s", ref.Namespace, ref.Name, artifactKey)
 	}
-	got := fmt.Sprintf("sha256:%x", sha256.Sum256(iso))
+	got := digest.FromBytes(iso).String()
 	if pinned != "" && got != pinned {
 		return nil, fmt.Errorf("boot asset %s was rebuilt since approval (artifact %s, approved %s)", ba.Name, got, pinned)
 	}

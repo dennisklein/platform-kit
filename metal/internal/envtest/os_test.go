@@ -9,7 +9,6 @@ package envtest_test
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/opencontainers/go-digest"
 	"github.com/siderolabs/image-factory/pkg/schematic"
 	clientconfig "github.com/siderolabs/talos/pkg/machinery/client/config"
 	"github.com/stretchr/testify/assert"
@@ -260,7 +260,7 @@ func TestOSLane(t *testing.T) {
 			"kind: Layer2VIPConfig", `disk.serial == "pklab-disk-1"`, `mac(link.permanent_addr) == "52:54:00:77:00:11"`} {
 			assert.Contains(t, string(mc), want)
 		}
-		assert.Equal(t, fmt.Sprintf("sha256:%x", sha256.Sum256(mc)), n.Status.ConfigDigest)
+		assert.Equal(t, digest.FromBytes(mc).String(), n.Status.ConfigDigest)
 		configDigest = n.Status.ConfigDigest
 
 		sec := corev1.Secret{}
@@ -317,7 +317,7 @@ func TestOSLane(t *testing.T) {
 		iso := sec.Data["asset.iso"]
 		require.NotEmpty(t, iso)
 		assert.Equal(t, int64(len(iso)), ba.Status.Size)
-		assert.Equal(t, fmt.Sprintf("sha256:%x", sha256.Sum256(iso)), ba.Status.Digest)
+		assert.Equal(t, digest.FromBytes(iso).String(), ba.Status.Digest)
 		assert.Equal(t, configDigest, sec.Annotations["os.pk.io/config-digest"],
 			"rebuild guard keys on the config digest")
 

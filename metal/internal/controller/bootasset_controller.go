@@ -2,9 +2,9 @@ package controller
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 
+	"github.com/opencontainers/go-digest"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -155,7 +155,7 @@ func (r *BootAssetReconciler) build(ctx context.Context, ba *osv1alpha1.BootAsse
 			fmt.Sprintf("config Secret %s/%s carries no %s", ref.Namespace, ref.Name, asset.ConfigFilename))
 		return nil
 	}
-	configDigest := fmt.Sprintf("sha256:%x", sha256.Sum256(machineConfig))
+	configDigest := digest.FromBytes(machineConfig).String()
 
 	artifact := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
 		Namespace: r.Namespace, Name: "bootasset-" + ba.Name,
@@ -191,7 +191,7 @@ func (r *BootAssetReconciler) build(ctx context.Context, ba *osv1alpha1.BootAsse
 	}
 
 	ba.Status.ArtifactSecretRef = &osv1alpha1.SecretReference{Namespace: artifact.Namespace, Name: artifact.Name}
-	ba.Status.Digest = fmt.Sprintf("sha256:%x", sha256.Sum256(iso))
+	ba.Status.Digest = digest.FromBytes(iso).String()
 	ba.Status.Size = int64(len(iso))
 	meta.SetStatusCondition(&ba.Status.Conditions, metav1.Condition{
 		Type: osv1alpha1.ConditionReady, Status: metav1.ConditionTrue,

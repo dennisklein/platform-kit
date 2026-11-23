@@ -3,12 +3,12 @@ package controller
 import (
 	"cmp"
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/opencontainers/go-digest"
 	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -193,7 +193,7 @@ func (r *TalosNodeReconciler) renderWith(ctx context.Context, node *osv1alpha1.T
 	}
 
 	node.Status.ConfigSecretRef = &osv1alpha1.SecretReference{Namespace: secret.Namespace, Name: secret.Name}
-	node.Status.ConfigDigest = fmt.Sprintf("sha256:%x", sha256.Sum256(machineConfig))
+	node.Status.ConfigDigest = digest.FromBytes(machineConfig).String()
 	node.Status.InstallerImage = installer
 	meta.SetStatusCondition(&node.Status.Conditions, metav1.Condition{
 		Type: osv1alpha1.ConditionRendered, Status: metav1.ConditionTrue,

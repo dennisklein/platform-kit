@@ -1,8 +1,6 @@
 package controller
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -11,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/opencontainers/go-digest"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -145,13 +144,12 @@ func planHash(v any) string {
 		// marshal; a failure here is a programming error worth a loud hash.
 		return "sha256:unhashable"
 	}
-	sum := sha256.Sum256(raw)
-	return "sha256:" + hex.EncodeToString(sum[:])
+	return digest.FromBytes(raw).String()
 }
 
 // hash8 is the operation-name suffix for a plan hash.
 func hash8(planHash string) string {
-	return strings.TrimPrefix(planHash, "sha256:")[:8]
+	return digest.Digest(planHash).Encoded()[:8]
 }
 
 // jsonAny decodes an arbitrary-JSON API value to its Go JSON type (string,

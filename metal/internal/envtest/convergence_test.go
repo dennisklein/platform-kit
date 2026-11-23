@@ -8,8 +8,6 @@
 package envtest_test
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -21,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -60,13 +59,11 @@ func jv(t *testing.T, v any) apiextensionsv1.JSON {
 // would — the firmware image the flash lane pulls.
 func fakeRegistry(t *testing.T, blob []byte) (*httptest.Server, string) {
 	t.Helper()
-	sum := sha256.Sum256(blob)
-	blobDigest := "sha256:" + hex.EncodeToString(sum[:])
+	blobDigest := digest.FromBytes(blob).String()
 	man := fmt.Sprintf(
 		`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","layers":[{"mediaType":"application/octet-stream","digest":%q,"size":%d}]}`,
 		blobDigest, len(blob))
-	manSum := sha256.Sum256([]byte(man))
-	manDigest := "sha256:" + hex.EncodeToString(manSum[:])
+	manDigest := digest.FromString(man).String()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v2/firmware/x12-bmc/manifests/"+manDigest, func(w http.ResponseWriter, _ *http.Request) {

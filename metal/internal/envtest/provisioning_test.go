@@ -10,7 +10,6 @@
 package envtest_test
 
 import (
-	"crypto/sha256"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -24,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/opencontainers/go-digest"
 	"github.com/siderolabs/image-factory/pkg/schematic"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -305,7 +305,7 @@ func TestProvisioning(t *testing.T) {
 		}
 		require.NoError(t, cl.Create(ctx, node))
 		node.Status.ConfigSecretRef = &osv1alpha1.SecretReference{Namespace: "default", Name: name + "-render"}
-		node.Status.ConfigDigest = fmt.Sprintf("sha256:%x", sha256.Sum256(cfgBytes))
+		node.Status.ConfigDigest = digest.FromBytes(cfgBytes).String()
 		node.Status.Conditions = []metav1.Condition{{Type: osv1alpha1.ConditionRendered, Status: metav1.ConditionTrue,
 			Reason: osv1alpha1.ReasonConfigRendered, LastTransitionTime: metav1.Now()}}
 		require.NoError(t, cl.Status().Update(ctx, node))

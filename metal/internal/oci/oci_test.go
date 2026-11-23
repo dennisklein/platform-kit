@@ -1,14 +1,13 @@
 package oci
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,11 +15,11 @@ import (
 // registry serves one single-layer artifact the way the internal Zot would.
 func registry(t *testing.T, blob []byte, layers int) (srv *httptest.Server, ref string) {
 	t.Helper()
-	blobDigest := digest(blob)
+	blobDigest := digest.FromBytes(blob).String()
 	layer := fmt.Sprintf(`{"mediaType":"application/octet-stream","digest":%q,"size":%d}`, blobDigest, len(blob))
 	man := fmt.Sprintf(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","layers":[%s]}`,
 		strings.TrimSuffix(strings.Repeat(layer+",", layers), ","))
-	manDigest := digest([]byte(man))
+	manDigest := digest.FromBytes([]byte(man)).String()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v2/firmware/x12-bmc/manifests/"+manDigest, func(w http.ResponseWriter, _ *http.Request) {
@@ -33,11 +32,6 @@ func registry(t *testing.T, blob []byte, layers int) (srv *httptest.Server, ref 
 	t.Cleanup(srv.Close)
 	host := strings.TrimPrefix(srv.URL, "https://")
 	return srv, host + "/firmware/x12-bmc@" + manDigest
-}
-
-func digest(b []byte) string {
-	sum := sha256.Sum256(b)
-	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 func TestPull(t *testing.T) {
@@ -54,7 +48,7 @@ func TestPull(t *testing.T) {
 	t.Run("manifest digest mismatch refused", func(t *testing.T) {
 		// Point the reference at a digest the served manifest does not hash to.
 		host, _, _ := strings.Cut(strings.TrimPrefix(srv.URL, "https://")+"/", "/")
-		bad := digest([]byte("something else"))
+		bad := digest.FromBytes([]byte("something else")).String()
 		mux := http.NewServeMux()
 		mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 			_, _ = w.Write([]byte(`{"layers":[]}`))
@@ -80,8 +74,25 @@ func TestPull(t *testing.T) {
 		assert.Contains(t, err.Error(), "digest-pinned")
 	})
 
+	t.Run("malformed layer digest refused before the blob GET", func(t *testing.T) {
+		man := `{"schemaVersion":2,"layers":[{"digest":"sha256:not-hex"}]}`
+		var blobGets int
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /v2/firmware/x12-bmc/manifests/", func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(man))
+		})
+		mux.HandleFunc("GET /v2/firmware/x12-bmc/blobs/", func(http.ResponseWriter, *http.Request) { blobGets++ })
+		bad := httptest.NewTLSServer(mux)
+		t.Cleanup(bad.Close)
+		ref := strings.TrimPrefix(bad.URL, "https://") + "/firmware/x12-bmc@" + digest.FromString(man).String()
+		_, err := Pull(ctx, bad.Client(), ref)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "layer digest")
+		assert.Zero(t, blobGets, "a malformed layer digest must not reach a URL")
+	})
+
 	t.Run("missing artifact is an error", func(t *testing.T) {
-		_, err := Pull(ctx, srv.Client(), strings.TrimPrefix(srv.URL, "https://")+"/firmware/nope@"+digest([]byte("x")))
+		_, err := Pull(ctx, srv.Client(), strings.TrimPrefix(srv.URL, "https://")+"/firmware/nope@"+digest.FromBytes([]byte("x")).String())
 		require.Error(t, err)
 	})
 }
