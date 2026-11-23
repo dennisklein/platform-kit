@@ -1,8 +1,8 @@
 // Package phase derives status.phase and status.blockedOn — pure functions of
 // conditions + spec-derived facts, nothing else (ADR 0012: conditions are truth, phase
 // is a human-facing summary, written but never read). The Stamp helpers are the ONLY
-// write sites: reconcilers call them and the lint-phase gate greps reconciler code for
-// any other .Status.Phase / .Status.BlockedOn touch.
+// write sites: reconcilers call them, and TestPhaseWriteSites (mise run lint:phase)
+// fails on any other write anywhere in the module and on any read in a reconciler.
 //
 // The derivation is a precedence list, not a state machine — there is no memory of a
 // previous phase, every call re-derives from observations. Phases whose inputs are

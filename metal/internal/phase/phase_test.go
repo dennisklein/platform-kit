@@ -249,7 +249,7 @@ func TestForOperation(t *testing.T) {
 	}
 }
 
-// The stamp helpers are the single write site (lint-phase greps reconcilers for any
+// The stamp helpers are the single write site (TestPhaseWriteSites finds any
 // other) — prove they derive from the object's own conditions.
 func TestStamp(t *testing.T) {
 	ep := &metalv1alpha1.ManagementEndpoint{}

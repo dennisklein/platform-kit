@@ -1,7 +1,7 @@
 // Package controller holds the pk-metal reconcilers. The state-model invariant
 // (ADR 0012) is enforced here by construction: reconcilers branch on conditions only
 // and never touch the derived status fields (phase, blockedOn) — internal/phase.Stamp*
-// is the single write site, and `mise run lint:phase` greps this directory to keep it true.
+// is the single write site, and `mise run lint:phase` (a typed check) keeps it true.
 package controller
 
 import (

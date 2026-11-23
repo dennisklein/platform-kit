@@ -89,15 +89,11 @@ dir = "metal"
 run = "golangci-lint run"
 
 [tasks."lint:phase"]
-description = "Reconcilers must not write .Status.Phase or .Status.BlockedOn; internal/phase is the only write site"
+description = "Only internal/phase writes .Status.Phase/.Status.BlockedOn, and reconcilers never read them (a typed check)"
 dir = "metal"
-run = '''
-if grep -rEn '\.Status\.(Phase|BlockedOn)' internal/controller/; then
-  echo "lint:phase: reconcilers must not touch .Status.Phase/.Status.BlockedOn, go through internal/phase" >&2
-  exit 1
-fi
-echo "lint:phase: clean"
-'''
+# The check is a Go test: it loads the module with go/types, so it also sees writes
+# through an alias, a pointer or a composite literal, in every package.
+run = "go test -count=1 -run TestPhaseWriteSites ./internal/phase/"
 
 [tasks.generate]
 description = "Regenerate everything derived from the Go sources: deepcopy code, CRDs, RBAC, the API reference"
