@@ -80,6 +80,11 @@ kubectl --kubeconfig .lab/workload.kubeconfig get nodes
 mise run lab:down
 ```
 
+On a hosted CI runner (4 cores, 16 GB) `lab:up` takes about four minutes from
+a cold start, and the three installs after the approval about three more. The
+`lab-e2e` workflow in `.github/workflows` runs exactly this round, with
+`lab:wait` in place of the manual steps.
+
 The operator proposes each installation as a HostOperation and does not touch
 a machine before somebody else approves it. `lab:approve` is that somebody: it
 runs `pk-metal approve` as the kind cluster's admin. The operator's own
