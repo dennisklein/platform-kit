@@ -107,6 +107,7 @@ root on that machine; on a shared workstation, decide that on purpose.
 | `mise run lab:kubeconfig` | Writes `.lab/workload.kubeconfig` and `.lab/talosconfig`. |
 | `mise run lab:load` | Rebuilds the operator image and rolls the manager. |
 | `mise run lab:wait` | Unattended: approves and waits for three Ready nodes. |
+| `mise run lab:release <namespace/name>` | Deletes a claim, approves the shutdown it proposes, and waits until its Host is Available. |
 | `mise run lab:collect` | Writes logs and object dumps to `.lab/diagnostics`. |
 | `mise run lab:down` | Stops everything and removes the network. Keeps disks and caches. |
 | `mise run lab:reset` | Wipes the machines' disks. The lab must be down. |

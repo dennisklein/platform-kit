@@ -5,7 +5,10 @@
 #
 # The run stands in for the one human step by approving what the operator
 # proposes (lab/lab.sh wait), through the same `pk-metal approve` a person uses,
-# so the approval gate is exercised and not bypassed.
+# so the approval gate is exercised and not bypassed. After the install it
+# releases one claim and waits until that machine is back, so the release path
+# (a gated shutdown of a running node) runs against a real machine too. The
+# fleet mixes BMC dialects: node-3 is a simulated Supermicro X12.
 name: lab-e2e
 
 on:
@@ -33,6 +36,9 @@ jobs:
       # installer image and the container images stay well below that.
       PK_LAB_MIN_FREE_GIB: "10"
       PK_LAB_WAIT_TIMEOUT: "2400"
+      # A graceful Talos shutdown takes well under a minute; the manager forces
+      # the machine off after five. Ten minutes covers both.
+      PK_LAB_RELEASE_TIMEOUT: "600"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -86,6 +92,14 @@ jobs:
           mise run lab:status
           mise run lab:kubeconfig
           kubectl --kubeconfig .lab/workload.kubeconfig get nodes --output wide
+
+      # Deleting the claim of a running node proposes a shutdown that waits
+      # for a person. lab:release approves it, as lab:wait does, and checks the
+      # outcome: the claim is gone and the Host is Available again.
+      - name: Release one claim and get its machine back
+        run: |
+          mise run lab:release default/node-3
+          mise run lab:status
 
       # The diagnostics directory holds object dumps without Secret contents,
       # the operator's and the fleet's logs and the machines' consoles. The

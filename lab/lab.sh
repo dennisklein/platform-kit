@@ -22,6 +22,9 @@ HELP="usage: $SCRIPT <verb>
                the claim policy asks for; default: lab/manifests/
   kubeconfig   write the workload cluster's kubeconfig and talosconfig into the lab directory
   wait         approve and wait until every Host is Provisioned and every node Ready
+  release <namespace/name>
+               delete a claim, approve the shutdown it proposes, and wait until its
+               Host is Available again
   collect      write logs and object dumps to <lab directory>/diagnostics
   down         stop the fleet, delete the kind cluster, remove the network; keeps disks and caches
   reset        wipe the machines' disks and firmware state (the lab must be down)
@@ -34,6 +37,8 @@ environment variables:
                         deployment, secrets bundle (default: <repo>/.lab)
   PK_LAB_FLEET          the fleet definition (default: <repo>/lab/fleet.yaml)
   PK_LAB_WAIT_TIMEOUT   seconds wait gives the lab to converge (default: 2400)
+  PK_LAB_RELEASE_TIMEOUT
+                        seconds release gives a machine to come back (default: 900)
   PK_LAB_MIN_FREE_GIB   free disk doctor asks for under PK_LAB_DIR (default: 15)
   PK_LAB_KIND_CONFIG    the kind cluster definition (default: <repo>/lab/kind.yaml);
                         a copy with another node image is how a host still on
@@ -45,6 +50,7 @@ source "$ROOT/lab/distro.sh"
 LAB_DIR=${PK_LAB_DIR:-$ROOT/.lab}
 FLEET=${PK_LAB_FLEET:-$ROOT/lab/fleet.yaml}
 WAIT_TIMEOUT=${PK_LAB_WAIT_TIMEOUT:-2400}
+RELEASE_TIMEOUT=${PK_LAB_RELEASE_TIMEOUT:-900}
 MIN_FREE_GIB=${PK_LAB_MIN_FREE_GIB:-15}
 KIND_CONFIG=${PK_LAB_KIND_CONFIG:-$ROOT/lab/kind.yaml}
 
@@ -799,6 +805,51 @@ wait_converged() {
   done
 }
 
+# Prints the name of the Host that the claim namespace/name holds, or nothing.
+claim_host() {
+  local namespace=$1 name=$2
+  kubectl get hosts --output json | jq -r --arg ns "$namespace" --arg name "$name" '
+    .items[] | select(.spec.claimRef.namespace == $ns and .spec.claimRef.name == $name) | .metadata.name'
+}
+
+host_phase() { kubectl get host "$1" --output jsonpath='{.status.phase}' 2>/dev/null; }
+
+claim_gone() { ! kubectl -n "$1" get hostclaim "$2" >/dev/null 2>&1; }
+
+# Deletes a claim and waits until its machine is back: the claim is gone and its
+# Host is Available again. A machine that runs its node is shut down only after
+# a person approves (unless the claim waived approval); like wait, this stands
+# in for that person through pk-metal approve. The outcome is what is checked,
+# not the operation: a released machine that still shows its claim, or a Host
+# that is not Available, is a failure however the operations ended.
+release() {
+  local root=$1 lab_dir=$2 claim=$3 timeout=$4
+  local namespace name host phase deadline=$((SECONDS + timeout))
+  require_cluster "$lab_dir"
+  [[ $claim == */* ]] || die "name the claim as namespace/name, e.g.: mise run lab:release default/node-3"
+  namespace=${claim%%/*}
+  name=${claim#*/}
+  kubectl -n "$namespace" get hostclaim "$name" >/dev/null \
+    || die "there is no HostClaim $claim. See the claims: kubectl --kubeconfig $lab_dir/kubeconfig get hostclaims -A"
+  host=$(claim_host "$namespace" "$name")
+  [[ -n $host ]] || die "HostClaim $claim holds no Host yet, so there is nothing to release. See where it stands: mise run lab:status"
+
+  step "releasing $claim (Host $host), waiting up to ${timeout}s for the Host to be Available"
+  kubectl -n "$namespace" delete hostclaim "$name" --wait=false >&2
+  while true; do
+    approve_pending "$root" >/dev/null || true
+    phase=$(host_phase "$host") || phase=""
+    if claim_gone "$namespace" "$name" && [[ $phase == Available ]]; then
+      echo "released after $((SECONDS - (deadline - timeout)))s: Host $host is Available, $claim is gone" >&2
+      return 0
+    fi
+    (( SECONDS < deadline )) || die "the release of $claim did not finish within ${timeout}s: Host $host is ${phase:-unknown}.
+  Look at it: mise run lab:status; collect the evidence: mise run lab:collect;
+  or wait longer: PK_LAB_RELEASE_TIMEOUT=1800 mise run lab:release $claim"
+    sleep 10
+  done
+}
+
 # Everything worth reading after a failed run, in one directory that is safe to
 # publish: object dumps without Secret contents, logs, the machines' consoles.
 # The secrets bundle, the kubeconfigs, the disks and the image cache stay out.
@@ -924,6 +975,10 @@ main() {
     approve) approve "$ROOT" "$LAB_DIR" ;;
     kubeconfig) kubeconfig "$LAB_DIR" "$TALOS_CLUSTER" ;;
     wait) wait_converged "$ROOT" "$LAB_DIR" "$FLEET" "$TALOS_CLUSTER" "$WAIT_TIMEOUT" ;;
+    release)
+      (( $# == 2 )) || die "name one claim, e.g.: mise run lab:release default/node-3"
+      release "$ROOT" "$LAB_DIR" "$2" "$RELEASE_TIMEOUT"
+      ;;
     collect) collect "$ROOT" "$LAB_DIR" "$FLEET" ;;
     down) down "$ROOT" "$LAB_DIR" "$CLUSTER" ;;
     reset) reset "$ROOT" "$LAB_DIR" "$FLEET" ;;

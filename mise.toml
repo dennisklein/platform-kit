@@ -180,6 +180,10 @@ run = "lab/lab.sh kubeconfig"
 description = "Unattended: approve what is proposed and wait until every host is Provisioned and every node Ready"
 run = "lab/lab.sh wait"
 
+[tasks."lab:release"]
+description = "Unattended: delete a claim (namespace/name), approve its shutdown and wait until its Host is Available"
+run = "lab/lab.sh release"
+
 [tasks."lab:collect"]
 description = "Write logs and object dumps of the lab to .lab/diagnostics"
 run = "lab/lab.sh collect"
