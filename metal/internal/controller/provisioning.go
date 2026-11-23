@@ -137,7 +137,15 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 		return r.withdraw(ctx, ops, "")
 	}
 	if nodeCheckedIn(node) {
-		recordHandOff(claim, hostName, node.Name, node.Status.ConfigDigest)
+		// The boot that got it there, if one of ours did: the release reads
+		// it to know whether the operator touched this machine.
+		var booted *metalv1alpha1.HostOperation
+		for i := range ops {
+			if ops[i].Status.Baseline != nil && bootsNode(&ops[i], hostName, node.Name) {
+				booted = &ops[i]
+			}
+		}
+		recordHandOff(claim, hostName, node.Name, node.Status.ConfigDigest, booted)
 		set(metav1.ConditionTrue, metalv1alpha1.ReasonHandedOff, fmt.Sprintf("host %s runs TalosNode %s", hostName, node.Name))
 		return r.withdraw(ctx, ops, "")
 	}
@@ -145,7 +153,7 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 	// this node onto this host is the hand-off, and becomes the record.
 	for i := range ops {
 		if opSucceeded(&ops[i]) && bootsNode(&ops[i], hostName, node.Name) {
-			recordHandOff(claim, hostName, node.Name, ops[i].Annotations[annotationConfigDigest])
+			recordHandOff(claim, hostName, node.Name, ops[i].Annotations[annotationConfigDigest], &ops[i])
 			set(metav1.ConditionTrue, metalv1alpha1.ReasonHandedOff,
 				fmt.Sprintf("operation %s/%s booted host %s", ops[i].Namespace, ops[i].Name, hostName))
 			return nil
@@ -252,12 +260,17 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 
 // recordHandOff writes the hand-off record onto the claim, once: a record
 // for this host and node already there keeps its time.
-func recordHandOff(claim *metalv1alpha1.HostClaim, hostName, nodeName, digest string) {
+// booted is the boot operation that installed it, nil when the machine was
+// found already running the node.
+func recordHandOff(claim *metalv1alpha1.HostClaim, hostName, nodeName, digest string, booted *metalv1alpha1.HostOperation) {
 	if h := claim.Status.HandOff; h != nil && h.Host == hostName && h.Node == nodeName {
 		return
 	}
 	claim.Status.HandOff = &metalv1alpha1.ClaimHandOff{
 		Host: hostName, Node: nodeName, ConfigDigest: digest, At: metav1.Now(),
+	}
+	if booted != nil {
+		claim.Status.HandOff.Operation = booted.Namespace + "/" + booted.Name
 	}
 }
 
@@ -314,7 +327,7 @@ func (r *HostClaimReconciler) provisionOp(claim *metalv1alpha1.HostClaim, hostNa
 	for i := len(plan.Slots) - 1; i >= 0; i-- {
 		actions = append(actions, metalv1alpha1.HostOperationAction{EjectMedia: &metalv1alpha1.EjectMediaAction{MediaID: plan.Slots[i]}})
 	}
-	required := claim.Spec.Provisioning == nil || claim.Spec.Provisioning.Approval != metalv1alpha1.ProvisioningApprovalAutomatic
+	required := !approvalWaived(claim)
 	return &metalv1alpha1.HostOperation{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name, Namespace: r.OperationsNamespace,
@@ -633,13 +646,18 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 				if err := r.Create(ctx, op); err != nil && !apierrors.IsAlreadyExists(err) {
 					return false, err
 				}
-				logf.FromContext(ctx).Info("proposed release operation", "operation", op.Namespace+"/"+op.Name, "host", host.Name)
-				set(metalv1alpha1.ReasonReleasing, fmt.Sprintf("powering off host %s (operation %s/%s)", host.Name, op.Namespace, op.Name))
-				done = false
-				continue
+				logf.FromContext(ctx).Info("proposed release operation", "operation", op.Namespace+"/"+op.Name,
+					"host", host.Name, "approvalRequired", *op.Spec.Approval.Required)
 			}
 			ex := meta.FindStatusCondition(op.Status.Conditions, metalv1alpha1.ConditionExecuted)
 			switch {
+			case opAwaitsApproval(op):
+				set(metalv1alpha1.ReasonReleasing, fmt.Sprintf(
+					"host %s runs a node, so releasing it waits for a person: the release shuts the machine down "+
+						"(forced off after %s) and ejects its media. To go ahead: pk-metal approve %s/%s",
+					host.Name, r.releaseShutdownTimeout(), op.Namespace, op.Name))
+				done = false
+				continue
 			case ex != nil && ex.Status == metav1.ConditionFalse:
 				set(metalv1alpha1.ReasonReleaseFailed, fmt.Sprintf(
 					"release operation %s/%s failed: %s — delete it to retry", op.Namespace, op.Name, ex.Message))
@@ -686,17 +704,28 @@ func bootRan(ops []metalv1alpha1.HostOperation, hostName string) bool {
 	})
 }
 
-// handedOff: the claim's hand-off record names the host — an install ran on
-// it even when its boot operation was deleted since.
+// handedOff: the claim's hand-off record says a boot of the claim installed
+// the host — true even when that boot operation was deleted since. A machine
+// found already running the node was never touched, and is not counted.
 func handedOff(claim *metalv1alpha1.HostClaim, hostName string) bool {
-	return claim.Status.HandOff != nil && claim.Status.HandOff.Host == hostName
+	h := claim.Status.HandOff
+	return h != nil && h.Host == hostName && h.Operation != ""
 }
 
-// releaseOp powers the machine off and empties every insertable slot. It is
-// created pre-cleared: deleting the claim was the decision, and admission lets
-// only the operator create such an operation.
+// releaseOp shuts the machine down — the OS first, forced off after the
+// release shutdown timeout — and empties every insertable slot.
+//
+// A machine that runs a node (its Host reports OSReady) is a running server,
+// and turning it off is as disruptive as installing it: the release then
+// waits for a person, as a boot does, unless the claim waived approval
+// (provisioning.approval: Automatic). A machine that never got that far —
+// a boot that failed or is still going — is released pre-cleared: deleting
+// the claim was the decision, and admission lets only the operator create
+// such an operation.
 func (r *HostClaimReconciler) releaseOp(ctx context.Context, claim *metalv1alpha1.HostClaim, host *metalv1alpha1.Host, name string) *metalv1alpha1.HostOperation {
-	actions := []metalv1alpha1.HostOperationAction{{PowerOff: &metalv1alpha1.PowerOffAction{}}}
+	actions := []metalv1alpha1.HostOperationAction{{PowerOff: &metalv1alpha1.PowerOffAction{
+		GracefulTimeoutSeconds: int32(r.releaseShutdownTimeout().Seconds()),
+	}}}
 	if shape, err := r.endpointShape(ctx, host); err == nil {
 		for _, s := range shape.insertable {
 			actions = append(actions, metalv1alpha1.HostOperationAction{EjectMedia: &metalv1alpha1.EjectMediaAction{MediaID: s}})
@@ -712,10 +741,29 @@ func (r *HostClaimReconciler) releaseOp(ctx context.Context, claim *metalv1alpha
 			ProposedBy:              r.Proposer,
 			Reason:                  reasonRelease,
 			Actions:                 actions,
-			Approval:                metalv1alpha1.OperationApproval{Required: ptr.To(false)},
+			Approval:                metalv1alpha1.OperationApproval{Required: ptr.To(runsNode(host) && !approvalWaived(claim))},
 			TTLSecondsAfterFinished: ptr.To(releaseTTL),
 		},
 	}
+}
+
+// runsNode: the host reports a running, ready OS.
+func runsNode(host *metalv1alpha1.Host) bool {
+	return meta.IsStatusConditionTrue(host.Status.Conditions, metalv1alpha1.ConditionOSReady)
+}
+
+// approvalWaived: the claim's provisioning approval is Automatic.
+func approvalWaived(claim *metalv1alpha1.HostClaim) bool {
+	return claim.Spec.Provisioning != nil && claim.Spec.Provisioning.Approval == metalv1alpha1.ProvisioningApprovalAutomatic
+}
+
+// releaseShutdownTimeout is how long a release lets the OS shut down before
+// the machine is forced off.
+func (r *HostClaimReconciler) releaseShutdownTimeout() time.Duration {
+	if r.ReleaseShutdownTimeout > 0 {
+		return r.ReleaseShutdownTimeout
+	}
+	return defaultReleaseShutdownTimeout
 }
 
 func short8(s string) string {

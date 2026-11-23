@@ -1257,6 +1257,10 @@ func (in *HostOperationStatus) DeepCopyInto(out *HostOperationStatus) {
 		in, out := &in.ObservedResetTime, &out.ObservedResetTime
 		*out = (*in).DeepCopy()
 	}
+	if in.ShutdownRequested != nil {
+		in, out := &in.ShutdownRequested, &out.ShutdownRequested
+		*out = (*in).DeepCopy()
+	}
 	if in.OffObserved != nil {
 		in, out := &in.OffObserved, &out.OffObserved
 		*out = (*in).DeepCopy()

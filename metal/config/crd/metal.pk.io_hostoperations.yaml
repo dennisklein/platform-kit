@@ -164,7 +164,14 @@ spec:
                         description: 'PowerCycle restarts the system: off, observed off, on, observed on — or just on when it was off at the baseline. Each half converges on the reported power state, which every vendor serves, so a resumed operation never cycles a machine twice (the iBMC serves no reset time to tell).'
                         type: object
                       powerOff:
-                        description: PowerOff forces the system off and waits until it reports off.
+                        description: PowerOff turns the system off and waits until it reports off. With gracefulTimeoutSeconds it first asks the OS to shut down, and forces the machine off only if it is still on when that time has passed.
+                        properties:
+                          gracefulTimeoutSeconds:
+                            description: GracefulTimeoutSeconds, when set, makes the step ask the OS to shut down first (Redfish GracefulShutdown, the same as a short press of the power button or `ipmitool chassis power soft`), wait this long for the machine to report off, and only then force it off. Unset or 0 forces the machine off at once. A BMC that refuses a graceful shutdown is forced at once too.
+                            format: int32
+                            maximum: 3600
+                            minimum: 0
+                            type: integer
                         type: object
                       setBootOverride:
                         description: SetBootOverride sets the source the machine boots from next. The target must be one the endpoint actually offers — machines disagree about what they call a virtual CD, so the value is checked against what was discovered rather than assumed.
@@ -330,6 +337,10 @@ spec:
                     - Running
                     - Succeeded
                     - Failed
+                  type: string
+                shutdownRequested:
+                  description: ShutdownRequested is when the executor asked the OS to shut down for a graceful powerOff. The step forces the machine off once the graceful window, counted from here, has passed; recording it means a resumed operation neither asks again nor restarts the window.
+                  format: date-time
                   type: string
                 steps:
                   description: 'Steps records each action''s outcome in execution order, written as each step reaches its goal. A resumed operation continues after the last recorded step: a goal that a later step consumed (a Once boot override used up by the boot that followed) is never re-armed.'

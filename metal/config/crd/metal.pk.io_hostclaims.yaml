@@ -191,6 +191,9 @@ spec:
                     node:
                       description: Node is the TalosNode the machine runs.
                       type: string
+                    operation:
+                      description: 'Operation is the boot operation (namespace/name) that installed the machine. Empty when the machine already ran the node when the claim found it: the operator never touched it, so a release leaves its power alone.'
+                      type: string
                   required:
                     - at
                     - host

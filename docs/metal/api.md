@@ -508,6 +508,7 @@ _Appears in:_
 | `host` _string_ | Host is the Host the node was installed on. |  |  |
 | `node` _string_ | Node is the TalosNode the machine runs. |  |  |
 | `configDigest` _string_ | ConfigDigest is sha256:<hex> of the rendered config the machine booted<br />with; empty when the record was rebuilt from an operation that did not<br />carry it. |  | Optional: \{\} <br /> |
+| `operation` _string_ | Operation is the boot operation (namespace/name) that installed the<br />machine. Empty when the machine already ran the node when the claim<br />found it: the operator never touched it, so a release leaves its<br />power alone. |  | Optional: \{\} <br /> |
 | `at` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | At is when the operator saw the hand-off. |  |  |
 
 
@@ -938,7 +939,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `powerCycle` _[PowerCycleAction](#powercycleaction)_ | PowerCycle restarts the system: off, observed off, on, observed on — or<br />just on when it was off at the baseline. Each half converges on the<br />reported power state, which every vendor serves, so a resumed operation<br />never cycles a machine twice (the iBMC serves no reset time to tell). |  | Optional: \{\} <br /> |
-| `powerOff` _[PowerOffAction](#poweroffaction)_ | PowerOff forces the system off and waits until it reports off. |  | Optional: \{\} <br /> |
+| `powerOff` _[PowerOffAction](#poweroffaction)_ | PowerOff turns the system off and waits until it reports off. With<br />gracefulTimeoutSeconds it first asks the OS to shut down, and forces<br />the machine off only if it is still on when that time has passed. |  | Optional: \{\} <br /> |
 | `setBootOverride` _[SetBootOverrideAction](#setbootoverrideaction)_ | SetBootOverride sets the source the machine boots from next. The target<br />must be one the endpoint actually offers — machines disagree about what<br />they call a virtual CD, so the value is checked against what was<br />discovered rather than assumed. |  | Optional: \{\} <br /> |
 | `insertMedia` _[InsertMediaAction](#insertmediaaction)_ | InsertMedia mounts an image URL on a virtual-media slot, dispatching the<br />dialect the endpoint advertises (standard InsertMedia vs OEM VmmControl). |  | Optional: \{\} <br /> |
 | `ejectMedia` _[EjectMediaAction](#ejectmediaaction)_ | EjectMedia unmounts a virtual-media slot. |  | Optional: \{\} <br /> |
@@ -993,6 +994,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `baseline` _[OperationBaseline](#operationbaseline)_ | Baseline is captured (and persisted) before the first mutating call. |  | Optional: \{\} <br /> |
 | `observedResetTime` _[MicroTime](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#microtime-v1-meta)_ | ObservedResetTime is the reset-time observation after the last step — the<br />proof the reset happened, and what marks a Host reset-time advance as<br />explained rather than Drifted. |  | Optional: \{\} <br /> |
+| `shutdownRequested` _[MicroTime](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#microtime-v1-meta)_ | ShutdownRequested is when the executor asked the OS to shut down for a<br />graceful powerOff. The step forces the machine off once the graceful<br />window, counted from here, has passed; recording it means a resumed<br />operation neither asks again nor restarts the window. |  | Optional: \{\} <br /> |
 | `offObserved` _[MicroTime](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#microtime-v1-meta)_ | OffObserved is when the executor saw the machine report off during a<br />power cycle — the first half of the cycle, recorded so that a resumed<br />operation finishes the cycle instead of starting a second one. |  | Optional: \{\} <br /> |
 | `steps` _[OperationStep](#operationstep) array_ | Steps records each action's outcome in execution order, written as each<br />step reaches its goal. A resumed operation continues after the last<br />recorded step: a goal that a later step consumed (a Once boot override<br />used up by the boot that followed) is never re-armed. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions are the truth — the only thing reconcilers branch on. |  | Optional: \{\} <br /> |
@@ -1357,13 +1359,16 @@ _Appears in:_
 
 
 
-PowerOffAction turns the machine off, forcibly. Already off is success.
+PowerOffAction turns the machine off. Already off is success.
 
 
 
 _Appears in:_
 - [HostOperationAction](#hostoperationaction)
 
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `gracefulTimeoutSeconds` _integer_ | GracefulTimeoutSeconds, when set, makes the step ask the OS to shut<br />down first (Redfish GracefulShutdown, the same as a short press of the<br />power button or `ipmitool chassis power soft`), wait this long for the<br />machine to report off, and only then force it off. Unset or 0 forces<br />the machine off at once. A BMC that refuses a graceful shutdown is<br />forced at once too. |  | Maximum: 3600 <br />Minimum: 0 <br />Optional: \{\} <br /> |
 
 
 #### ProposedPlan

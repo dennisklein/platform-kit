@@ -94,7 +94,9 @@ type HostOperationAction struct {
 	// +optional
 	PowerCycle *PowerCycleAction `json:"powerCycle,omitempty"`
 
-	// PowerOff forces the system off and waits until it reports off.
+	// PowerOff turns the system off and waits until it reports off. With
+	// gracefulTimeoutSeconds it first asks the OS to shut down, and forces
+	// the machine off only if it is still on when that time has passed.
 	// +optional
 	PowerOff *PowerOffAction `json:"powerOff,omitempty"`
 
@@ -140,8 +142,19 @@ type HostOperationAction struct {
 // way to do it, forcibly, and a machine that is already off is turned on instead.
 type PowerCycleAction struct{}
 
-// PowerOffAction turns the machine off, forcibly. Already off is success.
-type PowerOffAction struct{}
+// PowerOffAction turns the machine off. Already off is success.
+type PowerOffAction struct {
+	// GracefulTimeoutSeconds, when set, makes the step ask the OS to shut
+	// down first (Redfish GracefulShutdown, the same as a short press of the
+	// power button or `ipmitool chassis power soft`), wait this long for the
+	// machine to report off, and only then force it off. Unset or 0 forces
+	// the machine off at once. A BMC that refuses a graceful shutdown is
+	// forced at once too.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=3600
+	// +optional
+	GracefulTimeoutSeconds int32 `json:"gracefulTimeoutSeconds,omitempty"`
+}
 
 // AwaitCheckInAction holds the operation until a TalosNode checks in.
 type AwaitCheckInAction struct {
@@ -304,6 +317,13 @@ type HostOperationStatus struct {
 	// explained rather than Drifted.
 	// +optional
 	ObservedResetTime *metav1.MicroTime `json:"observedResetTime,omitempty"`
+
+	// ShutdownRequested is when the executor asked the OS to shut down for a
+	// graceful powerOff. The step forces the machine off once the graceful
+	// window, counted from here, has passed; recording it means a resumed
+	// operation neither asks again nor restarts the window.
+	// +optional
+	ShutdownRequested *metav1.MicroTime `json:"shutdownRequested,omitempty"`
 
 	// OffObserved is when the executor saw the machine report off during a
 	// power cycle — the first half of the cycle, recorded so that a resumed

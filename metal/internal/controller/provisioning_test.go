@@ -135,27 +135,37 @@ func TestCheckInRecordsTheHandOff(t *testing.T) {
 	require.NoError(t, r.provision(t.Context(), claim, "host-a"))
 	require.NotNil(t, claim.Status.HandOff)
 	assert.Equal(t, "sha256:abc", claim.Status.HandOff.ConfigDigest)
+	assert.Empty(t, claim.Status.HandOff.Operation, "found running: no boot of ours touched it")
 	at := claim.Status.HandOff.At
 
 	require.NoError(t, r.provision(t.Context(), claim, "host-a"))
 	assert.Equal(t, at, claim.Status.HandOff.At, "written once, not on every pass")
+
+	// With a boot of ours running into the check-in, the record names it.
+	r = claimReconcilerFor(t, host, node, bootOp("boot", "node-b", false, true))
+	claim = testClaim("node-b")
+	require.NoError(t, r.provision(t.Context(), claim, "host-a"))
+	require.NotNil(t, claim.Status.HandOff)
+	assert.Equal(t, "pk-metal/boot", claim.Status.HandOff.Operation)
 }
 
 func TestReleasePowersOffOnlyWhatABootTouched(t *testing.T) {
 	for name, tc := range map[string]struct {
 		executed    bool
-		handedOff   bool
+		handedOff   string // the record's operation; "-" for no record
 		wantRelease bool
 	}{
-		"a boot proposed, never taken up": {executed: false, wantRelease: false},
-		"a boot that ran":                 {executed: true, wantRelease: true},
+		"a boot proposed, never taken up": {executed: false, handedOff: "-", wantRelease: false},
+		"a boot that ran":                 {executed: true, handedOff: "-", wantRelease: true},
 		// The boot's operation was deleted since; the claim's record remains.
-		"an install recorded on the claim": {executed: false, handedOff: true, wantRelease: true},
+		"an install recorded on the claim": {executed: false, handedOff: "pk-metal/boot", wantRelease: true},
+		// The machine already ran the node when the claim found it.
+		"a node found running": {executed: false, handedOff: "", wantRelease: false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			claim := testClaim("node-b")
-			if tc.handedOff {
-				claim.Status.HandOff = &metalv1alpha1.ClaimHandOff{Host: "host-a", Node: "node-b", At: metav1.Now()}
+			if tc.handedOff != "-" {
+				claim.Status.HandOff = &metalv1alpha1.ClaimHandOff{Host: "host-a", Node: "node-b", Operation: tc.handedOff, At: metav1.Now()}
 			}
 			host := &metalv1alpha1.Host{
 				ObjectMeta: metav1.ObjectMeta{Name: "host-a"},
@@ -189,6 +199,58 @@ func TestReleasePowersOffOnlyWhatABootTouched(t *testing.T) {
 			left, err := r.claimOps(t.Context(), claim, purposeProvision)
 			require.NoError(t, err)
 			assert.Empty(t, left, "the unfinished boot is withdrawn either way")
+		})
+	}
+}
+
+func TestReleaseOfARunningNodeWaitsForAPerson(t *testing.T) {
+	osReady := []metav1.Condition{{Type: metalv1alpha1.ConditionOSReady, Status: metav1.ConditionTrue,
+		Reason: osv1alpha1.ReasonNodeReady, LastTransitionTime: metav1.Now()}}
+	for name, tc := range map[string]struct {
+		running   bool
+		automatic bool
+		required  bool
+	}{
+		"a running node":                  {running: true, required: true},
+		"a running node, approval waived": {running: true, automatic: true, required: false},
+		"a boot that never finished":      {running: false, required: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			claim := testClaim("node-b")
+			if tc.automatic {
+				claim.Spec.Provisioning = &metalv1alpha1.ClaimProvisioning{Approval: metalv1alpha1.ProvisioningApprovalAutomatic}
+			}
+			claim.Status.HandOff = &metalv1alpha1.ClaimHandOff{Host: "host-a", Node: "node-b", Operation: "pk-metal/boot", At: metav1.Now()}
+			host := &metalv1alpha1.Host{
+				ObjectMeta: metav1.ObjectMeta{Name: "host-a"},
+				Spec: metalv1alpha1.HostSpec{
+					ClaimRef: &metalv1alpha1.ClaimReference{Namespace: claim.Namespace, Name: claim.Name, UID: claim.UID},
+				},
+			}
+			if tc.running {
+				host.Status.Conditions = osReady
+			}
+			r := claimReconcilerFor(t, host)
+
+			done, err := r.release(t.Context(), claim, []metalv1alpha1.Host{*host})
+			require.NoError(t, err)
+			assert.False(t, done)
+			release, err := r.claimOps(t.Context(), claim, purposeRelease)
+			require.NoError(t, err)
+			require.Len(t, release, 1)
+			op := release[0]
+			assert.Equal(t, tc.required, *op.Spec.Approval.Required)
+			require.NotNil(t, op.Spec.Actions[0].PowerOff)
+			assert.EqualValues(t, 300, op.Spec.Actions[0].PowerOff.GracefulTimeoutSeconds,
+				"the OS gets the default five minutes to shut down")
+
+			c := meta.FindStatusCondition(claim.Status.Conditions, metalv1alpha1.ConditionProvisioned)
+			require.NotNil(t, c)
+			if tc.required {
+				assert.Contains(t, c.Message, "pk-metal approve pk-metal/"+op.Name, "the message says how to go ahead")
+			} else {
+				assert.Contains(t, c.Message, "powering off host host-a")
+			}
 		})
 	}
 }

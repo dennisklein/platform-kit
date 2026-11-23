@@ -109,6 +109,12 @@ type ClaimHandOff struct {
 	// carry it.
 	// +optional
 	ConfigDigest string `json:"configDigest,omitempty"`
+	// Operation is the boot operation (namespace/name) that installed the
+	// machine. Empty when the machine already ran the node when the claim
+	// found it: the operator never touched it, so a release leaves its
+	// power alone.
+	// +optional
+	Operation string `json:"operation,omitempty"`
 	// At is when the operator saw the hand-off.
 	At metav1.Time `json:"at"`
 }

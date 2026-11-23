@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -47,7 +48,13 @@ type HostClaimReconciler struct {
 	// CheckInTimeoutSeconds bounds a boot operation's wait for the node's
 	// check-in; zero defaults to 30 minutes.
 	CheckInTimeoutSeconds int32
+	// ReleaseShutdownTimeout is how long a release lets the OS shut down
+	// before it forces the machine off; zero defaults to 5 minutes.
+	ReleaseShutdownTimeout time.Duration
 }
+
+// defaultReleaseShutdownTimeout mirrors the manager's flag default.
+const defaultReleaseShutdownTimeout = 5 * time.Minute
 
 // +kubebuilder:rbac:groups=metal.pk.io,resources=hostclaims,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=metal.pk.io,resources=hostclaims/status,verbs=update

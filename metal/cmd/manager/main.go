@@ -68,6 +68,7 @@ func main() {
 		mediaURL     string
 		mediaCert    string
 		checkIn      time.Duration
+		shutdown     time.Duration
 	)
 	flag.StringVar(&ledgerPath, "ledger", "",
 		"path to the MAC→URL BMC ledger YAML (required; projection of the bmc-access dnsmasq ledger)")
@@ -93,6 +94,8 @@ func main() {
 		"secret (keys tls.crt, tls.key) the media service serves; empty mints an ephemeral self-signed certificate (BMCs do not verify media TLS)")
 	flag.DurationVar(&checkIn, "checkin-timeout", 30*time.Minute,
 		"how long a boot operation waits for the node to check in before it fails")
+	flag.DurationVar(&shutdown, "release-shutdown-timeout", 5*time.Minute,
+		"when a HostClaim is deleted, how long its machine's OS gets to shut down before the machine is forced off")
 	showVersion := flag.Bool("version", false, "print the build version and exit")
 	flag.Parse()
 
@@ -102,6 +105,11 @@ func main() {
 	}
 	if ledgerPath == "" {
 		fmt.Fprintln(os.Stderr, "manager: --ledger is required")
+		os.Exit(2)
+	}
+	// The release operation carries it in seconds, and its schema allows an hour.
+	if shutdown < time.Second || shutdown > time.Hour {
+		fmt.Fprintln(os.Stderr, "manager: --release-shutdown-timeout must be between 1s and 1h")
 		os.Exit(2)
 	}
 
@@ -214,8 +222,8 @@ func main() {
 	}
 
 	if err := (&controller.AssetReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
 		Ledger: led,
 		// The standard install mounts the ledger from this ConfigMap; the
 		// path is what this process actually read.
@@ -242,10 +250,11 @@ func main() {
 		os.Exit(1)
 	}
 	if err := (&controller.HostClaimReconciler{
-		Client:                mgr.GetClient(),
-		OperationsNamespace:   credsNS,
-		Proposer:              proposer,
-		CheckInTimeoutSeconds: int32(checkIn.Seconds()),
+		Client:                 mgr.GetClient(),
+		OperationsNamespace:    credsNS,
+		Proposer:               proposer,
+		CheckInTimeoutSeconds:  int32(checkIn.Seconds()),
+		ReleaseShutdownTimeout: shutdown,
 	}).SetupWithManager(mgr); err != nil {
 		log.Error(err, "setup hostclaim reconciler")
 		os.Exit(1)

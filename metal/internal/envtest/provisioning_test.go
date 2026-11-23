@@ -609,21 +609,36 @@ func TestProvisioning(t *testing.T) {
 		waitHost(dualHost, func(h metalv1alpha1.Host) bool { return h.Status.Phase == metalv1alpha1.HostProvisioned })
 	})
 
-	t.Run("deleting the claim powers off and returns the host", func(t *testing.T) {
+	t.Run("deleting the claim of a running node waits for approval, then shuts it down", func(t *testing.T) {
 		c, err := claimOf("dual")
 		require.NoError(t, err)
 		require.NoError(t, cl.Delete(ctx, &c))
 
 		var rel []metalv1alpha1.HostOperation
 		require.Eventually(t, func() bool { rel = opsFor(dualHost, "release"); return len(rel) == 1 }, waitFor, tick)
-		assert.False(t, *rel[0].Spec.Approval.Required, "the deletion was the decision")
-		assert.Equal(t, operator, rel[0].Spec.ProposedBy)
-		waitOp(client.ObjectKeyFromObject(&rel[0]), succeeded)
+		assert.True(t, *rel[0].Spec.Approval.Required, "turning off a running node is a decision for a person")
+		assert.Equal(t, operator, rel[0].Spec.ProposedBy, "admission takes the operator's gated proposal")
+		require.NotNil(t, rel[0].Spec.Actions[0].PowerOff)
+		assert.Positive(t, rel[0].Spec.Actions[0].PowerOff.GracefulTimeoutSeconds, "the OS is asked to shut down first")
+		waitClaim("dual", func(c metalv1alpha1.HostClaim) bool {
+			p := provisioned(c)
+			return p != nil && strings.Contains(p.Message, "pk-metal approve default/"+rel[0].Name)
+		})
+		waitHost(dualHost, func(h metalv1alpha1.Host) bool { return h.Status.BlockedOn == "Approval(Release)" })
+		time.Sleep(3 * pollInterval)
+		power, err := dualState.Power(ctx, "1")
+		require.NoError(t, err)
+		assert.Equal(t, bmc.PowerOn, power, "nothing happens before the approval")
+
+		require.NoError(t, aliceCl.Patch(ctx, &rel[0], client.RawPatch(types.MergePatchType,
+			[]byte(`{"spec":{"approval":{"approvedBy":"alice"}}}`))))
+		op := waitOp(client.ObjectKeyFromObject(&rel[0]), succeeded)
+		assert.NotNil(t, op.Status.ShutdownRequested, "a graceful shutdown was asked for")
 
 		h := waitHost(dualHost, func(h metalv1alpha1.Host) bool { return h.Status.Phase == metalv1alpha1.HostAvailable })
 		assert.Nil(t, h.Spec.ClaimRef)
 		assert.Nil(t, h.Spec.OS)
-		power, err := dualState.Power(ctx, "1")
+		power, err = dualState.Power(ctx, "1")
 		require.NoError(t, err)
 		assert.Equal(t, bmc.PowerOff, power, "released powered off")
 		require.Eventually(t, func() bool {
@@ -674,6 +689,9 @@ func TestProvisioning(t *testing.T) {
 		c, err := claimOf("single")
 		require.NoError(t, err)
 		require.NoError(t, cl.Delete(ctx, &c))
+		var rel []metalv1alpha1.HostOperation
+		require.Eventually(t, func() bool { rel = opsFor(singleHost, "release"); return len(rel) == 1 }, waitFor, tick)
+		assert.False(t, *rel[0].Spec.Approval.Required, "Automatic: the claim waived the gate for its release too")
 		waitHost(singleHost, func(h metalv1alpha1.Host) bool { return h.Status.Phase == metalv1alpha1.HostAvailable })
 	})
 

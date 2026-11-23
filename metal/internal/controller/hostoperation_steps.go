@@ -34,7 +34,7 @@ func (x *exec) step(ctx context.Context, i int) (stepState, error) {
 	case a.PowerCycle != nil:
 		return x.powerCycle(ctx)
 	case a.PowerOff != nil:
-		return x.powerTo(ctx, bmc.PowerOff)
+		return x.powerOff(ctx, a.PowerOff)
 	case a.SetBootOverride != nil:
 		return stepDone, x.setBootOverride(ctx, a.SetBootOverride)
 	case a.InsertMedia != nil:
@@ -76,12 +76,20 @@ func (x *exec) stepStart(i int) time.Time {
 	return time.Now()
 }
 
-// stepBudget is how long step i may keep waiting before it fails.
+// stepBudget is how long step i may keep waiting before it fails. A graceful
+// powerOff gets its graceful window on top of the forced one's.
 func (x *exec) stepBudget(i int) time.Duration {
 	if a := x.op.Spec.Actions[i].AwaitCheckIn; a != nil {
 		return checkInTimeout(a)
 	}
+	if a := x.op.Spec.Actions[i].PowerOff; a != nil {
+		return gracefulWindow(a) + x.r.powerTimeout()
+	}
 	return x.r.powerTimeout()
+}
+
+func gracefulWindow(a *metalv1alpha1.PowerOffAction) time.Duration {
+	return time.Duration(a.GracefulTimeoutSeconds) * time.Second
 }
 
 func checkInTimeout(a *metalv1alpha1.AwaitCheckInAction) time.Duration {
@@ -143,6 +151,57 @@ func (x *exec) powerTo(ctx context.Context, want bmc.PowerState) (stepState, err
 		return stepDone, nil
 	}
 	return waitingOn("%s issued, machine still reports %s", action, cur), nil
+}
+
+// powerOff turns the machine off. With a graceful window it first asks the OS
+// to shut down, once (recorded in status, like the off half of a power
+// cycle), and forces the machine off only when it still reports on after the
+// window. A BMC that refuses the graceful request is forced at once: the
+// person who approved a power-off did not approve a machine left running.
+func (x *exec) powerOff(ctx context.Context, a *metalv1alpha1.PowerOffAction) (stepState, error) {
+	window := gracefulWindow(a)
+	if window <= 0 {
+		return x.powerTo(ctx, bmc.PowerOff)
+	}
+	cur, err := x.power(ctx)
+	if err != nil {
+		return stepState{}, err
+	}
+	if cur == bmc.PowerOff {
+		return stepDone, nil
+	}
+	if x.op.Status.ShutdownRequested == nil {
+		cl, sysID, err := x.client(ctx)
+		if err != nil {
+			return stepState{}, err
+		}
+		if err := cl.SetPower(ctx, sysID, bmc.ActionGracefulShutdown); err != nil {
+			if transient(ctx, err) {
+				return stepState{}, err
+			}
+			logf.FromContext(ctx).Info("BMC refused a graceful shutdown, forcing the machine off",
+				"operation", x.op.Name, "error", err.Error())
+			return x.powerTo(ctx, bmc.PowerOff)
+		}
+		x.op.Status.ShutdownRequested = &metav1.MicroTime{Time: time.Now()}
+		// Persist before waiting: a resumed pass must not ask again, nor
+		// start the window over.
+		if err := x.flush(); err != nil {
+			return stepState{}, err
+		}
+		if cur, err = x.settle(ctx, bmc.PowerOff); err != nil {
+			return stepState{}, err
+		}
+		if cur == bmc.PowerOff {
+			return stepDone, nil
+		}
+	}
+	asked := x.op.Status.ShutdownRequested.Time
+	if left := window - time.Since(asked); left > 0 {
+		return waitingOn("asked the OS to shut down at %s; forcing the machine off in %s if it is still on",
+			asked.UTC().Format(time.RFC3339), left.Round(time.Second)), nil
+	}
+	return x.powerTo(ctx, bmc.PowerOff)
 }
 
 // powerCycle restarts the machine as two observed halves: off (recorded in

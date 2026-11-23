@@ -37,6 +37,9 @@ type recordingClient struct {
 	powers    []bmc.PowerAction
 	// powerErr, when set, is what every power read answers.
 	powerErr error
+	// ignoreGraceful takes GracefulShutdown and does nothing — an OS that
+	// does not react to the power button.
+	ignoreGraceful bool
 }
 
 func (c *recordingClient) Power(ctx context.Context, id string) (bmc.PowerState, error) {
@@ -53,6 +56,9 @@ func (c *recordingClient) SetBootOverride(ctx context.Context, id string, o bmc.
 
 func (c *recordingClient) SetPower(ctx context.Context, id string, a bmc.PowerAction) error {
 	c.powers = append(c.powers, a)
+	if a == bmc.ActionGracefulShutdown && c.ignoreGraceful {
+		return nil
+	}
 	return c.Client.SetPower(ctx, id, a)
 }
 
@@ -217,6 +223,50 @@ func TestStaleTimeoutFailsThePowerStep(t *testing.T) {
 	require.NotNil(t, ex)
 	assert.Equal(t, metav1.ConditionFalse, ex.Status)
 	assert.Contains(t, ex.Message, "gave up")
+}
+
+func TestGracefulPowerOffAsksTheOSFirst(t *testing.T) {
+	op := preClearedOp(metalv1alpha1.HostOperationAction{PowerOff: &metalv1alpha1.PowerOffAction{GracefulTimeoutSeconds: 300}})
+	r, st, rec := executorFor(t, "huawei-2288h-v5", op)
+
+	got := runOp(t, r)
+	require.True(t, opSucceeded(got), "%+v", got.Status)
+	assert.Equal(t, []bmc.PowerAction{bmc.ActionGracefulShutdown}, rec.powers, "the OS shut down: nothing forced")
+	require.NotNil(t, got.Status.ShutdownRequested)
+	power, err := st.Power(t.Context(), "1")
+	require.NoError(t, err)
+	assert.Equal(t, bmc.PowerOff, power)
+}
+
+func TestGracefulPowerOffForcesAfterTheWindow(t *testing.T) {
+	op := preClearedOp(metalv1alpha1.HostOperationAction{PowerOff: &metalv1alpha1.PowerOffAction{GracefulTimeoutSeconds: 300}})
+	r, st, rec := executorFor(t, "huawei-2288h-v5", op)
+	rec.ignoreGraceful = true
+	key := client.ObjectKeyFromObject(op)
+
+	// The first pass asks once and waits; the machine stays on.
+	_, err := r.Reconcile(t.Context(), ctrl.Request{NamespacedName: key})
+	require.NoError(t, err)
+	_, err = r.Reconcile(t.Context(), ctrl.Request{NamespacedName: key})
+	require.NoError(t, err)
+	got := &metalv1alpha1.HostOperation{}
+	require.NoError(t, r.Get(t.Context(), key, got))
+	assert.False(t, opFinished(got))
+	assert.Equal(t, []bmc.PowerAction{bmc.ActionGracefulShutdown}, rec.powers, "asked once, not on every pass")
+	require.NotNil(t, got.Status.ShutdownRequested)
+	ex := meta.FindStatusCondition(got.Status.Conditions, metalv1alpha1.ConditionExecuted)
+	require.NotNil(t, ex)
+	assert.Contains(t, ex.Message, "forcing the machine off in")
+
+	// The window passes with the machine still on: it is forced off.
+	got.Status.ShutdownRequested = &metav1.MicroTime{Time: time.Now().Add(-301 * time.Second)}
+	require.NoError(t, r.Status().Update(t.Context(), got))
+	got = runOp(t, r)
+	require.True(t, opSucceeded(got), "%+v", got.Status)
+	assert.Equal(t, []bmc.PowerAction{bmc.ActionGracefulShutdown, bmc.ActionForceOff}, rec.powers)
+	power, err := st.Power(t.Context(), "1")
+	require.NoError(t, err)
+	assert.Equal(t, bmc.PowerOff, power)
 }
 
 // resumedStatus is an executing operation whose first n steps are recorded,
