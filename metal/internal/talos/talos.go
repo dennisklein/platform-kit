@@ -65,3 +65,15 @@ type Target struct {
 // Dialer opens a Client for a target. Reconcilers and the CLI take one, so
 // tests can hand them the fake.
 type Dialer func(ctx context.Context, t Target) (Client, error)
+
+// With dials t, runs fn on the client and closes it. It returns the dial
+// error, or fn's. A failed Close is not reported: every call here is a read
+// or an idempotent request, so the connection holds nothing worth keeping.
+func With(ctx context.Context, dial Dialer, t Target, fn func(Client) error) error {
+	c, err := dial(ctx, t)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = c.Close() }()
+	return fn(c)
+}

@@ -145,15 +145,20 @@ var errUnreachable = errors.New("authenticated API does not answer")
 // etcdMembers asks one member for its etcd members. A dial or version failure
 // is errUnreachable; an etcd that is not running yet is another error.
 func etcdMembers(ctx context.Context, dial talos.Dialer, talosconfig []byte, endpoint string) ([]string, error) {
-	c, err := dial(ctx, talos.Target{Endpoint: endpoint, Talosconfig: talosconfig})
-	if err != nil {
+	var (
+		members []string
+		etcdErr error
+	)
+	if err := talos.With(ctx, dial, talos.Target{Endpoint: endpoint, Talosconfig: talosconfig}, func(c talos.Client) error {
+		if _, err := c.Version(ctx); err != nil {
+			return err
+		}
+		members, etcdErr = c.EtcdMembers(ctx)
+		return nil
+	}); err != nil {
 		return nil, fmt.Errorf("%w: %w", errUnreachable, err)
 	}
-	defer func() { _ = c.Close() }()
-	if _, err := c.Version(ctx); err != nil {
-		return nil, fmt.Errorf("%w: %w", errUnreachable, err)
-	}
-	return c.EtcdMembers(ctx)
+	return members, etcdErr
 }
 
 // Node is one node the day-0 ladder drives.
@@ -243,13 +248,12 @@ func Run(ctx context.Context, o Options) error {
 	return nil
 }
 
-func status(ctx context.Context, dial talos.Dialer, talosconfig []byte, endpoint string) (talos.Status, error) {
-	c, err := dial(ctx, talos.Target{Endpoint: endpoint, Talosconfig: talosconfig})
-	if err != nil {
-		return talos.Status{}, err
-	}
-	defer func() { _ = c.Close() }()
-	return c.Status(ctx)
+func status(ctx context.Context, dial talos.Dialer, talosconfig []byte, endpoint string) (st talos.Status, err error) {
+	err = talos.With(ctx, dial, talos.Target{Endpoint: endpoint, Talosconfig: talosconfig}, func(c talos.Client) error {
+		st, err = c.Status(ctx)
+		return err
+	})
+	return st, err
 }
 
 // applyInsecure delivers a node's config over the maintenance service, unless
@@ -264,15 +268,12 @@ func (o *Options) applyInsecure(ctx context.Context, n Node, poll time.Duration,
 		return fmt.Errorf("bootstrap: apply-insecure without a machine config for %s", n.Name)
 	}
 	if err := wait(ctx, poll, func() error {
-		c, err := o.Dial(ctx, talos.Target{Endpoint: n.Endpoint, Insecure: true})
-		if err != nil {
-			return err
-		}
-		defer func() { _ = c.Close() }()
-		if _, err := c.Version(ctx); err != nil {
-			return err
-		}
-		return c.ApplyConfiguration(ctx, n.MachineConfig)
+		return talos.With(ctx, o.Dial, talos.Target{Endpoint: n.Endpoint, Insecure: true}, func(c talos.Client) error {
+			if _, err := c.Version(ctx); err != nil {
+				return err
+			}
+			return c.ApplyConfiguration(ctx, n.MachineConfig)
+		})
 	}); err != nil {
 		return fmt.Errorf("bootstrap: maintenance service of %s never took the config: %w", n.Name, err)
 	}

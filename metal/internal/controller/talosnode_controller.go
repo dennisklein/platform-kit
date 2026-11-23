@@ -280,24 +280,23 @@ func (r *TalosNodeReconciler) checkin(ctx context.Context, node *osv1alpha1.Talo
 // mode is "api", "maintenance", or "" with the last dial error.
 func (r *TalosNodeReconciler) observe(ctx context.Context, tcfg []byte, endpoint string) (st talos.Status, version, mode string, err error) {
 	if tcfg != nil {
-		if c, derr := r.Dial(ctx, talos.Target{Endpoint: endpoint, Talosconfig: tcfg}); derr == nil {
-			st, err = c.Status(ctx)
-			if err == nil {
-				version, _ = c.Version(ctx)
-				_ = c.Close()
-				return st, version, "api", nil
+		// Any failure here falls through to the maintenance service.
+		if talos.With(ctx, r.Dial, talos.Target{Endpoint: endpoint, Talosconfig: tcfg}, func(c talos.Client) error {
+			if st, err = c.Status(ctx); err != nil {
+				return err
 			}
-			_ = c.Close()
+			version, _ = c.Version(ctx)
+			return nil
+		}) == nil {
+			return st, version, "api", nil
 		}
 	}
-	c, derr := r.Dial(ctx, talos.Target{Endpoint: endpoint, Insecure: true})
-	if derr != nil {
-		return talos.Status{}, "", "", derr
-	}
-	defer func() { _ = c.Close() }()
-	version, verr := c.Version(ctx)
-	if verr != nil {
-		return talos.Status{}, "", "", verr
+	if err := talos.With(ctx, r.Dial, talos.Target{Endpoint: endpoint, Insecure: true}, func(c talos.Client) error {
+		var verr error
+		version, verr = c.Version(ctx)
+		return verr
+	}); err != nil {
+		return talos.Status{}, "", "", err
 	}
 	return talos.Status{}, version, "maintenance", nil
 }
