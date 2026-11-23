@@ -67,14 +67,21 @@ func Connect(ctx context.Context, cfg Config) (bmc.Client, error) {
 		Insecure:  cfg.Insecure,
 		BasicAuth: true,
 	}
-	if cfg.RootCAs != nil {
-		gcfg.Insecure = false
-		// Clone the default transport, as gofish does for its own client, so
-		// a proxy and the dial and handshake timeouts survive custom roots.
-		t := http.DefaultTransport.(*http.Transport).Clone()
+	// The transport is built here, not left to gofish, so that every
+	// response passes the guard below, gofish's own reads included. It is
+	// cloned from the default transport, as gofish does for its own client,
+	// so a proxy and the dial and handshake timeouts are kept.
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.ForceAttemptHTTP2 = true
+	switch {
+	case cfg.RootCAs != nil:
 		t.TLSClientConfig = &tls.Config{RootCAs: cfg.RootCAs, MinVersion: tls.VersionTLS12}
-		gcfg.HTTPClient = &http.Client{Transport: t}
+	case cfg.Insecure:
+		// Lab BMCs with self-signed certs, asked for by the caller.
+		t.TLSClientConfig = &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12} //nolint:gosec
 	}
+	gcfg.Insecure = false
+	gcfg.HTTPClient = &http.Client{Transport: guard{next: t}}
 	api, err := gf.ConnectContext(ctx, gcfg)
 	if err != nil {
 		return nil, fmt.Errorf("bmc: connect %s: %w", cfg.Endpoint, err)
@@ -128,6 +135,39 @@ func readBody(r io.Reader) ([]byte, error) {
 		return nil, fmt.Errorf("response body over %d MiB", maxBodyBytes>>20)
 	}
 	return body, nil
+}
+
+// guard checks every response before gofish or this package decodes it.
+// The body is read in full, up to maxBodyBytes, so no read holds an unbounded
+// body. A successful GET must answer with a JSON object, as every Redfish
+// resource is one: gofish decodes a JSON null into a nil collection and then
+// dereferences it in a goroutine of its own, which no recover in the caller
+// can catch, so such an answer must never reach it.
+type guard struct{ next http.RoundTripper }
+
+func (g guard) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := g.next.RoundTrip(req)
+	if err != nil || resp.Body == nil {
+		return resp, err
+	}
+	body, err := readBody(resp.Body)
+	_ = resp.Body.Close()
+	if err != nil {
+		return nil, fmt.Errorf("%s %s: %w", req.Method, req.URL.Path, err)
+	}
+	if req.Method == http.MethodGet && resp.StatusCode/100 == 2 &&
+		resp.StatusCode != http.StatusAccepted && !jsonObjectOrEmpty(body) {
+		return nil, fmt.Errorf("GET %s: answer is not a JSON object", req.URL.Path)
+	}
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+	resp.ContentLength = int64(len(body))
+	return resp, nil
+}
+
+// jsonObjectOrEmpty reports whether body is empty or one valid JSON object.
+func jsonObjectOrEmpty(body []byte) bool {
+	trimmed := bytes.TrimSpace(body)
+	return len(trimmed) == 0 || (trimmed[0] == '{' && json.Valid(trimmed))
 }
 
 // stripGzipSuffix removes the "-gzip" that Apache mod_deflate appends inside

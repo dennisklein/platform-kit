@@ -102,6 +102,10 @@ func FuzzClientDecode(f *testing.F) {
 	f.Add(uint16(systemIdx), []byte(``), uint16(500))
 	for i := range uris {
 		f.Add(uint16(i), []byte(`{"Members":[{"@odata.id":"/redfish/v1/Nowhere"}]}`), uint16(200))
+		// A JSON null as a collection made gofish dereference a nil
+		// collection in a goroutine of its own and crash the process.
+		f.Add(uint16(i), []byte(`null`), uint16(200))
+		f.Add(uint16(i), []byte(`[]`), uint16(200))
 	}
 
 	o := &override{next: tree}
