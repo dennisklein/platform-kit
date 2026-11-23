@@ -264,10 +264,48 @@ func TestClaimDeletedMidBootProposesTheReleaseBeforeStoppingTheBoot(t *testing.T
 			require.False(t, releasePass(t, r, claim))
 			rel := releaseOps(t, r, claim)
 			require.Len(t, rel, 1)
-			assert.Equal(t, []string{"create " + rel[0].Name, "delete boot"}, writes,
-				"the release exists before the running boot is stopped, and the host is not unbound")
-			assert.True(t, hostBound(t, r))
+			assert.Equal(t, []string{"update host-a", "create " + rel[0].Name, "delete boot"}, writes,
+				"the decision is recorded and the release exists before the running boot is stopped")
+			host := &metalv1alpha1.Host{}
+			require.NoError(t, r.Get(t.Context(), client.ObjectKey{Name: "host-a"}, host))
+			assert.NotNil(t, host.Spec.ClaimRef, "the host is not unbound")
+			assert.Equal(t, string(claim.UID), host.Annotations[annotationReleasePowerOff])
 			assert.False(t, *rel[0].Spec.Approval.Required, "a machine mid-boot runs no node: pre-cleared")
 		})
 	}
+}
+func TestFailedReleaseOfAMidBootMachineIsRetriedNotDropped(t *testing.T) {
+	claim := testClaim("node-b")
+	// The claim is deleted while its boot runs: no hand-off yet.
+	r := claimReconcilerFor(t, boundHost(claim), bootOp("boot", "node-b", false, true))
+
+	require.False(t, releasePass(t, r, claim))
+	rel := releaseOps(t, r, claim)
+	require.Len(t, rel, 1, "the boot ran: the machine is powered off first")
+
+	// The power-off fails.
+	failOp(t, r, &rel[0], "step 1/1 powerOff: BMC refused the request")
+	require.False(t, releasePass(t, r, claim))
+	c := meta.FindStatusCondition(claim.Status.Conditions, metalv1alpha1.ConditionProvisioned)
+	require.NotNil(t, c)
+	assert.Equal(t, metalv1alpha1.ReasonReleaseFailed, c.Reason)
+	assert.Contains(t, c.Message, "BMC refused the request")
+	assert.Contains(t, c.Message, "pk-metal retry pk-metal/"+rel[0].Name)
+	assert.True(t, hostBound(t, r), "a failed release keeps the machine bound")
+
+	// pk-metal retry deletes the failed operation (its TTL does the same a
+	// day later). The next pass must propose the power-off again, not hand
+	// back a machine that is still mid-boot.
+	require.NoError(t, r.Delete(t.Context(), &rel[0]))
+	require.False(t, releasePass(t, r, claim), "the release is not done")
+	assert.True(t, hostBound(t, r), "still bound")
+	rel = releaseOps(t, r, claim)
+	require.Len(t, rel, 1, "the release is proposed again")
+
+	succeedOp(t, r, &rel[0])
+	require.True(t, releasePass(t, r, claim))
+	host := &metalv1alpha1.Host{}
+	require.NoError(t, r.Get(t.Context(), client.ObjectKey{Name: "host-a"}, host))
+	assert.Nil(t, host.Spec.ClaimRef, "handed back once it is off")
+	assert.NotContains(t, host.Annotations, annotationReleasePowerOff, "the record goes with the bind")
 }

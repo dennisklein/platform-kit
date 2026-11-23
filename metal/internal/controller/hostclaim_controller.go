@@ -287,8 +287,8 @@ func hostOSFrom(claim *metalv1alpha1.HostClaim) *metalv1alpha1.HostOS {
 	return &metalv1alpha1.HostOS{NodeRef: claim.Spec.OS.NodeRef}
 }
 
-// releaseAll clears the bind pointer and the OS hand-off from every listed host
-// except keep.
+// releaseAll clears the bind pointer, the OS hand-off and the release's
+// power-off record from every listed host except keep.
 func (r *HostClaimReconciler) releaseAll(ctx context.Context, bound []metalv1alpha1.Host, keep string) error {
 	for i := range bound {
 		host := &bound[i]
@@ -297,6 +297,7 @@ func (r *HostClaimReconciler) releaseAll(ctx context.Context, bound []metalv1alp
 		}
 		host.Spec.ClaimRef = nil
 		host.Spec.OS = nil
+		delete(host.Annotations, annotationReleasePowerOff)
 		if err := r.Update(ctx, host); err != nil {
 			if apierrors.IsNotFound(err) {
 				continue

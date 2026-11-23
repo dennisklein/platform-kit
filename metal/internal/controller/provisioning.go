@@ -49,6 +49,14 @@ const (
 	// it boots, so its success can be recorded with the digest.
 	annotationConfigDigest = "metal.pk.io/config-digest"
 
+	// annotationReleasePowerOff on a Host names the UID of a deleted claim
+	// whose release powers the machine off. It keeps that decision after the
+	// records it was read from are gone: the boot operations are deleted to
+	// stop the boot, and the release operation itself can be deleted by
+	// pk-metal retry or by its TTL. Without it, the next pass would find no
+	// boot and hand back a machine that is still mid-boot.
+	annotationReleasePowerOff = "metal.pk.io/release-power-off"
+
 	// labelProvisioning marks BootAssets the lane created for itself.
 	labelProvisioning = "metal.pk.io/provisioning"
 
@@ -691,7 +699,7 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 		}
 		// The decision to power off is made once, while the boot records are
 		// still there to read; the release operation then carries it.
-		if op != nil || bootRan(provisionOps, host.Name) || handedOff(claim, host.Name) {
+		if op != nil || bootRan(provisionOps, host.Name) || handedOff(claim, host.Name) || powerOffDecided(host, claim) {
 			// A hold stops the release before it is approved: the proposal is
 			// taken back, and none is made. One already running finishes.
 			if held && (op == nil || opAwaitsApproval(op)) {
@@ -712,6 +720,10 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 					": the claim is deleted, but the machine is shut down and released only after it is given back: "+endMaintenanceCommand(host))
 				done, keepRecords = false, true
 				continue
+			}
+			// Record the decision before the boot records it came from go.
+			if err := r.recordPowerOff(ctx, host, claim); err != nil {
+				return false, err
 			}
 			if op == nil {
 				op = r.releaseOp(ctx, claim, host, name)
@@ -781,6 +793,25 @@ func bootRan(ops []metalv1alpha1.HostOperation, hostName string) bool {
 	return slices.ContainsFunc(ops, func(op metalv1alpha1.HostOperation) bool {
 		return op.Spec.HostRef.Name == hostName && op.Status.Baseline != nil
 	})
+}
+
+// powerOffDecided: an earlier pass decided that releasing the host for this
+// claim powers it off.
+func powerOffDecided(host *metalv1alpha1.Host, claim *metalv1alpha1.HostClaim) bool {
+	return claim.UID != "" && host.Annotations[annotationReleasePowerOff] == string(claim.UID)
+}
+
+// recordPowerOff writes the power-off decision onto the host. releaseAll
+// removes it when the host is unbound.
+func (r *HostClaimReconciler) recordPowerOff(ctx context.Context, host *metalv1alpha1.Host, claim *metalv1alpha1.HostClaim) error {
+	if powerOffDecided(host, claim) {
+		return nil
+	}
+	if host.Annotations == nil {
+		host.Annotations = map[string]string{}
+	}
+	host.Annotations[annotationReleasePowerOff] = string(claim.UID)
+	return r.Update(ctx, host)
 }
 
 // handedOff: the claim's hand-off record says a boot of the claim installed
