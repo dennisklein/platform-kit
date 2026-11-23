@@ -21,6 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/util/cert"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -490,24 +491,19 @@ func csrHex(csrPEM []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// firstCertificate extracts the chain's leaf, parsed and re-encoded.
+// firstCertificate extracts the chain's leaf, parsed and re-encoded. Every
+// certificate in the chain must parse: the whole chain goes to the manager,
+// so a broken intermediate is refused here rather than pushed.
 func firstCertificate(chainPEM []byte) (*x509.Certificate, []byte, error) {
-	rest := chainPEM
-	for {
-		var block *pem.Block
-		block, rest = pem.Decode(rest)
-		if block == nil {
-			return nil, nil, fmt.Errorf("no certificate in issued chain")
-		}
-		if block.Type != "CERTIFICATE" {
-			continue
-		}
-		leaf, err := x509.ParseCertificate(block.Bytes)
-		if err != nil {
-			return nil, nil, err
-		}
-		return leaf, pem.EncodeToMemory(block), nil
+	certs, err := cert.ParseCertsPEM(chainPEM)
+	if err != nil {
+		return nil, nil, fmt.Errorf("issued chain: %w", err)
 	}
+	leafPEM, err := cert.EncodeCertificates(certs[0])
+	if err != nil {
+		return nil, nil, err
+	}
+	return certs[0], leafPEM, nil
 }
 
 func nonEmpty(s string) []string {

@@ -11,7 +11,6 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"flag"
 	"fmt"
 	"net/http"
@@ -24,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/util/cert"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -144,19 +144,16 @@ func main() {
 
 	var registryClient *http.Client
 	if registryCA != "" {
-		pem, err := os.ReadFile(registryCA)
+		pool, err := cert.NewPool(registryCA)
 		if err != nil {
-			log.Error(err, "read registry CA")
+			log.Error(err, "load registry CA")
 			os.Exit(1)
 		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(pem) {
-			log.Error(fmt.Errorf("no certificates in %s", registryCA), "parse registry CA")
-			os.Exit(1)
-		}
-		registryClient = &http.Client{
-			Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}},
-		}
+		// Clone the default transport so a site proxy and the dial and TLS
+		// handshake timeouts still apply; only the trust roots change.
+		t := http.DefaultTransport.(*http.Transport).Clone()
+		t.TLSClientConfig = &tls.Config{RootCAs: pool}
+		registryClient = &http.Client{Transport: t}
 	}
 
 	scheme := runtime.NewScheme()

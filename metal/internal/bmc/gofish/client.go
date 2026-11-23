@@ -68,9 +68,11 @@ func Connect(ctx context.Context, cfg Config) (bmc.Client, error) {
 	}
 	if cfg.RootCAs != nil {
 		gcfg.Insecure = false
-		gcfg.HTTPClient = &http.Client{Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{RootCAs: cfg.RootCAs, MinVersion: tls.VersionTLS12},
-		}}
+		// Clone the default transport, as gofish does for its own client, so
+		// a proxy and the dial and handshake timeouts survive custom roots.
+		t := http.DefaultTransport.(*http.Transport).Clone()
+		t.TLSClientConfig = &tls.Config{RootCAs: cfg.RootCAs, MinVersion: tls.VersionTLS12}
+		gcfg.HTTPClient = &http.Client{Transport: t}
 	}
 	api, err := gf.ConnectContext(ctx, gcfg)
 	if err != nil {

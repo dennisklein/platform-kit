@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"crypto/x509"
 	"fmt"
 	"slices"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/cert"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -216,9 +216,9 @@ func endpointTLSConfig(ctx context.Context, c client.Client, credentialsNamespac
 		if err := c.Get(ctx, key, ca); err != nil {
 			return cfg, "CAMissing", fmt.Errorf("ca secret %s: %w", key, err)
 		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(ca.Data["ca.crt"]) {
-			return cfg, "CAMissing", fmt.Errorf("ca secret %s: no certificates in ca.crt", key)
+		pool, err := cert.NewPoolFromBytes(ca.Data[corev1.ServiceAccountRootCAKey])
+		if err != nil {
+			return cfg, "CAMissing", fmt.Errorf("ca secret %s: %s: %w", key, corev1.ServiceAccountRootCAKey, err)
 		}
 		cfg.RootCAs = pool
 	case tlsSpec.InsecureSkipVerify:
