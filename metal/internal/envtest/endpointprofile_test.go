@@ -335,7 +335,7 @@ func TestEndpointConvergence(t *testing.T) {
 		// it surfaces under the same reason, so waiting on the reason alone
 		// can return one poll before the hold latches. Wait for the diagnosis
 		// being asserted, not for a reason that merely precedes it.
-		waitEndpoint("ci-huawei", func(ep metalv1alpha1.ManagementEndpoint) bool {
+		held := waitEndpoint("ci-huawei", func(ep metalv1alpha1.ManagementEndpoint) bool {
 			c := configured(ep)
 			return c != nil && c.Reason == metalv1alpha1.ReasonIdentityPushFailed &&
 				strings.Contains(c.Message, "not being served")
@@ -346,7 +346,7 @@ func TestEndpointConvergence(t *testing.T) {
 		crs := crsFor("ci-huawei")
 		require.Len(t, crs, 1)
 		served := huaweiState.ServedLeaf().Subject.CommonName
-		time.Sleep(5 * pollInterval)
+		st.settle(t, ctx, &held, 5)
 		assert.Equal(t, crs, crsFor("ci-huawei"), "an unchanged desired state never re-issues")
 		assert.Equal(t, served, huaweiState.ServedLeaf().Subject.CommonName)
 

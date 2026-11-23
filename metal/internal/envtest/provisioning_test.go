@@ -501,7 +501,7 @@ func TestProvisioning(t *testing.T) {
 		waitHost(dualHost, func(h metalv1alpha1.Host) bool {
 			return h.Status.BlockedOn == "Approval(Provisioning)"
 		})
-		time.Sleep(5 * pollInterval)
+		st.settle(t, ctx, &c, 3)
 		assert.Len(t, opsFor(dualHost, "provision"), 1, "nothing is proposed twice")
 	})
 
@@ -517,7 +517,7 @@ func TestProvisioning(t *testing.T) {
 		assert.Contains(t, provisioned(c).Message, "change freeze")
 		require.Eventually(t, func() bool { return len(opsFor(dualHost, "provision")) == 0 }, waitFor, tick,
 			"the proposal waiting for approval is withdrawn")
-		time.Sleep(3 * pollInterval)
+		st.settle(t, ctx, &c, 3)
 		assert.Empty(t, opsFor(dualHost, "provision"), "and none comes back while held")
 
 		annotate(`null`)
@@ -579,11 +579,11 @@ func TestProvisioning(t *testing.T) {
 		checkIn("node-dual",
 			metav1.Condition{Type: osv1alpha1.ConditionMachineReachable, Status: metav1.ConditionFalse, Reason: "Unreachable"},
 			metav1.Condition{Type: osv1alpha1.ConditionReady, Status: metav1.ConditionFalse, Reason: "NotReady"})
-		waitClaim("dual", func(c metalv1alpha1.HostClaim) bool {
+		down := waitClaim("dual", func(c metalv1alpha1.HostClaim) bool {
 			p := provisioned(c)
 			return p != nil && p.Reason == metalv1alpha1.ReasonHandedOff && strings.Contains(p.Message, "does not start a new install")
 		})
-		time.Sleep(5 * pollInterval)
+		st.settle(t, ctx, &down, 3)
 		assert.Empty(t, opsFor(dualHost, "provision"), "no reinstall is proposed")
 
 		checkIn("node-dual", machineAPI...)
@@ -606,7 +606,7 @@ func TestProvisioning(t *testing.T) {
 			return p != nil && strings.Contains(p.Message, "pk-metal approve default/"+rel[0].Name)
 		})
 		waitHost(dualHost, func(h metalv1alpha1.Host) bool { return h.Status.BlockedOn == "Approval(Release)" })
-		time.Sleep(3 * pollInterval)
+		st.settle(t, ctx, &rel[0], 3)
 		power, err := dualState.Power(ctx, "1")
 		require.NoError(t, err)
 		assert.Equal(t, bmc.PowerOn, power, "nothing happens before the approval")

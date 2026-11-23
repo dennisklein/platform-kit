@@ -246,7 +246,7 @@ func TestOSLane(t *testing.T) {
 
 		// Re-reconciles keep the credential instead of minting a new one.
 		before := secretData(c.Status.KubeconfigSecretRef, controller.KubeconfigKey)
-		time.Sleep(500 * time.Millisecond)
+		st.settle(t, ctx, &c, 3)
 		assert.Equal(t, before, secretData(c.Status.KubeconfigSecretRef, controller.KubeconfigKey))
 	})
 
@@ -460,10 +460,10 @@ func TestOSLane(t *testing.T) {
 			_, c := clusterCondition("lab", osv1alpha1.ConditionBootstrapped)
 			return c != nil && c.Status == metav1.ConditionUnknown && c.Reason == osv1alpha1.ReasonBootstrapRequested
 		}, waitFor, tick, "the cluster must request a bootstrap once its control plane answers")
-		_, requested := clusterCondition("lab", osv1alpha1.ConditionBootstrapped)
-		// Ten check intervals and the member and Secret events of the hand-off
-		// pass while etcd is not running: each one waits on the request.
-		time.Sleep(time.Second)
+		cluster, requested := clusterCondition("lab", osv1alpha1.ConditionBootstrapped)
+		// Ten passes, and the member and Secret events of the hand-off, go
+		// by while etcd is not running: each one waits on the request.
+		st.settle(t, ctx, &cluster, 10)
 		assert.Equal(t, 1, machines["node-1"].BootstrapCalls(), "a starting etcd must not be bootstrapped again")
 		_, still := clusterCondition("lab", osv1alpha1.ConditionBootstrapped)
 		require.NotNil(t, still)
@@ -495,7 +495,7 @@ func TestOSLane(t *testing.T) {
 		assert.EqualValues(t, 2, c.Status.ReadyWorkers)
 
 		// Further passes observe; they never bootstrap again.
-		time.Sleep(time.Second)
+		st.settle(t, ctx, &c, 5)
 		assert.Equal(t, 1, machines["node-1"].BootstrapCalls(), "bootstrap must be called exactly once")
 		for _, name := range []string{"node-2", "node-3"} {
 			assert.Zero(t, machines[name].BootstrapCalls(), name)

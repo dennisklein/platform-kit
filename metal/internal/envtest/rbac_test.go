@@ -149,7 +149,8 @@ func (s *suite) approverClient(t *testing.T, ctx context.Context, name string) c
 func (s *suite) newManagerAs(t *testing.T, cfg *rest.Config, credentialsNamespace string) ctrl.Manager {
 	t.Helper()
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme: s.scheme,
+		Scheme:    s.scheme,
+		NewClient: s.reads.newClient,
 		Cache: cache.Options{
 			ByObject: map[client.Object]cache.ByObject{
 				&corev1.Secret{}:    {Namespaces: map[string]cache.Config{credentialsNamespace: {}}},

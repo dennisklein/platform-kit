@@ -15,7 +15,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/assert"
@@ -388,16 +387,16 @@ func TestConvergence(t *testing.T) {
 		// world never converges: the lying-oracle shape, alert-and-hold.
 		approve(stuckOp)
 		waitOpSucceeded(stuckOp)
-		waitSettings(smcHost, settingsReason(metalv1alpha1.ReasonConvergenceFailed))
-		time.Sleep(5 * pollInterval)
+		failed := waitSettings(smcHost, settingsReason(metalv1alpha1.ReasonConvergenceFailed))
+		st.settle(t, ctx, &failed, 3)
 		assert.Len(t, biosOps(smcHost), 2, "a failed convergence never re-proposes its own hash")
 
 		// Deleting the record is a veto, not an invitation.
 		ns, name, _ := strings.Cut(stuckOp, "/")
 		require.NoError(t, cl.Delete(ctx, &metalv1alpha1.HostOperation{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns}}))
-		waitSettings(smcHost, settingsReason(metalv1alpha1.ReasonOperationGone))
-		time.Sleep(5 * pollInterval)
+		gone := waitSettings(smcHost, settingsReason(metalv1alpha1.ReasonOperationGone))
+		st.settle(t, ctx, &gone, 3)
 		assert.Len(t, biosOps(smcHost), 1, "the hash stays spent after the record is gone")
 
 		// Only a changed desired state re-proposes — and the fresh staging

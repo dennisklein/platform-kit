@@ -539,12 +539,8 @@ func TestReconcile(t *testing.T) {
 	st.run(t, "steady state writes no status", func(t *testing.T) {
 		ep := waitPhase("ci-smc", metalv1alpha1.EndpointReady)
 		h := waitHost("simx12b000001", hostPhaseIs(metalv1alpha1.HostAvailable))
-		epRV, hostRV := ep.ResourceVersion, h.ResourceVersion
-		time.Sleep(5 * pollInterval)
-		got, _ := endpointPhase("ci-smc")
-		assert.Equal(t, epRV, got.ResourceVersion, "unchanged observations must not write")
-		gotHost, _ := hostByName("simx12b000001")
-		assert.Equal(t, hostRV, gotHost.ResourceVersion, "unchanged projections must not write")
+		assert.False(t, st.settle(t, ctx, &ep, 5), "unchanged observations must not write")
+		assert.False(t, st.settle(t, ctx, &h, 5), "unchanged projections must not write")
 	})
 
 	st.run(t, "proposed operation awaits its human gate", func(t *testing.T) {
@@ -662,10 +658,10 @@ func TestReconcile(t *testing.T) {
 		op := powerCycleOp("cycle-in-maintenance")
 		op.Spec.Approval.Required = ptr.To(false)
 		require.NoError(t, cl.Create(ctx, op))
-		waitOp("cycle-in-maintenance", func(op metalv1alpha1.HostOperation) bool {
+		blocked := waitOp("cycle-in-maintenance", func(op metalv1alpha1.HostOperation) bool {
 			return op.Status.BlockedOn == metalv1alpha1.ReasonHostInMaintenance
 		})
-		time.Sleep(3 * pollInterval)
+		st.settle(t, ctx, &blocked, 3)
 		assert.Equal(t, before, smcState.Resets("1"), "nothing ran on the machine")
 
 		annotate(`null`)
