@@ -329,7 +329,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `cid` _string_ | CID is the org's durable identity for this machine (FNT Configuration Item ID). |  | MinLength: 1 <br /> |
 | `serial` _string_ | Serial is the org-asserted chassis/board serial — the Verify join key, checked<br />against discovery (assertion vs Redfish, two origins). |  | MinLength: 1 <br /> |
-| `bmcMac` _string_ | BMCMac is the management controller's own NIC MAC (the dnsmasq-ledger identity<br />on the 1034 island), lowercase colon-separated. |  | Pattern: `^([0-9a-f]\{2\}:)\{5\}[0-9a-f]\{2\}$` <br />Optional: \{\} <br /> |
+| `bmcMac` _string_ | BMCMac is the MAC address of the BMC's own network port, as printed on<br />the label or shown by `ipmitool lan print`. Either case, with ':' or '-'<br />between the bytes. The operator looks it up in the ledger to find the<br />BMC's address, and checks that the BMC at that address reports it. |  | MaxLength: 17 <br />Optional: \{\} <br /> |
 | `vlan` _integer_ | VLAN is the management network the endpoint lives on (1034 servers, 1035 routers). |  | Maximum: 4094 <br />Minimum: 1 <br />Optional: \{\} <br /> |
 | `credentialsRef` _[LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#localobjectreference-v1-core)_ | CredentialsRef names a Secret in the operator's namespace holding the endpoint<br />credentials — factory creds at adoption, rotated by EndpointProfile. |  |  |
 
@@ -1695,7 +1695,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `name` _string_ | Name is the alias the link gets. Avoid kernel names (eth0, enp0s2):<br />an alias must not collide with a real interface. |  | Pattern: `^[a-z][a-z0-9-]\{0,14\}$` <br /> |
-| `hardwareAddr` _string_ | HardwareAddr is the link's permanent MAC address. A physical link<br />whose driver reports no permanent address is matched on its current<br />one instead. |  | Pattern: `^([0-9a-f]\{2\}:)\{5\}[0-9a-f]\{2\}$` <br /> |
+| `hardwareAddr` _string_ | HardwareAddr is the link's permanent MAC address. A physical link<br />whose driver reports no permanent address is matched on its current<br />one instead. Lower case and colon-separated (0c:c4:7a:12:34:56): Talos<br />compares it as text. |  | Pattern: `^([0-9a-f]\{2\}:)\{5\}[0-9a-f]\{2\}$` <br /> |
 | `addresses` _string array_ | Addresses are static addresses in CIDR form, primary family first. |  | Optional: \{\} <br /> |
 | `routes` _[Route](#route) array_ | Routes are static routes over this link. |  | Optional: \{\} <br /> |
 | `dhcp` _boolean_ | DHCP runs a DHCPv4 client on the link, alongside any static addresses. |  | Optional: \{\} <br /> |

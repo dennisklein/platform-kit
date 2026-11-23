@@ -114,6 +114,11 @@ func main() {
 		os.Exit(1)
 	}
 	log.Info("ledger loaded", "path", ledgerPath, "entries", led.Len(), "version", version)
+	// A bad line is skipped, not fatal: the other machines keep being managed,
+	// and an Asset naming a skipped MAC says so in its Materialized condition.
+	for _, p := range led.Problems() {
+		log.Error(fmt.Errorf("%s", p), "ledger entry skipped; fix it in the ledger ConfigMap and restart the manager", "path", ledgerPath)
+	}
 
 	// One factory for both lanes: the boot medium's URL and the installer image
 	// inside a rendered config have to name the same one, or a node installs

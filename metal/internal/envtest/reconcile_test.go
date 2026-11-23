@@ -84,18 +84,23 @@ func TestReconcile(t *testing.T) {
 
 	// The ledger joins the fixtures' manager MACs to the sims. aa:…:01 resolves to
 	// the Huawei sim although the fixture reports another MAC (the wrong-box case);
-	// the dead entry points at a closed port.
+	// the dead entry points at a closed port. The Supermicro line is written the
+	// way a BMC label prints it (upper case, dashes) and still joins the
+	// asset's lower-case colon form; the line that is no MAC is skipped, not
+	// fatal.
 	dir := t.TempDir()
 	ledgerPath := filepath.Join(dir, "ledger.yaml")
 	require.NoError(t, os.WriteFile(ledgerPath, []byte(`
 "02:00:48:0b:74:60": `+huawei.URL+`
 "02:00:48:0b:74:99": `+huawei2.URL+`
-"02:00:5a:3a:cc:18": `+smc.URL+`
+"02-00-5A-3A-CC-18": `+smc.URL+`
 "aa:bb:cc:dd:ee:01": `+huawei.URL+`
 "00:11:22:33:44:55": https://127.0.0.1:1
+"02:00:5a:3a:cc": https://127.0.0.1:2
 `), 0o600))
 	led, err := ledger.Load(ledgerPath)
 	require.NoError(t, err)
+	require.Len(t, led.Problems(), 1, "the five-byte line is skipped")
 
 	s := runtime.NewScheme()
 	require.NoError(t, clientgoscheme.AddToScheme(s))

@@ -103,7 +103,8 @@ type Link struct {
 
 	// HardwareAddr is the link's permanent MAC address. A physical link
 	// whose driver reports no permanent address is matched on its current
-	// one instead.
+	// one instead. Lower case and colon-separated (0c:c4:7a:12:34:56): Talos
+	// compares it as text.
 	// +kubebuilder:validation:Pattern=`^([0-9a-f]{2}:){5}[0-9a-f]{2}$`
 	HardwareAddr string `json:"hardwareAddr"`
 

@@ -67,10 +67,19 @@ func TestAPI(t *testing.T) {
 		}
 		assert.Error(t, cl.Create(ctx, missingCID), "cid MinLength must reject")
 
+		// The forms people paste from labels and inventories are accepted.
+		for name, mac := range map[string]string{"upper-mac": "48:DC:2D:0B:74:83", "dashed-mac": "48-dc-2d-0b-74-84"} {
+			ok := asset.DeepCopy()
+			ok.ObjectMeta = metav1.ObjectMeta{Name: name}
+			ok.Spec.BMCMac = mac
+			assert.NoError(t, cl.Create(ctx, ok), mac)
+		}
 		badMAC := asset.DeepCopy()
 		badMAC.ObjectMeta = metav1.ObjectMeta{Name: "bad-mac"}
-		badMAC.Spec.BMCMac = "48-DC-2D-0B-74-83"
-		assert.Error(t, cl.Create(ctx, badMAC), "bmcMac pattern must reject non-canonical form")
+		badMAC.Spec.BMCMac = "48:DC:2D:0B:74"
+		err := cl.Create(ctx, badMAC)
+		require.Error(t, err, "five bytes are not a MAC")
+		assert.Contains(t, err.Error(), "such as 0c:c4:7a:12:34:56", "the refusal shows the expected form")
 	})
 
 	t.Run("endpoint status subresource and phase enum", func(t *testing.T) {

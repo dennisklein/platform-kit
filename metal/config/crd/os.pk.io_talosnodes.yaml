@@ -104,7 +104,7 @@ spec:
                             description: DHCP runs a DHCPv4 client on the link, alongside any static addresses.
                             type: boolean
                           hardwareAddr:
-                            description: HardwareAddr is the link's permanent MAC address. A physical link whose driver reports no permanent address is matched on its current one instead.
+                            description: 'HardwareAddr is the link''s permanent MAC address. A physical link whose driver reports no permanent address is matched on its current one instead. Lower case and colon-separated (0c:c4:7a:12:34:56): Talos compares it as text.'
                             pattern: ^([0-9a-f]{2}:){5}[0-9a-f]{2}$
                             type: string
                           mtu:

@@ -49,9 +49,12 @@ spec:
               description: AssetSpec is the org's assertion about one physical machine — what the CMDB *claims*, never what Redfish discovered (the two must stay independent origins or Verified compares Redfish to Redfish and can catch nothing). Filled today by Flux from git YAML; filled later by fnt-sync from FNT Command — same CR downstream.
               properties:
                 bmcMac:
-                  description: BMCMac is the management controller's own NIC MAC (the dnsmasq-ledger identity on the 1034 island), lowercase colon-separated.
-                  pattern: ^([0-9a-f]{2}:){5}[0-9a-f]{2}$
+                  description: BMCMac is the MAC address of the BMC's own network port, as printed on the label or shown by `ipmitool lan print`. Either case, with ':' or '-' between the bytes. The operator looks it up in the ledger to find the BMC's address, and checks that the BMC at that address reports it.
+                  maxLength: 17
                   type: string
+                  x-kubernetes-validations:
+                    - message: bmcMac must be a MAC address such as 0c:c4:7a:12:34:56 (upper case and '-' separators are fine)
+                      rule: self.matches('^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$') || self.matches('^[0-9A-Fa-f]{2}(-[0-9A-Fa-f]{2}){5}$')
                 cid:
                   description: CID is the org's durable identity for this machine (FNT Configuration Item ID).
                   minLength: 1

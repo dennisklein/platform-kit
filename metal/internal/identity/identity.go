@@ -7,6 +7,7 @@
 package identity
 
 import (
+	"net"
 	"strings"
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
@@ -55,4 +56,29 @@ func Name(id metalv1alpha1.HostIdentity) (string, bool) {
 	}
 	name := strings.Trim(b.String(), "-")
 	return name, name != ""
+}
+
+// MAC returns a hardware address in the one form this operator compares and
+// stores: lower case, colon-separated (0c:c4:7a:12:34:56). It accepts what
+// people paste from labels, dhcpd.conf and `ipmitool lan print`: either case,
+// with ':' or '-' between the bytes, or the dotted 0cc4.7a12.3456 form.
+// ok=false for anything that is not a 6-byte (EUI-48) address.
+func MAC(s string) (string, bool) {
+	hw, err := net.ParseMAC(strings.TrimSpace(s))
+	if err != nil || len(hw) != 6 {
+		return "", false
+	}
+	return hw.String(), true
+}
+
+// SameMAC reports whether two hardware addresses name the same NIC, whatever
+// form each is written in. Two strings that are not addresses compare as
+// case-insensitive text, so a malformed value still matches itself.
+func SameMAC(a, b string) bool {
+	na, okA := MAC(a)
+	nb, okB := MAC(b)
+	if okA && okB {
+		return na == nb
+	}
+	return strings.EqualFold(a, b)
 }

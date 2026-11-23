@@ -68,3 +68,24 @@ func TestName(t *testing.T) {
 	_, ok = identity.Name(metalv1alpha1.HostIdentity{UUID: "has-uuid-but-no-serial"})
 	assert.False(t, ok, "no serial anchor — cannot enroll")
 }
+
+func TestMAC(t *testing.T) {
+	for in, want := range map[string]string{
+		"0c:c4:7a:12:34:56":   "0c:c4:7a:12:34:56",
+		"0C:C4:7A:12:34:56":   "0c:c4:7a:12:34:56",
+		"0c-c4-7a-12-34-56":   "0c:c4:7a:12:34:56",
+		"0C-C4-7A-12-34-5F":   "0c:c4:7a:12:34:5f",
+		"0cc4.7a12.3456":      "0c:c4:7a:12:34:56",
+		" 0c:c4:7a:12:34:56 ": "0c:c4:7a:12:34:56",
+	} {
+		got, ok := identity.MAC(in)
+		assert.True(t, ok, in)
+		assert.Equal(t, want, got, in)
+	}
+	for _, bad := range []string{"", "0c:c4:7a:12:34", "zz:c4:7a:12:34:56", "0c:c4:7a:12:34:56:78:9a", "not a mac"} {
+		_, ok := identity.MAC(bad)
+		assert.False(t, ok, bad)
+	}
+	assert.True(t, identity.SameMAC("0C-C4-7A-12-34-56", "0c:c4:7a:12:34:56"))
+	assert.False(t, identity.SameMAC("0c:c4:7a:12:34:57", "0c:c4:7a:12:34:56"))
+}

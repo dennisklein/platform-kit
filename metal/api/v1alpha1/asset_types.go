@@ -19,9 +19,12 @@ type AssetSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	Serial string `json:"serial"`
 
-	// BMCMac is the management controller's own NIC MAC (the dnsmasq-ledger identity
-	// on the 1034 island), lowercase colon-separated.
-	// +kubebuilder:validation:Pattern=`^([0-9a-f]{2}:){5}[0-9a-f]{2}$`
+	// BMCMac is the MAC address of the BMC's own network port, as printed on
+	// the label or shown by `ipmitool lan print`. Either case, with ':' or '-'
+	// between the bytes. The operator looks it up in the ledger to find the
+	// BMC's address, and checks that the BMC at that address reports it.
+	// +kubebuilder:validation:MaxLength=17
+	// +kubebuilder:validation:XValidation:rule="self.matches('^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$') || self.matches('^[0-9A-Fa-f]{2}(-[0-9A-Fa-f]{2}){5}$')",message="bmcMac must be a MAC address such as 0c:c4:7a:12:34:56 (upper case and '-' separators are fine)"
 	// +optional
 	BMCMac string `json:"bmcMac,omitempty"`
 

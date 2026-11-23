@@ -22,6 +22,7 @@ import (
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	gofishclient "github.com/dennisklein/platform-kit/metal/internal/bmc/gofish"
+	"github.com/dennisklein/platform-kit/metal/internal/identity"
 	"github.com/dennisklein/platform-kit/metal/internal/phase"
 )
 
@@ -378,7 +379,7 @@ func verifiedCondition(snap *metalv1alpha1.AssetSnapshot, mgrMAC string, anchors
 	if snap == nil {
 		return metav1.ConditionUnknown, "NoAssertion", "asset has never been resolved"
 	}
-	if snap.BMCMac != "" && mgrMAC != "" && !strings.EqualFold(snap.BMCMac, mgrMAC) {
+	if snap.BMCMac != "" && mgrMAC != "" && !identity.SameMAC(snap.BMCMac, mgrMAC) {
 		return metav1.ConditionFalse, metalv1alpha1.ReasonMACMismatch,
 			fmt.Sprintf("asserted bmcMac %s, endpoint reports %s — wrong box behind this address", snap.BMCMac, mgrMAC)
 	}
