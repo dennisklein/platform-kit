@@ -68,6 +68,10 @@ die() {
 
 step() { echo "== $*" >&2; }
 
+# The file fleet_up leaves in the fleet's state directory. reset removes a
+# directory outside the lab directory only when it carries this mark.
+STATE_MARK=.pk-metal-lab-state
+
 # ---------------------------------------------------------------- fleet file
 
 fleet_query() {
@@ -501,12 +505,27 @@ fleet_running() {
   [[ $(tr '\0' ' ' <"/proc/$pid/cmdline") == "$binary sim fleet "* ]]
 }
 
+# Marks the fleet's state directory as the lab's, for reset. Only a directory
+# the lab creates, or one that is empty, gets the mark: a stateDir that points
+# at existing content (a typo, a source directory) stays unmarked, and reset
+# refuses it.
+mark_state_dir() {
+  local dir=$1
+  if [[ ! -e $dir/$STATE_MARK && -d $dir && -n $(ls -A "$dir") ]]; then
+    return 0
+  fi
+  mkdir -p "$dir"
+  echo "The virtual lab's machine disks (lab/fleet.yaml stateDir). mise run lab:reset removes this directory." \
+    >"$dir/$STATE_MARK"
+}
+
 fleet_up() {
   local root=$1 lab_dir=$2 fleet=$3
   local binary=$root/metal/bin/pk-metal listen deadline pid
   step "simulated fleet"
   [[ -x $binary ]] || die "$binary is missing. Build it: mise run build"
   mkdir -p "$lab_dir"
+  mark_state_dir "$(fleet_state_dir "$root" "$fleet")"
   if fleet_running "$lab_dir" "$binary"; then
     echo "  already running (pid $(<"$lab_dir/fleet.pid"))" >&2
   else
@@ -739,7 +758,7 @@ wait_converged() {
   local want line last="" deadline=$((SECONDS + timeout))
   require_cluster "$lab_dir"
   want=$(fleet_count "$fleet")
-  step "waiting up to ${timeout}s for $want Provisioned hosts and $want Ready nodes"
+  step "waiting up to ${timeout}s for $want Provisioned hosts and $want Ready nodes (from $(date '+%F %T %Z'))"
   while true; do
     approve_pending "$root" >/dev/null || true
     kubeconfig_fetch "$lab_dir" "$cluster_name" || true
@@ -749,7 +768,7 @@ wait_converged() {
     fi
     line=$(progress "$lab_dir" 2>/dev/null || echo "the lab cluster does not answer")
     if [[ $line != "$last" ]]; then
-      echo "  [$(date +%H:%M:%S)] $line" >&2
+      echo "  [$(date '+%F %T %Z')] $line" >&2
       last=$line
     fi
     (( SECONDS < deadline )) || die "the lab did not converge within ${timeout}s. Last state: $line
@@ -810,19 +829,47 @@ down() {
   echo "kept: the machines' disks, the image cache and the secrets bundle. Wipe the disks with: mise run lab:reset" >&2
 }
 
+# Succeeds when a directory may be removed as the fleet's state: it is not the
+# file system root, the home directory, the repository or a directory above it,
+# and it is either inside the lab directory or carries the mark fleet_up
+# leaves. The path comes out of a file somebody edits; `stateDir: .` or
+# `stateDir: metal` must not take the source tree with it.
+state_dir_removable() {
+  local dir=$1 root=$2 lab_dir=$3
+  dir=$(realpath -m "$dir")
+  root=$(realpath -m "$root")
+  lab_dir=$(realpath -m "$lab_dir")
+  [[ $dir != / && $dir != "$(realpath -m ~)" ]] || return 1
+  case "$root/" in
+    "$dir"/*) return 1 ;;
+  esac
+  # Inside the lab directory counts only while the lab directory is not the
+  # repository itself (PK_LAB_DIR=. would make the whole tree "inside").
+  case "$root/" in
+    "$lab_dir"/*) ;;
+    *)
+      case "$dir" in
+        "$lab_dir"/?*) return 0 ;;
+      esac
+      ;;
+  esac
+  [[ -f $dir/$STATE_MARK ]]
+}
+
 reset() {
   local root=$1 lab_dir=$2 fleet=$3
   local state_dir
   fleet_running "$lab_dir" "$root/metal/bin/pk-metal" \
     && die "the fleet is running and has the disks open. Take the lab down first: mise run lab:down"
   state_dir=$(fleet_state_dir "$root" "$fleet")
-  # The directory comes out of a file somebody edits. Refuse anything that is
-  # not clearly a lab state directory before removing it recursively.
-  case "$state_dir" in
-    "$root"/?* | "$lab_dir"/?*) ;;
-    *) die "stateDir resolves to $state_dir, which is neither under $root nor under $lab_dir.
-  Remove it by hand if that is really where the lab's disks are." ;;
-  esac
+  if [[ ! -e $state_dir ]]; then
+    echo "nothing to wipe: $state_dir does not exist" >&2
+    return 0
+  fi
+  state_dir_removable "$state_dir" "$root" "$lab_dir" \
+    || die "stateDir in $fleet resolves to $state_dir. That is not inside $lab_dir and has no
+  $STATE_MARK file, so it may not be the lab's (or it holds the repository). Nothing was removed.
+  Fix stateDir in $fleet, or remove the directory by hand if it really holds the lab's disks."
   rm -rf "$state_dir"
   echo "wiped $state_dir. The next lab:up installs every machine from scratch." >&2
 }
