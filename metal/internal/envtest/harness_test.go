@@ -59,8 +59,10 @@ func startEnv(t *testing.T, extraCRDDirs ...string) *suite {
 }
 
 // userClient is a client acting as the named person. system:masters skips
-// RBAC, which is not under test; the username stays distinct, which is what
-// the admission policies' request.userInfo rules see.
+// RBAC, so these clients test admission, not roles; the username stays
+// distinct, which is what the admission policies' request.userInfo rules
+// see. The committed roles are under test in rbac_test.go, through
+// installManagerRBAC and approverClient.
 func (s *suite) userClient(t *testing.T, name string, groups ...string) client.Client {
 	t.Helper()
 	u, err := s.env.AddUser(envtest.User{Name: name, Groups: append(groups, "system:masters")}, nil)

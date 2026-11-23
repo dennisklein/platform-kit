@@ -108,11 +108,19 @@ func TestProvisioning(t *testing.T) {
 	} {
 		require.NoError(t, cl.Create(ctx, sec))
 	}
-	operator := whoAmI(t, ctx, cl)
+	// The manager runs as the deployed service account, under the generated
+	// roles and outside system:masters: a verb the provisioning path needs
+	// and the roles lack fails here, not in the lab.
+	managerCfg := st.installManagerRBAC(t, ctx, "default")
+	managerCl, err := client.New(managerCfg, client.Options{Scheme: st.scheme})
+	require.NoError(t, err)
+	operator := whoAmI(t, ctx, managerCl)
+	require.Equal(t, managerUser, operator)
 	installApprovalPolicy(t, ctx, cl, operator)
 	installClaimPolicy(t, ctx, cl)
 
-	aliceCl := st.userClient(t, "alice")
+	// Alice approves with the committed approver role and nothing else.
+	aliceCl := st.approverClient(t, ctx, "alice")
 	bobCl := st.userClient(t, "bob")
 	carolCl := st.userClient(t, "carol", "pk-metal:admins")
 
@@ -125,7 +133,7 @@ func TestProvisioning(t *testing.T) {
 	imageFactory := render.NewFactory(strings.TrimPrefix(factory.URL, "https://"))
 	imageFactory.HTTPClient = factory.Client()
 
-	mgr := st.newManager(t)
+	mgr := st.newManagerAs(t, managerCfg, "default")
 	require.NoError(t, controller.SetupAll(mgr, controller.Options{
 		CredentialsNamespace: "default",
 		OperationsNamespace:  "default",
