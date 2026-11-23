@@ -21,6 +21,8 @@
 // Kubernetes CA, using the same helper Talos uses for its own. go.yaml.in/yaml/v4
 // decodes the secrets bundle strictly; it is the YAML library machinery itself
 // marshals the bundle with, so a file from `talosctl gen secrets` round-trips.
+// It is also the one YAML library for the ledger, the simulator fixtures and
+// fleet config; sigs.k8s.io/yaml stays for API objects, as it honours json tags.
 module github.com/dennisklein/platform-kit/metal
 
 go 1.26.5
@@ -39,7 +41,6 @@ require (
 	github.com/stretchr/testify v1.12.1
 	go.yaml.in/yaml/v4 v4.0.0-rc.6
 	google.golang.org/grpc v1.83.2
-	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.36.2
 	k8s.io/apiextensions-apiserver v0.36.0
 	k8s.io/apimachinery v0.36.2
@@ -163,6 +164,7 @@ require (
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/code-generator v0.36.0 // indirect
 	k8s.io/gengo/v2 v2.0.0-20250922181213-ec3ebc5fd46b // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect

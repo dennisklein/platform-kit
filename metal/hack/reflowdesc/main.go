@@ -13,7 +13,7 @@ import (
 	"os"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v4"
 )
 
 func main() {
@@ -37,8 +37,12 @@ func reflowFile(path string) error {
 	// One CRD per file is controller-gen's layout, but decode a stream to be safe.
 	dec := yaml.NewDecoder(bytes.NewReader(in))
 	var out bytes.Buffer
-	enc := yaml.NewEncoder(&out)
-	enc.SetIndent(2)
+	// No line width: the point of the reflow is one logical line per paragraph,
+	// and an emitter that folds at 80 columns would put the breaks back.
+	enc, err := yaml.NewDumper(&out, yaml.WithV3Defaults(), yaml.WithIndent(2), yaml.WithLineWidth(-1))
+	if err != nil {
+		return err
+	}
 	for {
 		var doc yaml.Node
 		if err := dec.Decode(&doc); err != nil {
@@ -51,7 +55,7 @@ func reflowFile(path string) error {
 		// controller-gen opens every document with an explicit `---`; the encoder
 		// only separates, so emit the first one ourselves.
 		out.WriteString("---\n")
-		if err := enc.Encode(&doc); err != nil {
+		if err := enc.Dump(&doc); err != nil {
 			return err
 		}
 	}

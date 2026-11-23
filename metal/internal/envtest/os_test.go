@@ -29,7 +29,7 @@ import (
 	clientconfig "github.com/siderolabs/talos/pkg/machinery/client/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	yamlv3 "gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v4"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -72,7 +72,7 @@ func stubFactory(t *testing.T) (*render.Factory, func() []string) {
 			return
 		}
 		var sch schematic.Schematic
-		if err := yamlv3.Unmarshal(body, &sch); err != nil {
+		if err := yaml.Unmarshal(body, &sch); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}

@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"bytes"
 	"cmp"
 	"embed"
 	"fmt"
@@ -9,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v4"
 
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 )
@@ -283,8 +284,13 @@ func LoadFixture(name string) (*Fixture, error) {
 				name, strings.Join(Fixtures(), ", "))
 		}
 	}
+	// Strict: a fixture can be a user's file, and a misspelled quirk key
+	// would otherwise be dropped, so the sim would stop reproducing that
+	// quirk without a word.
 	var f Fixture
-	if err := yaml.Unmarshal(data, &f); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&f); err != nil {
 		return nil, fmt.Errorf("fixture %q: %w", name, err)
 	}
 	if err := f.validate(); err != nil {

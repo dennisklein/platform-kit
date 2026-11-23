@@ -23,7 +23,7 @@ import (
 	"slices"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v4"
 
 	"github.com/dennisklein/platform-kit/metal/internal/identity"
 )

@@ -13,7 +13,7 @@ import (
 	"github.com/siderolabs/image-factory/pkg/schematic"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	yamlv3 "gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v4"
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
@@ -33,7 +33,7 @@ func fakeFactory(t *testing.T, answer func(id string) string) (*render.Factory, 
 		require.NoError(t, err)
 		lastBody.Store(string(body))
 		var sch schematic.Schematic
-		require.NoError(t, yamlv3.Unmarshal(body, &sch))
+		require.NoError(t, yaml.Unmarshal(body, &sch))
 		id, err := sch.ID()
 		require.NoError(t, err)
 		if answer != nil {
