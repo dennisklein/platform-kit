@@ -22,13 +22,15 @@ spec:
   secretsRef:
     namespace: pk-metal
     name: lab-talos-secrets
-  # The boot medium reads its config off the second virtual CD
-  # (talos.config=metal-iso); the serial console is what the BMC's
-  # serial-over-LAN and the VM's console log show.
+  # Kernel arguments of the installed system and of the boot medium. The
+  # serial console is what the BMC's serial-over-LAN and the VM's console log
+  # show: ttyS0 under QEMU; on real hardware the port your BMC's SOL
+  # redirects (often ttyS1,115200n8). The operator itself adds
+  # talos.config=metal-iso to the boot medium only, so that it reads its
+  # config off the second virtual CD; it does not belong here.
   schematic:
     customization:
       extraKernelArgs:
-        - talos.config=metal-iso
         - console=ttyS0
   patches:
     - inline: |

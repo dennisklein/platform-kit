@@ -1,7 +1,22 @@
 # The decisions: each claim binds one machine, through its Asset, and says what
-# it is to run. This is what starts provisioning. The operator answers a bound
-# claim by proposing a boot operation, and a person lets it happen with
-# `pk-metal approve` (`mise run lab:approve`).
+# it is to run. This is what starts provisioning.
+#
+# Read this before you apply or delete a claim:
+#   - A claim WITH spec.os proposes installing that OS onto the machine. Once a
+#     person approves (`pk-metal approve`, `mise run lab:approve`), the machine
+#     boots the installer and its install disk is overwritten.
+#   - A claim without spec.os only reserves the machine. To say "not now" to a
+#     proposed install, remove spec.os from the claim, or hold it:
+#     `pk-metal hold default/node-1`.
+#   - Deleting a claim POWERS THE MACHINE OFF (if a boot of this claim ran on
+#     it): a graceful shutdown first, then a hard power-off. When the machine
+#     runs its node (Host phase Provisioned), that power-off is proposed and
+#     waits for a person's approval, like an install. Deleting is not "remove
+#     from inventory". `kubectl delete -f lab/manifests/` does this to all
+#     three.
+#
+# Changing spec.os needs the admin group (metal/config/policy); `mise run
+# lab:apply` applies as a member of it.
 apiVersion: metal.pk.io/v1alpha1
 kind: HostClaim
 metadata:
@@ -10,6 +25,8 @@ metadata:
 spec:
   assetRef:
     name: node-1
+  # Labels select BIOS and firmware profiles for the machine. The node's role
+  # in the cluster comes from the TalosNode (20-talos.yaml), not from here.
   labels:
     role: controlplane
   os:

@@ -12,6 +12,14 @@
 # The secrets bundle is not here and the operator never makes one. `mise run
 # lab:up` generates it once on the workstation with `talosctl gen secrets` and
 # creates the Secret the cluster names below (key secrets.yaml).
+#
+# The TalosCluster holds what every node shares (think group_vars, or the
+# %include part of a kickstart); each TalosNode holds what is per machine
+# (address, install disk, role). The operator renders one Talos machine
+# configuration per node from the two. Change a value here and apply it again
+# (mise run lab:apply); the operator renders anew. A machine that is already
+# installed does not pick the change up by itself: push it with talosctl
+# (talosctl -n <address> patch machineconfig --patch @change.yaml).
 apiVersion: os.pk.io/v1alpha1
 kind: TalosCluster
 metadata:
@@ -32,8 +40,12 @@ spec:
     customization:
       extraKernelArgs:
         # The simulated BMC records the machine's serial console; without this
-        # the boot is invisible in .lab/state/<machine>/.
+        # the boot is invisible in .lab/state/<machine>/console.log. On real
+        # hardware, name the port your BMC's serial-over-LAN redirects, for
+        # example console=ttyS1,115200n8 on many Supermicro boards.
         - console=ttyS0
+  # Talos machine configuration documents, merged into every node's
+  # configuration. The operator adds nothing here on its own.
   patches:
     # Talos holds the boot until the clock is synchronized, forever by default.
     # A lab machine's clock comes from the workstation and is right from the
@@ -43,6 +55,17 @@ spec:
         apiVersion: v1alpha1
         kind: TimeSyncConfig
         bootTimeout: 2m0s
+    # The DNS servers the machines use. These two are Talos' own defaults,
+    # written out so that they are easy to find: a site that blocks public
+    # resolvers puts its own here. The machines reach them through the
+    # workstation's NAT. A site proxy goes into a second document in the
+    # same way, see "Behind a proxy" in lab/README.md.
+    - inline: |
+        apiVersion: v1alpha1
+        kind: ResolverConfig
+        nameservers:
+          - address: 1.1.1.1
+          - address: 8.8.8.8
 ---
 apiVersion: os.pk.io/v1alpha1
 kind: TalosNode
@@ -51,7 +74,13 @@ metadata:
 spec:
   clusterRef:
     name: lab
+  # The node's role in the cluster. The operator renders the Talos config from
+  # it. (The claim's labels.role in 30-claims.yaml selects BIOS and firmware
+  # profiles instead; keep the two in step by hand.)
   role: controlplane
+  # The disk Talos installs onto. The first disk that matches is repartitioned
+  # and overwritten. A serial (or wwid) names exactly one disk; a model or
+  # size pattern can match a data disk too.
   installDiskSelector:
     serial: pklab-disk-1
   network:
