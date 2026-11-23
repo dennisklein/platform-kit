@@ -28,11 +28,26 @@ import (
 )
 
 func TestConformance(t *testing.T) {
-	for _, name := range []string{"huawei-2288h-v5", "supermicro-x12"} {
+	for _, name := range sim.Fixtures() {
 		t.Run(name, func(t *testing.T) {
 			f, err := sim.LoadFixture(name)
 			require.NoError(t, err)
 			bmctest.Run(t, sim.NewState(f), f, false)
+		})
+	}
+}
+
+// TestTree checks every personality's HTTP tree at the protocol level: links
+// that resolve, absent resources that answer 404 in the error format, the
+// boot override as served state, and the declared protocol features.
+func TestTree(t *testing.T) {
+	for _, name := range sim.Fixtures() {
+		t.Run(name, func(t *testing.T) {
+			f, err := sim.LoadFixture(name)
+			require.NoError(t, err)
+			srv := httptest.NewServer(sim.NewServer(sim.NewState(f)))
+			defer srv.Close()
+			bmctest.RunTree(t, srv.URL, f)
 		})
 	}
 }
@@ -236,7 +251,7 @@ func TestHTTPTree(t *testing.T) {
 			map[string]string{"Image": img})
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode, "standard InsertMedia on iBMC")
 
-		resp = post(t, srv, "/redfish/v1/Managers/1/VirtualMedia/CD/Actions/Oem/VirtualMedia.VmmControl",
+		resp = post(t, srv, "/redfish/v1/Managers/1/VirtualMedia/CD/Oem/Huawei/Actions/VirtualMedia.VmmControl",
 			map[string]string{"VmmControlType": "Connect", "Image": img})
 		require.Equal(t, http.StatusAccepted, resp.StatusCode, "VmmControl Connect")
 

@@ -2,62 +2,53 @@ package sim
 
 import (
 	"context"
-	"crypto/tls"
-	"errors"
-	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 )
 
-// State is the sim's mutable world: a Fixture plus everything an operation can change
-// (power, boot override, mounted media, injected faults). It implements bmc.Client
-// directly — the in-memory backend for unit tests — and server.go serves the same State
-// over HTTP for the gofish client and the CLI.
+// State is the sim's mutable world: a Fixture plus everything an operation can
+// change (power, boot override, mounted media, firmware, accounts, injected
+// faults). It implements bmc.Client directly — the in-memory backend for unit
+// tests — and Server serves the same State over HTTP for the production client
+// and curl. The files of this package split the world by concern: power and
+// boot here, media in media.go, firmware and BIOS in convergence.go, and so on.
 type State struct {
 	mu        sync.Mutex
 	f         *Fixture
 	power     map[string]bmc.PowerState // by system id
-	boot      map[string]bootOverride
+	boot      map[string]*bootOverride
 	media     map[string]*mountedMedia // by media slot id
 	faults    map[Fault]bool
-	resets    map[string]int        // ForceRestart/On transitions per system — test observability
+	resets    map[string]int        // boots per system — test observability
 	lastReset map[string]time.Time  // advances on reset — only for systems whose fixture serves it
-	machines  map[string]Machine    // real machines behind systems (machine.go); nil entries = mem-only
-	fw        fwState               // manager firmware + staging slot (convergence.go)
+	machines  map[string]Machine    // real machines behind systems (machine.go); absent = state only
+	progress  map[string]string     // boot progress last read from a machine, by system id
+	fw        fwState               // manager firmware and staging slot (convergence.go)
 	bios      map[string]*biosState // by system id; nil entry = no BIOS resource served
 	accounts  []*account            // manager accounts (accounts.go); empty = open sim, no auth
-	ntp       bmc.NTPConfig         // time sources (ntp.go); meaningful only where the fixture serves NTP
-	identity  identityState         // HTTPS identity (identity.go); served/pending/staged certificates
+	sessions  map[string]*session   // by token (sessions.go)
+	tasks     []*task               // every task ever started (tasks.go)
+	ntp       bmc.NTPConfig         // time sources (ntp.go)
+	identity  identityState         // HTTPS identity (identity.go)
+	cache     *MediaCache           // on-disk store for large public images; nil = pull into memory
 }
 
+// bootOverride is one system's Boot object. A Once override is used up by
+// the next boot: its enablement falls back to Disabled, the target stays —
+// the specification resets BootSourceOverrideEnabled and nothing else.
 type bootOverride struct {
-	target string
-	once   bool
-	mode   string
-	// consumed marks a Once override the following boot used up: it reads
-	// back Disabled, as Redfish reports it.
-	consumed bool
+	target  string // "" reads as None
+	enabled string // Once | Continuous | Disabled; "" reads as Disabled
+	once    bool   // the last override set was a one-time one (test observability)
+	mode    string // BootSourceOverrideMode; empty = not served
 }
 
-type mountedMedia struct {
-	imageURL string                // as the BMC stores it — userinfo intact on the vmm dialect
-	creds    *bmc.MediaCredentials // fetch credentials, whichever way they arrived
-	image    []byte                // the full pull a power-on performs — the sim's "boot"
-}
-
-// mediaFetcher is the sim's HTTP client for media pulls — skip-verify, mirroring
-// the deployed posture (iBMC verifies nothing; the X12 trust store is empty and
-// unfeedable).
-var mediaFetcher = &http.Client{
-	Timeout:   10 * time.Second,
-	Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}, //nolint:gosec // the observed BMC posture
+// armed reports whether the next boot takes the override.
+func (b *bootOverride) armed() bool {
+	return b != nil && b.target != "" && (b.enabled == bmc.OverrideOnce || b.enabled == bmc.OverrideContinuous)
 }
 
 // Fault injection — the lying-oracle states real hardware won't produce on demand.
@@ -76,33 +67,30 @@ const (
 	// never applies, never clears.
 	FaultBiosStuck Fault = "bios-stuck"
 	// FaultCertStuck answers success to a certificate import/upload while
-	// the listener keeps serving the old identity across every manager
-	// reset — the lying oracle for the identity lane.
+	// the listener keeps serving the old identity — the lying oracle for the
+	// identity lane.
 	FaultCertStuck Fault = "cert-stuck"
 )
-
-var errUnreachable = errors.New("sim: endpoint unreachable (injected)")
 
 func NewState(f *Fixture) *State {
 	s := &State{
 		f:         f,
 		power:     map[string]bmc.PowerState{},
-		boot:      map[string]bootOverride{},
+		boot:      map[string]*bootOverride{},
 		media:     map[string]*mountedMedia{},
 		faults:    map[Fault]bool{},
 		resets:    map[string]int{},
 		lastReset: map[string]time.Time{},
-		fw:        fwState{version: f.Manager.Firmware, lastReset: f.Manager.LastResetTime},
+		progress:  map[string]string{},
+		fw:        fwState{version: f.Manager.Firmware, lastReset: f.Manager.LastResetTime, versions: map[string]string{}},
 		bios:      map[string]*biosState{},
+		sessions:  map[string]*session{},
 		ntp:       bmc.NTPConfig{Enabled: f.NTP.Enabled, Servers: f.NTP.Servers},
 	}
-	for _, a := range f.Accounts {
-		s.accounts = append(s.accounts, &account{
-			id: a.ID, username: a.Username, password: a.Password, role: a.Role, enabled: a.Enabled,
-		})
-	}
+	s.seedAccounts()
 	for _, sys := range f.Systems {
 		s.power[sys.ID] = bmc.PowerState(sys.Power)
+		s.boot[sys.ID] = &bootOverride{mode: sys.BootMode}
 		if !sys.LastResetTime.IsZero() {
 			s.lastReset[sys.ID] = sys.LastResetTime
 		}
@@ -114,6 +102,9 @@ func NewState(f *Fixture) *State {
 	return s
 }
 
+// Fixture is the fixture this state was born from.
+func (s *State) Fixture() *Fixture { return s.f }
+
 // SetFault toggles an injected fault.
 func (s *State) SetFault(f Fault, on bool) {
 	s.mu.Lock()
@@ -121,16 +112,29 @@ func (s *State) SetFault(f Fault, on bool) {
 	s.faults[f] = on
 }
 
-// BootOverride reports the set boot override (test observability); empty target
-// means none.
+// BootOverride reports the last boot override that was set (test
+// observability) — still readable after a boot spent a one-time override.
+// Empty target means none was ever set.
 func (s *State) BootOverride(systemID string) (target string, once bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	bo := s.boot[systemID]
-	return bo.target, bo.once
+	if bo := s.boot[systemID]; bo != nil {
+		return bo.target, bo.once
+	}
+	return "", false
 }
 
-// Resets reports how many power transitions a system has seen (test observability).
+// BootMode reports a system's BootSourceOverrideMode (test observability).
+func (s *State) BootMode(systemID string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if bo := s.boot[systemID]; bo != nil {
+		return bo.mode
+	}
+	return ""
+}
+
+// Resets reports how many boots a system has seen (test observability).
 func (s *State) Resets(systemID string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -140,6 +144,16 @@ func (s *State) Resets(systemID string) int {
 func (s *State) reachable() error {
 	if s.faults[FaultUnreachable] {
 		return errUnreachable
+	}
+	return nil
+}
+
+// system finds a fixture system by id.
+func (f *Fixture) system(id string) *FixtureSystem {
+	for i := range f.Systems {
+		if f.Systems[i].ID == id {
+			return &f.Systems[i]
+		}
 	}
 	return nil
 }
@@ -167,7 +181,7 @@ func (s *State) Chassis(context.Context) (bmc.Chassis, error) {
 	}
 	ch := bmc.Chassis{BoardSerial: s.f.Chassis.BoardSerial, Model: s.f.Chassis.Model}
 	for _, a := range s.f.Chassis.Adapters {
-		ch.Adapters = append(ch.Adapters, bmc.Adapter{Model: a.Model, PortMACs: a.PortMACs})
+		ch.Adapters = append(ch.Adapters, bmc.Adapter{Model: a.Model, PortMACs: slices.Clone(a.PortMACs)})
 	}
 	return ch, nil
 }
@@ -193,16 +207,9 @@ func (s *State) Systems(ctx context.Context) ([]bmc.System, error) {
 			CPUModel:      fs.CPUModel,
 			CPUCount:      fs.CPUCount,
 			BootTargets:   fs.BootTargets,
+			BootProgress:  s.bootProgress(&fs),
 		}
-		if bo, ok := s.boot[fs.ID]; ok {
-			sys.BootOverride = bmc.BootOverride{Target: bo.target, Enabled: bmc.OverrideContinuous, Mode: bo.mode}
-			if bo.once {
-				sys.BootOverride.Enabled = bmc.OverrideOnce
-			}
-			if bo.consumed {
-				sys.BootOverride.Enabled = bmc.OverrideDisabled
-			}
-		}
+		sys.BootOverride.Enabled, sys.BootOverride.Target, sys.BootOverride.Mode = s.bootViewLocked(fs.ID)
 		for _, n := range fs.NICs {
 			sys.NICs = append(sys.NICs, bmc.NIC{ID: n.ID, MAC: n.MAC})
 		}
@@ -214,6 +221,23 @@ func (s *State) Systems(ctx context.Context) ([]bmc.System, error) {
 	return out, nil
 }
 
+// bootProgress is BootProgress.LastState for a system whose fixture serves it:
+// None while off, whatever the machine behind the system reports while on, and
+// OSRunning where no machine exists to say otherwise — a state-only system is
+// up the moment it has power.
+func (s *State) bootProgress(fs *FixtureSystem) string {
+	switch {
+	case !fs.BootProgress:
+		return ""
+	case s.power[fs.ID] != bmc.PowerOn:
+		return "None"
+	case s.progress[fs.ID] != "":
+		return s.progress[fs.ID]
+	default:
+		return "OSRunning"
+	}
+}
+
 func (s *State) Capabilities(context.Context) (bmc.Capabilities, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -223,7 +247,7 @@ func (s *State) Capabilities(context.Context) (bmc.Capabilities, error) {
 	caps := bmc.Capabilities{
 		MediaDialect:    map[string]bmc.MediaDialect{},
 		UpdateDialect:   s.f.updateDialect(),
-		IdentityDialect: bmc.IdentityDialect(s.f.identityDialect()),
+		IdentityDialect: s.f.identityDialect(),
 	}
 	for i, vm := range s.f.VirtualMedia {
 		caps.MediaDialect[vm.ID] = s.f.dialect(i)
@@ -247,46 +271,30 @@ func (s *State) Power(ctx context.Context, systemID string) (bmc.PowerState, err
 		return "", err
 	}
 	if _, ok := s.power[systemID]; !ok {
-		return "", fmt.Errorf("sim: no system %q", systemID)
+		return "", notFound("ComputerSystem", systemID)
 	}
 	return s.reportedPower(systemID), nil
 }
 
+// SetPower is ComputerSystem.Reset. Every action that boots the system pulls
+// the mounted media first and hands the machine behind the system its boot
+// source, the way hardware has the virtual drive attached and the override
+// latched before the firmware runs.
 func (s *State) SetPower(ctx context.Context, systemID string, action bmc.PowerAction) error {
 	s.syncMachines(ctx)
-	s.mu.Lock()
-	if err := s.reachable(); err != nil {
-		s.mu.Unlock()
+	verb, err := s.powerVerb(systemID, action)
+	if err != nil {
 		return err
 	}
-	if _, ok := s.power[systemID]; !ok {
-		s.mu.Unlock()
-		return fmt.Errorf("sim: no system %q", systemID)
-	}
-	// Decide the transition under the lock, drive the machine outside it: a
-	// failing machine op fails the action with the sim's view untouched.
-	verb := ""
-	switch action {
-	case bmc.ActionOn:
-		verb = "start"
-	case bmc.ActionForceOff, bmc.ActionGracefulShutdown:
-		verb = "stop"
-	case bmc.ActionForceRestart:
-		if s.power[systemID] != bmc.PowerOn {
-			s.mu.Unlock()
-			return fmt.Errorf("sim: ForceRestart on powered-off system %q", systemID)
-		}
-		verb = "restart"
-	default:
-		s.mu.Unlock()
-		return fmt.Errorf("sim: unsupported reset type %q", action)
-	}
-	s.mu.Unlock()
-	// The boot-time pull happens first: a starting system reads its mounted
-	// media in full, and a media-taking machine gets the images before power
-	// is driven. Outside the lock — network I/O against the asset server.
-	if verb == "start" || verb == "restart" {
+	boots := verb != "stop"
+	// Outside the lock from here: the pull is network I/O against the asset
+	// server, the machine op a process spawn. A failure in either fails the
+	// action with the sim's view untouched.
+	if boots {
 		if err := s.presentMedia(ctx, systemID); err != nil {
+			return err
+		}
+		if err := s.presentBootSource(ctx, systemID); err != nil {
 			return err
 		}
 	}
@@ -295,229 +303,145 @@ func (s *State) SetPower(ctx context.Context, systemID string, action bmc.PowerA
 	}
 
 	s.mu.Lock()
-	booted := false
-	switch action {
-	case bmc.ActionOn:
-		s.power[systemID] = bmc.PowerOn
-		s.reset(systemID)
-		booted = true
-	case bmc.ActionForceOff, bmc.ActionGracefulShutdown:
+	defer s.mu.Unlock()
+	if !boots {
 		s.power[systemID] = bmc.PowerOff
-	case bmc.ActionForceRestart:
-		s.reset(systemID)
-		booted = true
+		return nil
 	}
-	if booted {
-		// A system coming out of reset applies its staged BIOS settings —
-		// the @Redfish.Settings pending→applied edge.
-		s.applyBios(systemID)
-		// And uses up a Once boot override.
-		if bo, ok := s.boot[systemID]; ok && bo.once {
-			bo.consumed = true
-			s.boot[systemID] = bo
-		}
-	}
-	s.mu.Unlock()
-	return nil
-}
-
-// bootFetch pulls a mounted medium's full content and keeps it as the booted
-// image. A failed pull simply leaves no image — the node didn't boot from it.
-func (s *State) bootFetch(ctx context.Context, mm *mountedMedia) {
-	s.mu.Lock()
-	raw, creds := mm.imageURL, mm.creds
-	s.mu.Unlock()
-	u, err := url.Parse(raw)
-	if err != nil {
-		return
-	}
-	body, err := s.fetch(ctx, http.MethodGet, u, creds, "")
-	if err != nil {
-		return
-	}
-	s.mu.Lock()
-	mm.image = body
-	s.mu.Unlock()
-}
-
-// reset records a power transition; the reset-time observable only advances for
-// systems whose fixture serves it (the iBMC serves none — the sim never invents
-// facts real hardware withholds).
-func (s *State) reset(systemID string) {
+	s.power[systemID] = bmc.PowerOn
 	s.resets[systemID]++
+	// The reset-time observable only advances where the fixture serves it —
+	// the sim never invents a fact real hardware withholds.
 	if _, served := s.lastReset[systemID]; served {
 		s.lastReset[systemID] = time.Now()
 	}
-}
-
-func (s *State) SetBootOverride(_ context.Context, systemID string, o bmc.BootOverride) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.reachable(); err != nil {
-		return err
+	if bo := s.boot[systemID]; bo.enabled == bmc.OverrideOnce {
+		bo.enabled = bmc.OverrideDisabled
 	}
-	for _, fs := range s.f.Systems {
-		if fs.ID != systemID {
-			continue
-		}
-		if !slices.Contains(fs.BootTargets, o.Target) {
-			return fmt.Errorf("sim: boot target %q not in AllowableValues %v", o.Target, fs.BootTargets)
-		}
-		if o.Mode != "" && o.Mode != "UEFI" && o.Mode != "Legacy" {
-			return fmt.Errorf("sim: boot mode %q not in AllowableValues [UEFI Legacy]", o.Mode)
-		}
-		s.boot[systemID] = bootOverride{target: o.Target, once: o.Enabled != bmc.OverrideContinuous, mode: o.Mode}
-		return nil
-	}
-	return fmt.Errorf("sim: no system %q", systemID)
-}
-
-func (s *State) Media(context.Context) ([]bmc.VirtualMedia, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.reachable(); err != nil {
-		return nil, err
-	}
-	var out []bmc.VirtualMedia
-	for _, vm := range s.f.VirtualMedia {
-		m := bmc.VirtualMedia{
-			ID:             vm.ID,
-			MediaTypes:     vm.MediaTypes,
-			InsertStandard: vm.InsertStandard,
-			OemActions:     vm.OemActions,
-		}
-		if mm := s.media[vm.ID]; mm != nil {
-			m.Inserted, m.ImageURL = true, mm.imageURL
-		}
-		out = append(out, m)
-	}
-	return out, nil
-}
-
-// InsertMedia validates the URL the way the vendors do, then performs the
-// mount-time fetch a real BMC performs: both dialects HEAD the image, the
-// standard (X12) dialect additionally sniffs the first sector. Nobody reads the
-// full content before boot — that pull happens at power-on.
-func (s *State) InsertMedia(ctx context.Context, mediaID, imageURL string, creds *bmc.MediaCredentials) error {
-	s.mu.Lock()
-	dialect, err := s.insertable(mediaID)
-	s.mu.Unlock()
-	if err != nil {
-		return err
-	}
-
-	u, err := url.Parse(imageURL)
-	if err != nil {
-		return fmt.Errorf("sim: media %q: unparsable image url", mediaID)
-	}
-	if u.Scheme != "https" {
-		// iBMC rejects plain http before dialing; https-only is the posture.
-		return fmt.Errorf("sim: media %q: image url must be https", mediaID)
-	}
-	if u.RawQuery != "" || !strings.HasSuffix(u.Path, ".iso") {
-		return fmt.Errorf("sim: media %q: incorrect file format", mediaID)
-	}
-	switch {
-	case dialect == bmc.DialectStandard && u.User != nil:
-		return fmt.Errorf("sim: media %q: userinfo rejected at the Image schema", mediaID)
-	case dialect == bmc.DialectVmmControl && u.User != nil:
-		pw, _ := u.User.Password()
-		creds = &bmc.MediaCredentials{Username: u.User.Username(), Password: pw}
-	}
-
-	if err := s.fetchMount(ctx, u, creds, dialect); err != nil {
-		// The observed iBMC failure shape for an unfetchable image.
-		return fmt.Errorf("sim: media %q: failed to connect to virtual media: %v", mediaID, err)
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, err := s.insertable(mediaID); err != nil { // raced with another insert
-		return err
-	}
-	s.media[mediaID] = &mountedMedia{imageURL: imageURL, creds: creds}
+	// A system coming out of reset applies its staged BIOS settings — the
+	// @Redfish.Settings pending→applied edge.
+	s.applyBios(systemID)
 	return nil
 }
 
-// insertable checks slot existence, dialect, and vacancy under the caller's lock.
-func (s *State) insertable(mediaID string) (bmc.MediaDialect, error) {
+// powerVerb validates a reset request against the system's state and its
+// advertised reset types, and names what the machine has to do for it.
+func (s *State) powerVerb(systemID string, action bmc.PowerAction) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if err := s.reachable(); err != nil {
 		return "", err
 	}
-	for i, vm := range s.f.VirtualMedia {
-		if vm.ID != mediaID {
-			continue
+	fs := s.f.system(systemID)
+	if fs == nil {
+		return "", notFound("ComputerSystem", systemID)
+	}
+	if !slices.Contains(fs.resetTypes(), string(action)) {
+		return "", notInList("ActionParameterValueNotInList", "ResetType", string(action))
+	}
+	on := s.power[systemID] == bmc.PowerOn
+	switch action {
+	case bmc.ActionOn:
+		return "start", nil
+	case bmc.ActionForceOff, bmc.ActionGracefulShutdown:
+		return "stop", nil
+	case bmc.ActionForceRestart, bmc.ActionGracefulRestart:
+		if !on {
+			return "", refuse("%s on powered-off system %q", action, systemID)
 		}
-		if d := s.f.dialect(i); d != bmc.DialectNone {
-			if s.media[mediaID] != nil {
-				return "", fmt.Errorf("sim: media %q already inserted", mediaID)
-			}
-			return d, nil
+		return "restart", nil
+	case bmc.ActionPowerCycle:
+		if !on {
+			return "start", nil
 		}
-		return "", fmt.Errorf("sim: media %q advertises no insert mechanism", mediaID)
+		return "cycle", nil
+	default:
+		return "", refuse("reset type %q is advertised but not modelled", action)
 	}
-	return "", fmt.Errorf("sim: no media slot %q", mediaID)
 }
 
-func (s *State) fetchMount(ctx context.Context, u *url.URL, creds *bmc.MediaCredentials, dialect bmc.MediaDialect) error {
-	if _, err := s.fetch(ctx, http.MethodHead, u, creds, ""); err != nil {
-		return err
+// SetBootOverride is the seam's view of the Boot object PATCH.
+func (s *State) SetBootOverride(_ context.Context, systemID string, o bmc.BootOverride) error {
+	// An unnamed enablement is a one-time override, an unnamed mode stays as
+	// it is — the seam's reading of empty fields.
+	enabled := o.Enabled
+	if enabled == "" {
+		enabled = bmc.OverrideOnce
 	}
-	if dialect == bmc.DialectStandard {
-		_, err := s.fetch(ctx, http.MethodGet, u, creds, "bytes=0-511")
-		return err
+	var mode *string
+	if o.Mode != "" {
+		mode = &o.Mode
 	}
-	return nil
+	return s.patchBoot(systemID, &enabled, &o.Target, mode)
 }
 
-// fetch is one media pull; the userinfo travels as Basic auth (which is how both
-// credential forms arrive at the asset server), never in the dialed URL.
-func (s *State) fetch(ctx context.Context, method string, u *url.URL, creds *bmc.MediaCredentials, rangeHeader string) ([]byte, error) {
-	clean := *u
-	clean.User = nil
-	req, err := http.NewRequestWithContext(ctx, method, clean.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-	if creds != nil {
-		req.SetBasicAuth(creds.Username, creds.Password)
-	}
-	if rangeHeader != "" {
-		req.Header.Set("Range", rangeHeader)
-	}
-	resp, err := mediaFetcher.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("status %d", resp.StatusCode)
-	}
-	return io.ReadAll(resp.Body)
-}
-
-// BootImage reports the bytes the last power-on pulled from a mounted medium —
-// the sim's evidence of what the node booted. Nil until a boot happened.
-func (s *State) BootImage(mediaID string) []byte {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if mm := s.media[mediaID]; mm != nil {
-		return mm.image
-	}
-	return nil
-}
-
-func (s *State) EjectMedia(_ context.Context, mediaID string) error {
+// patchBoot applies a partial update of the Boot object. Absent properties keep
+// their value.
+func (s *State) patchBoot(systemID string, enabled, target, mode *string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.reachable(); err != nil {
 		return err
 	}
-	if s.media[mediaID] == nil {
-		return fmt.Errorf("sim: media %q not inserted", mediaID)
+	fs := s.f.system(systemID)
+	if fs == nil {
+		return notFound("ComputerSystem", systemID)
 	}
-	delete(s.media, mediaID)
+	next := *s.boot[systemID]
+	if target != nil {
+		if !slices.Contains(fs.BootTargets, *target) {
+			return notInList("PropertyValueNotInList", "BootSourceOverrideTarget", *target)
+		}
+		next.target = *target
+	}
+	if enabled != nil {
+		switch *enabled {
+		case bmc.OverrideOnce:
+			next.once = true
+		case bmc.OverrideContinuous:
+			next.once = false
+		case bmc.OverrideDisabled:
+		default:
+			return notInList("PropertyValueNotInList", "BootSourceOverrideEnabled", *enabled)
+		}
+		next.enabled = *enabled
+	}
+	if mode != nil {
+		if fs.BootMode == "" {
+			return refuse("the property BootSourceOverrideMode is not supported by this system")
+		}
+		if *mode != "UEFI" && *mode != "Legacy" {
+			return notInList("PropertyValueNotInList", "BootSourceOverrideMode", *mode)
+		}
+		next.mode = *mode
+	}
+	if next.target == "None" {
+		next.target = ""
+	}
+	*s.boot[systemID] = next
 	return nil
+}
+
+// bootView is the Boot object as served: enabled, target and mode.
+func (s *State) bootView(systemID string) (enabled, target, mode string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.bootViewLocked(systemID)
+}
+
+func (s *State) bootViewLocked(systemID string) (enabled, target, mode string) {
+	enabled, target = bmc.OverrideDisabled, "None"
+	bo := s.boot[systemID]
+	if bo == nil {
+		return enabled, target, ""
+	}
+	if bo.enabled != "" {
+		enabled = bo.enabled
+	}
+	if bo.target != "" {
+		target = bo.target
+	}
+	return enabled, target, bo.mode
 }
 
 func (s *State) Close() error { return nil }

@@ -2,18 +2,21 @@ package sim
 
 import (
 	"context"
-	"fmt"
+	"net/http"
 	"slices"
 	"strconv"
-	"strings"
 )
 
-// The account model: fixture-seeded ManagerAccounts with Basic-auth
-// enforcement in the HTTP tier. An empty accounts list serves an OPEN sim —
-// no AccountService, nothing enforced (the historical posture every consumer
-// without credentials relies on); any seeded account turns both on. Real
-// trees always carry accounts (both capture trees list members from id 2),
-// so enforcement-off is a sim-only convenience, not a vendor shape.
+// The account model: fixture-seeded ManagerAccounts with authentication
+// enforced in the HTTP tier. An empty accounts list serves an OPEN sim — no
+// AccountService, nothing enforced (the posture every consumer without
+// credentials relies on); any seeded account turns both on. Real trees always
+// carry accounts, so enforcement-off is a sim-only convenience.
+//
+// Two collection shapes exist in the field and both are modelled. A growable
+// collection takes a POST for a new account. A fixed-slot collection serves a
+// constant number of members, the unused ones with an empty UserName; a new
+// account is a PATCH of a vacant member and POST answers 405.
 
 type account struct {
 	id       string
@@ -23,6 +26,25 @@ type account struct {
 	enabled  bool
 }
 
+// roles are the specification's predefined roles — the only ones served.
+var roles = []string{"Administrator", "Operator", "ReadOnly"}
+
+// seedAccounts builds the account list from the fixture, padding a fixed-slot
+// collection with vacant members.
+func (s *State) seedAccounts() {
+	for _, a := range s.f.Accounts {
+		s.accounts = append(s.accounts, &account{
+			id: a.ID, username: a.Username, password: a.Password, role: a.Role, enabled: a.Enabled,
+		})
+	}
+	for n := 1; len(s.accounts) < s.f.AccountSlots && len(s.f.Accounts) > 0; n++ {
+		id := strconv.Itoa(n)
+		if !slices.ContainsFunc(s.accounts, func(a *account) bool { return a.id == id }) {
+			s.accounts = append(s.accounts, &account{id: id})
+		}
+	}
+}
+
 // authEnforced reports whether the fixture models accounts at all.
 func (s *State) authEnforced() bool {
 	s.mu.Lock()
@@ -30,16 +52,20 @@ func (s *State) authEnforced() bool {
 	return len(s.accounts) > 0
 }
 
-// Authenticate checks Basic-auth credentials against the enabled accounts.
+// Authenticate checks a username and password against the enabled accounts.
 // An open sim accepts everything.
 func (s *State) Authenticate(username, password string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.authenticateLocked(username, password)
+}
+
+func (s *State) authenticateLocked(username, password string) bool {
 	if len(s.accounts) == 0 {
 		return true
 	}
 	for _, a := range s.accounts {
-		if a.enabled && a.username == username && a.password == password {
+		if a.enabled && a.username != "" && a.username == username && a.password == password {
 			return true
 		}
 	}
@@ -57,11 +83,19 @@ func (s *State) EnsureAccount(_ context.Context, username, password string) erro
 		return err
 	}
 	if len(s.accounts) == 0 {
-		return fmt.Errorf("sim: fixture models no account service")
+		return refuse("fixture models no account service")
 	}
 	if a := s.accountByUser(username); a != nil {
 		a.password = password
 		a.enabled = true
+		return nil
+	}
+	if s.f.AccountSlots > 0 {
+		vacant := s.accountByUser("")
+		if vacant == nil {
+			return refuse("every account slot is in use")
+		}
+		vacant.username, vacant.password, vacant.role, vacant.enabled = username, password, "Administrator", true
 		return nil
 	}
 	s.accounts = append(s.accounts, &account{
@@ -74,9 +108,12 @@ func (s *State) EnsureAccount(_ context.Context, username, password string) erro
 	return nil
 }
 
-// accountByUser finds an account by username under the caller's lock.
+// accountByUser finds an account by username under the caller's lock; the
+// empty name finds the first vacant slot.
 func (s *State) accountByUser(username string) *account {
-	for _, a := range s.accounts {
+	sorted := slices.Clone(s.accounts)
+	slices.SortFunc(sorted, byAccountID)
+	for _, a := range sorted {
 		if a.username == username {
 			return a
 		}
@@ -84,8 +121,24 @@ func (s *State) accountByUser(username string) *account {
 	return nil
 }
 
-// nextAccountID picks the next numeric member id (captures start at 2 on
-// both vendors) under the caller's lock.
+// byAccountID orders accounts numerically where the ids are numbers.
+func byAccountID(a, b *account) int {
+	an, aerr := strconv.Atoi(a.id)
+	bn, berr := strconv.Atoi(b.id)
+	if aerr == nil && berr == nil {
+		return an - bn
+	}
+	if a.id < b.id {
+		return -1
+	}
+	if a.id > b.id {
+		return 1
+	}
+	return 0
+}
+
+// nextAccountID picks the next numeric member id under the caller's lock.
+// Growable collections start at 2 on both captured vendors.
 func (s *State) nextAccountID() string {
 	next := 2
 	for _, a := range s.accounts {
@@ -100,7 +153,7 @@ func (s *State) nextAccountID() string {
 func (s *State) AccountPassword(username string) (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if a := s.accountByUser(username); a != nil {
+	if a := s.accountByUser(username); a != nil && username != "" {
 		return a.password, true
 	}
 	return "", false
@@ -112,8 +165,8 @@ func (s *State) SetAccountPassword(username, password string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	a := s.accountByUser(username)
-	if a == nil {
-		return fmt.Errorf("sim: no account %q", username)
+	if a == nil || username == "" {
+		return notFound("ManagerAccount", username)
 	}
 	a.password = password
 	return nil
@@ -126,34 +179,70 @@ func (s *State) accountsView() ([]account, error) {
 	if err := s.reachable(); err != nil {
 		return nil, err
 	}
-	out := make([]account, 0, len(s.accounts))
-	for _, a := range s.accounts {
+	sorted := slices.Clone(s.accounts)
+	slices.SortFunc(sorted, byAccountID)
+	out := make([]account, 0, len(sorted))
+	for _, a := range sorted {
 		out = append(out, *a)
 	}
-	slices.SortFunc(out, func(a, b account) int { return strings.Compare(a.id, b.id) })
 	return out, nil
 }
 
-// patchAccount applies a member PATCH: password and/or enabled.
-func (s *State) patchAccount(id string, password *string, enabled *bool) error {
+// accountPatch is a member PATCH; nil fields keep their value.
+type accountPatch struct {
+	UserName *string `json:"UserName"`
+	Password *string `json:"Password"`
+	RoleID   *string `json:"RoleId"`
+	Enabled  *bool   `json:"Enabled"`
+}
+
+// patchAccount applies a member PATCH. Renaming is how a fixed-slot collection
+// creates and deletes accounts: a name claims a vacant slot, the empty name
+// vacates it.
+func (s *State) patchAccount(id string, p accountPatch) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.reachable(); err != nil {
 		return err
 	}
-	for _, a := range s.accounts {
-		if a.id != id {
-			continue
+	var a *account
+	for _, cand := range s.accounts {
+		if cand.id == id {
+			a = cand
 		}
-		if password != nil {
-			a.password = *password
-		}
-		if enabled != nil {
-			a.enabled = *enabled
-		}
-		return nil
 	}
-	return fmt.Errorf("sim: no account %q", id)
+	if a == nil {
+		return notFound("ManagerAccount", id)
+	}
+	if p.UserName != nil && *p.UserName != a.username {
+		if *p.UserName != "" && s.accountByUser(*p.UserName) != nil {
+			return &Error{
+				Status: http.StatusBadRequest, MessageID: "ResourceAlreadyExists",
+				Message: "an account named " + strconv.Quote(*p.UserName) + " already exists",
+				Args:    []string{"ManagerAccount", "UserName", *p.UserName},
+			}
+		}
+	}
+	if p.RoleID != nil && !slices.Contains(roles, *p.RoleID) {
+		return notInList("PropertyValueNotInList", "RoleId", *p.RoleID)
+	}
+	if p.UserName != nil {
+		a.username = *p.UserName
+		if a.username == "" {
+			a.password, a.role, a.enabled = "", "", false
+			return nil
+		}
+	}
+	if p.Password != nil {
+		a.password = *p.Password
+	}
+	if p.RoleID != nil {
+		a.role = *p.RoleID
+	}
+	if p.Enabled != nil {
+		a.enabled = *p.Enabled
+	}
+	return nil
 }
 
 // createAccount applies a collection POST; duplicate usernames are rejected
@@ -165,7 +254,7 @@ func (s *State) createAccount(username, password, role string) (string, error) {
 		return "", err
 	}
 	if s.accountByUser(username) != nil {
-		return "", fmt.Errorf("sim: account %q already exists", username)
+		return "", refuse("account %q already exists", username)
 	}
 	a := &account{id: s.nextAccountID(), username: username, password: password, role: role, enabled: true}
 	s.accounts = append(s.accounts, a)

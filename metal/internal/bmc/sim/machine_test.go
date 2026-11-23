@@ -87,12 +87,12 @@ func TestMachineDrivesAndReadsThrough(t *testing.T) {
 // records into verbs so the ordering against power verbs is provable.
 type fakeMediaMachine struct {
 	fakeMachine
-	media [][]byte
+	media []Media
 }
 
-func (m *fakeMediaMachine) SetMedia(_ context.Context, images [][]byte) error {
+func (m *fakeMediaMachine) SetMedia(_ context.Context, media []Media) error {
 	m.verbs = append(m.verbs, "media")
-	m.media = images
+	m.media = media
 	return nil
 }
 
@@ -116,7 +116,7 @@ func TestMediaMachineGetsImagesBeforePower(t *testing.T) {
 	assert.Equal(t, []string{"media", "start"}, m.verbs,
 		"the media device is attached before the host boots")
 	require.Len(t, m.media, 1)
-	assert.Equal(t, payload, m.media[0], "the machine gets the pulled image")
+	assert.Equal(t, Media{SlotID: "VirtualMedia1", Data: payload}, m.media[0], "the machine gets the pulled image")
 
 	// Eject withdraws: the next boot-shaped action presents an empty set.
 	require.NoError(t, s.EjectMedia(ctx, "VirtualMedia1"))

@@ -16,16 +16,23 @@ import (
 
 // TestConformanceOverHTTP is the core seam proof: the PRODUCTION client (gofish + raw OEM
 // paths) passes the same bmctest suite as the in-process sim client, against the sim's
-// HTTP tree — both sides of the seam exercised, for both vendor shapes.
+// HTTP tree — both sides of the seam exercised, for every personality: the
+// two vendor shapes and the generic one that only follows the specification.
 func TestConformanceOverHTTP(t *testing.T) {
-	for _, name := range []string{"huawei-2288h-v5", "supermicro-x12"} {
+	for _, name := range sim.Fixtures() {
 		t.Run(name, func(t *testing.T) {
 			f, err := sim.LoadFixture(name)
 			require.NoError(t, err)
 			srv := httptest.NewServer(sim.NewServer(sim.NewState(f)))
 			defer srv.Close()
 
-			c, err := gofishclient.Connect(context.Background(), gofishclient.Config{Endpoint: srv.URL})
+			// A fixture that seeds accounts enforces them; its first account
+			// is the factory administrator.
+			cfg := gofishclient.Config{Endpoint: srv.URL}
+			if len(f.Accounts) > 0 {
+				cfg.Username, cfg.Password = f.Accounts[0].Username, f.Accounts[0].Password
+			}
+			c, err := gofishclient.Connect(context.Background(), cfg)
 			require.NoError(t, err)
 			defer c.Close()
 			bmctest.Run(t, c, f, false)

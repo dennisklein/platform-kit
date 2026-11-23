@@ -12,6 +12,7 @@ package bmc
 
 import (
 	"context"
+	"slices"
 	"time"
 )
 
@@ -202,6 +203,10 @@ type System struct {
 	// BootTargets are BootSourceOverrideTarget@AllowableValues — vmm-boot.sh's lesson:
 	// prefer UsbCd when offered (Supermicro boots nothing from Cd), never hardcode.
 	BootTargets []string
+	// BootProgress is BootProgress.LastState as served ("None", "OSBootStarted",
+	// "OSRunning", …). Empty where the endpoint serves no boot progress — absence
+	// is data, a consumer must not read it as "not booted".
+	BootProgress string
 }
 
 // BootOverride is the Redfish Boot override triple. Empty fields read as "not
@@ -243,6 +248,7 @@ type MediaCredentials struct {
 }
 
 // VirtualMedia mirrors the discovered slot shape of control/inventory/*.yaml.
+// Media lists slots in the endpoint's collection order.
 type VirtualMedia struct {
 	ID             string // "CD", "USBStick", "VirtualMedia1"…
 	MediaTypes     []string
@@ -292,7 +298,8 @@ type IdentityDialect string
 
 const (
 	// DialectCSRNative: the manager generates the CSR, the key never leaves
-	// it, the signed chain is imported back (iBMC HttpsCert).
+	// it, the signed chain is imported back (the standard CertificateService
+	// GenerateCSR/ReplaceCertificate pair, or the iBMC's OEM HttpsCert).
 	DialectCSRNative IdentityDialect = "csr-native"
 	// DialectKeyUpload: a locally-generated leaf and key are uploaded (X12
 	// SmcSSLCert.Upload).
@@ -318,7 +325,31 @@ const (
 	ActionGracefulShutdown PowerAction = "GracefulShutdown"
 	ActionForceRestart     PowerAction = "ForceRestart"
 	// ActionGracefulRestart is a Manager.Reset type (both vendors advertise it
-	// there); systems use ForceRestart. On the X12 the graceful path runs ROT
-	// attestation and is refused mid-update.
+	// there) and a system reset type where the endpoint offers it. On the X12
+	// the graceful manager path runs ROT attestation and is refused mid-update.
 	ActionGracefulRestart PowerAction = "GracefulRestart"
+	// ActionPowerCycle removes and restores power — a cold boot, where
+	// ForceRestart is a warm one.
+	ActionPowerCycle PowerAction = "PowerCycle"
 )
+
+// InsertableSlots orders the media slots an image can be mounted on, best boot
+// slot first: slots whose MediaTypes offer CD or DVD lead (in the endpoint's
+// order), the remaining insertable slots follow. Position in the collection says
+// nothing — a standard tree may list a USB-stick slot before the optical one —
+// and an empty MediaTypes list says nothing either (the iBMC's CD slot serves
+// one), so untyped slots stay as fallbacks instead of being dropped.
+func InsertableSlots(media []VirtualMedia, caps Capabilities) []string {
+	var optical, other []string
+	for _, m := range media {
+		if d := caps.MediaDialect[m.ID]; d == "" || d == DialectNone {
+			continue
+		}
+		if slices.Contains(m.MediaTypes, "CD") || slices.Contains(m.MediaTypes, "DVD") {
+			optical = append(optical, m.ID)
+		} else {
+			other = append(other, m.ID)
+		}
+	}
+	return append(optical, other...)
+}

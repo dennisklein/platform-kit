@@ -20,11 +20,25 @@ identity:
   # cert_file + key_file, leaf-only) — key-upload, the key is generated
   # off-manager.
   key_upload: true
+protocol:
+  # ServiceRoot.Vendor is served, and the Manager carries an Oem block too.
+  oem_vendor_key: true
+  root_vendor: true
+layout:
+  virtual_media: manager
+  drives: chassis
+  # NetworkAdapters link NetworkDeviceFunctions; the collection is empty on
+  # this box.
+  adapter_macs: device-functions
 update:
   # From the ref-x12 capture: MultipartHttpPushUri AND SimpleUpdate advertised;
   # push is the proven direction (works even when the BMC cannot route off-link).
   multipart_push: true
+  push_uri: /redfish/v1/UpdateService/upload
   simple_update: true
+  # The recorded flash behaviour: staging wedges the BMC, StartUpdate rejects
+  # every body (see firmware.go).
+  wedge: true
   inventory:
     - { id: BMC, bmc: true, updateable: true }
     - { id: Backup_BMC, version: "01.05.25", updateable: true }
@@ -76,6 +90,9 @@ systems:
     manufacturer: Supermicro
     model: "Super Server"
     power: "On"
+    # The Boot object reports Legacy on this UEFI-booting machine; an override
+    # that leaves the mode alone asks for a legacy one-time boot.
+    boot_mode: Legacy
     # From the ref-x12 PoC capture — the X12 serves LastResetTime (the iBMC doesn't).
     last_reset_time: 2026-07-18T14:57:09+01:00
     memory_gib: 512

@@ -17,6 +17,16 @@ identity:
   # (SubjectAltName real on 6.72) and ImportServerCertificate — csr-native,
   # the key never leaves the manager.
   csr_native: true
+protocol:
+  # The iBMC names its maker only through the Oem block on the Manager, which
+  # is also where its OEM services are linked.
+  oem_vendor_key: true
+layout:
+  virtual_media: manager
+  drives: chassis
+  # NetworkAdapters carry NetworkPorts, each with AssociatedNetworkAddresses —
+  # the deprecated shape; no NetworkDeviceFunctions.
+  adapter_macs: network-ports
 update:
   # From the ref-2288h capture: SimpleUpdate only — no multipart push URI. The
   # SimpleUpdate transport is advertised but unproven on our fleet, so the client
@@ -72,6 +82,7 @@ systems:
     manufacturer: Huawei
     model: "2288H V5"
     power: "On"
+    boot_mode: UEFI # the Boot object serves BootSourceOverrideMode
     memory_gib: 192
     cpu_model: "Intel(R) Xeon(R) Gold 6248R CPU @ 3.00GHz"
     cpu_count: 2

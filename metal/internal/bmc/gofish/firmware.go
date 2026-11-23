@@ -1,0 +1,203 @@
+package gofish
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"mime/multipart"
+	"net/http"
+	"net/textproto"
+	"slices"
+	"strings"
+
+	"github.com/dennisklein/platform-kit/metal/internal/bmc"
+)
+
+// smcInstallAction is the X12's OEM install action. An UpdateService that
+// advertises it is one whose multipart push needs the Supermicro form.
+const smcInstallAction = "#SmcUpdateService.Install"
+
+// updateService is the raw UpdateService: the push URI, the apply times it
+// supports, and the actions gofish keeps private.
+type updateService struct {
+	ODataID   string `json:"@odata.id"`
+	PushURI   string `json:"MultipartHttpPushUri"`
+	ApplyTime struct {
+		SupportedValues []string `json:"SupportedValues"`
+	} `json:"MultipartHttpPushUri@Redfish.OperationApplyTimeSupport"`
+	Actions struct {
+		SimpleUpdate struct {
+			Target string `json:"target"`
+		} `json:"#UpdateService.SimpleUpdate"`
+	} `json:"Actions"`
+	oem map[string]string
+}
+
+func (c *client) updateService() (*updateService, error) {
+	us, err := c.svc.UpdateService()
+	if err != nil {
+		return nil, fmt.Errorf("bmc: update service: %w", err)
+	}
+	if us == nil || us.ODataID == "" {
+		return nil, fmt.Errorf("bmc: endpoint exposes no update service")
+	}
+	body, _, err := c.getRaw(us.ODataID)
+	if err != nil {
+		return nil, fmt.Errorf("bmc: update service: %w", err)
+	}
+	var doc updateService
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return nil, fmt.Errorf("bmc: update service: %w", err)
+	}
+	doc.oem = oemActions(body)
+	return &doc, nil
+}
+
+// updateDialect probes the UpdateService: the push URI wins, SimpleUpdate is
+// noted where it's all there is (advertised ≠ proven — see bmc.DialectSimpleUpdate).
+func (c *client) updateDialect() bmc.UpdateDialect {
+	us, err := c.updateService()
+	if err != nil {
+		return bmc.DialectNoUpdate
+	}
+	switch {
+	case us.PushURI != "":
+		return bmc.DialectMultipartPush
+	case us.Actions.SimpleUpdate.Target != "":
+		return bmc.DialectSimpleUpdate
+	default:
+		return bmc.DialectNoUpdate
+	}
+}
+
+func (c *client) FirmwareInventory(ctx context.Context) ([]bmc.Firmware, error) {
+	us, err := c.svc.UpdateService()
+	if err != nil {
+		return nil, fmt.Errorf("bmc: update service: %w", err)
+	}
+	inv, err := us.FirmwareInventory()
+	if err != nil {
+		return nil, fmt.Errorf("bmc: firmware inventory: %w", err)
+	}
+	out := make([]bmc.Firmware, 0, len(inv))
+	for _, e := range inv {
+		out = append(out, bmc.Firmware{ID: e.ID, Version: e.Version, Updateable: e.Updateable})
+	}
+	// gofish walks collections concurrently — sort for stable output.
+	slices.SortFunc(out, func(a, b bmc.Firmware) int { return strings.Compare(a.ID, b.ID) })
+	return out, nil
+}
+
+// UpdateFirmware pushes a manager image over the advertised multipart push
+// URI: one POST, the UpdateParameters part typed application/json and first,
+// the UpdateFile part second (gofish's PostMultipart guarantees neither order
+// nor content types, so the body is built by hand).
+//
+// The parameters come in two forms. The standard one targets the manager's
+// active firmware image and asks for immediate application. An UpdateService
+// that advertises the Supermicro install action gets the form proven on the
+// X12 instead: the manager itself as the target and the Oem.Supermicro.BMC
+// preserve block, without which that firmware stages and never installs.
+//
+// The upload answers with a task monitor, which is followed to its end. A
+// monitor that stops answering is not a failure here — flashing reboots the
+// manager, and its tasks with it. Acceptance, even a completed task, is still
+// not proof: callers judge by the version and LastResetTime reading back.
+func (c *client) UpdateFirmware(ctx context.Context, image []byte) error {
+	if c.readOnly {
+		return errReadOnly
+	}
+	us, err := c.updateService()
+	if err != nil {
+		return err
+	}
+	if us.PushURI == "" {
+		return fmt.Errorf("bmc: endpoint advertises no multipart push URI")
+	}
+	params, err := c.updateParameters(us)
+	if err != nil {
+		return err
+	}
+	body, contentType, err := updateForm(params, image)
+	if err != nil {
+		return err
+	}
+	resp, err := c.api.RunRawRequestWithHeaders(http.MethodPost, us.PushURI,
+		bytes.NewReader(body), contentType, nil)
+	if err != nil {
+		return fmt.Errorf("bmc: firmware upload: %w", err)
+	}
+	defer resp.Body.Close()
+	if err := c.pollAccepted(ctx, resp); err != nil && !errors.Is(err, errTaskLost) {
+		return fmt.Errorf("bmc: firmware update: %w", err)
+	}
+	return nil
+}
+
+// updateParameters builds the UpdateParameters part for this endpoint.
+func (c *client) updateParameters(us *updateService) ([]byte, error) {
+	m, err := c.manager()
+	if err != nil {
+		return nil, err
+	}
+	if us.oem[smcInstallAction] != "" {
+		return json.Marshal(map[string]any{
+			"Targets":                     []string{m.ODataID},
+			"@Redfish.OperationApplyTime": "Immediate",
+			"Oem": map[string]any{"Supermicro": map[string]any{"BMC": map[string]any{
+				"PreserveCfg": true, "PreserveSdr": true, "PreserveSsl": true, "BackupBMC": true,
+			}}},
+		})
+	}
+	params := map[string]any{}
+	// The manager names its running firmware; without the link the choice of
+	// target is left to the service, which is what an absent Targets means.
+	var doc struct {
+		Links struct {
+			ActiveSoftwareImage ref `json:"ActiveSoftwareImage"`
+		} `json:"Links"`
+	}
+	if _, err := c.getJSON(m.ODataID, &doc); err != nil {
+		return nil, fmt.Errorf("bmc: manager: %w", err)
+	}
+	if target := doc.Links.ActiveSoftwareImage.ODataID; target != "" {
+		params["Targets"] = []string{target}
+	}
+	// Immediate is the default apply time; it is spelled out only where the
+	// service says it takes the annotation, so that one offering a choice
+	// cannot pick staging.
+	if slices.Contains(us.ApplyTime.SupportedValues, "Immediate") {
+		params["@Redfish.OperationApplyTime"] = "Immediate"
+	}
+	return json.Marshal(params)
+}
+
+// updateForm frames the two parts of a multipart push.
+func updateForm(params, image []byte) (body []byte, contentType string, err error) {
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	for _, part := range []struct {
+		disposition, contentType string
+		data                     []byte
+	}{
+		{`form-data; name="UpdateParameters"`, "application/json", params},
+		{`form-data; name="UpdateFile"; filename="firmware.bin"`, "application/octet-stream", image},
+	} {
+		h := textproto.MIMEHeader{}
+		h.Set("Content-Disposition", part.disposition)
+		h.Set("Content-Type", part.contentType)
+		w, err := mw.CreatePart(h)
+		if err != nil {
+			return nil, "", err
+		}
+		if _, err := w.Write(part.data); err != nil {
+			return nil, "", err
+		}
+	}
+	if err := mw.Close(); err != nil {
+		return nil, "", err
+	}
+	return buf.Bytes(), mw.FormDataContentType(), nil
+}

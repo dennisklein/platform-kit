@@ -16,13 +16,19 @@ import (
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 )
 
-// The identity model, capture-true per vendor: the iBMC generates its CSR on
-// the manager (HttpsCert.GenerateCSR — the key never leaves it) and takes
-// the signed chain back as PEM text; the X12 takes a locally-generated leaf
-// and key over the OEM SmcSSLCert.Upload. On BOTH, serving switches only at
-// a manager reset (the PoC's explicit apply mechanism) — resetManagerLocked
-// applies the staged identity, and the cert-stuck fault models the lying
-// oracle that answers success and never serves the pushed certificate.
+// The identity model. Three surfaces replace the manager's HTTPS certificate:
+//
+//   - The standard CertificateService: GenerateCSR creates the key on the
+//     manager and answers with the request, ReplaceCertificate takes the
+//     signed certificate and the listener serves it from then on.
+//   - The iBMC's OEM HttpsCert: the same key-stays-on-the-manager idea, but
+//     the CSR is read back from the resource and the signed chain goes live
+//     only at the next manager reset.
+//   - The X12's OEM SmcSSLCert.Upload: a locally generated leaf and key are
+//     uploaded, and go live at the next manager reset.
+//
+// The cert-stuck fault models the lying oracle that answers success and never
+// serves the pushed certificate.
 
 // identityState is the manager's certificate world.
 type identityState struct {
@@ -33,14 +39,14 @@ type identityState struct {
 }
 
 // identityDialect derives the certificate-replacement dialect.
-func (f *Fixture) identityDialect() string {
+func (f *Fixture) identityDialect() bmc.IdentityDialect {
 	switch {
-	case f.Identity.CSRNative:
-		return "csr-native"
+	case f.Identity.CertificateService, f.Identity.CSRNative:
+		return bmc.DialectCSRNative
 	case f.Identity.KeyUpload:
-		return "key-upload"
+		return bmc.DialectKeyUpload
 	default:
-		return "none"
+		return bmc.DialectNoIdentity
 	}
 }
 
@@ -90,13 +96,24 @@ func (s *State) GenerateCSR(_ context.Context, subject bmc.CSRSubject) ([]byte, 
 	if err := s.reachable(); err != nil {
 		return nil, err
 	}
-	if !s.f.Identity.CSRNative {
-		return nil, fmt.Errorf("sim: fixture models no on-manager CSR generation")
+	if s.f.identityDialect() != bmc.DialectCSRNative {
+		return nil, refuse("fixture models no on-manager CSR generation")
 	}
-	if subject.CommonName == "" || subject.Country == "" {
-		// The captured ActionInfo: Country and CommonName are the required
-		// parameters.
-		return nil, fmt.Errorf("sim: CommonName and Country required")
+	// The iBMC's ActionInfo requires Country and CommonName. The standard
+	// action requires the whole distinguished name.
+	required := []struct{ parameter, value string }{
+		{"CommonName", subject.CommonName}, {"Country", subject.Country},
+	}
+	if s.f.Identity.CertificateService {
+		required = append(required, []struct{ parameter, value string }{
+			{"State", subject.State}, {"City", subject.Locality},
+			{"Organization", subject.Organization}, {"OrganizationalUnit", subject.OrganizationalUnit},
+		}...)
+	}
+	for _, r := range required {
+		if r.value == "" {
+			return nil, missing("GenerateCSR", r.parameter)
+		}
 	}
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -143,21 +160,26 @@ func (s *State) ImportServerCertificate(_ context.Context, chainPEM []byte) erro
 	if err := s.reachable(); err != nil {
 		return err
 	}
-	if !s.f.Identity.CSRNative {
-		return fmt.Errorf("sim: fixture models no certificate import")
+	if s.f.identityDialect() != bmc.DialectCSRNative {
+		return refuse("fixture models no certificate import")
 	}
 	if s.identity.pendingKey == nil {
-		return fmt.Errorf("sim: no pending CSR to match the certificate against")
+		return refuse("no pending CSR to match the certificate against")
 	}
 	leaf, err := firstCertificate(chainPEM)
 	if err != nil {
 		return err
 	}
 	if !reflect.DeepEqual(leaf.PublicKey, s.identity.pendingKey.Public()) {
-		return fmt.Errorf("sim: certificate does not match the pending CSR's key")
+		return refuse("certificate does not match the pending CSR's key")
 	}
 	s.identity.staged = &tls.Certificate{Certificate: [][]byte{leaf.Raw}, PrivateKey: s.identity.pendingKey}
 	s.identity.pendingKey, s.identity.pendingCSR = nil, nil
+	if s.f.Identity.CertificateService {
+		// ReplaceCertificate takes effect at once; only the OEM surfaces wait
+		// for a manager reset.
+		s.applyIdentityLocked()
+	}
 	return nil
 }
 
@@ -169,11 +191,11 @@ func (s *State) UploadServerIdentity(_ context.Context, certPEM, keyPEM []byte) 
 		return err
 	}
 	if !s.f.Identity.KeyUpload {
-		return fmt.Errorf("sim: fixture models no identity upload")
+		return refuse("fixture models no identity upload")
 	}
 	pair, err := tls.X509KeyPair(certPEM, keyPEM)
 	if err != nil {
-		return fmt.Errorf("sim: certificate/key pair: %v", err)
+		return refuse("certificate/key pair: %v", err)
 	}
 	s.identity.staged = &pair
 	return nil
@@ -203,7 +225,7 @@ func firstCertificate(chainPEM []byte) (*x509.Certificate, error) {
 		var block *pem.Block
 		block, rest = pem.Decode(rest)
 		if block == nil {
-			return nil, fmt.Errorf("sim: no certificate in body")
+			return nil, refuse("no certificate in body")
 		}
 		if block.Type != "CERTIFICATE" {
 			continue

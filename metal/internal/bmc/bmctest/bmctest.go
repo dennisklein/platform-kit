@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"testing"
 	"time"
 
@@ -41,6 +42,24 @@ func Run(t *testing.T, c bmc.Client, f *sim.Fixture, readOnly bool) {
 		m, err := c.Manager(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, f.Manager.Firmware, m.FirmwareVersion, "firmware")
+		// The vendor has three homes — ServiceRoot.Vendor, the Manager Oem key,
+		// the Manager Manufacturer — and every endpoint uses one of them.
+		assert.Equal(t, f.Vendor, m.Vendor, "vendor")
+		assert.Equal(t, f.Manager.MAC, m.MAC, "manager MAC")
+		assert.Equal(t, f.Manager.Hostname, m.Hostname, "manager hostname")
+	})
+
+	t.Run("adapters", func(t *testing.T) {
+		// Port MACs come from NetworkDeviceFunctions where the endpoint serves
+		// them and from the deprecated NetworkPorts where it does not; either
+		// way they are the same facts.
+		ch, err := c.Chassis(ctx)
+		require.NoError(t, err)
+		require.Len(t, ch.Adapters, len(f.Chassis.Adapters))
+		for i, want := range f.Chassis.Adapters {
+			assert.Equal(t, want.Model, ch.Adapters[i].Model, "adapter %d model", i)
+			assertList(t, want.PortMACs, ch.Adapters[i].PortMACs, "adapter %d port MACs", i)
+		}
 	})
 
 	t.Run("serial-anchors", func(t *testing.T) {
@@ -62,6 +81,16 @@ func Run(t *testing.T, c bmc.Client, f *sim.Fixture, readOnly bool) {
 			assert.Equal(t, fx.UUID, sys.UUID, "system %s uuid", sys.ID)
 			assert.Len(t, sys.NICs, len(fx.NICs), "system %s nics", sys.ID)
 			assert.Len(t, sys.Drives, len(fx.Drives), "system %s drives", sys.ID)
+			for j, nic := range fx.NICs {
+				if j < len(sys.NICs) {
+					assert.Equal(t, nic.MAC, sys.NICs[j].MAC, "system %s nic %s", sys.ID, nic.ID)
+				}
+			}
+			if fx.BootProgress {
+				assert.NotEmpty(t, sys.BootProgress, "system %s serves boot progress", sys.ID)
+			} else {
+				assert.Empty(t, sys.BootProgress, "system %s serves no boot progress", sys.ID)
+			}
 		}
 	})
 
@@ -165,6 +194,28 @@ func Run(t *testing.T, c bmc.Client, f *sim.Fixture, readOnly bool) {
 			"LastResetTime must advance past %s on reset, got %s", base, systems[0].LastResetTime)
 	})
 
+	t.Run("media-slot-choice", func(t *testing.T) {
+		// A boot image goes into an optical slot wherever one can take it —
+		// chosen by MediaTypes, never by position: a standard tree is free to
+		// list a removable-disk slot first.
+		media, err := c.Media(ctx)
+		require.NoError(t, err)
+		require.Len(t, media, len(f.VirtualMedia))
+		for i, vm := range f.VirtualMedia {
+			assert.Equal(t, vm.ID, media[i].ID, "slots come in the endpoint's order")
+		}
+		caps, err := c.Capabilities(ctx)
+		require.NoError(t, err)
+		slots := bmc.InsertableSlots(media, caps)
+		want := insertableSlot(f)
+		if want == "" {
+			assert.Empty(t, slots, "no insertable slot advertised")
+			return
+		}
+		require.NotEmpty(t, slots)
+		assert.Equal(t, want, slots[0], "the first choice")
+	})
+
 	t.Run("media-dialect-dispatch", func(t *testing.T) {
 		slot := insertableSlot(f)
 		if slot == "" {
@@ -211,13 +262,66 @@ func Run(t *testing.T, c bmc.Client, f *sim.Fixture, readOnly bool) {
 		id := f.Systems[0].ID
 		assert.Error(t, c.SetBootOverride(ctx, id, bmc.BootOverride{Target: "NotARealTarget"}),
 			"a target outside AllowableValues must be rejected")
-		if targets := f.Systems[0].BootTargets; len(targets) > 1 {
-			want := bmc.BootOverride{Target: targets[1], Enabled: bmc.OverrideOnce, Mode: "UEFI"}
-			require.NoError(t, c.SetBootOverride(ctx, id, want))
-			systems, err := c.Systems(ctx)
-			require.NoError(t, err)
-			assert.Equal(t, want, systems[0].BootOverride, "the override reads back as set")
+		targets := f.Systems[0].BootTargets
+		if len(targets) < 2 {
+			return
 		}
+		// The override is state the endpoint keeps and serves back. An unnamed
+		// enablement is a one-time override, an unnamed mode stays what it was
+		// (the X12 comes up Legacy).
+		servedMode := mustSystems(t, ctx, c)[0].BootOverride.Mode
+		assert.Equal(t, f.Systems[0].BootMode, servedMode, "the served boot mode")
+		require.NoError(t, c.SetBootOverride(ctx, id, bmc.BootOverride{Target: targets[1]}))
+		assert.Equal(t, bmc.BootOverride{Target: targets[1], Enabled: bmc.OverrideOnce, Mode: servedMode},
+			mustSystems(t, ctx, c)[0].BootOverride, "the override reads back, the mode untouched")
+
+		want := bmc.BootOverride{Target: targets[1], Enabled: bmc.OverrideOnce}
+		if servedMode != "" {
+			want.Mode = "UEFI"
+		}
+		require.NoError(t, c.SetBootOverride(ctx, id, want))
+		assert.Equal(t, want, mustSystems(t, ctx, c)[0].BootOverride, "the override reads back as set")
+
+		// A one-time override covers exactly one boot: the enablement falls
+		// back to Disabled, target and mode stay.
+		require.NoError(t, c.SetPower(ctx, id, bmc.ActionForceRestart))
+		want.Enabled = bmc.OverrideDisabled
+		assert.Equal(t, want, mustSystems(t, ctx, c)[0].BootOverride, "used up by the boot")
+
+		want.Enabled = bmc.OverrideContinuous
+		require.NoError(t, c.SetBootOverride(ctx, id, want))
+		require.NoError(t, c.SetPower(ctx, id, bmc.ActionForceRestart))
+		assert.Equal(t, want, mustSystems(t, ctx, c)[0].BootOverride, "a continuous override survives the boot")
+
+		want.Enabled = bmc.OverrideDisabled
+		require.NoError(t, c.SetBootOverride(ctx, id, want))
+		assert.Equal(t, want, mustSystems(t, ctx, c)[0].BootOverride, "and is withdrawn by disabling it")
+	})
+
+	t.Run("power-actions", func(t *testing.T) {
+		// Every reset type the system advertises is accepted and lands in the
+		// power state it stands for; one it does not advertise is refused.
+		id := f.Systems[0].ID
+		ends := map[bmc.PowerAction]bmc.PowerState{
+			bmc.ActionOn: bmc.PowerOn, bmc.ActionForceOff: bmc.PowerOff,
+			bmc.ActionGracefulShutdown: bmc.PowerOff, bmc.ActionForceRestart: bmc.PowerOn,
+			bmc.ActionGracefulRestart: bmc.PowerOn, bmc.ActionPowerCycle: bmc.PowerOn,
+		}
+		for _, action := range fixtureResetTypes(f) {
+			want, known := ends[bmc.PowerAction(action)]
+			if !known {
+				continue
+			}
+			// Restart-shaped actions need a running system to act on.
+			require.NoError(t, c.SetPower(ctx, id, bmc.ActionOn))
+			require.NoError(t, c.SetPower(ctx, id, bmc.PowerAction(action)), "reset type %s", action)
+			state, err := c.Power(ctx, id)
+			require.NoError(t, err)
+			assert.Equal(t, want, state, "after %s", action)
+		}
+		assert.Error(t, c.SetPower(ctx, id, bmc.PowerAction("Nmi-NotOffered")),
+			"a reset type outside AllowableValues must be rejected")
+		require.NoError(t, c.SetPower(ctx, id, bmc.ActionOn))
 	})
 
 	t.Run("flash-convergence", func(t *testing.T) {
@@ -303,7 +407,7 @@ func Run(t *testing.T, c bmc.Client, f *sim.Fixture, readOnly bool) {
 		cfg, err := c.NTP(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, f.NTP.Enabled, cfg.Enabled, "seeded enablement")
-		assert.Equal(t, f.NTP.Servers, cfg.Servers, "seeded servers")
+		assertList(t, f.NTP.Servers, cfg.Servers, "seeded servers")
 
 		want := bmc.NTPConfig{Enabled: true, Servers: []string{"ntp1.metal.internal", "ntp2.metal.internal"}}
 		require.NoError(t, c.SetNTP(ctx, want))
@@ -335,18 +439,24 @@ func Run(t *testing.T, c bmc.Client, f *sim.Fixture, readOnly bool) {
 		require.NoError(t, err)
 		want := bmc.DialectNoIdentity
 		switch {
-		case f.Identity.CSRNative:
+		case f.Identity.CSRNative, f.Identity.CertificateService:
 			want = bmc.DialectCSRNative
 		case f.Identity.KeyUpload:
 			want = bmc.DialectKeyUpload
 		}
 		require.Equal(t, want, caps.IdentityDialect, "identity dialect")
 
+		// The whole distinguished name: the standard GenerateCSR action
+		// requires every part of it, the iBMC only country and common name.
 		subject := bmc.CSRSubject{
-			CommonName:  "bmc-test.metal.internal",
-			DNSNames:    []string{"bmc-test.metal.internal"},
-			IPAddresses: []string{"127.0.0.1"},
-			Country:     "DE",
+			CommonName:         "bmc-test.metal.internal",
+			DNSNames:           []string{"bmc-test.metal.internal"},
+			IPAddresses:        []string{"127.0.0.1"},
+			Country:            "DE",
+			State:              "Hessen",
+			Locality:           "Darmstadt",
+			Organization:       "bmctest",
+			OrganizationalUnit: "conformance",
 		}
 		switch caps.IdentityDialect {
 		case bmc.DialectNoIdentity:
@@ -382,6 +492,17 @@ func Run(t *testing.T, c bmc.Client, f *sim.Fixture, readOnly bool) {
 		assert.Error(t, c.SetBiosAttributes(ctx, f.Systems[0].ID, map[string]any{"NotARealAttribute": "x"}),
 			"an unknown attribute must be rejected at PATCH time")
 	})
+}
+
+// assertList compares two lists where an empty one and an absent one are the
+// same fact — which of the two a transport hands back is its own business.
+func assertList(t *testing.T, want, got []string, msgAndArgs ...any) {
+	t.Helper()
+	if len(want) == 0 {
+		assert.Empty(t, got, msgAndArgs...)
+		return
+	}
+	assert.Equal(t, want, got, msgAndArgs...)
 }
 
 func parseCSR(t *testing.T, csrPEM []byte) *x509.CertificateRequest {
@@ -532,11 +653,30 @@ func stripUserinfo(t *testing.T, imageURL string) string {
 	return u.String()
 }
 
+// insertableSlot is the slot a boot image belongs in: the first insertable one
+// that offers CD or DVD, the first insertable one of any kind otherwise —
+// duplicated from bmc.InsertableSlots so the suite stays independent of it.
 func insertableSlot(f *sim.Fixture) string {
+	fallback := ""
 	for i, vm := range f.VirtualMedia {
-		if fixtureDialect(f, i) != bmc.DialectNone {
+		if fixtureDialect(f, i) == bmc.DialectNone {
+			continue
+		}
+		if slices.Contains(vm.MediaTypes, "CD") || slices.Contains(vm.MediaTypes, "DVD") {
 			return vm.ID
 		}
+		if fallback == "" {
+			fallback = vm.ID
+		}
 	}
-	return ""
+	return fallback
+}
+
+// fixtureResetTypes are the reset types a system advertises: the fixture's
+// list, or the set both captured vendors serve when it names none.
+func fixtureResetTypes(f *sim.Fixture) []string {
+	if types := f.Systems[0].ResetTypes; len(types) > 0 {
+		return types
+	}
+	return []string{"On", "ForceOff", "GracefulShutdown", "ForceRestart"}
 }

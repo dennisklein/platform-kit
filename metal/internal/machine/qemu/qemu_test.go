@@ -18,7 +18,11 @@ import (
 )
 
 // The driver is the sim's media-taking machine backend.
-var _ sim.MediaMachine = (*Machine)(nil)
+var (
+	_ sim.MediaMachine    = (*Machine)(nil)
+	_ sim.BootMachine     = (*Machine)(nil)
+	_ sim.ProgressMachine = (*Machine)(nil)
+)
 
 func TestArgs(t *testing.T) {
 	dir := t.TempDir()
@@ -27,30 +31,33 @@ func TestArgs(t *testing.T) {
 		OVMFCode: "/fw/CODE.fd", DiskSerial: "e2e-disk",
 		HostIP: "127.42.0.10", ForwardPorts: []int{50000, 6443},
 	})
-	require.NoError(t, m.SetMedia(context.Background(), [][]byte{[]byte("cfg")}))
+	require.NoError(t, m.SetMedia(context.Background(), []sim.Media{{SlotID: "2", Data: []byte("cfg")}}))
 
-	args, err := m.args()
+	args, _, err := m.args()
 	require.NoError(t, err)
 	line := strings.Join(args, " ")
 
 	assert.Contains(t, line, "-accel kvm", "kvm is the default accelerator")
 	assert.Contains(t, line, "-cpu host")
 	assert.Contains(t, line, "-m 4096", "memory defaults")
-	assert.Contains(t, line, "virtio-blk-pci,drive=disk0,bootindex=1,serial=e2e-disk",
+	assert.Contains(t, line, "virtio-blk-pci,drive=disk0,id=hd0,bootindex=1,serial=e2e-disk",
 		"the blank disk leads the boot order and carries the selector serial")
 	assert.Contains(t, line, "id=install,format=raw,readonly=on,file=/isos/talos.iso")
-	assert.Contains(t, line, "ide-cd,drive=install,bus=ide.0,bootindex=2",
+	assert.Contains(t, line, "ide-cd,drive=install,id=cdi,bus=ide.0,bootindex=2",
 		"the installer trails the disk — a completed install wins every later boot")
 	assert.Contains(t, line, "file="+filepath.Join(dir, "media-0.iso"))
-	assert.Contains(t, line, "ide-cd,drive=media0,bus=ide.1",
-		"every CD rides its own AHCI port")
+	assert.Contains(t, line, "ide-cd,drive=media0,id=cd0,bus=ide.1,bootindex=3",
+		"every CD rides its own AHCI port; BMC media trail the installer")
 	assert.Contains(t, line,
 		"user,id=net0,hostfwd=tcp:127.42.0.10:50000-:50000,hostfwd=tcp:127.42.0.10:6443-:6443")
+	assert.Contains(t, line, "-device virtio-net-pci,netdev=net0,id=nic0",
+		"the NIC is not a boot device in the machine's own order")
+	assert.NotContains(t, line, "id=nic0,", "no MAC, no boot index")
 
 	// The installer withdrawn and the media set cleared: both vanish.
 	m.DetachInstaller()
 	require.NoError(t, m.SetMedia(context.Background(), nil))
-	args, err = m.args()
+	args, _, err = m.args()
 	require.NoError(t, err)
 	line = strings.Join(args, " ")
 	assert.NotContains(t, line, "install")
@@ -59,7 +66,7 @@ func TestArgs(t *testing.T) {
 
 func TestArgsTCG(t *testing.T) {
 	m := New(Options{Name: "vm1", Dir: t.TempDir(), OVMFCode: "/fw/CODE.fd", Accel: "tcg"})
-	args, err := m.args()
+	args, _, err := m.args()
 	require.NoError(t, err)
 	line := strings.Join(args, " ")
 	assert.Contains(t, line, "-accel tcg")
@@ -69,8 +76,8 @@ func TestArgsTCG(t *testing.T) {
 func TestSetMediaReplacesTheSet(t *testing.T) {
 	m := New(Options{Dir: t.TempDir()})
 	ctx := context.Background()
-	require.NoError(t, m.SetMedia(ctx, [][]byte{[]byte("a"), []byte("b")}))
-	require.NoError(t, m.SetMedia(ctx, [][]byte{[]byte("c")}))
+	require.NoError(t, m.SetMedia(ctx, []sim.Media{{Data: []byte("a")}, {Data: []byte("b")}}))
+	require.NoError(t, m.SetMedia(ctx, []sim.Media{{Data: []byte("c")}}))
 
 	files, err := filepath.Glob(filepath.Join(m.o.Dir, "media-*.iso"))
 	require.NoError(t, err)
@@ -126,16 +133,16 @@ func TestQMP(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("no-socket", func(t *testing.T) {
-		assert.Error(t, m.qmp(ctx, "query-status"))
+		assert.Error(t, m.qmp(ctx, "query-status", nil))
 	})
 
 	fakeQMP(t, m.sockPath(), map[string]string{"system_reset": "nope"})
 
 	t.Run("handshake-and-command", func(t *testing.T) {
-		assert.NoError(t, m.qmp(ctx, "query-status"))
+		assert.NoError(t, m.qmp(ctx, "query-status", nil))
 	})
 	t.Run("error-reply", func(t *testing.T) {
-		err := m.qmp(ctx, "system_reset")
+		err := m.qmp(ctx, "system_reset", nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "nope")
 	})
