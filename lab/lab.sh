@@ -632,7 +632,9 @@ require_cluster() {
 status() {
   local root=$1 lab_dir=$2
   require_cluster "$lab_dir"
-  "$root/metal/bin/pk-metal" status
+  # Exits non-zero when something is blocked or failed; the listing that
+  # follows is still wanted then.
+  "$root/metal/bin/pk-metal" status || true
   echo
   kubectl get assets,managementendpoints,hosts,talosclusters,talosnodes,bootassets
   echo
@@ -657,7 +659,8 @@ approve_pending() {
   local namespace name count=0
   while read -r namespace name; do
     [[ -n $name ]] || continue
-    if "$root/metal/bin/pk-metal" approve -n "$namespace" "$name" >&2; then
+    # --yes: this is the unattended path; approve would otherwise ask.
+    if "$root/metal/bin/pk-metal" approve --yes -n "$namespace" "$name" >&2; then
       count=$((count + 1))
     fi
   done < <(pending_operations)
