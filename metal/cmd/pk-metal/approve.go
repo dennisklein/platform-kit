@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -163,7 +164,14 @@ func approve(ctx context.Context, cl client.Client, a approval) error {
 		}
 	}
 
-	patch := fmt.Appendf(nil, `{"spec":{"approval":{"approvedBy":%q}}}`, a.User)
+	// Marshalled, not formatted: Go's %q escapes are not JSON's, and a user
+	// name comes from whatever the identity provider allows.
+	patch, err := json.Marshal(map[string]any{
+		"spec": map[string]any{"approval": map[string]any{"approvedBy": a.User}},
+	})
+	if err != nil {
+		return err
+	}
 	if err := cl.Patch(ctx, op, client.RawPatch(types.MergePatchType, patch)); err != nil {
 		return fmt.Errorf("approve %s: %w", ref, err)
 	}

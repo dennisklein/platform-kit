@@ -241,6 +241,19 @@ func TestApprove(t *testing.T) {
 		assert.NotContains(t, out.String(), "[y/N]")
 	})
 
+	t.Run("any user name reaches the patch intact", func(t *testing.T) {
+		// Go's %q and JSON escape differently: \x01 and \a are Go escapes
+		// that JSON does not have, so such a name broke the patch.
+		const user = "oidc:Alice \"A\" O'Neil\x01\a "
+		op, objs := bootPlan()
+		cl := fakeClient(objs...)
+		var out bytes.Buffer
+		a := req(op, &out)
+		a.User, a.Yes = user, true
+		require.NoError(t, approve(ctx, cl, a))
+		assert.Equal(t, user, approvedBy(t, cl, op))
+	})
+
 	t.Run("the proposer cannot approve", func(t *testing.T) {
 		op, objs := bootPlan()
 		var out bytes.Buffer
