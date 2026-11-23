@@ -64,6 +64,16 @@ const (
 	checkinCertTTL = 10 * time.Minute
 )
 
+// +kubebuilder:rbac:groups=os.pk.io,resources=talosnodes,verbs=get;list;watch
+// +kubebuilder:rbac:groups=os.pk.io,resources=talosnodes/status,verbs=update
+// +kubebuilder:rbac:groups=os.pk.io,resources=talosnodes/finalizers,verbs=update
+// +kubebuilder:rbac:groups=os.pk.io,resources=talosclusters,verbs=get;list;watch
+// +kubebuilder:rbac:groups=metal.pk.io,resources=hosts,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update,namespace=pk-metal
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch,namespace=pk-metal
+
+// Reconcile renders a node's machine configuration into a Secret and checks
+// the machine in over the Talos API.
 func (r *TalosNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	node := &osv1alpha1.TalosNode{}
 	if err := r.Get(ctx, req.NamespacedName, node); err != nil {
@@ -115,7 +125,7 @@ func (r *TalosNodeReconciler) render(ctx context.Context, node *osv1alpha1.Talos
 		return nil, nil, nil
 	}
 
-	bundle, err := loadBundle(ctx, r.Client, cluster)
+	bundle, err := loadBundle(ctx, r.Client, r.Namespace, cluster)
 	if unavailable := (*bundleUnavailable)(nil); errors.As(err, &unavailable) {
 		hold(osv1alpha1.ReasonSecretsUnavailable, unavailable.msg)
 		return cluster, nil, nil
@@ -123,7 +133,7 @@ func (r *TalosNodeReconciler) render(ctx context.Context, node *osv1alpha1.Talos
 		return nil, nil, err
 	}
 
-	read := configMapReader(ctx, r.Client)
+	read := configMapReader(ctx, r.Client, r.Namespace)
 	clusterPatches, err := render.ResolvePatches(cluster.Spec.Patches, read)
 	if err == nil {
 		var nodePatches [][]byte

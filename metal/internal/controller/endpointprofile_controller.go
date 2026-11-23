@@ -63,6 +63,18 @@ type EndpointConvergenceReconciler struct {
 	APIReader client.Reader
 }
 
+// +kubebuilder:rbac:groups=metal.pk.io,resources=managementendpoints,verbs=get;list;watch
+// +kubebuilder:rbac:groups=metal.pk.io,resources=managementendpoints/status,verbs=patch
+// +kubebuilder:rbac:groups=metal.pk.io,resources=managementendpoints/finalizers,verbs=update
+// +kubebuilder:rbac:groups=metal.pk.io,resources=endpointprofiles,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;delete,namespace=pk-metal
+// +kubebuilder:rbac:groups=cert-manager.io,resources=certificaterequests,verbs=get;create;delete,namespace=pk-metal
+
+// Reconcile converges a management controller's own configuration (accounts,
+// time, identity certificate) on the matching EndpointProfiles. The managed
+// credentials and the in-flight identity key are Secrets it owns in the
+// credentials namespace, and the certificate is requested from cert-manager in
+// the same namespace.
 func (r *EndpointConvergenceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	ep := &metalv1alpha1.ManagementEndpoint{}
 	if err := r.reader().Get(ctx, req.NamespacedName, ep); err != nil {

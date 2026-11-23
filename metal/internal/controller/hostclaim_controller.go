@@ -49,6 +49,21 @@ type HostClaimReconciler struct {
 	CheckInTimeoutSeconds int32
 }
 
+// +kubebuilder:rbac:groups=metal.pk.io,resources=hostclaims,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=metal.pk.io,resources=hostclaims/status,verbs=update
+// +kubebuilder:rbac:groups=metal.pk.io,resources=assets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=metal.pk.io,resources=managementendpoints,verbs=get;list;watch
+// +kubebuilder:rbac:groups=metal.pk.io,resources=hosts,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=metal.pk.io,resources=hostoperations,verbs=get;list;watch;create;delete
+// +kubebuilder:rbac:groups=os.pk.io,resources=talosclusters;talosnodes,verbs=get;list;watch
+// +kubebuilder:rbac:groups=os.pk.io,resources=bootassets,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch,namespace=pk-metal
+
+// Reconcile binds a claim to the Host its Asset resolves to, proposes the
+// operation that boots the claimed machine into its OS, and releases the Host
+// again when the claim goes away. Claims live in any namespace, so these rules
+// are cluster-wide. Proposing is create and withdrawing is delete; neither
+// update nor patch on operations is granted, and approving is a patch.
 func (r *HostClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	bound, err := r.boundHosts(ctx, req.NamespacedName)
 	if err != nil {

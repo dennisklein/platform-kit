@@ -25,6 +25,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -42,6 +43,14 @@ import (
 // Stamped at build time with -ldflags "-X main.version=<tag>", by `mise run build`
 // and by the image build.
 var version = "dev"
+
+// Leader election keeps its Lease in the namespace the manager runs in, and
+// client-go records the election's events there through the core events API.
+// The blank line below keeps this block off main's documentation: the generator
+// reads these markers only from a comment that documents nothing.
+//
+// +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;create;update,namespace=pk-metal
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch,namespace=pk-metal
 
 func main() {
 	var (
@@ -176,7 +185,19 @@ func main() {
 	}
 
 	mgr, err := ctrl.NewManager(restCfg, ctrl.Options{
-		Scheme:                 scheme,
+		Scheme: scheme,
+		// Every Secret and ConfigMap the reconcilers read or write lives in the
+		// operator's namespace: credentials, secrets bundles, patches, rendered
+		// configs. Confining the informers to it is what lets those permissions
+		// be a namespaced Role. An unrestricted informer lists and watches the
+		// kind in every namespace and needs a ClusterRole to do it, which for
+		// Secrets means reading every Secret in the cluster.
+		Cache: cache.Options{
+			ByObject: map[client.Object]cache.ByObject{
+				&corev1.Secret{}:    {Namespaces: map[string]cache.Config{credsNS: {}}},
+				&corev1.ConfigMap{}: {Namespaces: map[string]cache.Config{credsNS: {}}},
+			},
+		},
 		Metrics:                metricsserver.Options{BindAddress: metricsAddr},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         leaderElect,

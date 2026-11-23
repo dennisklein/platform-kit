@@ -92,6 +92,15 @@ func (r *TalosClusterReconciler) outstandingRequest(cluster *osv1alpha1.TalosClu
 	return at
 }
 
+// +kubebuilder:rbac:groups=os.pk.io,resources=talosclusters,verbs=get;list;watch
+// +kubebuilder:rbac:groups=os.pk.io,resources=talosclusters/status,verbs=update
+// +kubebuilder:rbac:groups=os.pk.io,resources=talosclusters/finalizers,verbs=update
+// +kubebuilder:rbac:groups=os.pk.io,resources=talosnodes,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update,namespace=pk-metal
+
+// Reconcile bootstraps a cluster once its first control plane answers, and
+// publishes the admin kubeconfig and talosconfig as Secrets in the operator's
+// namespace. Both derive from the secrets bundle it reads there.
 func (r *TalosClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	cluster := &osv1alpha1.TalosCluster{}
 	if err := r.Get(ctx, req.NamespacedName, cluster); err != nil {
@@ -148,7 +157,7 @@ func (r *TalosClusterReconciler) reconcile(ctx context.Context, cluster *osv1alp
 		}
 	}
 
-	bundle, err := loadBundle(ctx, r.Client, cluster)
+	bundle, err := loadBundle(ctx, r.Client, r.Namespace, cluster)
 	if unavailable := (*bundleUnavailable)(nil); errors.As(err, &unavailable) {
 		set(osv1alpha1.ConditionBootstrapped, metav1.ConditionUnknown, osv1alpha1.ReasonSecretsUnavailable, unavailable.msg)
 		set(osv1alpha1.ConditionAvailable, metav1.ConditionUnknown, osv1alpha1.ReasonSecretsUnavailable, unavailable.msg)

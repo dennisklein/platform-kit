@@ -44,6 +44,15 @@ type hostPath struct {
 	sys metalv1alpha1.DiscoveredSystem
 }
 
+// +kubebuilder:rbac:groups=metal.pk.io,resources=hosts,verbs=get;list;watch;create;update
+// +kubebuilder:rbac:groups=metal.pk.io,resources=hosts/status,verbs=patch
+// +kubebuilder:rbac:groups=metal.pk.io,resources=managementendpoints,verbs=get;list;watch
+// +kubebuilder:rbac:groups=metal.pk.io,resources=hostoperations,verbs=get;list;watch
+// +kubebuilder:rbac:groups=metal.pk.io,resources=hostclaims,verbs=get;list;watch
+// +kubebuilder:rbac:groups=os.pk.io,resources=talosnodes,verbs=get;list;watch
+
+// Reconcile projects the systems behind the endpoints into one Host and derives
+// its lifecycle conditions from the claim, the operations and the OS node.
 func (r *HostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	eps := &metalv1alpha1.ManagementEndpointList{}
 	if err := r.List(ctx, eps, client.MatchingFields{hostNameIndex: req.Name}); err != nil {

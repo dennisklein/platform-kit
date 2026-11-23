@@ -28,8 +28,19 @@ func (e *bundleUnavailable) Error() string { return e.msg }
 
 // loadBundle reads and validates the cluster's secrets bundle. Transport
 // errors return as is; everything else is a *bundleUnavailable.
-func loadBundle(ctx context.Context, c client.Reader, cluster *osv1alpha1.TalosCluster) (*secrets.Bundle, error) {
+//
+// namespace is the operator's own. The manager's Secret informer and its Role
+// are confined to it, so that the operator cannot read every Secret in the
+// cluster on the word of a cluster-scoped object. A reference into another
+// namespace can therefore never resolve, and saying so in the condition beats
+// the cache's "unknown namespace" error in a log nobody reads.
+func loadBundle(ctx context.Context, c client.Reader, namespace string, cluster *osv1alpha1.TalosCluster) (*secrets.Bundle, error) {
 	ref := cluster.Spec.SecretsRef
+	if ref.Namespace != namespace {
+		return nil, &bundleUnavailable{fmt.Sprintf(
+			"secrets Secret %s/%s is outside the operator's namespace: the operator reads Secrets only in %s",
+			ref.Namespace, ref.Name, namespace)}
+	}
 	s := &corev1.Secret{}
 	if err := c.Get(ctx, types.NamespacedName{Namespace: ref.Namespace, Name: ref.Name}, s); err != nil {
 		if client.IgnoreNotFound(err) != nil {
@@ -48,9 +59,14 @@ func loadBundle(ctx context.Context, c client.Reader, cluster *osv1alpha1.TalosC
 	return b, nil
 }
 
-// configMapReader resolves patch references against the API server.
-func configMapReader(ctx context.Context, c client.Reader) render.ConfigMapReader {
+// configMapReader resolves patch references against the API server. Like the
+// bundle, a patch ConfigMap is read in the operator's namespace only.
+func configMapReader(ctx context.Context, c client.Reader, namespace string) render.ConfigMapReader {
 	return func(ref osv1alpha1.ConfigMapKeyReference) (string, error) {
+		if ref.Namespace != namespace {
+			return "", fmt.Errorf("%w: ConfigMap %s/%s is outside the operator's namespace: the operator reads ConfigMaps only in %s",
+				render.ErrPatchUnresolvable, ref.Namespace, ref.Name, namespace)
+		}
 		cm := &corev1.ConfigMap{}
 		if err := c.Get(ctx, types.NamespacedName{Namespace: ref.Namespace, Name: ref.Name}, cm); err != nil {
 			if client.IgnoreNotFound(err) != nil {

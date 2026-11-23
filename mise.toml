@@ -72,12 +72,15 @@ echo "lint:phase: clean"
 '''
 
 [tasks.generate]
-description = "Regenerate deepcopy code, CRDs and RBAC from the API types"
+description = "Regenerate deepcopy code, CRDs and RBAC from the Go sources"
 dir = "metal"
 run = [
   "go tool controller-gen object paths=./api/...",
   "go tool controller-gen crd paths=./api/... output:crd:artifacts:config=config/crd",
   "go run ./hack/reflowdesc config/crd/*.yaml",
+  # The manager's roles come from the +kubebuilder:rbac markers next to the code that
+  # needs each permission: on the reconcilers, and in cmd/manager for leader election.
+  "go tool controller-gen rbac:roleName=pk-metal-manager 'paths=./cmd/manager/...;./internal/controller/...' output:rbac:artifacts:config=config/rbac",
 ]
 
 [tasks."sim:demo"]

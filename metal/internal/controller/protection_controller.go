@@ -36,6 +36,13 @@ type ProtectionReconciler struct {
 	client.Client
 }
 
+// +kubebuilder:rbac:groups=metal.pk.io,resources=hosts,verbs=get;list;watch;patch
+// +kubebuilder:rbac:groups=metal.pk.io,resources=managementendpoints,verbs=get;list;watch;patch
+// +kubebuilder:rbac:groups=metal.pk.io,resources=managementendpoints/status,verbs=patch
+
+// Reconcile keeps the protection finalizer on a claimed Host and on the
+// endpoints that front it. A finalizer is metadata, so holding one needs patch
+// on the object itself.
 func (r *ProtectionReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	host := &metalv1alpha1.Host{}
 	if err := r.Get(ctx, req.NamespacedName, host); err != nil {

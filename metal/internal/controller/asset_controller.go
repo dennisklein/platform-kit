@@ -38,6 +38,17 @@ type AssetReconciler struct {
 	Recorder events.EventRecorder
 }
 
+// +kubebuilder:rbac:groups=metal.pk.io,resources=assets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=metal.pk.io,resources=assets/finalizers,verbs=update
+// +kubebuilder:rbac:groups=metal.pk.io,resources=managementendpoints,verbs=get;list;watch;create;update
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
+
+// Reconcile materializes one Asset into its ManagementEndpoint.
+//
+// The endpoint carries a controller reference to the Asset, and the API server
+// asks for update on the owner's finalizers subresource before it accepts a
+// blocking owner reference, hence the finalizers rule here and on every other
+// reconciler that owns an object.
 func (r *AssetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	asset := &metalv1alpha1.Asset{}
 	if err := r.Get(ctx, req.NamespacedName, asset); err != nil {

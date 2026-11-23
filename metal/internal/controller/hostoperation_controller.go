@@ -117,6 +117,18 @@ func waitingOn(format string, args ...any) stepState {
 	return stepState{waiting: fmt.Sprintf(format, args...)}
 }
 
+// +kubebuilder:rbac:groups=metal.pk.io,resources=hostoperations,verbs=get;list;watch;delete
+// +kubebuilder:rbac:groups=metal.pk.io,resources=hostoperations/status,verbs=update
+// +kubebuilder:rbac:groups=metal.pk.io,resources=hosts,verbs=get;list;watch
+// +kubebuilder:rbac:groups=metal.pk.io,resources=managementendpoints,verbs=get;list;watch
+// +kubebuilder:rbac:groups=metal.pk.io,resources=biossettings,verbs=get;list;watch
+// +kubebuilder:rbac:groups=os.pk.io,resources=bootassets;talosnodes,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch,namespace=pk-metal
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
+
+// Reconcile runs an approved operation's steps against the BMC. Executing needs
+// neither create nor patch on operations, and approving is a patch, so this
+// reconciler's rules cannot pass the approval gate.
 func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	op := &metalv1alpha1.HostOperation{}
 	if err := r.Get(ctx, req.NamespacedName, op); err != nil {

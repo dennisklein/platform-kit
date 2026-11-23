@@ -46,6 +46,14 @@ type BootAssetReconciler struct {
 	Factory *render.Factory
 }
 
+// +kubebuilder:rbac:groups=os.pk.io,resources=bootassets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=os.pk.io,resources=bootassets/status,verbs=update
+// +kubebuilder:rbac:groups=os.pk.io,resources=bootassets/finalizers,verbs=update
+// +kubebuilder:rbac:groups=os.pk.io,resources=talosnodes,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update,namespace=pk-metal
+
+// Reconcile builds the boot artifact a BootAsset describes and stores it in a
+// Secret next to the rendered configuration.
 func (r *BootAssetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	ba := &osv1alpha1.BootAsset{}
 	if err := r.Get(ctx, req.NamespacedName, ba); err != nil {

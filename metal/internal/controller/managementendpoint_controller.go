@@ -45,6 +45,15 @@ type ManagementEndpointReconciler struct {
 	PollInterval time.Duration
 }
 
+// +kubebuilder:rbac:groups=metal.pk.io,resources=managementendpoints,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=metal.pk.io,resources=managementendpoints/status,verbs=patch
+// +kubebuilder:rbac:groups=metal.pk.io,resources=assets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch,namespace=pk-metal
+
+// Reconcile observes one endpoint over Redfish. It reads the credentials and
+// the pinned CA from the credentials namespace and nowhere else, which is why
+// every Secret rule in this package is a namespaced Role and the manager's
+// Secret informer is confined to that namespace.
 func (r *ManagementEndpointReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	ep := &metalv1alpha1.ManagementEndpoint{}
 	if err := r.Get(ctx, req.NamespacedName, ep); err != nil {

@@ -55,6 +55,18 @@ type ConvergenceReconciler struct {
 	PollInterval time.Duration
 }
 
+// +kubebuilder:rbac:groups=metal.pk.io,resources=hosts,verbs=get;list;watch
+// +kubebuilder:rbac:groups=metal.pk.io,resources=hosts/status,verbs=patch
+// +kubebuilder:rbac:groups=metal.pk.io,resources=biosprofiles;firmwareprofiles,verbs=get;list;watch
+// +kubebuilder:rbac:groups=metal.pk.io,resources=managementendpoints,verbs=get;list;watch
+// +kubebuilder:rbac:groups=metal.pk.io,resources=biossettings;biosschemas,verbs=get;list;watch;create;update;delete
+// +kubebuilder:rbac:groups=metal.pk.io,resources=biossettings/status,verbs=update
+// +kubebuilder:rbac:groups=metal.pk.io,resources=hostoperations,verbs=get;list;watch;create;delete
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch,namespace=pk-metal
+
+// Reconcile compares a Host's BIOS and firmware against the matching profiles
+// and proposes operations for the difference. Proposing is create; the approval
+// stays a person's patch, which this reconciler is not granted.
 func (r *ConvergenceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	host := &metalv1alpha1.Host{}
 	if err := r.Get(ctx, req.NamespacedName, host); err != nil {
