@@ -198,7 +198,7 @@ func TestOSLane(t *testing.T) {
 	}
 
 	var configDigest string
-	t.Run("node renders into its config Secret", func(t *testing.T) {
+	st.run(t, "node renders into its config Secret", func(t *testing.T) {
 		require.Eventually(t, func() bool {
 			_, c := nodeCondition("node-1", osv1alpha1.ConditionRendered)
 			return c != nil && c.Status == metav1.ConditionTrue
@@ -227,7 +227,7 @@ func TestOSLane(t *testing.T) {
 		assert.Contains(t, posted(), id, "the schematic must be registered before the config names it")
 	})
 
-	t.Run("cluster publishes credentials derived from the bundle", func(t *testing.T) {
+	st.run(t, "cluster publishes credentials derived from the bundle", func(t *testing.T) {
 		var c osv1alpha1.TalosCluster
 		require.Eventually(t, func() bool {
 			c, _ = clusterCondition("lab", osv1alpha1.ConditionBootstrapped)
@@ -250,7 +250,7 @@ func TestOSLane(t *testing.T) {
 		assert.Equal(t, before, secretData(c.Status.KubeconfigSecretRef, controller.KubeconfigKey))
 	})
 
-	t.Run("configISO BootAsset packs the medium", func(t *testing.T) {
+	st.run(t, "configISO BootAsset packs the medium", func(t *testing.T) {
 		require.NoError(t, cl.Create(ctx, &osv1alpha1.BootAsset{
 			ObjectMeta: metav1.ObjectMeta{Name: "node-1-config"},
 			Spec: osv1alpha1.BootAssetSpec{
@@ -286,7 +286,7 @@ func TestOSLane(t *testing.T) {
 		assert.Equal(t, "BootAsset", sec.OwnerReferences[0].Kind)
 	})
 
-	t.Run("factory BootAsset computes the content address", func(t *testing.T) {
+	st.run(t, "factory BootAsset computes the content address", func(t *testing.T) {
 		require.NoError(t, cl.Create(ctx, &osv1alpha1.BootAsset{
 			ObjectMeta: metav1.ObjectMeta{Name: "lab-install"},
 			Spec: osv1alpha1.BootAssetSpec{
@@ -314,7 +314,7 @@ func TestOSLane(t *testing.T) {
 		assert.Contains(t, posted(), id, "the schematic must be registered before Ready")
 	})
 
-	t.Run("build waits for the render and follows it", func(t *testing.T) {
+	st.run(t, "build waits for the render and follows it", func(t *testing.T) {
 		require.NoError(t, cl.Create(ctx, &osv1alpha1.BootAsset{
 			ObjectMeta: metav1.ObjectMeta{Name: "early"},
 			Spec: osv1alpha1.BootAssetSpec{
@@ -339,7 +339,7 @@ func TestOSLane(t *testing.T) {
 		}, waitFor, tick, "the build must follow the render without a nudge")
 	})
 
-	t.Run("broken inputs are alert-and-hold, and recover through the watches", func(t *testing.T) {
+	st.run(t, "broken inputs are alert-and-hold, and recover through the watches", func(t *testing.T) {
 		orphan := lab.Node("node-3").DeepCopy()
 		orphan.Name = "orphan"
 		orphan.Spec.ClusterRef.Name = "no-such-cluster"
@@ -390,7 +390,7 @@ func TestOSLane(t *testing.T) {
 		assert.Contains(t, string(secretData(n.Status.ConfigSecretRef, asset.ConfigFilename)), "net.core.somaxconn")
 	})
 
-	t.Run("check-in ladder against the scripted machine", func(t *testing.T) {
+	st.run(t, "check-in ladder against the scripted machine", func(t *testing.T) {
 		m := machines["node-2"]
 		handOff("box-2", "node-2")
 		require.Eventually(t, func() bool {
@@ -431,7 +431,7 @@ func TestOSLane(t *testing.T) {
 		}, waitFor, tick, "observations must leave with the hand-off")
 	})
 
-	t.Run("cluster bootstraps once and becomes Available", func(t *testing.T) {
+	st.run(t, "cluster bootstraps once and becomes Available", func(t *testing.T) {
 		// node-4 is no longer part of the lab: the cluster waits for every
 		// member it has.
 		require.NoError(t, cl.Delete(ctx, &osv1alpha1.TalosNode{ObjectMeta: metav1.ObjectMeta{Name: "node-4"}}))
@@ -502,7 +502,7 @@ func TestOSLane(t *testing.T) {
 		}
 	})
 
-	t.Run("CEL refuses malformed specs", func(t *testing.T) {
+	st.run(t, "CEL refuses malformed specs", func(t *testing.T) {
 		assert.Error(t, cl.Create(ctx, &osv1alpha1.BootAsset{
 			ObjectMeta: metav1.ObjectMeta{Name: "bad-configiso"},
 			Spec:       osv1alpha1.BootAssetSpec{Strategy: osv1alpha1.StrategyConfigISO},

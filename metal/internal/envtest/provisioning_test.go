@@ -338,7 +338,7 @@ func TestProvisioning(t *testing.T) {
 			SecretsRef: osv1alpha1.SecretReference{Namespace: "default", Name: "lab-secrets"}},
 	}))
 
-	t.Run("the approval policy holds identities", func(t *testing.T) {
+	st.run(t, "the approval policy holds identities", func(t *testing.T) {
 		op := func(name, proposer string, required bool) *metalv1alpha1.HostOperation {
 			return &metalv1alpha1.HostOperation{
 				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
@@ -379,7 +379,7 @@ func TestProvisioning(t *testing.T) {
 		require.NoError(t, cl.Delete(ctx, own))
 	})
 
-	t.Run("only an admin points a claim at a node or waives its approval", func(t *testing.T) {
+	st.run(t, "only an admin points a claim at a node or waives its approval", func(t *testing.T) {
 		claim := func(name string, node string, approval metalv1alpha1.ProvisioningApproval) *metalv1alpha1.HostClaim {
 			c := &metalv1alpha1.HostClaim{
 				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
@@ -432,7 +432,7 @@ func TestProvisioning(t *testing.T) {
 	var dualHost string
 	var configISO []byte
 
-	t.Run("a claim with OS intent proposes one boot operation", func(t *testing.T) {
+	st.run(t, "a claim with OS intent proposes one boot operation", func(t *testing.T) {
 		createAsset("lab-dual", dualFix.Chassis.BoardSerial, dualFix.Manager.MAC)
 		dualHost = hostBehind("lab-dual").Name
 		cfgBytes := renderedNode("node-dual", "lab")
@@ -497,7 +497,7 @@ func TestProvisioning(t *testing.T) {
 		assert.Len(t, opsFor(dualHost, "provision"), 1, "nothing is proposed twice")
 	})
 
-	t.Run("a hold withdraws the proposal until it is lifted", func(t *testing.T) {
+	st.run(t, "a hold withdraws the proposal until it is lifted", func(t *testing.T) {
 		annotate := func(value string) {
 			c, err := claimOf("dual")
 			require.NoError(t, err)
@@ -520,7 +520,7 @@ func TestProvisioning(t *testing.T) {
 		require.Len(t, opsFor(dualHost, "provision"), 1, "lifted, the same plan is proposed again")
 	})
 
-	t.Run("approval mounts both media with credentials, overrides, powers on", func(t *testing.T) {
+	st.run(t, "approval mounts both media with credentials, overrides, powers on", func(t *testing.T) {
 		op := opsFor(dualHost, "provision")[0]
 		key := client.ObjectKeyFromObject(&op)
 		resetsBefore := dualState.Resets("1")
@@ -562,7 +562,7 @@ func TestProvisioning(t *testing.T) {
 		assert.True(t, strings.HasPrefix(c.Status.HandOff.ConfigDigest, "sha256:"))
 	})
 
-	t.Run("the hand-off outlives its operations", func(t *testing.T) {
+	st.run(t, "the hand-off outlives its operations", func(t *testing.T) {
 		// A person tidies up the finished operations, and later the node goes
 		// down. Neither is a reason to install the machine again.
 		for _, op := range opsFor(dualHost, "provision") {
@@ -582,7 +582,7 @@ func TestProvisioning(t *testing.T) {
 		waitHost(dualHost, func(h metalv1alpha1.Host) bool { return h.Status.Phase == metalv1alpha1.HostProvisioned })
 	})
 
-	t.Run("deleting the claim of a running node waits for approval, then shuts it down", func(t *testing.T) {
+	st.run(t, "deleting the claim of a running node waits for approval, then shuts it down", func(t *testing.T) {
 		c, err := claimOf("dual")
 		require.NoError(t, err)
 		require.NoError(t, cl.Delete(ctx, &c))
@@ -621,7 +621,7 @@ func TestProvisioning(t *testing.T) {
 		assert.Empty(t, opsFor(dualHost, "provision"), "the boot record leaves with its claim")
 	})
 
-	t.Run("a one-slot BMC holds a blank machine", func(t *testing.T) {
+	st.run(t, "a one-slot BMC holds a blank machine", func(t *testing.T) {
 		createAsset("lab-single", singleFix.Systems[0].Serial, singleFix.Manager.MAC)
 		singleHost := hostBehind("lab-single").Name
 		renderedNode("node-single", "lab")
@@ -668,7 +668,7 @@ func TestProvisioning(t *testing.T) {
 		waitHost(singleHost, func(h metalv1alpha1.Host) bool { return h.Status.Phase == metalv1alpha1.HostAvailable })
 	})
 
-	t.Run("a claimed host outlives the deletion of its asset", func(t *testing.T) {
+	st.run(t, "a claimed host outlives the deletion of its asset", func(t *testing.T) {
 		require.NoError(t, cl.Create(ctx, &metalv1alpha1.HostClaim{
 			ObjectMeta: metav1.ObjectMeta{Name: "keep", Namespace: "default"},
 			Spec:       metalv1alpha1.HostClaimSpec{AssetRef: metalv1alpha1.Reference{Name: "lab-dual"}},

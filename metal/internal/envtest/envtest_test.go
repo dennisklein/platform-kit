@@ -23,7 +23,7 @@ func TestAPI(t *testing.T) {
 	cl := st.cl
 	ctx := t.Context()
 
-	t.Run("asset round-trip and validation", func(t *testing.T) {
+	st.run(t, "asset round-trip and validation", func(t *testing.T) {
 		asset := &metalv1alpha1.Asset{
 			ObjectMeta: metav1.ObjectMeta{Name: "ci-00397"},
 			Spec: metalv1alpha1.AssetSpec{
@@ -63,7 +63,7 @@ func TestAPI(t *testing.T) {
 		assert.Contains(t, err.Error(), "such as 0c:c4:7a:12:34:56", "the refusal shows the expected form")
 	})
 
-	t.Run("endpoint status subresource and phase enum", func(t *testing.T) {
+	st.run(t, "endpoint status subresource and phase enum", func(t *testing.T) {
 		ep := &metalv1alpha1.ManagementEndpoint{
 			ObjectMeta: metav1.ObjectMeta{Name: "ci-00397"},
 			Spec: metalv1alpha1.ManagementEndpointSpec{
@@ -99,7 +99,7 @@ func TestAPI(t *testing.T) {
 		assert.Error(t, cl.Status().Update(ctx, got), "phase enum must reject unknown values")
 	})
 
-	t.Run("host status shape", func(t *testing.T) {
+	st.run(t, "host status shape", func(t *testing.T) {
 		h := &metalv1alpha1.Host{ObjectMeta: metav1.ObjectMeta{Name: "ref-2288h"}}
 		require.NoError(t, cl.Create(ctx, h))
 

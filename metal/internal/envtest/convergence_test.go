@@ -203,7 +203,7 @@ func TestConvergence(t *testing.T) {
 		return strings.Contains(err.Error(), "pre-approved")
 	}, waitFor, tick, "the ValidatingAdmissionPolicy never became enforcing")
 
-	t.Run("discovered facts label both hosts", func(t *testing.T) {
+	st.run(t, "discovered facts label both hosts", func(t *testing.T) {
 		h := waitHost(smcHost, func(h metalv1alpha1.Host) bool {
 			return h.Labels["metal.pk.io/model"] != ""
 		})
@@ -217,7 +217,7 @@ func TestConvergence(t *testing.T) {
 		assert.Equal(t, "2288H-V5", h.Labels["metal.pk.io/model"], "the space sanitized away")
 	})
 
-	t.Run("claim intent labels the host, prefixed keys refused", func(t *testing.T) {
+	st.run(t, "claim intent labels the host, prefixed keys refused", func(t *testing.T) {
 		bad := &metalv1alpha1.HostClaim{
 			ObjectMeta: metav1.ObjectMeta{Name: "bad-labels", Namespace: "default"},
 			Spec: metalv1alpha1.HostClaimSpec{
@@ -242,7 +242,7 @@ func TestConvergence(t *testing.T) {
 		})
 	})
 
-	t.Run("profiles materialize settings and schema, drift proposes", func(t *testing.T) {
+	st.run(t, "profiles materialize settings and schema, drift proposes", func(t *testing.T) {
 		for _, p := range []*metalv1alpha1.BiosProfile{
 			{ObjectMeta: metav1.ObjectMeta{Name: "x12-baseline"},
 				Spec: metalv1alpha1.BiosProfileSpec{
@@ -297,7 +297,7 @@ func TestConvergence(t *testing.T) {
 		assert.Equal(t, metalv1alpha1.ReasonAwaitingOperation, c.Reason, "mirrored onto the host")
 	})
 
-	t.Run("same-layer conflict holds whole", func(t *testing.T) {
+	st.run(t, "same-layer conflict holds whole", func(t *testing.T) {
 		before := settingsOf(smcHost).Spec.Attributes
 		rogue := &metalv1alpha1.BiosProfile{
 			ObjectMeta: metav1.ObjectMeta{Name: "rogue"},
@@ -312,7 +312,7 @@ func TestConvergence(t *testing.T) {
 		waitSettings(smcHost, settingsReason(metalv1alpha1.ReasonAwaitingOperation))
 	})
 
-	t.Run("schema violation holds, nothing new proposed", func(t *testing.T) {
+	st.run(t, "schema violation holds, nothing new proposed", func(t *testing.T) {
 		bad := &metalv1alpha1.BiosProfile{
 			ObjectMeta: metav1.ObjectMeta{Name: "bad-value"},
 			Spec: metalv1alpha1.BiosProfileSpec{
@@ -328,7 +328,7 @@ func TestConvergence(t *testing.T) {
 		waitSettings(smcHost, settingsReason(metalv1alpha1.ReasonAwaitingOperation))
 	})
 
-	t.Run("approval applies, reboots, converges", func(t *testing.T) {
+	st.run(t, "approval applies, reboots, converges", func(t *testing.T) {
 		bs := settingsOf(smcHost)
 		require.NotNil(t, bs.Status.Proposed)
 		approve(bs.Status.Proposed.Operation)
@@ -345,7 +345,7 @@ func TestConvergence(t *testing.T) {
 		assert.Equal(t, metalv1alpha1.HostAssigned, h.Status.Phase)
 	})
 
-	t.Run("drift after convergence is proposed again", func(t *testing.T) {
+	st.run(t, "drift after convergence is proposed again", func(t *testing.T) {
 		bs := settingsOf(smcHost)
 		require.Equal(t, metalv1alpha1.ReasonInSync, converged(bs).Reason)
 		assert.Nil(t, bs.Status.Proposed, "a converged plan is spent and forgotten")
@@ -372,7 +372,7 @@ func TestConvergence(t *testing.T) {
 		require.Eventually(t, func() bool { return len(biosOps(smcHost)) == 1 }, waitFor, tick)
 	})
 
-	t.Run("unchanged planHash spawns nothing", func(t *testing.T) {
+	st.run(t, "unchanged planHash spawns nothing", func(t *testing.T) {
 		smcState.SetFault(sim.FaultBiosStuck, true)
 
 		// New desired state → exactly one new proposal.
@@ -413,7 +413,7 @@ func TestConvergence(t *testing.T) {
 		assert.Equal(t, "2000", string(bs.Status.Observed["CorrectableErrorThreshold"].Raw))
 	})
 
-	t.Run("firmware converges before bios", func(t *testing.T) {
+	st.run(t, "firmware converges before bios", func(t *testing.T) {
 		fw := &metalv1alpha1.FirmwareProfile{
 			ObjectMeta: metav1.ObjectMeta{Name: "x12-fw"},
 			Spec: metalv1alpha1.FirmwareProfileSpec{
@@ -466,7 +466,7 @@ func TestConvergence(t *testing.T) {
 		})
 	})
 
-	t.Run("no proven transport holds the flash", func(t *testing.T) {
+	st.run(t, "no proven transport holds the flash", func(t *testing.T) {
 		fw := &metalv1alpha1.FirmwareProfile{
 			ObjectMeta: metav1.ObjectMeta{Name: "ibmc-fw"},
 			Spec: metalv1alpha1.FirmwareProfileSpec{
@@ -486,7 +486,7 @@ func TestConvergence(t *testing.T) {
 		}
 	})
 
-	t.Run("finished operations expire by TTL", func(t *testing.T) {
+	st.run(t, "finished operations expire by TTL", func(t *testing.T) {
 		ttl := int32(1)
 		op := &metalv1alpha1.HostOperation{
 			ObjectMeta: metav1.ObjectMeta{Name: "ttl-cycle", Namespace: "default"},

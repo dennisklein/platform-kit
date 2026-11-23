@@ -217,7 +217,7 @@ func TestReconcile(t *testing.T) {
 		}
 	}
 
-	t.Run("asset materializes and reaches Ready", func(t *testing.T) {
+	st.run(t, "asset materializes and reaches Ready", func(t *testing.T) {
 		require.NoError(t, cl.Create(ctx, asset("ci-huawei", "SIMHW2288V5000391", "02:00:48:0b:74:60")))
 		ep := waitPhase("ci-huawei", metalv1alpha1.EndpointReady)
 
@@ -234,7 +234,7 @@ func TestReconcile(t *testing.T) {
 		assert.Equal(t, "Huawei", ep.Status.Systems[0].Manufacturer)
 	})
 
-	t.Run("host projects from the endpoint and reaches Available", func(t *testing.T) {
+	st.run(t, "host projects from the endpoint and reaches Available", func(t *testing.T) {
 		h := waitHost("simhw2288v5000391", func(h metalv1alpha1.Host) bool {
 			return h.Status.Phase == metalv1alpha1.HostAvailable && h.Labels["metal.pk.io/asset"] != ""
 		})
@@ -252,7 +252,7 @@ func TestReconcile(t *testing.T) {
 		assert.Equal(t, "ci-huawei", h.OwnerReferences[0].Name)
 	})
 
-	t.Run("board serial anchors the Supermicro verification", func(t *testing.T) {
+	st.run(t, "board serial anchors the Supermicro verification", func(t *testing.T) {
 		require.NoError(t, cl.Create(ctx, asset("ci-smc", "SIMX12B000001", "02:00:5a:3a:cc:18")))
 		ep := waitPhase("ci-smc", metalv1alpha1.EndpointReady)
 
@@ -266,7 +266,7 @@ func TestReconcile(t *testing.T) {
 		assert.Equal(t, "Supermicro", h.Status.Identity.Vendor)
 	})
 
-	t.Run("second manager converges on the same host", func(t *testing.T) {
+	st.run(t, "second manager converges on the same host", func(t *testing.T) {
 		require.NoError(t, cl.Create(ctx, asset("ci-huawei2", "SIMHW2288V5000391", "02:00:48:0b:74:99")))
 		waitPhase("ci-huawei2", metalv1alpha1.EndpointReady)
 
@@ -283,7 +283,7 @@ func TestReconcile(t *testing.T) {
 		assert.Len(t, h.OwnerReferences, 2, "owned by both fronting endpoints")
 	})
 
-	t.Run("two claims race for one host", func(t *testing.T) {
+	st.run(t, "two claims race for one host", func(t *testing.T) {
 		// Both claims select the same machine — through DIFFERENT assets (the two
 		// managers fronting it). Created back-to-back with no wait between: exactly
 		// one may win the bind pointer, whichever reconciles first.
@@ -330,7 +330,7 @@ func TestReconcile(t *testing.T) {
 		assert.Nil(t, h.Spec.ClaimRef, "released: the bind pointer is gone")
 	})
 
-	t.Run("claim OS intent stamps the host and follows edits", func(t *testing.T) {
+	st.run(t, "claim OS intent stamps the host and follows edits", func(t *testing.T) {
 		c := &metalv1alpha1.HostClaim{
 			ObjectMeta: metav1.ObjectMeta{Name: "fleet-os", Namespace: "default"},
 			Spec: metalv1alpha1.HostClaimSpec{
@@ -376,7 +376,7 @@ func TestReconcile(t *testing.T) {
 		waitHost("simhw2288v5000391", hostPhaseIs(metalv1alpha1.HostAvailable))
 	})
 
-	t.Run("check-in observations advance the host to Provisioned", func(t *testing.T) {
+	st.run(t, "check-in observations advance the host to Provisioned", func(t *testing.T) {
 		// The TalosNode exists but no OS reconciler runs in this suite — its
 		// check-in conditions are scripted below, exactly the seam the
 		// HostReconciler joins on.
@@ -448,7 +448,7 @@ func TestReconcile(t *testing.T) {
 		require.NoError(t, cl.Delete(ctx, node))
 	})
 
-	t.Run("corrupted assertion is alert-and-hold, and recovers", func(t *testing.T) {
+	st.run(t, "corrupted assertion is alert-and-hold, and recovers", func(t *testing.T) {
 		a := &metalv1alpha1.Asset{}
 		require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: "ci-huawei"}, a))
 		good := a.Spec.Serial
@@ -476,7 +476,7 @@ func TestReconcile(t *testing.T) {
 		waitHost("simhw2288v5000391", hostPhaseIs(metalv1alpha1.HostAvailable))
 	})
 
-	t.Run("wrong box behind the address", func(t *testing.T) {
+	st.run(t, "wrong box behind the address", func(t *testing.T) {
 		require.NoError(t, cl.Create(ctx, asset("ci-macwrong", "SIMHW2288V5000391", "aa:bb:cc:dd:ee:01")))
 		ep := waitPhase("ci-macwrong", metalv1alpha1.EndpointMismatch)
 		assert.Equal(t, "MACMismatch", ep.Status.BlockedOn)
@@ -488,7 +488,7 @@ func TestReconcile(t *testing.T) {
 		})
 	})
 
-	t.Run("dead address is Unreachable", func(t *testing.T) {
+	st.run(t, "dead address is Unreachable", func(t *testing.T) {
 		require.NoError(t, cl.Create(ctx, asset("ci-dead", "X", "00:11:22:33:44:55")))
 		waitPhase("ci-dead", metalv1alpha1.EndpointUnreachable)
 
@@ -497,7 +497,7 @@ func TestReconcile(t *testing.T) {
 		assert.Len(t, hosts.Items, 2, "an endpoint that never discovered fronts no host")
 	})
 
-	t.Run("no ledger entry materializes nothing", func(t *testing.T) {
+	st.run(t, "no ledger entry materializes nothing", func(t *testing.T) {
 		require.NoError(t, cl.Create(ctx, asset("ci-unknown", "X", "FF-FF-FF-FF-FF-FF")))
 		var cond *metav1.Condition
 		require.Eventually(t, func() bool {
@@ -536,7 +536,7 @@ func TestReconcile(t *testing.T) {
 		assert.Equal(t, metav1.ConditionTrue, m.Status)
 	})
 
-	t.Run("steady state writes no status", func(t *testing.T) {
+	st.run(t, "steady state writes no status", func(t *testing.T) {
 		ep := waitPhase("ci-smc", metalv1alpha1.EndpointReady)
 		h := waitHost("simx12b000001", hostPhaseIs(metalv1alpha1.HostAvailable))
 		epRV, hostRV := ep.ResourceVersion, h.ResourceVersion
@@ -547,7 +547,7 @@ func TestReconcile(t *testing.T) {
 		assert.Equal(t, hostRV, gotHost.ResourceVersion, "unchanged projections must not write")
 	})
 
-	t.Run("proposed operation awaits its human gate", func(t *testing.T) {
+	st.run(t, "proposed operation awaits its human gate", func(t *testing.T) {
 		// First, wait for the VAP to be compiled and enforcing: a pre-approved
 		// create must bounce. Only then is the rest of this lane deterministic.
 		require.Eventually(t, func() bool {
@@ -591,7 +591,7 @@ func TestReconcile(t *testing.T) {
 			"awaiting approval is a reason, not a phase")
 	})
 
-	t.Run("the gate is CEL-guarded", func(t *testing.T) {
+	st.run(t, "the gate is CEL-guarded", func(t *testing.T) {
 		// Stamping someone else's name is denied — approval is an identity act.
 		op := opByName("cycle-smc")
 		foreign := client.RawPatch(types.MergePatchType, []byte(`{"spec":{"approval":{"approvedBy":"alice"}}}`))
@@ -608,7 +608,7 @@ func TestReconcile(t *testing.T) {
 		assert.Contains(t, err.Error(), "frozen")
 	})
 
-	t.Run("approval executes and the sim power-cycles", func(t *testing.T) {
+	st.run(t, "approval executes and the sim power-cycles", func(t *testing.T) {
 		before := smcState.Resets("1")
 		op := opByName("cycle-smc")
 		self := client.RawPatch(types.MergePatchType, []byte(`{"spec":{"approval":{"approvedBy":"alice"}}}`))
@@ -630,7 +630,7 @@ func TestReconcile(t *testing.T) {
 		})
 	})
 
-	t.Run("out-of-band reset raises Drifted", func(t *testing.T) {
+	st.run(t, "out-of-band reset raises Drifted", func(t *testing.T) {
 		// Someone resets the machine behind the operator's back — no operation in
 		// flight. The next poll observes the advance and flags it: information,
 		// not error (the host stays in its phase).
@@ -644,7 +644,7 @@ func TestReconcile(t *testing.T) {
 		assert.Equal(t, metalv1alpha1.HostAvailable, h.Status.Phase, "drift is not a failure")
 	})
 
-	t.Run("a host in maintenance starts nothing until it is given back", func(t *testing.T) {
+	st.run(t, "a host in maintenance starts nothing until it is given back", func(t *testing.T) {
 		annotate := func(value string) {
 			h, _ := hostByName("simx12b000001")
 			require.NoError(t, cl.Patch(ctx, &h, client.RawPatch(types.MergePatchType,

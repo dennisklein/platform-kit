@@ -127,7 +127,7 @@ func TestEndpointConvergence(t *testing.T) {
 	}
 	states := map[string]*sim.State{"ci-huawei": huaweiState, "ci-smc": smcState}
 
-	t.Run("discovered-labels", func(t *testing.T) {
+	st.run(t, "discovered-labels", func(t *testing.T) {
 		for name, model := range map[string]string{"ci-huawei": "2288H-V5", "ci-smc": "X12DPi-N6"} {
 			ep := waitEndpoint(name, func(ep metalv1alpha1.ManagementEndpoint) bool {
 				return ep.Labels[labelVLAN] == "1034"
@@ -137,7 +137,7 @@ func TestEndpointConvergence(t *testing.T) {
 		}
 	})
 
-	t.Run("adoption", func(t *testing.T) {
+	st.run(t, "adoption", func(t *testing.T) {
 		require.NoError(t, cl.Create(ctx, &metalv1alpha1.EndpointProfile{
 			ObjectMeta: metav1.ObjectMeta{Name: "managed-bmcs"},
 			Spec: metalv1alpha1.EndpointProfileSpec{
@@ -165,7 +165,7 @@ func TestEndpointConvergence(t *testing.T) {
 		}
 	})
 
-	t.Run("ntp", func(t *testing.T) {
+	st.run(t, "ntp", func(t *testing.T) {
 		// The X12 fixture ships drifted (site server doubled into both
 		// slots), the iBMC ships disabled — both must land on the profile.
 		profile := &metalv1alpha1.EndpointProfile{}
@@ -183,7 +183,7 @@ func TestEndpointConvergence(t *testing.T) {
 		}
 	})
 
-	t.Run("rotation-kills-the-old-credential", func(t *testing.T) {
+	st.run(t, "rotation-kills-the-old-credential", func(t *testing.T) {
 		sec, ok := managedSecret("ci-smc")
 		require.True(t, ok)
 		before := string(sec.Data["password"])
@@ -219,7 +219,7 @@ func TestEndpointConvergence(t *testing.T) {
 		assert.Equal(t, metav1.ConditionTrue, v.Status, "the endpoint stays verified through the rotation")
 	})
 
-	t.Run("break-glass-repair", func(t *testing.T) {
+	st.run(t, "break-glass-repair", func(t *testing.T) {
 		// Someone changes the managed password behind the operator's back. The
 		// managed secret no longer works — the repair path goes through the
 		// factory account and converges the machine back to the secret.
@@ -231,7 +231,7 @@ func TestEndpointConvergence(t *testing.T) {
 		waitEndpoint("ci-huawei", configuredReason(metalv1alpha1.ReasonInSync))
 	})
 
-	t.Run("same-layer-conflict-holds", func(t *testing.T) {
+	st.run(t, "same-layer-conflict-holds", func(t *testing.T) {
 		require.NoError(t, cl.Create(ctx, &metalv1alpha1.EndpointProfile{
 			ObjectMeta: metav1.ObjectMeta{Name: "other-account"},
 			Spec: metalv1alpha1.EndpointProfileSpec{
@@ -271,7 +271,7 @@ func TestEndpointConvergence(t *testing.T) {
 		return names
 	}
 
-	t.Run("identity", func(t *testing.T) {
+	st.run(t, "identity", func(t *testing.T) {
 		profile := &metalv1alpha1.EndpointProfile{}
 		require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: "managed-bmcs"}, profile))
 		profile.Spec.TLS = &metalv1alpha1.IdentityPolicy{
@@ -309,7 +309,7 @@ func TestEndpointConvergence(t *testing.T) {
 		}
 	})
 
-	t.Run("identity-stuck-never-repushes", func(t *testing.T) {
+	st.run(t, "identity-stuck-never-repushes", func(t *testing.T) {
 		// The lying oracle: the import answers success, the listener keeps
 		// serving the old identity across the manager reset. A narrower
 		// layered profile moves only the huawei endpoint to a new name, so
@@ -359,7 +359,7 @@ func TestEndpointConvergence(t *testing.T) {
 		waitEndpoint("ci-huawei", configuredReason(metalv1alpha1.ReasonInSync))
 	})
 
-	t.Run("unmatched-is-unmanaged-not-unrotated", func(t *testing.T) {
+	st.run(t, "unmatched-is-unmanaged-not-unrotated", func(t *testing.T) {
 		profile := &metalv1alpha1.EndpointProfile{}
 		require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: "managed-bmcs"}, profile))
 		profile.Spec.Match = metav1.LabelSelector{MatchLabels: map[string]string{labelVLAN: "9999"}}
