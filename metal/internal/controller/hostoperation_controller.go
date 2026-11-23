@@ -164,9 +164,7 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	orig := op.DeepCopy()
 	setCond := func(t string, s metav1.ConditionStatus, reason, msg string) {
-		meta.SetStatusCondition(&op.Status.Conditions, metav1.Condition{
-			Type: t, Status: s, Reason: reason, Message: msg, ObservedGeneration: op.Generation,
-		})
+		setCondition(&op.Status.Conditions, op.Generation, t, s, reason, msg)
 	}
 	flush := func() error {
 		phase.StampOperation(op)

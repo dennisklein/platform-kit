@@ -108,10 +108,7 @@ func (r *TalosNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 // got that far.
 func (r *TalosNodeReconciler) render(ctx context.Context, node *osv1alpha1.TalosNode) (*osv1alpha1.TalosCluster, *secrets.Bundle, error) {
 	hold := func(reason, message string) {
-		meta.SetStatusCondition(&node.Status.Conditions, metav1.Condition{
-			Type: osv1alpha1.ConditionRendered, Status: metav1.ConditionFalse,
-			Reason: reason, Message: message, ObservedGeneration: node.Generation,
-		})
+		setCondition(&node.Status.Conditions, node.Generation, osv1alpha1.ConditionRendered, metav1.ConditionFalse, reason, message)
 	}
 	node.Status.Address = render.NodeAddress(node)
 
@@ -195,10 +192,7 @@ func (r *TalosNodeReconciler) renderWith(ctx context.Context, node *osv1alpha1.T
 	node.Status.ConfigSecretRef = &osv1alpha1.SecretReference{Namespace: secret.Namespace, Name: secret.Name}
 	node.Status.ConfigDigest = digest.FromBytes(machineConfig).String()
 	node.Status.InstallerImage = installer
-	meta.SetStatusCondition(&node.Status.Conditions, metav1.Condition{
-		Type: osv1alpha1.ConditionRendered, Status: metav1.ConditionTrue,
-		Reason: osv1alpha1.ReasonConfigRendered, ObservedGeneration: node.Generation,
-	})
+	setCondition(&node.Status.Conditions, node.Generation, osv1alpha1.ConditionRendered, metav1.ConditionTrue, osv1alpha1.ReasonConfigRendered, "")
 	return nil
 }
 
@@ -226,10 +220,7 @@ func (r *TalosNodeReconciler) checkin(ctx context.Context, node *osv1alpha1.Talo
 	}
 
 	set := func(t string, s metav1.ConditionStatus, reason, msg string) {
-		meta.SetStatusCondition(&node.Status.Conditions, metav1.Condition{
-			Type: t, Status: s, Reason: reason, Message: msg,
-			ObservedGeneration: node.Generation,
-		})
+		setCondition(&node.Status.Conditions, node.Generation, t, s, reason, msg)
 	}
 	retry := ctrl.Result{RequeueAfter: cmp.Or(r.CheckInterval, defaultCheckInterval)}
 

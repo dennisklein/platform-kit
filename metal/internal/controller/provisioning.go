@@ -81,10 +81,7 @@ type provisionPlan struct {
 // boot needs is in place, proposes the boot operation. hostName is the bound host.
 func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha1.HostClaim, hostName string) error {
 	set := func(s metav1.ConditionStatus, reason, msg string) {
-		meta.SetStatusCondition(&claim.Status.Conditions, metav1.Condition{
-			Type: metalv1alpha1.ConditionProvisioned, Status: s, Reason: reason, Message: msg,
-			ObservedGeneration: claim.Generation,
-		})
+		setCondition(&claim.Status.Conditions, claim.Generation, metalv1alpha1.ConditionProvisioned, s, reason, msg)
 	}
 	hold := func(reason, msg string) error {
 		set(metav1.ConditionFalse, reason, msg)
@@ -666,10 +663,7 @@ func short(digest string) string {
 // disks is not part of it.
 func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.HostClaim, bound []metalv1alpha1.Host) (bool, error) {
 	set := func(reason, msg string) {
-		meta.SetStatusCondition(&claim.Status.Conditions, metav1.Condition{
-			Type: metalv1alpha1.ConditionProvisioned, Status: metav1.ConditionFalse, Reason: reason, Message: msg,
-			ObservedGeneration: claim.Generation,
-		})
+		setCondition(&claim.Status.Conditions, claim.Generation, metalv1alpha1.ConditionProvisioned, metav1.ConditionFalse, reason, msg)
 	}
 	provisionOps, err := r.claimOps(ctx, claim, purposeProvision)
 	if err != nil {

@@ -7,7 +7,6 @@ import (
 	"github.com/opencontainers/go-digest"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -90,10 +89,7 @@ func (r *BootAssetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 }
 
 func (r *BootAssetReconciler) hold(ba *osv1alpha1.BootAsset, reason, message string) {
-	meta.SetStatusCondition(&ba.Status.Conditions, metav1.Condition{
-		Type: osv1alpha1.ConditionReady, Status: metav1.ConditionFalse,
-		Reason: reason, Message: message, ObservedGeneration: ba.Generation,
-	})
+	setCondition(&ba.Status.Conditions, ba.Generation, osv1alpha1.ConditionReady, metav1.ConditionFalse, reason, message)
 }
 
 // addressImage is the factory strategy: there is nothing to build, so the work
@@ -115,10 +111,7 @@ func (r *BootAssetReconciler) addressImage(ctx context.Context, ba *osv1alpha1.B
 		return
 	}
 	ba.Status.URL = url
-	meta.SetStatusCondition(&ba.Status.Conditions, metav1.Condition{
-		Type: osv1alpha1.ConditionReady, Status: metav1.ConditionTrue,
-		Reason: osv1alpha1.ReasonURLComputed, ObservedGeneration: ba.Generation,
-	})
+	setCondition(&ba.Status.Conditions, ba.Generation, osv1alpha1.ConditionReady, metav1.ConditionTrue, osv1alpha1.ReasonURLComputed, "")
 }
 
 // build is the configISO strategy: rendered config Secret in, artifact Secret
@@ -193,10 +186,7 @@ func (r *BootAssetReconciler) build(ctx context.Context, ba *osv1alpha1.BootAsse
 	ba.Status.ArtifactSecretRef = &osv1alpha1.SecretReference{Namespace: artifact.Namespace, Name: artifact.Name}
 	ba.Status.Digest = digest.FromBytes(iso).String()
 	ba.Status.Size = int64(len(iso))
-	meta.SetStatusCondition(&ba.Status.Conditions, metav1.Condition{
-		Type: osv1alpha1.ConditionReady, Status: metav1.ConditionTrue,
-		Reason: osv1alpha1.ReasonArtifactBuilt, ObservedGeneration: ba.Generation,
-	})
+	setCondition(&ba.Status.Conditions, ba.Generation, osv1alpha1.ConditionReady, metav1.ConditionTrue, osv1alpha1.ReasonArtifactBuilt, "")
 	return nil
 }
 

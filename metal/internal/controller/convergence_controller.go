@@ -87,9 +87,7 @@ func (r *ConvergenceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	orig := host.DeepCopy()
 	setCond := func(t string, s metav1.ConditionStatus, reason, msg string) {
-		meta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
-			Type: t, Status: s, Reason: reason, Message: msg, ObservedGeneration: host.Generation,
-		})
+		setCondition(&host.Status.Conditions, host.Generation, t, s, reason, msg)
 	}
 
 	fwConverged, err := r.firmware(ctx, host, fwProfiles, setCond)
@@ -370,10 +368,7 @@ func (r *ConvergenceReconciler) bios(ctx context.Context, host *metalv1alpha1.Ho
 		msg = fmt.Sprintf("drift on %s; operation %s/%s proposed", strings.Join(drifted, ", "), op.Namespace, op.Name)
 	}
 
-	meta.SetStatusCondition(&settings.Status.Conditions, metav1.Condition{
-		Type: metalv1alpha1.ConditionConverged, Status: status, Reason: reason, Message: msg,
-		ObservedGeneration: settings.Generation,
-	})
+	setCondition(&settings.Status.Conditions, settings.Generation, metalv1alpha1.ConditionConverged, status, reason, msg)
 	if !equality.Semantic.DeepEqual(origSettings.Status, settings.Status) {
 		if err := r.Status().Update(ctx, settings); err != nil {
 			return false, client.IgnoreNotFound(err)

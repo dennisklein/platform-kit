@@ -87,10 +87,7 @@ func (r *AssetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 // events; the condition is what stays.
 func (r *AssetReconciler) materialize(ctx context.Context, asset *metalv1alpha1.Asset) (ctrl.Result, error) {
 	set := func(s metav1.ConditionStatus, reason, msg string) {
-		meta.SetStatusCondition(&asset.Status.Conditions, metav1.Condition{
-			Type: metalv1alpha1.ConditionMaterialized, Status: s, Reason: reason, Message: msg,
-			ObservedGeneration: asset.Generation,
-		})
+		setCondition(&asset.Status.Conditions, asset.Generation, metalv1alpha1.ConditionMaterialized, s, reason, msg)
 	}
 	hold := func(reason, msg string) {
 		// The event goes out when the verdict changes, not on every pass.

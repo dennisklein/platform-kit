@@ -173,10 +173,7 @@ func (r *HostClaimReconciler) finishRelease(ctx context.Context, claim *metalv1a
 }
 
 func (r *HostClaimReconciler) setBound(claim *metalv1alpha1.HostClaim, s metav1.ConditionStatus, reason, msg string) {
-	meta.SetStatusCondition(&claim.Status.Conditions, metav1.Condition{
-		Type: metalv1alpha1.ConditionBound, Status: s, Reason: reason, Message: msg,
-		ObservedGeneration: claim.Generation,
-	})
+	setCondition(&claim.Status.Conditions, claim.Generation, metalv1alpha1.ConditionBound, s, reason, msg)
 }
 
 // resolveTarget walks assetRef → materialized endpoint → discovered systems to the

@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -47,6 +48,15 @@ var convergenceHostConditions = []string{
 
 func isConvergenceHostCondition(c metav1.Condition) bool {
 	return slices.Contains(convergenceHostConditions, c.Type)
+}
+
+// setCondition is the one way a reconciler sets a condition. It always stamps
+// the object's generation, so a condition can never claim to describe a spec it
+// did not see.
+func setCondition(conds *[]metav1.Condition, gen int64, t string, s metav1.ConditionStatus, reason, msg string) {
+	meta.SetStatusCondition(conds, metav1.Condition{
+		Type: t, Status: s, Reason: reason, Message: msg, ObservedGeneration: gen,
+	})
 }
 
 // applyOwnedStatus sends obj's status as a server-side apply under owner. The

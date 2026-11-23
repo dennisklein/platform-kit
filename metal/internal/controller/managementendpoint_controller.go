@@ -10,7 +10,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/cert"
@@ -127,9 +126,7 @@ func (r *ManagementEndpointReconciler) snapshotAsset(ctx context.Context, ep *me
 // Reachable / Inventoried / Verified conditions from what it saw.
 func (r *ManagementEndpointReconciler) observe(ctx context.Context, ep *metalv1alpha1.ManagementEndpoint) {
 	setCond := func(t string, s metav1.ConditionStatus, reason, msg string) {
-		meta.SetStatusCondition(&ep.Status.Conditions, metav1.Condition{
-			Type: t, Status: s, Reason: reason, Message: msg, ObservedGeneration: ep.Generation,
-		})
+		setCondition(&ep.Status.Conditions, ep.Generation, t, s, reason, msg)
 	}
 
 	cfg, reason, err := r.connectConfig(ctx, ep)

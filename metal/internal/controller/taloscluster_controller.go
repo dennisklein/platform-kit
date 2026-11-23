@@ -124,9 +124,7 @@ func (r *TalosClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 func (r *TalosClusterReconciler) reconcile(ctx context.Context, cluster *osv1alpha1.TalosCluster) (ctrl.Result, error) {
 	set := func(t string, s metav1.ConditionStatus, reason, msg string) {
-		meta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
-			Type: t, Status: s, Reason: reason, Message: msg, ObservedGeneration: cluster.Generation,
-		})
+		setCondition(&cluster.Status.Conditions, cluster.Generation, t, s, reason, msg)
 	}
 	retry := ctrl.Result{RequeueAfter: cmp.Or(r.CheckInterval, defaultCheckInterval)}
 

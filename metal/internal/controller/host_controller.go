@@ -220,11 +220,9 @@ func projectDeletionHold(host *metalv1alpha1.Host) {
 		return
 	}
 	ref := host.Spec.ClaimRef
-	meta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
-		Type: metalv1alpha1.ConditionDeletionHeld, Status: metav1.ConditionTrue,
-		Reason: metalv1alpha1.ReasonHostClaimed, ObservedGeneration: host.Generation,
-		Message: fmt.Sprintf("deletion requested, held by claim %s/%s — delete the claim to release the machine", ref.Namespace, ref.Name),
-	})
+	setCondition(&host.Status.Conditions, host.Generation, metalv1alpha1.ConditionDeletionHeld, metav1.ConditionTrue,
+		metalv1alpha1.ReasonHostClaimed,
+		fmt.Sprintf("deletion requested, held by claim %s/%s — delete the claim to release the machine", ref.Namespace, ref.Name))
 }
 
 // applyStatus declares the projected half of the host's status: what the
@@ -254,9 +252,7 @@ func (r *HostReconciler) applyStatus(ctx context.Context, host *metalv1alpha1.Ho
 // endpoint's AssetSnapshot).
 func projectHost(host *metalv1alpha1.Host, paths []hostPath, ops []metalv1alpha1.HostOperation, node *osv1alpha1.TalosNode) {
 	setCond := func(t string, s metav1.ConditionStatus, reason, msg string) {
-		meta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
-			Type: t, Status: s, Reason: reason, Message: msg, ObservedGeneration: host.Generation,
-		})
+		setCondition(&host.Status.Conditions, host.Generation, t, s, reason, msg)
 	}
 
 	// Identity must byte-agree across paths — divergence means the same serial

@@ -104,10 +104,7 @@ func (r *EndpointConvergenceReconciler) Reconcile(ctx context.Context, req ctrl.
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		meta.SetStatusCondition(&ep.Status.Conditions, metav1.Condition{
-			Type: metalv1alpha1.ConditionConfigured, Status: status, Reason: reason, Message: msg,
-			ObservedGeneration: ep.Generation,
-		})
+		setCondition(&ep.Status.Conditions, ep.Generation, metalv1alpha1.ConditionConfigured, status, reason, msg)
 	}
 
 	phase.StampEndpoint(ep)
