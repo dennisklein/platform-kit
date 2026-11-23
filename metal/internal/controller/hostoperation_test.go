@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
 	"testing"
@@ -193,12 +192,12 @@ func TestApplyBiosStagesThePinnedAttributes(t *testing.T) {
 	settings := &metalv1alpha1.BiosSettings{
 		ObjectMeta: metav1.ObjectMeta{Name: "host-a"},
 		Spec: metalv1alpha1.BiosSettingsSpec{Attributes: map[string]apiextensionsv1.JSON{
-			"QuietBoot": rawJSON(t, "Disabled"),
+			"QuietBoot": jsonOf("Disabled"),
 		}},
 	}
 	op := preClearedOp(metalv1alpha1.HostOperationAction{ApplyBios: &metalv1alpha1.ApplyBiosAction{
 		SettingsRef: &metalv1alpha1.Reference{Name: "host-a"},
-		Attributes:  map[string]apiextensionsv1.JSON{"QuietBoot": rawJSON(t, "Enabled")},
+		Attributes:  map[string]apiextensionsv1.JSON{"QuietBoot": jsonOf("Enabled")},
 	}})
 	r, st, _ := executorFor(t, "huawei-2288h-v5", op, settings)
 
@@ -344,13 +343,6 @@ func resumedStatus(n int) metalv1alpha1.HostOperationStatus {
 		s.Steps = append(s.Steps, metalv1alpha1.OperationStep{Action: "setBootOverride", Phase: "Succeeded", FinishedAt: &now})
 	}
 	return s
-}
-
-func rawJSON(t *testing.T, v any) apiextensionsv1.JSON {
-	t.Helper()
-	raw, err := json.Marshal(v)
-	require.NoError(t, err)
-	return apiextensionsv1.JSON{Raw: raw}
 }
 
 func TestResumedOperationRemountsAForgottenGrant(t *testing.T) {

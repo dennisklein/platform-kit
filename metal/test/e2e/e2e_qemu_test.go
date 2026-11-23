@@ -34,10 +34,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -176,9 +174,9 @@ func TestE2EQemu(t *testing.T) {
 	})
 	require.NoError(t, err, "install the CRDs onto the dev cluster")
 
-	cleanSlateQemu(ctx, t, cl)
+	cleanSlate(ctx, t, cl, qemuTier)
 	require.NoError(t, cl.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: qemuNS}}))
-	t.Cleanup(func() { cleanSlateQemu(context.Background(), t, cl) })
+	t.Cleanup(func() { cleanSlate(context.Background(), t, cl, qemuTier) })
 
 	bundleBytes := newBundle(t, talosVersion)
 	for _, sec := range []*corev1.Secret{
@@ -381,26 +379,8 @@ func TestE2EQemu(t *testing.T) {
 	})
 }
 
-// cleanSlateQemu removes everything a previous run may have left. CRDs stay —
-// the dev cluster keeps them, dev-nuke resets everything.
-func cleanSlateQemu(ctx context.Context, t *testing.T, cl client.Client) {
-	t.Helper()
-	for _, obj := range []client.Object{
-		&metalv1alpha1.Asset{ObjectMeta: metav1.ObjectMeta{Name: qemuAssetName}},
-		&metalv1alpha1.Host{ObjectMeta: metav1.ObjectMeta{Name: hostName}},
-		&osv1alpha1.TalosNode{ObjectMeta: metav1.ObjectMeta{Name: qemuNodeName}},
-		&osv1alpha1.TalosCluster{ObjectMeta: metav1.ObjectMeta{Name: qemuCluster}},
-		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: qemuNS}},
-	} {
-		if err := cl.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
-			t.Logf("clean slate: delete %T %s: %v", obj, obj.GetName(), err)
-		}
-	}
-	require.Eventually(t, func() bool {
-		n := &corev1.Namespace{}
-		return apierrors.IsNotFound(cl.Get(ctx, types.NamespacedName{Name: qemuNS}, n))
-	}, waitFor, tick, "the %s namespace never finished deleting", qemuNS)
-}
+// qemuTier is what the VM tier creates.
+var qemuTier = tier{namespace: qemuNS, asset: qemuAssetName, node: qemuNodeName, cluster: qemuCluster}
 
 // kernelArgsSchematic is an image customized only by its kernel command line.
 func kernelArgsSchematic(args []string) *osv1alpha1.Schematic {

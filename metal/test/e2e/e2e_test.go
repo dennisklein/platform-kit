@@ -136,9 +136,9 @@ func TestE2EKind(t *testing.T) {
 	})
 	require.NoError(t, err, "install the CRDs onto the dev cluster")
 
-	cleanSlate(ctx, t, cl)
+	cleanSlate(ctx, t, cl, kindTier)
 	require.NoError(t, cl.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}))
-	t.Cleanup(func() { cleanSlate(context.Background(), t, cl) })
+	t.Cleanup(func() { cleanSlate(context.Background(), t, cl, kindTier) })
 
 	bundleBytes := newBundle(t, talosVersion)
 	for _, sec := range []*corev1.Secret{
@@ -367,17 +367,27 @@ func TestE2EKind(t *testing.T) {
 	})
 }
 
-// cleanSlate removes everything a previous run may have left: the namespace
-// (claims, operations, secrets) and the cluster-scoped CRs. CRDs stay — the
-// dev cluster keeps them, dev-nuke resets everything.
-func cleanSlate(ctx context.Context, t *testing.T, cl client.Client) {
+// tier names the objects one e2e tier creates. The two tiers use different
+// names, so they can run against the same cluster.
+type tier struct {
+	namespace, asset, node, cluster string
+}
+
+// kindTier is what the kind tier creates.
+var kindTier = tier{namespace: ns, asset: assetName, node: nodeName, cluster: clusterName}
+
+// cleanSlate removes everything a previous run of the tier may have left: the
+// namespace (claims, operations, secrets) and the cluster-scoped CRs. The Host
+// name is shared by both tiers. CRDs stay — the dev cluster keeps them,
+// dev-nuke resets everything.
+func cleanSlate(ctx context.Context, t *testing.T, cl client.Client, tr tier) {
 	t.Helper()
 	for _, obj := range []client.Object{
-		&metalv1alpha1.Asset{ObjectMeta: metav1.ObjectMeta{Name: assetName}},
+		&metalv1alpha1.Asset{ObjectMeta: metav1.ObjectMeta{Name: tr.asset}},
 		&metalv1alpha1.Host{ObjectMeta: metav1.ObjectMeta{Name: hostName}},
-		&osv1alpha1.TalosNode{ObjectMeta: metav1.ObjectMeta{Name: nodeName}},
-		&osv1alpha1.TalosCluster{ObjectMeta: metav1.ObjectMeta{Name: clusterName}},
-		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}},
+		&osv1alpha1.TalosNode{ObjectMeta: metav1.ObjectMeta{Name: tr.node}},
+		&osv1alpha1.TalosCluster{ObjectMeta: metav1.ObjectMeta{Name: tr.cluster}},
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: tr.namespace}},
 	} {
 		if err := cl.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
 			t.Logf("clean slate: delete %T %s: %v", obj, obj.GetName(), err)
@@ -385,8 +395,8 @@ func cleanSlate(ctx context.Context, t *testing.T, cl client.Client) {
 	}
 	require.Eventually(t, func() bool {
 		n := &corev1.Namespace{}
-		return apierrors.IsNotFound(cl.Get(ctx, types.NamespacedName{Name: ns}, n))
-	}, waitFor, tick, "the %s namespace never finished deleting", ns)
+		return apierrors.IsNotFound(cl.Get(ctx, types.NamespacedName{Name: tr.namespace}, n))
+	}, waitFor, tick, "the %s namespace never finished deleting", tr.namespace)
 }
 
 // The versions both tiers run. They match the lab sample in config/samples,
