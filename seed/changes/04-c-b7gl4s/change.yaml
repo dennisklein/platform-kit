@@ -1,0 +1,16 @@
+id: c-b7gl4s
+title: "Record break-glass use on 2026-10-02"
+intent: "Incident record for the break-glass use of the OpenBao certificate"
+author: jonas
+date: "2026-10-02T11:30:00Z"
+merged: true
+mergedAt: "2026-10-02T13:05:00Z"
+mergedBy: jonas
+approvedBy: [anna]
+workItems: []
+trailers:
+  - {key: Pk-Break-Glass, value: "openbao-cert 2026-10-02"}
+commits:
+  - message: "docs(incident): break-glass on 2026-10-02"
+    files:
+      - kb/incidents/2026-10-02-break-glass.md

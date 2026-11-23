@@ -1,0 +1,603 @@
+{
+ "entries": [
+  {
+   "approvedBy": [
+    "anna",
+    "jonas"
+   ],
+   "author": "dennis",
+   "change": "c-19f4tb",
+   "date": "2026-10-27T10:05:00Z",
+   "entities": [
+    "kb/labs/c-19f4tb-run-1.md",
+    "phoenix",
+    "w-104"
+   ],
+   "files": [
+    "control/talos/phoenix/talconfig.yaml",
+    "kb/labs/c-19f4tb-run-1.md",
+    "work/items/w-104.yaml"
+   ],
+   "intent": "IOMMU on for device passthrough tests on cp-01 to cp-03",
+   "labRun": {
+    "report": "kb/labs/c-19f4tb-run-1.md",
+    "result": "pass",
+    "run": "c-19f4tb/run-1"
+   },
+   "mr": "!8",
+   "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+   "short": "e08763f",
+   "state": "verified",
+   "title": "Kernel args on control nodes",
+   "trailers": [
+    {
+     "key": "Pk-Change",
+     "value": "c-19f4tb"
+    },
+    {
+     "key": "Pk-Intent",
+     "value": "IOMMU on for device passthrough tests on cp-01 to cp-03"
+    },
+    {
+     "key": "Pk-Lab-Run",
+     "value": "c-19f4tb/run-1 pass kb/labs/c-19f4tb-run-1.md"
+    },
+    {
+     "key": "Pk-Author",
+     "value": "dennis"
+    },
+    {
+     "key": "Pk-Work-Item",
+     "value": "w-104"
+    },
+    {
+     "key": "Approved-by",
+     "value": "anna, jonas"
+    },
+    {
+     "key": "Reviewed-in",
+     "value": "!8"
+    }
+   ],
+   "type": "change",
+   "workItems": [
+    "w-104"
+   ]
+  },
+  {
+   "approvedBy": [
+    "dennis"
+   ],
+   "author": "jonas",
+   "change": "c-0b9cfe",
+   "date": "2026-10-21T11:45:00Z",
+   "entities": [
+    "podinfo"
+   ],
+   "files": [
+    "clusters/defiant/apps/podinfo/deployment.yaml"
+   ],
+   "intent": "podinfo 6.8.0 for the new readiness endpoint",
+   "mr": "!7",
+   "sha": "b527c427f89d930695481dd9f013654ebb3b6c06",
+   "short": "b527c42",
+   "state": "verified",
+   "title": "Bump podinfo to 6.8",
+   "trailers": [
+    {
+     "key": "Pk-Change",
+     "value": "c-0b9cfe"
+    },
+    {
+     "key": "Pk-Intent",
+     "value": "podinfo 6.8.0 for the new readiness endpoint"
+    },
+    {
+     "key": "Pk-Author",
+     "value": "jonas"
+    },
+    {
+     "key": "Approved-by",
+     "value": "dennis"
+    },
+    {
+     "key": "Reviewed-in",
+     "value": "!7"
+    }
+   ],
+   "type": "change"
+  },
+  {
+   "agent": "anna-agent",
+   "approvedBy": [
+    "dennis",
+    "jonas"
+   ],
+   "author": "anna",
+   "change": "c-u7x2bd",
+   "date": "2026-10-14T10:30:00Z",
+   "entities": [
+    "cn-003",
+    "cn-025",
+    "cn-026",
+    "cn-027",
+    "cn-028",
+    "cn-029",
+    "cn-030",
+    "cn-031",
+    "cn-032",
+    "cn-033",
+    "cn-034",
+    "kb/labs/c-u7x2bd-run-1.md"
+   ],
+   "files": [
+    "control/inventory/cn-003.yaml",
+    "control/inventory/cn-025.yaml",
+    "control/inventory/cn-026.yaml",
+    "control/inventory/cn-027.yaml",
+    "control/inventory/cn-028.yaml",
+    "control/inventory/cn-029.yaml",
+    "control/inventory/cn-030.yaml",
+    "control/inventory/cn-031.yaml",
+    "control/inventory/cn-032.yaml",
+    "control/inventory/cn-033.yaml",
+    "control/inventory/cn-034.yaml",
+    "kb/labs/c-u7x2bd-run-1.md"
+   ],
+   "intent": "BMC and BIOS firmware 2.4 on all compute nodes of defiant",
+   "labRun": {
+    "report": "kb/labs/c-u7x2bd-run-1.md",
+    "result": "pass",
+    "run": "c-u7x2bd/run-1"
+   },
+   "mr": "!6",
+   "sha": "dc624fbb59415b58557d42f5454f24dc8cfac0d1",
+   "short": "dc624fb",
+   "state": "verified",
+   "title": "Firmware 2.4 on compute nodes",
+   "trailers": [
+    {
+     "key": "Pk-Change",
+     "value": "c-u7x2bd"
+    },
+    {
+     "key": "Pk-Intent",
+     "value": "BMC and BIOS firmware 2.4 on all compute nodes of defiant"
+    },
+    {
+     "key": "Pk-Lab-Run",
+     "value": "c-u7x2bd/run-1 pass kb/labs/c-u7x2bd-run-1.md"
+    },
+    {
+     "key": "Pk-Author",
+     "value": "anna"
+    },
+    {
+     "key": "Pk-Agent",
+     "value": "anna-agent"
+    },
+    {
+     "key": "Approved-by",
+     "value": "dennis, jonas"
+    },
+    {
+     "key": "Reviewed-in",
+     "value": "!6"
+    }
+   ],
+   "type": "change"
+  },
+  {
+   "approvedBy": [
+    "anna",
+    "jonas"
+   ],
+   "author": "sync-bot",
+   "change": "c-m1gr8t",
+   "date": "2026-10-09T09:20:00Z",
+   "entities": [
+    "cn-003",
+    "cn-025",
+    "cn-026",
+    "cn-027",
+    "cn-028",
+    "cn-029",
+    "cn-030",
+    "cn-031",
+    "cn-032",
+    "cn-033",
+    "cn-034",
+    "cp-01",
+    "cp-02",
+    "cp-03",
+    "sn-05"
+   ],
+   "files": [
+    "control/inventory/cn-003.yaml",
+    "control/inventory/cn-025.yaml",
+    "control/inventory/cn-026.yaml",
+    "control/inventory/cn-027.yaml",
+    "control/inventory/cn-028.yaml",
+    "control/inventory/cn-029.yaml",
+    "control/inventory/cn-030.yaml",
+    "control/inventory/cn-031.yaml",
+    "control/inventory/cn-032.yaml",
+    "control/inventory/cn-033.yaml",
+    "control/inventory/cn-034.yaml",
+    "control/inventory/cp-01.yaml",
+    "control/inventory/cp-02.yaml",
+    "control/inventory/cp-03.yaml",
+    "control/inventory/sn-05.yaml"
+   ],
+   "intent": "Move all Node files from inventory.pk.io/v1alpha1 to v1beta1 (location block)",
+   "mr": "!5",
+   "sha": "e44a7144c3741d135315b9008668a79934fed32d",
+   "short": "e44a714",
+   "state": "verified",
+   "title": "Migrate Node to v1beta1",
+   "trailers": [
+    {
+     "key": "Pk-Change",
+     "value": "c-m1gr8t"
+    },
+    {
+     "key": "Pk-Intent",
+     "value": "Move all Node files from inventory.pk.io/v1alpha1 to v1beta1 (location block)"
+    },
+    {
+     "key": "Pk-Author",
+     "value": "sync-bot"
+    },
+    {
+     "key": "Pk-Migration",
+     "value": "inventory.pk.io/Node v1alpha1 to v1beta1"
+    },
+    {
+     "key": "Approved-by",
+     "value": "anna, jonas"
+    },
+    {
+     "key": "Reviewed-in",
+     "value": "!5"
+    }
+   ],
+   "type": "change"
+  },
+  {
+   "approvedBy": [
+    "anna"
+   ],
+   "author": "jonas",
+   "breakGlass": "openbao-cert 2026-10-02",
+   "change": "c-b7gl4s",
+   "date": "2026-10-02T13:05:00Z",
+   "entities": [
+    "kb/incidents/2026-10-02-break-glass.md"
+   ],
+   "files": [
+    "kb/incidents/2026-10-02-break-glass.md"
+   ],
+   "intent": "Incident record for the break-glass use of the OpenBao certificate",
+   "mr": "!4",
+   "sha": "ce8a2da82f3673da8bd5e08c8191565475d2ab12",
+   "short": "ce8a2da",
+   "state": "verified",
+   "title": "Record break-glass use on 2026-10-02",
+   "trailers": [
+    {
+     "key": "Pk-Change",
+     "value": "c-b7gl4s"
+    },
+    {
+     "key": "Pk-Intent",
+     "value": "Incident record for the break-glass use of the OpenBao certificate"
+    },
+    {
+     "key": "Pk-Author",
+     "value": "jonas"
+    },
+    {
+     "key": "Pk-Break-Glass",
+     "value": "openbao-cert 2026-10-02"
+    },
+    {
+     "key": "Approved-by",
+     "value": "anna"
+    },
+    {
+     "key": "Reviewed-in",
+     "value": "!4"
+    }
+   ],
+   "type": "break-glass"
+  },
+  {
+   "approvedBy": [
+    "jonas"
+   ],
+   "author": "sync-bot",
+   "change": "c-a5e3vk",
+   "date": "2026-09-30T08:55:00Z",
+   "entities": [
+    "cn-025",
+    "cn-026",
+    "cn-027",
+    "cn-028",
+    "cn-029",
+    "cn-030",
+    "cn-031",
+    "cn-032",
+    "cn-033",
+    "cn-034"
+   ],
+   "files": [
+    "control/inventory/cn-025.yaml",
+    "control/inventory/cn-026.yaml",
+    "control/inventory/cn-027.yaml",
+    "control/inventory/cn-028.yaml",
+    "control/inventory/cn-029.yaml",
+    "control/inventory/cn-030.yaml",
+    "control/inventory/cn-031.yaml",
+    "control/inventory/cn-032.yaml",
+    "control/inventory/cn-033.yaml",
+    "control/inventory/cn-034.yaml"
+   ],
+   "intent": "Nightly import: 10 serial numbers of GC5A-6Z nodes from the asset DB (asset DB owns the field)",
+   "mr": "!3",
+   "sha": "d4f677c023617493b5a17747e7724c07f0975ce6",
+   "short": "d4f677c",
+   "state": "verified",
+   "title": "Sync serials from asset DB",
+   "trailers": [
+    {
+     "key": "Pk-Change",
+     "value": "c-a5e3vk"
+    },
+    {
+     "key": "Pk-Intent",
+     "value": "Nightly import: 10 serial numbers of GC5A-6Z nodes from the asset DB (asset DB owns the field)"
+    },
+    {
+     "key": "Pk-Author",
+     "value": "sync-bot"
+    },
+    {
+     "key": "Approved-by",
+     "value": "jonas"
+    },
+    {
+     "key": "Reviewed-in",
+     "value": "!3"
+    }
+   ],
+   "type": "change"
+  },
+  {
+   "approvedBy": [
+    "anna",
+    "dennis"
+   ],
+   "author": "jonas",
+   "change": "c-2hd7vw",
+   "date": "2026-09-12T10:15:00Z",
+   "entities": [
+    "cn-003",
+    "kb/labs/c-2hd7vw-run-1.md"
+   ],
+   "files": [
+    "control/inventory/cn-003.yaml",
+    "kb/labs/c-2hd7vw-run-1.md"
+   ],
+   "intent": "free data-b ports for rack 6Z",
+   "labRun": {
+    "report": "kb/labs/c-2hd7vw-run-1.md",
+    "result": "pass",
+    "run": "c-2hd7vw/run-1"
+   },
+   "mr": "!2",
+   "sha": "5749a4974305012471330d39ecb142e1f0cce87b",
+   "short": "5749a49",
+   "state": "verified",
+   "title": "Move cn-003 to data-a 37",
+   "trailers": [
+    {
+     "key": "Pk-Change",
+     "value": "c-2hd7vw"
+    },
+    {
+     "key": "Pk-Intent",
+     "value": "free data-b ports for rack 6Z"
+    },
+    {
+     "key": "Pk-Lab-Run",
+     "value": "c-2hd7vw/run-1 pass kb/labs/c-2hd7vw-run-1.md"
+    },
+    {
+     "key": "Pk-Author",
+     "value": "jonas"
+    },
+    {
+     "key": "Approved-by",
+     "value": "anna, dennis"
+    },
+    {
+     "key": "Reviewed-in",
+     "value": "!2"
+    }
+   ],
+   "type": "change"
+  },
+  {
+   "approvedBy": [
+    "anna",
+    "jonas"
+   ],
+   "author": "dennis",
+   "change": "c-9kq1mf",
+   "date": "2026-09-03T09:40:00Z",
+   "entities": [
+    "GC5A-6Z",
+    "cn-025",
+    "cn-026",
+    "cn-027",
+    "cn-028",
+    "cn-029",
+    "cn-030",
+    "cn-031",
+    "cn-032",
+    "cn-033",
+    "cn-034",
+    "kb/labs/c-9kq1mf-run-1.md",
+    "rack-6z"
+   ],
+   "files": [
+    "clusters/defiant/infra/cilium/bgp-rack-6z.yaml",
+    "clusters/defiant/infra/cilium/kustomization.yaml",
+    "control/inventory/cn-025.yaml",
+    "control/inventory/cn-026.yaml",
+    "control/inventory/cn-027.yaml",
+    "control/inventory/cn-028.yaml",
+    "control/inventory/cn-029.yaml",
+    "control/inventory/cn-030.yaml",
+    "control/inventory/cn-031.yaml",
+    "control/inventory/cn-032.yaml",
+    "control/inventory/cn-033.yaml",
+    "control/inventory/cn-034.yaml",
+    "control/inventory/racks/gc5a-6z.yaml",
+    "kb/labs/c-9kq1mf-run-1.md"
+   ],
+   "intent": "10 compute nodes for tenants in the new rack GC5A-6Z, peering with the rack router",
+   "labRun": {
+    "report": "kb/labs/c-9kq1mf-run-1.md",
+    "result": "pass",
+    "run": "c-9kq1mf/run-1"
+   },
+   "mr": "!1",
+   "sha": "7b9e667bcb2ae27a0f417ffbdaab96eb4f2f4dc0",
+   "short": "7b9e667",
+   "state": "verified",
+   "title": "Add rack GC5A-6Z compute nodes",
+   "trailers": [
+    {
+     "key": "Pk-Change",
+     "value": "c-9kq1mf"
+    },
+    {
+     "key": "Pk-Intent",
+     "value": "10 compute nodes for tenants in the new rack GC5A-6Z, peering with the rack router"
+    },
+    {
+     "key": "Pk-Lab-Run",
+     "value": "c-9kq1mf/run-1 pass kb/labs/c-9kq1mf-run-1.md"
+    },
+    {
+     "key": "Pk-Author",
+     "value": "dennis"
+    },
+    {
+     "key": "Approved-by",
+     "value": "anna, jonas"
+    },
+    {
+     "key": "Reviewed-in",
+     "value": "!1"
+    }
+   ],
+   "type": "change"
+  },
+  {
+   "author": "dennis",
+   "date": "2026-08-24T10:00:00Z",
+   "entities": [
+    "GC5A-6Y",
+    "cilium",
+    "cn-003",
+    "cp-01",
+    "cp-02",
+    "cp-03",
+    "data-a",
+    "data-b",
+    "default",
+    "defiant",
+    "defiant-twin",
+    "infra-metal",
+    "jb-05",
+    "kb/hardware/jbod-slot-numbers.md",
+    "kb/runbooks/add-node.md",
+    "kb/runbooks/replace-failed-disk.md",
+    "kb/storage/ceph-osd-layout-pegasus.md",
+    "mgmt",
+    "pegasus",
+    "phoenix",
+    "podinfo",
+    "rook-ceph",
+    "row-6",
+    "sn-05",
+    "state",
+    "w-104",
+    "w-108",
+    "w-112",
+    "w-114",
+    "w-117",
+    "w-121"
+   ],
+   "files": [
+    ".pk/emulation.yaml",
+    ".pk/labs/defiant-twin.yaml",
+    ".pk/policy.yaml",
+    "README.md",
+    "clusters/defiant/apps/podinfo/deployment.yaml",
+    "clusters/defiant/apps/podinfo/kustomization.yaml",
+    "clusters/defiant/apps/podinfo/namespace.yaml",
+    "clusters/defiant/apps/podinfo/service.yaml",
+    "clusters/defiant/cluster.yaml",
+    "clusters/defiant/flux.yaml",
+    "clusters/defiant/infra/cilium/helmrelease.yaml",
+    "clusters/defiant/infra/cilium/helmrepository.yaml",
+    "clusters/defiant/infra/cilium/kustomization.yaml",
+    "clusters/pegasus/cluster.yaml",
+    "clusters/pegasus/flux.yaml",
+    "clusters/pegasus/infra/cilium/helmrelease.yaml",
+    "clusters/pegasus/infra/cilium/helmrepository.yaml",
+    "clusters/pegasus/infra/cilium/kustomization.yaml",
+    "clusters/pegasus/infra/rook-ceph/cephcluster.yaml",
+    "clusters/pegasus/infra/rook-ceph/kustomization.yaml",
+    "clusters/phoenix/cluster.yaml",
+    "clusters/phoenix/flux.yaml",
+    "clusters/phoenix/infra/cilium/helmrelease.yaml",
+    "clusters/phoenix/infra/cilium/helmrepository.yaml",
+    "clusters/phoenix/infra/cilium/kustomization.yaml",
+    "control/cabling.yaml",
+    "control/inventory/cn-003.yaml",
+    "control/inventory/cp-01.yaml",
+    "control/inventory/cp-02.yaml",
+    "control/inventory/cp-03.yaml",
+    "control/inventory/jb-05.yaml",
+    "control/inventory/racks/gc5a-6y.yaml",
+    "control/inventory/sn-05.yaml",
+    "control/inventory/switches/data-a.yaml",
+    "control/inventory/switches/data-b.yaml",
+    "control/inventory/switches/mgmt.yaml",
+    "control/talos/defiant/talconfig.yaml",
+    "control/talos/phoenix/talconfig.yaml",
+    "kb/hardware/jbod-slot-numbers.md",
+    "kb/runbooks/add-node.md",
+    "kb/runbooks/replace-failed-disk.md",
+    "kb/storage/ceph-osd-layout-pegasus.md",
+    "work/items/w-104.yaml",
+    "work/items/w-108.yaml",
+    "work/items/w-112.yaml",
+    "work/items/w-114.yaml",
+    "work/items/w-117.yaml",
+    "work/items/w-121.yaml",
+    "work/milestones.yaml"
+   ],
+   "sha": "f186de7acaf3c57ae419a1c7dc403f8bf8a8a586",
+   "short": "f186de7",
+   "title": "chore: initial state",
+   "trailers": [],
+   "type": "direct"
+  }
+ ],
+ "total": 9
+}

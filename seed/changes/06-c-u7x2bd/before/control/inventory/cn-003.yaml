@@ -1,0 +1,19 @@
+apiVersion: inventory.pk.io/v1beta1
+kind: Node
+metadata:
+  name: cn-003
+spec:
+  cluster: defiant
+  role: worker
+  location:
+    rack: GC5A-6Y
+    unit: 30
+    size: 2
+  model: Supermicro SYS-220U-TNR
+  serial: S4R7K2J0003
+  bmc:
+    mac: 3c:ec:ef:a1:0c:03
+  ports:
+    - {name: bmc, cable: MGT-0109, peer: {switch: mgmt, port: 9}, network: mgmt}
+    - {name: p1, cable: DATA-0111, peer: {switch: data-b, port: 9}, network: data}
+    - {name: p2, cable: DATA-0112, peer: {switch: data-a, port: 37}, network: data}

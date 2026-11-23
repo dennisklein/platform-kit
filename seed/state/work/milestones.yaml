@@ -1,0 +1,7 @@
+apiVersion: work.pk.io/v1alpha1
+kind: MilestoneList
+milestones:
+  - id: defiant-ready
+    title: defiant ready for tenants
+    due: "2026-11-30"
+    description: Rack GC5A-6Z cabled and filled, BGP to the org routers, storage for tenant volumes.

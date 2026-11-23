@@ -1,0 +1,324 @@
+{
+ "advisor": {
+  "risks": {
+   "changeId": "c-k7m2qz",
+   "createdAt": "2026-10-28T23:31:27.849728339Z",
+   "logId": "l-6jha4ldv",
+   "mock": true,
+   "model": "mock",
+   "note": "Advisory only. The rating stays \"high\" from the policy.",
+   "points": [
+    {
+     "severity": "risk",
+     "sources": [
+      {
+       "kind": "file",
+       "label": "bgp-rack-6z.yaml",
+       "ref": "clusters/defiant/infra/cilium/bgp-rack-6z.yaml"
+      },
+      {
+       "kind": "file",
+       "label": "cn-035.yaml",
+       "ref": "control/inventory/cn-035.yaml"
+      }
+     ],
+     "text": "cn-035 is in the inventory of this change, in GC5A-6Z, but not in the BGP policy rack-6z. It gets no BGP session. Suggested fix: add 1 line to bgp-rack-6z.yaml.",
+     "title": "BGP policy"
+    },
+    {
+     "severity": "risk",
+     "sources": [
+      {
+       "kind": "policy",
+       "label": ".pk/policy.yaml",
+       "ref": ".pk/policy.yaml"
+      }
+     ],
+     "text": "No lab run yet. The policy needs a lab run on the head of the change (lab gate).",
+     "title": "No lab run"
+    },
+    {
+     "severity": "risk",
+     "sources": [
+      {
+       "kind": "file",
+       "label": "cn-003.yaml",
+       "ref": "control/inventory/cn-003.yaml:21"
+      }
+     ],
+     "text": "cn-003.yaml: port data-a 37 in use by cn-035 (and 1 problem more). The render and the lab use the files as they are.",
+     "title": "Problems"
+    },
+    {
+     "severity": "info",
+     "sources": [
+      {
+       "kind": "trailer",
+       "label": "trailer c-2hd7vw",
+       "ref": "c-2hd7vw"
+      },
+      {
+       "kind": "mr",
+       "label": "MR !2",
+       "ref": "!2"
+      }
+     ],
+     "text": "c-2hd7vw (jonas, 2026-09-12) changed cn-003 p2: data-b 37 to data-a 37, to free data-b ports for rack 6Z. This change uses data-b 37 (freed then) and data-a 37 (the same port).",
+     "title": "Port history"
+    }
+   ],
+   "reading": [
+    {
+     "kind": "change",
+     "label": "c-k7m2qz",
+     "ref": "c-k7m2qz"
+    },
+    {
+     "kind": "impact",
+     "label": "impact",
+     "ref": "c-k7m2qz"
+    },
+    {
+     "kind": "file",
+     "label": "cn-035.yaml",
+     "ref": "control/inventory/cn-035.yaml"
+    },
+    {
+     "kind": "file",
+     "label": "bgp-rack-6z.yaml",
+     "ref": "clusters/defiant/infra/cilium/bgp-rack-6z.yaml"
+    },
+    {
+     "kind": "trailer",
+     "label": "trailer c-2hd7vw",
+     "ref": "c-2hd7vw"
+    },
+    {
+     "kind": "policy",
+     "label": ".pk/policy.yaml",
+     "ref": ".pk/policy.yaml"
+    }
+   ],
+   "recipe": "risks",
+   "suggestions": [
+    {
+     "after": "apiVersion: cilium.io/v2alpha1\nkind: CiliumBGPPeeringPolicy\nmetadata:\n  name: rack-6z\n  labels:\n    inventory.pk.io/rack: GC5A-6Z\nspec:\n  nodeSelector:\n    matchExpressions:\n      - key: kubernetes.io/hostname\n        operator: In\n        values:\n          - cn-025\n          - cn-026\n          - cn-027\n          - cn-028\n          - cn-029\n          - cn-030\n          - cn-031\n          - cn-032\n          - cn-033\n          - cn-034\n          - cn-035\n  virtualRouters:\n    - localASN: 64512\n      exportPodCIDR: true\n      neighbors:\n        - peerAddress: 10.6.0.1/32\n          peerASN: 65000\n",
+     "before": "apiVersion: cilium.io/v2alpha1\nkind: CiliumBGPPeeringPolicy\nmetadata:\n  name: rack-6z\n  labels:\n    inventory.pk.io/rack: GC5A-6Z\nspec:\n  nodeSelector:\n    matchExpressions:\n      - key: kubernetes.io/hostname\n        operator: In\n        values:\n          - cn-025\n          - cn-026\n          - cn-027\n          - cn-028\n          - cn-029\n          - cn-030\n          - cn-031\n          - cn-032\n          - cn-033\n          - cn-034\n  virtualRouters:\n    - localASN: 64512\n      exportPodCIDR: true\n      neighbors:\n        - peerAddress: 10.6.0.1/32\n          peerASN: 65000\n",
+     "by": "advisor:risks",
+     "changeId": "c-k7m2qz",
+     "createdAt": "2026-10-28T23:31:27.849795276Z",
+     "diff": "--- a/clusters/defiant/infra/cilium/bgp-rack-6z.yaml\n+++ b/clusters/defiant/infra/cilium/bgp-rack-6z.yaml\n@@ -20,6 +20,7 @@\n           - cn-032\n           - cn-033\n           - cn-034\n+          - cn-035\n   virtualRouters:\n     - localASN: 64512\n       exportPodCIDR: true\n",
+     "id": "s-wyema2ue",
+     "logId": "l-6jha4ldv",
+     "path": "clusters/defiant/infra/cilium/bgp-rack-6z.yaml",
+     "status": "pending",
+     "title": "Add cn-035 to the BGP policy rack-6z"
+    }
+   ],
+   "title": "Risks of this change"
+  },
+  "check-commit": {
+   "changeId": "c-k7m2qz",
+   "createdAt": "2026-10-28T23:32:46.462173884Z",
+   "logId": "l-ypfxhq76",
+   "mock": true,
+   "model": "mock",
+   "points": [
+    {
+     "severity": "risk",
+     "sources": [
+      {
+       "kind": "file",
+       "label": "bgp-rack-6z.yaml",
+       "ref": "clusters/defiant/infra/cilium/bgp-rack-6z.yaml"
+      },
+      {
+       "kind": "file",
+       "label": "cn-036.yaml",
+       "ref": "control/inventory/cn-036.yaml"
+      }
+     ],
+     "text": "cn-036 is in the inventory of this change, in GC5A-6Z, but not in the BGP policy rack-6z. It gets no BGP session. Suggested fix: add 1 line to bgp-rack-6z.yaml.",
+     "title": "BGP policy"
+    },
+    {
+     "severity": "info",
+     "sources": [
+      {
+       "kind": "change",
+       "label": "c-k7m2qz",
+       "ref": "c-k7m2qz"
+      }
+     ],
+     "text": "1 file is saved but not committed: bgp-rack-6z.yaml.",
+     "title": "Not committed"
+    }
+   ],
+   "reading": [
+    {
+     "kind": "change",
+     "label": "c-k7m2qz",
+     "ref": "c-k7m2qz"
+    },
+    {
+     "kind": "file",
+     "label": "cn-035.yaml",
+     "ref": "control/inventory/cn-035.yaml"
+    },
+    {
+     "kind": "file",
+     "label": "cn-036.yaml",
+     "ref": "control/inventory/cn-036.yaml"
+    },
+    {
+     "kind": "file",
+     "label": "bgp-rack-6z.yaml",
+     "ref": "clusters/defiant/infra/cilium/bgp-rack-6z.yaml"
+    }
+   ],
+   "recipe": "check-commit",
+   "suggestions": [
+    {
+     "after": "apiVersion: cilium.io/v2alpha1\nkind: CiliumBGPPeeringPolicy\nmetadata:\n  name: rack-6z\n  labels:\n    inventory.pk.io/rack: GC5A-6Z\nspec:\n  nodeSelector:\n    matchExpressions:\n      - key: kubernetes.io/hostname\n        operator: In\n        values:\n          - cn-025\n          - cn-026\n          - cn-027\n          - cn-028\n          - cn-029\n          - cn-030\n          - cn-031\n          - cn-032\n          - cn-033\n          - cn-034\n          - cn-035\n          - cn-036\n  virtualRouters:\n    - localASN: 64512\n      exportPodCIDR: true\n      neighbors:\n        - peerAddress: 10.6.0.1/32\n          peerASN: 65000\n",
+     "before": "apiVersion: cilium.io/v2alpha1\nkind: CiliumBGPPeeringPolicy\nmetadata:\n  name: rack-6z\n  labels:\n    inventory.pk.io/rack: GC5A-6Z\nspec:\n  nodeSelector:\n    matchExpressions:\n      - key: kubernetes.io/hostname\n        operator: In\n        values:\n          - cn-025\n          - cn-026\n          - cn-027\n          - cn-028\n          - cn-029\n          - cn-030\n          - cn-031\n          - cn-032\n          - cn-033\n          - cn-034\n          - cn-035\n  virtualRouters:\n    - localASN: 64512\n      exportPodCIDR: true\n      neighbors:\n        - peerAddress: 10.6.0.1/32\n          peerASN: 65000\n",
+     "by": "advisor:check-commit",
+     "changeId": "c-k7m2qz",
+     "createdAt": "2026-10-28T23:32:46.462233338Z",
+     "diff": "--- a/clusters/defiant/infra/cilium/bgp-rack-6z.yaml\n+++ b/clusters/defiant/infra/cilium/bgp-rack-6z.yaml\n@@ -21,6 +21,7 @@\n           - cn-033\n           - cn-034\n           - cn-035\n+          - cn-036\n   virtualRouters:\n     - localASN: 64512\n       exportPodCIDR: true\n",
+     "id": "s-izcamyre",
+     "logId": "l-ypfxhq76",
+     "path": "clusters/defiant/infra/cilium/bgp-rack-6z.yaml",
+     "status": "pending",
+     "title": "Add cn-036 to the BGP policy rack-6z"
+    }
+   ],
+   "title": "Check this commit"
+  }
+ },
+ "chat": {
+  "why": {
+   "logId": "l-r53ghr5h",
+   "mock": true,
+   "model": "mock",
+   "sources": [
+    {
+     "kind": "trailer",
+     "label": "trailer c-2hd7vw",
+     "ref": "c-2hd7vw"
+    },
+    {
+     "kind": "mr",
+     "label": "MR !2",
+     "ref": "!2"
+    },
+    {
+     "kind": "history",
+     "label": "history 5749a49",
+     "ref": "5749a4974305012471330d39ecb142e1f0cce87b"
+    }
+   ],
+   "suggestions": [],
+   "text": "c-2hd7vw moved cn-003 p2 from data-b 37 to data-a 37, to free data-b ports for rack 6Z. Approved by anna and dennis. Merged 2026-09-12, author jonas."
+  },
+  "secret": {
+   "logId": "l-ue7yhap3",
+   "mock": true,
+   "model": "mock",
+   "refused": true,
+   "sources": [],
+   "suggestions": [],
+   "text": "I cannot see it. Secret fields are removed before each call."
+  },
+  "suggest": {
+   "logId": "l-a6yluayk",
+   "mock": true,
+   "model": "mock",
+   "sources": [
+    {
+     "kind": "file",
+     "label": "bgp-rack-6z.yaml",
+     "ref": "clusters/defiant/infra/cilium/bgp-rack-6z.yaml"
+    }
+   ],
+   "suggestions": [
+    {
+     "after": "apiVersion: cilium.io/v2alpha1\nkind: CiliumBGPPeeringPolicy\nmetadata:\n  name: rack-6z\n  labels:\n    inventory.pk.io/rack: GC5A-6Z\nspec:\n  nodeSelector:\n    matchExpressions:\n      - key: kubernetes.io/hostname\n        operator: In\n        values:\n          - cn-025\n          - cn-026\n          - cn-027\n          - cn-028\n          - cn-029\n          - cn-030\n          - cn-031\n          - cn-032\n          - cn-033\n          - cn-034\n          - cn-037\n  virtualRouters:\n    - localASN: 64512\n      exportPodCIDR: true\n      neighbors:\n        - peerAddress: 10.6.0.1/32\n          peerASN: 65000\n",
+     "before": "apiVersion: cilium.io/v2alpha1\nkind: CiliumBGPPeeringPolicy\nmetadata:\n  name: rack-6z\n  labels:\n    inventory.pk.io/rack: GC5A-6Z\nspec:\n  nodeSelector:\n    matchExpressions:\n      - key: kubernetes.io/hostname\n        operator: In\n        values:\n          - cn-025\n          - cn-026\n          - cn-027\n          - cn-028\n          - cn-029\n          - cn-030\n          - cn-031\n          - cn-032\n          - cn-033\n          - cn-034\n  virtualRouters:\n    - localASN: 64512\n      exportPodCIDR: true\n      neighbors:\n        - peerAddress: 10.6.0.1/32\n          peerASN: 65000\n",
+     "by": "chat",
+     "changeId": "c-k7m2qz",
+     "createdAt": "2026-10-28T23:31:26.673913324Z",
+     "diff": "--- a/clusters/defiant/infra/cilium/bgp-rack-6z.yaml\n+++ b/clusters/defiant/infra/cilium/bgp-rack-6z.yaml\n@@ -20,6 +20,7 @@\n           - cn-032\n           - cn-033\n           - cn-034\n+          - cn-037\n   virtualRouters:\n     - localASN: 64512\n       exportPodCIDR: true\n",
+     "id": "s-duf7pg2e",
+     "logId": "l-a6yluayk",
+     "path": "clusters/defiant/infra/cilium/bgp-rack-6z.yaml",
+     "status": "pending",
+     "title": "Add cn-037 to the BGP policy rack-6z"
+    }
+   ],
+   "text": "I suggest 1 line in bgp-rack-6z.yaml: it adds cn-037 to rack-6z, so cn-037 gets a BGP session. Review the diff below, then accept or reject it. Note: cn-037 is not in the inventory of this change yet."
+  },
+  "other": {
+   "logId": "l-goapddvy",
+   "mock": true,
+   "model": "mock",
+   "sources": [
+    {
+     "kind": "kb",
+     "label": "replace-failed-disk.md",
+     "ref": "kb/runbooks/replace-failed-disk.md"
+    },
+    {
+     "kind": "kb",
+     "label": "ceph-osd-layout-pegasus.md",
+     "ref": "kb/storage/ceph-osd-layout-pegasus.md"
+    },
+    {
+     "kind": "file",
+     "label": "cluster.yaml",
+     "ref": "clusters/pegasus/cluster.yaml"
+    },
+    {
+     "kind": "file",
+     "label": "defiant-twin.yaml",
+     "ref": ".pk/labs/defiant-twin.yaml"
+    }
+   ],
+   "suggestions": [],
+   "text": "From the project:\n- Replace a failed disk in a storage node: title: Replace a failed disk in a storage node · type: runbook · entities: [sn-05, jb-05, pegasus] · tags: [ceph, storage, disk] · # Replace a failed disk in a storage node · Use this runbook when Ceph marks an OSD on sn-05 as down and the disk is in · jb-05. The desired st…\n- Ceph OSD layout on pegasus: change, see [Replace a failed disk](../runbooks/replace-failed-disk.md).\n- clusters/pegasus/cluster.yaml: description: Storage cluster. Runs Ceph on sn-05 with the jb-05 disk shelf. · endpoint: https://pegasus.k8s.pk.local:6443\n- .pk/labs/defiant-twin.yaml: backend: talos-docker                     # cheap; qemu for install or disk work · provision: direct                           # metal = sim BMC, vMedia, Talos install · host: local · expose: [kube-api, grafana] · lifetime: persistent · snapshot: nightly                     …"
+  }
+ },
+ "approval": {
+  "grant": {
+   "active": true,
+   "actsFor": "dennis",
+   "approvedAt": "2026-10-28T23:34:26.187806594Z",
+   "approvedBy": "dennis",
+   "can": [
+    "push",
+    "open-mr",
+    "run-lab",
+    "mark-ready"
+   ],
+   "expiresAt": "2026-10-29T07:34:26.187806594Z",
+   "id": "dennis-agent",
+   "mode": "navigate"
+  },
+  "mcpUrl": "http://127.0.0.1:8080/mcp",
+  "snippets": [
+   {
+    "client": "claude-code",
+    "allow": "mkdir -p .claude && echo '{\"permissions\":{\"allow\":[\"mcp__platform-kit\"]}}' > .claude/settings.local.json",
+    "allowFlag": "claude --allowedTools mcp__platform-kit",
+    "command": "claude mcp add --transport http platform-kit http://127.0.0.1:8080/mcp --header \"Authorization: Bearer pk_agt_0123456789abcdef0123456789abcdef0123456789abcdef\"",
+    "content": "{\n  \"mcpServers\": {\n    \"platform-kit\": {\n      \"headers\": {\n        \"Authorization\": \"Bearer pk_agt_0123456789abcdef0123456789abcdef0123456789abcdef\"\n      },\n      \"type\": \"http\",\n      \"url\": \"http://127.0.0.1:8080/mcp\"\n    }\n  }\n}",
+    "file": ".mcp.json"
+   },
+   {
+    "client": "opencode",
+    "content": "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"mcp\": {\n    \"platform-kit\": {\n      \"enabled\": true,\n      \"headers\": {\n        \"Authorization\": \"Bearer pk_agt_0123456789abcdef0123456789abcdef0123456789abcdef\"\n      },\n      \"type\": \"remote\",\n      \"url\": \"http://127.0.0.1:8080/mcp\"\n    }\n  }\n}",
+    "file": "opencode.json"
+   }
+  ],
+  "token": "pk_agt_0123456789abcdef0123456789abcdef0123456789abcdef"
+ }
+}

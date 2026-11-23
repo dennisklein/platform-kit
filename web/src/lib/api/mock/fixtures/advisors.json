@@ -1,0 +1,74 @@
+[
+ {
+  "id": "risks",
+  "output": "points",
+  "question": "What can go wrong with this change, and what should the reviewer check?",
+  "scope": "change",
+  "title": "Risks of this change",
+  "tools": [
+   "impact",
+   "policy",
+   "lab",
+   "history",
+   "mr"
+  ]
+ },
+ {
+  "id": "merge-order",
+  "output": "points",
+  "question": "In which order should this change and the open changes it overlaps merge?",
+  "scope": "change",
+  "title": "Merge order with open changes",
+  "tools": [
+   "impact",
+   "policy",
+   "lab",
+   "mr"
+  ]
+ },
+ {
+  "id": "lab-gaps",
+  "output": "points",
+  "question": "What does the change lab test, and what does it leave out?",
+  "scope": "change",
+  "title": "What does the lab not test?",
+  "tools": [
+   "lab",
+   "impact",
+   "policy"
+  ]
+ },
+ {
+  "id": "explain-diff",
+  "output": "points",
+  "question": "What changes in the rendered objects per cluster, in plain words?",
+  "scope": "change",
+  "title": "Explain the rendered diff",
+  "tools": [
+   "impact"
+  ]
+ },
+ {
+  "id": "check-commit",
+  "output": "suggestion",
+  "question": "Does the last commit (and the saved files) do what the intent says? Is something missing?",
+  "scope": "commit",
+  "title": "Check this commit",
+  "tools": [
+   "impact",
+   "policy",
+   "files"
+  ]
+ },
+ {
+  "id": "commit-message",
+  "output": "message",
+  "question": "Write a Conventional Commit message for the saved, uncommitted files.",
+  "scope": "commit",
+  "title": "Suggest a commit message",
+  "tools": [
+   "files",
+   "impact"
+  ]
+ }
+]

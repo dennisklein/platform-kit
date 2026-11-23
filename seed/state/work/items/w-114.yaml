@@ -1,0 +1,10 @@
+apiVersion: work.pk.io/v1alpha1
+kind: WorkItem
+id: w-114
+title: Compute nodes cn-035, cn-036
+milestone: defiant-ready
+owner: dennis
+assets: [cn-035, cn-036]
+changes: []
+kb: [kb/runbooks/add-node.md]
+notes: GC5A-6Z U6 and U8. Ports from the cable plan.

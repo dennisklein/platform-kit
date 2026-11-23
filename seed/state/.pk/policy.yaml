@@ -1,0 +1,67 @@
+apiVersion: pk/v1alpha1
+kind: Policy
+people:
+  - {id: dennis, name: Dennis Klein, email: dennis@pk.local, roles: [owner, platform-admin]}
+  - {id: anna,   name: Anna Berg,    email: anna@pk.local,   roles: [owner, platform-admin]}
+  - {id: jonas,  name: Jonas Weber,  email: jonas@pk.local,  roles: [platform-admin]}
+  - {id: mara,   name: Mara Klein,   email: mara@pk.local,   roles: [app-team], teams: [podinfo]}
+  - {id: vera,   name: Vera Lang,    email: vera@pk.local,   roles: [auditor]}
+agents:
+  - {id: dennis-agent, actsFor: dennis, can: [push, open-mr, run-lab, mark-ready]}
+  - {id: anna-agent,   actsFor: anna,   can: [push, open-mr, run-lab, mark-ready]}
+bots:
+  - {id: sync-bot, can: [push, open-mr]}
+rules:                       # first match wins, most specific first
+  - name: policy
+    paths: [".pk/policy.yaml"]
+    writers: [owner]
+    approvers: [owner]
+    approvals: 2
+    risk: high
+  - name: inventory
+    paths: ["control/inventory/**", "control/cabling.yaml"]
+    writers: [platform-admin, agent, sync-bot]
+    approvers: [platform-admin]
+    approvals: 2
+    labGate: true
+    risk: high
+  - name: talos
+    paths: ["control/talos/**"]
+    writers: [platform-admin, agent]
+    approvers: [platform-admin]
+    approvals: 2
+    labGate: true
+    risk: high
+  - name: network
+    paths: ["clusters/*/infra/cilium/**"]
+    writers: [platform-admin, agent]
+    approvers: [platform-admin]
+    approvals: 2
+    labGate: true
+    risk: high
+  - name: apps
+    paths: ["clusters/*/apps/**"]
+    writers: [platform-admin, "team:podinfo", agent]
+    approvers: [platform-admin, "team:podinfo"]
+    approvals: 1
+    risk: low
+  - name: docs
+    paths: ["kb/**", "work/**", ".pk/labs/**"]
+    writers: [platform-admin, app-team, agent]
+    approvers: [platform-admin]
+    approvals: 1
+    risk: low
+  - name: default
+    paths: ["**"]
+    writers: [platform-admin, agent]
+    approvers: [platform-admin]
+    approvals: 2
+    risk: medium
+riskRules:                   # rate the impact (rendered objects); highest wins
+  - {match: {kind: Machine}, risk: high, reason: "a change to a node is high"}
+  - {match: {kind: CiliumBGPPeeringPolicy}, risk: high, reason: "a change to cilium is high"}
+  - {match: {kind: HelmRelease, name: cilium}, risk: high, reason: "a change to cilium is high"}
+  - {match: {namespace: "podinfo"}, risk: low, reason: "only an app namespace is low"}
+fastPath:                    # revert changes (rings P2)
+  approvals: 1
+  labGate: false

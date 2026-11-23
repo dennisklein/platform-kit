@@ -1,0 +1,579 @@
+{
+ "changes": [
+  {
+   "aheadRemote": 0,
+   "aheadTarget": 2,
+   "approvals": {
+    "have": 0,
+    "need": 2
+   },
+   "author": "dennis",
+   "authorKind": "human",
+   "behindRemote": 0,
+   "behindTarget": 0,
+   "branch": "change/c-k7m2qz-add-cn-035-and-cn-036-to-defiant",
+   "commits": 2,
+   "createdAt": "2026-10-28T23:31:08Z",
+   "dirty": true,
+   "files": 4,
+   "group": "mine",
+   "id": "c-k7m2qz",
+   "intent": "2 compute nodes for tenants, in GC5A-6Z U6 and U8",
+   "labState": "none",
+   "local": true,
+   "overlaps": [
+    "c-p4x8ma"
+   ],
+   "pushed": false,
+   "risk": "high",
+   "state": "draft",
+   "target": "main",
+   "title": "Add cn-035 and cn-036 to defiant",
+   "updatedAt": "2026-10-28T23:32:40Z",
+   "workItems": [
+    "w-114"
+   ]
+  },
+  {
+   "aheadRemote": 0,
+   "aheadTarget": 2,
+   "approvals": {
+    "have": 0,
+    "need": 2
+   },
+   "author": "sync-bot",
+   "authorKind": "bot",
+   "behindRemote": 0,
+   "behindTarget": 0,
+   "branch": "change/c-h3sy7n-sync-serials-from-asset-db",
+   "commits": 2,
+   "createdAt": "2026-10-28T02:10:00Z",
+   "dirty": false,
+   "files": 3,
+   "group": "bots",
+   "id": "c-h3sy7n",
+   "intent": "Nightly import: 2 serial numbers differ from the asset DB (asset DB owns the field)",
+   "labState": "none",
+   "local": false,
+   "mr": {
+    "draft": true,
+    "number": 12,
+    "state": "open",
+    "title": "Sync serials from asset DB",
+    "url": "http://localhost:3000/platform/state/pulls/12"
+   },
+   "pushed": true,
+   "risk": "high",
+   "state": "draft",
+   "target": "main",
+   "title": "Sync serials from asset DB",
+   "updatedAt": "2026-10-28T23:30:17Z"
+  },
+  {
+   "aheadRemote": 0,
+   "aheadTarget": 3,
+   "approvals": {
+    "have": 0,
+    "need": 1
+   },
+   "author": "jonas",
+   "authorKind": "human",
+   "behindRemote": 0,
+   "behindTarget": 0,
+   "branch": "change/c-6m1pqd-bump-podinfo-to-6-9",
+   "commits": 3,
+   "createdAt": "2026-10-28T13:40:00Z",
+   "dirty": false,
+   "files": 1,
+   "group": "review",
+   "id": "c-6m1pqd",
+   "intent": "podinfo 6.9.0 with the new metrics endpoint",
+   "labState": "none",
+   "local": false,
+   "mr": {
+    "draft": false,
+    "number": 11,
+    "state": "open",
+    "title": "Bump podinfo to 6.9",
+    "url": "http://localhost:3000/platform/state/pulls/11"
+   },
+   "pushed": true,
+   "risk": "low",
+   "state": "review",
+   "target": "main",
+   "title": "Bump podinfo to 6.9",
+   "updatedAt": "2026-10-28T23:30:16Z"
+  },
+  {
+   "aheadRemote": 0,
+   "aheadTarget": 3,
+   "approvals": {
+    "have": 0,
+    "need": 2
+   },
+   "author": "anna",
+   "authorKind": "human",
+   "behindRemote": 0,
+   "behindTarget": 0,
+   "branch": "change/c-p4x8ma-bgp-peers-for-org-a-and-org-b",
+   "commits": 3,
+   "createdAt": "2026-10-28T09:15:00Z",
+   "dirty": false,
+   "files": 4,
+   "group": "others",
+   "id": "c-p4x8ma",
+   "intent": "Peer rack 6Z with the org-a and org-b routers (10.6.0.3, 10.6.0.4)",
+   "labRun": "c-p4x8ma/run-1",
+   "labState": "fail",
+   "local": false,
+   "mr": {
+    "draft": true,
+    "number": 10,
+    "state": "open",
+    "title": "BGP peers for org-a and org-b",
+    "url": "http://localhost:3000/platform/state/pulls/10"
+   },
+   "overlaps": [
+    "c-k7m2qz"
+   ],
+   "pushed": true,
+   "risk": "high",
+   "state": "lab",
+   "target": "main",
+   "title": "BGP peers for org-a and org-b",
+   "updatedAt": "2026-10-28T23:30:16Z",
+   "workItems": [
+    "w-112"
+   ]
+  },
+  {
+   "aheadRemote": 0,
+   "aheadTarget": 4,
+   "approvals": {
+    "have": 2,
+    "need": 2
+   },
+   "author": "dennis",
+   "authorKind": "human",
+   "behindRemote": 0,
+   "behindTarget": 0,
+   "branch": "change/c-31d0aa-cabling-for-gc5a-6z",
+   "commits": 4,
+   "createdAt": "2026-10-27T16:20:00Z",
+   "dirty": false,
+   "files": 3,
+   "group": "mine",
+   "id": "c-31d0aa",
+   "intent": "Second spine uplinks for data-a and data-b before rack GC5A-6Z fills up",
+   "labRun": "c-31d0aa/run-1",
+   "labState": "pass",
+   "local": false,
+   "mr": {
+    "draft": false,
+    "number": 9,
+    "state": "open",
+    "title": "Cabling for GC5A-6Z",
+    "url": "http://localhost:3000/platform/state/pulls/9"
+   },
+   "pushed": true,
+   "risk": "high",
+   "state": "approved",
+   "target": "main",
+   "title": "Cabling for GC5A-6Z",
+   "updatedAt": "2026-10-28T23:30:15Z",
+   "workItems": [
+    "w-108"
+   ]
+  },
+  {
+   "aheadRemote": 0,
+   "aheadTarget": 0,
+   "approvals": {
+    "have": 2,
+    "need": 2
+   },
+   "author": "dennis",
+   "authorKind": "human",
+   "behindRemote": 0,
+   "behindTarget": 0,
+   "branch": "change/c-19f4tb-kernel-args-on-control-nodes",
+   "commits": 0,
+   "createdAt": "2026-10-27T10:05:00Z",
+   "dirty": false,
+   "files": 0,
+   "group": "mine",
+   "id": "c-19f4tb",
+   "intent": "IOMMU on for device passthrough tests on cp-01 to cp-03",
+   "labRun": "c-19f4tb/run-1",
+   "labState": "none",
+   "local": false,
+   "mergeSha": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+   "mergedAt": "2026-10-27T10:05:00Z",
+   "pushed": false,
+   "rollout": [
+    {
+     "at": "2026-10-28T23:30:28.668869196Z",
+     "cluster": "defiant",
+     "deployed": true,
+     "ring": "canary",
+     "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+     "verified": true
+    },
+    {
+     "at": "2026-10-28T23:30:28.691688826Z",
+     "cluster": "pegasus",
+     "deployed": true,
+     "ring": "prod",
+     "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+     "verified": true
+    },
+    {
+     "at": "2026-10-28T23:30:28.703267663Z",
+     "cluster": "phoenix",
+     "deployed": true,
+     "ring": "prod",
+     "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+     "verified": true
+    }
+   ],
+   "state": "verified",
+   "target": "main",
+   "title": "Kernel args on control nodes",
+   "updatedAt": "2026-10-27T10:05:00Z",
+   "workItems": [
+    "w-104"
+   ]
+  },
+  {
+   "aheadRemote": 0,
+   "aheadTarget": 0,
+   "approvals": {
+    "have": 1,
+    "need": 1
+   },
+   "author": "jonas",
+   "authorKind": "human",
+   "behindRemote": 0,
+   "behindTarget": 0,
+   "branch": "change/c-0b9cfe-bump-podinfo-to-6-8",
+   "commits": 0,
+   "createdAt": "2026-10-21T11:45:00Z",
+   "dirty": false,
+   "files": 0,
+   "group": "others",
+   "id": "c-0b9cfe",
+   "intent": "podinfo 6.8.0 for the new readiness endpoint",
+   "labState": "none",
+   "local": false,
+   "mergeSha": "b527c427f89d930695481dd9f013654ebb3b6c06",
+   "mergedAt": "2026-10-21T11:45:00Z",
+   "pushed": false,
+   "rollout": [
+    {
+     "at": "2026-10-28T23:30:28.668869196Z",
+     "cluster": "defiant",
+     "deployed": true,
+     "ring": "canary",
+     "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+     "verified": true
+    }
+   ],
+   "state": "verified",
+   "target": "main",
+   "title": "Bump podinfo to 6.8",
+   "updatedAt": "2026-10-21T11:45:00Z"
+  },
+  {
+   "agent": "anna-agent",
+   "aheadRemote": 0,
+   "aheadTarget": 0,
+   "approvals": {
+    "have": 2,
+    "need": 2
+   },
+   "author": "anna",
+   "authorKind": "human",
+   "behindRemote": 0,
+   "behindTarget": 0,
+   "branch": "change/c-u7x2bd-firmware-2-4-on-compute-nodes",
+   "commits": 0,
+   "createdAt": "2026-10-14T10:30:00Z",
+   "dirty": false,
+   "files": 0,
+   "group": "others",
+   "id": "c-u7x2bd",
+   "intent": "BMC and BIOS firmware 2.4 on all compute nodes of defiant",
+   "labRun": "c-u7x2bd/run-1",
+   "labState": "none",
+   "local": false,
+   "mergeSha": "dc624fbb59415b58557d42f5454f24dc8cfac0d1",
+   "mergedAt": "2026-10-14T10:30:00Z",
+   "pushed": false,
+   "rollout": [
+    {
+     "at": "2026-10-28T23:30:28.668869196Z",
+     "cluster": "defiant",
+     "deployed": true,
+     "ring": "canary",
+     "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+     "verified": true
+    }
+   ],
+   "state": "verified",
+   "target": "main",
+   "title": "Firmware 2.4 on compute nodes",
+   "updatedAt": "2026-10-14T10:30:00Z"
+  },
+  {
+   "aheadRemote": 0,
+   "aheadTarget": 0,
+   "approvals": {
+    "have": 2,
+    "need": 2
+   },
+   "author": "sync-bot",
+   "authorKind": "bot",
+   "behindRemote": 0,
+   "behindTarget": 0,
+   "branch": "change/c-m1gr8t-migrate-node-to-v1beta1",
+   "commits": 0,
+   "createdAt": "2026-10-09T09:20:00Z",
+   "dirty": false,
+   "files": 0,
+   "group": "bots",
+   "id": "c-m1gr8t",
+   "intent": "Move all Node files from inventory.pk.io/v1alpha1 to v1beta1 (location block)",
+   "labState": "none",
+   "local": false,
+   "mergeSha": "e44a7144c3741d135315b9008668a79934fed32d",
+   "mergedAt": "2026-10-09T09:20:00Z",
+   "pushed": false,
+   "rollout": [
+    {
+     "at": "2026-10-28T23:30:28.668869196Z",
+     "cluster": "defiant",
+     "deployed": true,
+     "ring": "canary",
+     "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+     "verified": true
+    },
+    {
+     "at": "2026-10-28T23:30:28.691688826Z",
+     "cluster": "pegasus",
+     "deployed": true,
+     "ring": "prod",
+     "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+     "verified": true
+    },
+    {
+     "at": "2026-10-28T23:30:28.703267663Z",
+     "cluster": "phoenix",
+     "deployed": true,
+     "ring": "prod",
+     "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+     "verified": true
+    }
+   ],
+   "state": "verified",
+   "target": "main",
+   "title": "Migrate Node to v1beta1",
+   "updatedAt": "2026-10-09T09:20:00Z"
+  },
+  {
+   "aheadRemote": 0,
+   "aheadTarget": 0,
+   "approvals": {
+    "have": 1,
+    "need": 1
+   },
+   "author": "jonas",
+   "authorKind": "human",
+   "behindRemote": 0,
+   "behindTarget": 0,
+   "branch": "change/c-b7gl4s-record-break-glass-use-on-2026-10-02",
+   "commits": 0,
+   "createdAt": "2026-10-02T13:05:00Z",
+   "dirty": false,
+   "files": 0,
+   "group": "others",
+   "id": "c-b7gl4s",
+   "intent": "Incident record for the break-glass use of the OpenBao certificate",
+   "labState": "none",
+   "local": false,
+   "mergeSha": "ce8a2da82f3673da8bd5e08c8191565475d2ab12",
+   "mergedAt": "2026-10-02T13:05:00Z",
+   "pushed": false,
+   "rollout": [
+    {
+     "at": "2026-10-28T23:30:28.668869196Z",
+     "cluster": "defiant",
+     "deployed": true,
+     "ring": "canary",
+     "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+     "verified": true
+    },
+    {
+     "at": "2026-10-28T23:30:28.691688826Z",
+     "cluster": "pegasus",
+     "deployed": true,
+     "ring": "prod",
+     "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+     "verified": true
+    },
+    {
+     "at": "2026-10-28T23:30:28.703267663Z",
+     "cluster": "phoenix",
+     "deployed": true,
+     "ring": "prod",
+     "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+     "verified": true
+    }
+   ],
+   "state": "verified",
+   "target": "main",
+   "title": "Record break-glass use on 2026-10-02",
+   "updatedAt": "2026-10-02T13:05:00Z"
+  },
+  {
+   "aheadRemote": 0,
+   "aheadTarget": 0,
+   "approvals": {
+    "have": 1,
+    "need": 1
+   },
+   "author": "sync-bot",
+   "authorKind": "bot",
+   "behindRemote": 0,
+   "behindTarget": 0,
+   "branch": "change/c-a5e3vk-sync-serials-from-asset-db",
+   "commits": 0,
+   "createdAt": "2026-09-30T08:55:00Z",
+   "dirty": false,
+   "files": 0,
+   "group": "bots",
+   "id": "c-a5e3vk",
+   "intent": "Nightly import: 10 serial numbers of GC5A-6Z nodes from the asset DB (asset DB owns the field)",
+   "labState": "none",
+   "local": false,
+   "mergeSha": "d4f677c023617493b5a17747e7724c07f0975ce6",
+   "mergedAt": "2026-09-30T08:55:00Z",
+   "pushed": false,
+   "rollout": [
+    {
+     "at": "2026-10-28T23:30:28.668869196Z",
+     "cluster": "defiant",
+     "deployed": true,
+     "ring": "canary",
+     "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+     "verified": true
+    },
+    {
+     "at": "2026-10-28T23:30:28.691688826Z",
+     "cluster": "pegasus",
+     "deployed": true,
+     "ring": "prod",
+     "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+     "verified": true
+    },
+    {
+     "at": "2026-10-28T23:30:28.703267663Z",
+     "cluster": "phoenix",
+     "deployed": true,
+     "ring": "prod",
+     "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+     "verified": true
+    }
+   ],
+   "state": "verified",
+   "target": "main",
+   "title": "Sync serials from asset DB",
+   "updatedAt": "2026-09-30T08:55:00Z"
+  },
+  {
+   "aheadRemote": 0,
+   "aheadTarget": 0,
+   "approvals": {
+    "have": 2,
+    "need": 2
+   },
+   "author": "jonas",
+   "authorKind": "human",
+   "behindRemote": 0,
+   "behindTarget": 0,
+   "branch": "change/c-2hd7vw-move-cn-003-to-data-a-37",
+   "commits": 0,
+   "createdAt": "2026-09-12T10:15:00Z",
+   "dirty": false,
+   "files": 0,
+   "group": "others",
+   "id": "c-2hd7vw",
+   "intent": "free data-b ports for rack 6Z",
+   "labRun": "c-2hd7vw/run-1",
+   "labState": "none",
+   "local": false,
+   "mergeSha": "5749a4974305012471330d39ecb142e1f0cce87b",
+   "mergedAt": "2026-09-12T10:15:00Z",
+   "pushed": false,
+   "rollout": [
+    {
+     "at": "2026-10-28T23:30:28.668869196Z",
+     "cluster": "defiant",
+     "deployed": true,
+     "ring": "canary",
+     "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+     "verified": true
+    }
+   ],
+   "state": "verified",
+   "target": "main",
+   "title": "Move cn-003 to data-a 37",
+   "updatedAt": "2026-09-12T10:15:00Z"
+  },
+  {
+   "aheadRemote": 0,
+   "aheadTarget": 0,
+   "approvals": {
+    "have": 2,
+    "need": 2
+   },
+   "author": "dennis",
+   "authorKind": "human",
+   "behindRemote": 0,
+   "behindTarget": 0,
+   "branch": "change/c-9kq1mf-add-rack-gc5a-6z-compute-nodes",
+   "commits": 0,
+   "createdAt": "2026-09-03T09:40:00Z",
+   "dirty": false,
+   "files": 0,
+   "group": "mine",
+   "id": "c-9kq1mf",
+   "intent": "10 compute nodes for tenants in the new rack GC5A-6Z, peering with the rack router",
+   "labRun": "c-9kq1mf/run-1",
+   "labState": "none",
+   "local": false,
+   "mergeSha": "7b9e667bcb2ae27a0f417ffbdaab96eb4f2f4dc0",
+   "mergedAt": "2026-09-03T09:40:00Z",
+   "pushed": false,
+   "rollout": [
+    {
+     "at": "2026-10-28T23:30:28.668869196Z",
+     "cluster": "defiant",
+     "deployed": true,
+     "ring": "canary",
+     "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+     "verified": true
+    }
+   ],
+   "state": "verified",
+   "target": "main",
+   "title": "Add rack GC5A-6Z compute nodes",
+   "updatedAt": "2026-09-03T09:40:00Z"
+  }
+ ],
+ "main": {
+  "at": "2026-10-27T10:05:00Z",
+  "change": "c-19f4tb",
+  "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+  "subject": "Merge change c-19f4tb: Kernel args on control nodes (!8)"
+ }
+}

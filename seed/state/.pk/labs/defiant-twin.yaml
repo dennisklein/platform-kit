@@ -1,0 +1,19 @@
+# Digital twin of defiant. It follows main; fluxsim reports its status as
+# cluster defiant-twin.
+apiVersion: pk/v1alpha1
+kind: Lab
+metadata:
+  name: defiant-twin
+spec:
+  purpose: twin
+  topology: defiant
+  follow: { ref: main }                       # re-sync after each merge
+  fidelity: scaled                            # replica = all machines
+  scale:
+    machines: [cn-003, cn-025, cn-026]
+    backend: talos-docker                     # cheap; qemu for install or disk work
+  provision: direct                           # metal = sim BMC, vMedia, Talos install
+  host: local
+  expose: [kube-api, grafana]
+  lifetime: persistent
+  snapshot: nightly                           # base for change labs

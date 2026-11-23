@@ -1,0 +1,28 @@
+# talhelper config of phoenix, the control cluster.
+clusterName: phoenix
+talosVersion: v1.10.6
+kubernetesVersion: v1.33.4
+endpoint: https://phoenix.k8s.pk.local:6443
+allowSchedulingOnControlPlanes: true
+nodes:
+  - hostname: cp-01
+    ipAddress: 10.34.0.11
+    controlPlane: true
+    installDisk: /dev/nvme0n1
+  - hostname: cp-02
+    ipAddress: 10.34.0.12
+    controlPlane: true
+    installDisk: /dev/nvme0n1
+  - hostname: cp-03
+    ipAddress: 10.34.0.13
+    controlPlane: true
+    installDisk: /dev/nvme0n1
+controlPlane:
+  patches:
+    - |-
+      cluster:
+        proxy:
+          disabled: true
+  extraKernelArgs:
+    - intel_iommu=on
+    - iommu=pt

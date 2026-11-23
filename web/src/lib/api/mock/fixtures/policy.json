@@ -1,0 +1,238 @@
+{
+ "agents": [
+  {
+   "actsFor": "dennis",
+   "can": [
+    "push",
+    "open-mr",
+    "run-lab",
+    "mark-ready"
+   ],
+   "id": "dennis-agent"
+  },
+  {
+   "actsFor": "anna",
+   "can": [
+    "push",
+    "open-mr",
+    "run-lab",
+    "mark-ready"
+   ],
+   "id": "anna-agent"
+  }
+ ],
+ "bots": [
+  {
+   "can": [
+    "push",
+    "open-mr"
+   ],
+   "id": "sync-bot"
+  }
+ ],
+ "fastPath": {
+  "approvals": 1
+ },
+ "path": ".pk/policy.yaml",
+ "people": [
+  {
+   "email": "dennis@pk.local",
+   "id": "dennis",
+   "name": "Dennis Klein",
+   "roles": [
+    "owner",
+    "platform-admin"
+   ]
+  },
+  {
+   "email": "anna@pk.local",
+   "id": "anna",
+   "name": "Anna Berg",
+   "roles": [
+    "owner",
+    "platform-admin"
+   ]
+  },
+  {
+   "email": "jonas@pk.local",
+   "id": "jonas",
+   "name": "Jonas Weber",
+   "roles": [
+    "platform-admin"
+   ]
+  },
+  {
+   "email": "mara@pk.local",
+   "id": "mara",
+   "name": "Mara Klein",
+   "roles": [
+    "app-team"
+   ],
+   "teams": [
+    "podinfo"
+   ]
+  },
+  {
+   "email": "vera@pk.local",
+   "id": "vera",
+   "name": "Vera Lang",
+   "roles": [
+    "auditor"
+   ]
+  }
+ ],
+ "problems": [],
+ "riskRules": [
+  {
+   "match": {
+    "kind": "Machine"
+   },
+   "reason": "a change to a node is high",
+   "risk": "high"
+  },
+  {
+   "match": {
+    "kind": "CiliumBGPPeeringPolicy"
+   },
+   "reason": "a change to cilium is high",
+   "risk": "high"
+  },
+  {
+   "match": {
+    "kind": "HelmRelease",
+    "name": "cilium"
+   },
+   "reason": "a change to cilium is high",
+   "risk": "high"
+  },
+  {
+   "match": {
+    "namespace": "podinfo"
+   },
+   "reason": "only an app namespace is low",
+   "risk": "low"
+  }
+ ],
+ "rules": [
+  {
+   "approvals": 2,
+   "approvers": [
+    "owner"
+   ],
+   "labGate": false,
+   "name": "policy",
+   "paths": [
+    ".pk/policy.yaml"
+   ],
+   "risk": "high",
+   "writers": [
+    "owner"
+   ]
+  },
+  {
+   "approvals": 2,
+   "approvers": [
+    "platform-admin"
+   ],
+   "labGate": true,
+   "name": "inventory",
+   "paths": [
+    "control/inventory/**",
+    "control/cabling.yaml"
+   ],
+   "risk": "high",
+   "writers": [
+    "platform-admin",
+    "agent",
+    "sync-bot"
+   ]
+  },
+  {
+   "approvals": 2,
+   "approvers": [
+    "platform-admin"
+   ],
+   "labGate": true,
+   "name": "talos",
+   "paths": [
+    "control/talos/**"
+   ],
+   "risk": "high",
+   "writers": [
+    "platform-admin",
+    "agent"
+   ]
+  },
+  {
+   "approvals": 2,
+   "approvers": [
+    "platform-admin"
+   ],
+   "labGate": true,
+   "name": "network",
+   "paths": [
+    "clusters/*/infra/cilium/**"
+   ],
+   "risk": "high",
+   "writers": [
+    "platform-admin",
+    "agent"
+   ]
+  },
+  {
+   "approvals": 1,
+   "approvers": [
+    "platform-admin",
+    "team:podinfo"
+   ],
+   "labGate": false,
+   "name": "apps",
+   "paths": [
+    "clusters/*/apps/**"
+   ],
+   "risk": "low",
+   "writers": [
+    "platform-admin",
+    "team:podinfo",
+    "agent"
+   ]
+  },
+  {
+   "approvals": 1,
+   "approvers": [
+    "platform-admin"
+   ],
+   "labGate": false,
+   "name": "docs",
+   "paths": [
+    "kb/**",
+    "work/**",
+    ".pk/labs/**"
+   ],
+   "risk": "low",
+   "writers": [
+    "platform-admin",
+    "app-team",
+    "agent"
+   ]
+  },
+  {
+   "approvals": 2,
+   "approvers": [
+    "platform-admin"
+   ],
+   "labGate": false,
+   "name": "default",
+   "paths": [
+    "**"
+   ],
+   "risk": "medium",
+   "writers": [
+    "platform-admin",
+    "agent"
+   ]
+  }
+ ],
+ "schemaUrl": "/api/v1/kinds/Policy/schema",
+ "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687"
+}

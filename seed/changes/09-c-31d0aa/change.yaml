@@ -1,0 +1,20 @@
+id: c-31d0aa
+title: "Cabling for GC5A-6Z"
+intent: "Second spine uplinks for data-a and data-b before rack GC5A-6Z fills up"
+author: dennis
+date: "2026-10-27T16:20:00Z"
+merged: false
+workItems: [w-108]
+commits:
+  - message: "feat(cabling): second spine uplinks for data-a and data-b"
+    files:
+      - control/cabling.yaml
+      - work/items/w-108.yaml
+  - message: "docs(lab): add report for c-31d0aa/run-1"
+    files:
+      - kb/labs/c-31d0aa-run-1.md
+open:
+  ready: true
+  approvals: [anna, jonas]
+  labRuns:
+    - {run: c-31d0aa/run-1, result: pass, report: kb/labs/c-31d0aa-run-1.md}

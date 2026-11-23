@@ -1,0 +1,26 @@
+{
+ "demo": true,
+ "flux": {
+  "name": "Flux",
+  "reachable": true,
+  "url": "http://localhost:9090"
+ },
+ "forge": {
+  "name": "Gitea",
+  "reachable": true,
+  "url": "http://localhost:3000"
+ },
+ "llm": {
+  "mock": true,
+  "model": "mock",
+  "reachable": true
+ },
+ "main": {
+  "at": "2026-10-27T10:05:00Z",
+  "change": "c-19f4tb",
+  "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+  "subject": "Merge change c-19f4tb: Kernel args on control nodes (!8)"
+ },
+ "mode": "local",
+ "version": "dev"
+}

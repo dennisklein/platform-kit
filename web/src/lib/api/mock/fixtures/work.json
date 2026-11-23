@@ -1,0 +1,138 @@
+{
+ "items": [
+  {
+   "assets": [
+    "cp-01",
+    "cp-02",
+    "cp-03"
+   ],
+   "changes": [
+    {
+     "author": "dennis",
+     "date": "2026-10-27T10:05:00Z",
+     "id": "c-19f4tb",
+     "mr": "!8",
+     "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687",
+     "state": "verified",
+     "title": "Kernel args on control nodes"
+    }
+   ],
+   "id": "w-104",
+   "milestone": "defiant-ready",
+   "owner": "dennis",
+   "path": "work/items/w-104.yaml",
+   "status": "done",
+   "statusFrom": "c-19f4tb",
+   "title": "Kernel args on control nodes"
+  },
+  {
+   "assets": [
+    "data-a",
+    "data-b"
+   ],
+   "changes": [
+    {
+     "author": "dennis",
+     "date": "2026-10-28T23:30:15Z",
+     "id": "c-31d0aa",
+     "mr": "!9",
+     "state": "approved",
+     "title": "Cabling for GC5A-6Z"
+    }
+   ],
+   "id": "w-108",
+   "milestone": "defiant-ready",
+   "owner": "dennis",
+   "path": "work/items/w-108.yaml",
+   "status": "in-review",
+   "statusFrom": "c-31d0aa",
+   "title": "Cabling for GC5A-6Z"
+  },
+  {
+   "assets": [
+    "GC5A-6Z"
+   ],
+   "changes": [
+    {
+     "author": "anna",
+     "date": "2026-10-28T23:30:16Z",
+     "id": "c-p4x8ma",
+     "mr": "!10",
+     "state": "lab",
+     "title": "BGP peers for org-a and org-b"
+    }
+   ],
+   "id": "w-112",
+   "milestone": "defiant-ready",
+   "owner": "anna",
+   "path": "work/items/w-112.yaml",
+   "status": "in-progress",
+   "statusFrom": "c-p4x8ma",
+   "title": "BGP peers for org-a and org-b"
+  },
+  {
+   "assets": [
+    "cn-035",
+    "cn-036"
+   ],
+   "changes": [
+    {
+     "author": "dennis",
+     "date": "2026-10-28T23:32:40Z",
+     "id": "c-k7m2qz",
+     "state": "draft",
+     "title": "Add cn-035 and cn-036 to defiant"
+    }
+   ],
+   "id": "w-114",
+   "kb": [
+    "kb/runbooks/add-node.md"
+   ],
+   "milestone": "defiant-ready",
+   "owner": "dennis",
+   "path": "work/items/w-114.yaml",
+   "status": "in-progress",
+   "statusFrom": "c-k7m2qz",
+   "title": "Compute nodes cn-035, cn-036"
+  },
+  {
+   "assets": [
+    "sn-05",
+    "jb-05",
+    "pegasus"
+   ],
+   "changes": [],
+   "id": "w-117",
+   "kb": [
+    "kb/storage/ceph-osd-layout-pegasus.md"
+   ],
+   "milestone": "defiant-ready",
+   "owner": "anna",
+   "path": "work/items/w-117.yaml",
+   "status": "planned",
+   "title": "Ceph pool for tenant volumes"
+  },
+  {
+   "assets": [
+    "defiant"
+   ],
+   "changes": [],
+   "id": "w-121",
+   "milestone": "defiant-ready",
+   "owner": "jonas",
+   "path": "work/items/w-121.yaml",
+   "status": "planned",
+   "title": "Talos 1.11 on defiant"
+  }
+ ],
+ "milestones": [
+  {
+   "description": "Rack GC5A-6Z cabled and filled, BGP to the org routers, storage for tenant volumes.",
+   "done": 1,
+   "due": "2026-11-30",
+   "id": "defiant-ready",
+   "items": 6,
+   "title": "defiant ready for tenants"
+  }
+ ]
+}

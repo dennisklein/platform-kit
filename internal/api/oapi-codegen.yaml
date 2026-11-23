@@ -1,0 +1,14 @@
+# Generates the strict server (std net/http) and models from api/openapi.yaml.
+package: api
+output: api.gen.go
+generate:
+  models: true
+  std-http-server: true
+  strict-server: true
+output-options:
+  # Optional fields are plain values with omitempty and omitzero, not pointers.
+  prefer-skip-optional-pointer: true
+  prefer-skip-optional-pointer-with-omitzero: true
+  # The SSE stream is served by hand (internal/bench/sse.go).
+  exclude-operation-ids:
+    - streamEvents

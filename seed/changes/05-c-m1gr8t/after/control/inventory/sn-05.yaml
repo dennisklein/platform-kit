@@ -1,0 +1,19 @@
+apiVersion: inventory.pk.io/v1beta1
+kind: Node
+metadata:
+  name: sn-05
+spec:
+  cluster: pegasus
+  role: storage
+  location:
+    rack: GC5A-6Y
+    unit: 20
+    size: 2
+  model: Huawei 2288H V5
+  serial: 2102312AFN10K5000105
+  bmc:
+    mac: 48:7b:6b:2e:05:05
+  ports:
+    - {name: bmc, cable: MGT-0105, peer: {switch: mgmt, port: 5}, network: mgmt}
+    - {name: p1, cable: DATA-0109, peer: {switch: data-a, port: 5}, network: data}
+    - {name: p2, cable: DATA-0110, peer: {switch: data-b, port: 5}, network: data}

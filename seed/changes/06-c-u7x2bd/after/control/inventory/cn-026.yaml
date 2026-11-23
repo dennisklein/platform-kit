@@ -1,0 +1,21 @@
+apiVersion: inventory.pk.io/v1beta1
+kind: Node
+metadata:
+  name: cn-026
+  labels:
+    firmware: "2.4"
+spec:
+  cluster: defiant
+  role: worker
+  location:
+    rack: GC5A-6Z
+    unit: 12
+    size: 2
+  model: Supermicro SYS-220U-TNR
+  serial: S4R7K2J0026
+  bmc:
+    mac: 3c:ec:ef:a1:0c:26
+  ports:
+    - {name: bmc, cable: MGT-0126, peer: {switch: mgmt, port: 26}, network: mgmt}
+    - {name: p1, cable: DATA-0153, peer: {switch: data-b, port: 26}, network: data}
+    - {name: p2, cable: DATA-0154, peer: {switch: data-a, port: 26}, network: data}

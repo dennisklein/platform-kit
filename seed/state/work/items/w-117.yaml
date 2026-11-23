@@ -1,0 +1,9 @@
+apiVersion: work.pk.io/v1alpha1
+kind: WorkItem
+id: w-117
+title: Ceph pool for tenant volumes
+milestone: defiant-ready
+owner: anna
+assets: [sn-05, jb-05, pegasus]
+changes: []
+kb: [kb/storage/ceph-osd-layout-pegasus.md]

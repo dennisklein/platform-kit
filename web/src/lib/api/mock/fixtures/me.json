@@ -1,0 +1,12 @@
+{
+ "demo": true,
+ "email": "dennis@pk.local",
+ "id": "dennis",
+ "initials": "DK",
+ "kind": "human",
+ "name": "Dennis Klein",
+ "roles": [
+  "owner",
+  "platform-admin"
+ ]
+}

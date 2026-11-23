@@ -1,0 +1,19 @@
+apiVersion: inventory.pk.io/v1beta1
+kind: Node
+metadata:
+  name: cp-03
+spec:
+  cluster: phoenix
+  role: control
+  location:
+    rack: GC5A-6Y
+    unit: 12
+    size: 1
+  model: Supermicro SYS-110P-WTR
+  serial: S2C9P1A0003
+  bmc:
+    mac: 3c:ec:ef:b2:01:03
+  ports:
+    - {name: bmc, cable: MGT-0103, peer: {switch: mgmt, port: 3}, network: mgmt}
+    - {name: p1, cable: DATA-0105, peer: {switch: data-a, port: 3}, network: data}
+    - {name: p2, cable: DATA-0106, peer: {switch: data-b, port: 3}, network: data}

@@ -1,0 +1,19 @@
+id: c-19f4tb
+title: "Kernel args on control nodes"
+intent: "IOMMU on for device passthrough tests on cp-01 to cp-03"
+author: dennis
+date: "2026-10-26T15:30:00Z"
+merged: true
+mergedAt: "2026-10-27T10:05:00Z"
+mergedBy: dennis
+approvedBy: [anna, jonas]
+labRun: {run: c-19f4tb/run-1, result: pass, report: kb/labs/c-19f4tb-run-1.md}
+workItems: [w-104]
+commits:
+  - message: "feat(talos): IOMMU kernel args on phoenix control nodes"
+    files:
+      - control/talos/phoenix/talconfig.yaml
+      - work/items/w-104.yaml
+  - message: "docs(lab): add report for c-19f4tb/run-1"
+    files:
+      - kb/labs/c-19f4tb-run-1.md

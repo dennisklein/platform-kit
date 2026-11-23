@@ -1,0 +1,12 @@
+apiVersion: inventory.pk.io/v1beta1
+kind: Switch
+metadata:
+  name: data-b
+spec:
+  network: data-b
+  ports: 48
+  uplinks: [47, 48]
+  rack: GC5A-6Y
+  unit: 47
+  size: 1
+  model: NVIDIA SN2410

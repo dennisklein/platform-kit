@@ -1,0 +1,23 @@
+id: c-a5e3vk
+title: "Sync serials from asset DB"
+intent: "Nightly import: 10 serial numbers of GC5A-6Z nodes from the asset DB (asset DB owns the field)"
+author: sync-bot
+date: "2026-09-30T02:10:00Z"
+merged: true
+mergedAt: "2026-09-30T08:55:00Z"
+mergedBy: jonas
+approvedBy: [jonas]
+workItems: []
+commits:
+  - message: "chore(sync): serials of cn-025 to cn-034 from the asset DB"
+    files:
+      - control/inventory/cn-025.yaml
+      - control/inventory/cn-026.yaml
+      - control/inventory/cn-027.yaml
+      - control/inventory/cn-028.yaml
+      - control/inventory/cn-029.yaml
+      - control/inventory/cn-030.yaml
+      - control/inventory/cn-031.yaml
+      - control/inventory/cn-032.yaml
+      - control/inventory/cn-033.yaml
+      - control/inventory/cn-034.yaml

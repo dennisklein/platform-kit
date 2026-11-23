@@ -1,0 +1,10 @@
+apiVersion: pk/v1alpha1
+kind: Cluster
+metadata:
+  name: phoenix
+spec:
+  role: control
+  ring: prod
+  description: Control cluster. Hosts Flux, the platform services and the hosted control planes of tenant clusters.
+  endpoint: https://phoenix.k8s.pk.local:6443
+  talos: control/talos/phoenix/talconfig.yaml

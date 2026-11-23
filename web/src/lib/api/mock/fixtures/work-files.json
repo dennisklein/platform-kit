@@ -1,0 +1,155 @@
+{
+ "work/items/w-104.yaml": {
+  "applyPath": "none",
+  "content": "apiVersion: work.pk.io/v1alpha1\nkind: WorkItem\nid: w-104\ntitle: Kernel args on control nodes\nmilestone: defiant-ready\nowner: dennis\nassets: [cp-01, cp-02, cp-03]\nchanges: [c-19f4tb]\nkb: []\nnotes: IOMMU on for device passthrough tests.\n",
+  "exists": true,
+  "kind": {
+   "apiVersion": "work.pk.io/v1alpha1",
+   "name": "WorkItem",
+   "objectName": "w-104",
+   "own": true,
+   "version": "v1alpha1"
+  },
+  "language": "yaml",
+  "path": "work/items/w-104.yaml",
+  "problems": [],
+  "readOnly": true,
+  "ref": "main",
+  "schemaUrl": "/api/v1/kinds/WorkItem/schema",
+  "secrets": [],
+  "sha": "372d2ffe88eff61afe7a9a65c96edbf5fc2ab82c",
+  "storedVersion": "work.pk.io/v1alpha1",
+  "truthClass": "intent"
+ },
+ "work/items/w-108.yaml": {
+  "applyPath": "none",
+  "content": "apiVersion: work.pk.io/v1alpha1\nkind: WorkItem\nid: w-108\ntitle: Cabling for GC5A-6Z\nmilestone: defiant-ready\nowner: dennis\nassets: [data-a, data-b]\nchanges: []\nkb: []\nnotes: Second spine uplinks before the rack fills.\n",
+  "exists": true,
+  "kind": {
+   "apiVersion": "work.pk.io/v1alpha1",
+   "name": "WorkItem",
+   "objectName": "w-108",
+   "own": true,
+   "version": "v1alpha1"
+  },
+  "language": "yaml",
+  "path": "work/items/w-108.yaml",
+  "problems": [],
+  "readOnly": true,
+  "ref": "main",
+  "schemaUrl": "/api/v1/kinds/WorkItem/schema",
+  "secrets": [],
+  "sha": "d912f576cd0a0ce4e91488e9bab66cfa32f0c8da",
+  "storedVersion": "work.pk.io/v1alpha1",
+  "truthClass": "intent"
+ },
+ "work/items/w-112.yaml": {
+  "applyPath": "none",
+  "content": "apiVersion: work.pk.io/v1alpha1\nkind: WorkItem\nid: w-112\ntitle: BGP peers for org-a and org-b\nmilestone: defiant-ready\nowner: anna\nassets: [GC5A-6Z]\nchanges: []\nkb: []\nnotes: Org routers 10.6.0.3 and 10.6.0.4 announce tenant prefixes.\n",
+  "exists": true,
+  "kind": {
+   "apiVersion": "work.pk.io/v1alpha1",
+   "name": "WorkItem",
+   "objectName": "w-112",
+   "own": true,
+   "version": "v1alpha1"
+  },
+  "language": "yaml",
+  "path": "work/items/w-112.yaml",
+  "problems": [],
+  "readOnly": true,
+  "ref": "main",
+  "schemaUrl": "/api/v1/kinds/WorkItem/schema",
+  "secrets": [],
+  "sha": "aa234783b107fa48744b2f6e0d7d91497501f2de",
+  "storedVersion": "work.pk.io/v1alpha1",
+  "truthClass": "intent"
+ },
+ "work/items/w-114.yaml": {
+  "applyPath": "none",
+  "content": "apiVersion: work.pk.io/v1alpha1\nkind: WorkItem\nid: w-114\ntitle: Compute nodes cn-035, cn-036\nmilestone: defiant-ready\nowner: dennis\nassets: [cn-035, cn-036]\nchanges: []\nkb: [kb/runbooks/add-node.md]\nnotes: GC5A-6Z U6 and U8. Ports from the cable plan.\n",
+  "exists": true,
+  "kind": {
+   "apiVersion": "work.pk.io/v1alpha1",
+   "name": "WorkItem",
+   "objectName": "w-114",
+   "own": true,
+   "version": "v1alpha1"
+  },
+  "language": "yaml",
+  "path": "work/items/w-114.yaml",
+  "problems": [
+   {
+    "code": "ref",
+    "col": 10,
+    "field": "assets[0]",
+    "line": 7,
+    "message": "cn-035 does not exist yet",
+    "path": "work/items/w-114.yaml",
+    "severity": "info",
+    "source": "reference"
+   },
+   {
+    "code": "ref",
+    "col": 18,
+    "field": "assets[1]",
+    "line": 7,
+    "message": "cn-036 does not exist yet",
+    "path": "work/items/w-114.yaml",
+    "severity": "info",
+    "source": "reference"
+   }
+  ],
+  "readOnly": true,
+  "ref": "main",
+  "schemaUrl": "/api/v1/kinds/WorkItem/schema",
+  "secrets": [],
+  "sha": "39561fc29dac2e10fb1f335aaa8f3ac9408eb06a",
+  "storedVersion": "work.pk.io/v1alpha1",
+  "truthClass": "intent"
+ },
+ "work/items/w-117.yaml": {
+  "applyPath": "none",
+  "content": "apiVersion: work.pk.io/v1alpha1\nkind: WorkItem\nid: w-117\ntitle: Ceph pool for tenant volumes\nmilestone: defiant-ready\nowner: anna\nassets: [sn-05, jb-05, pegasus]\nchanges: []\nkb: [kb/storage/ceph-osd-layout-pegasus.md]\n",
+  "exists": true,
+  "kind": {
+   "apiVersion": "work.pk.io/v1alpha1",
+   "name": "WorkItem",
+   "objectName": "w-117",
+   "own": true,
+   "version": "v1alpha1"
+  },
+  "language": "yaml",
+  "path": "work/items/w-117.yaml",
+  "problems": [],
+  "readOnly": true,
+  "ref": "main",
+  "schemaUrl": "/api/v1/kinds/WorkItem/schema",
+  "secrets": [],
+  "sha": "88abf62e511d12df7234bfdbdd2988a1be6dc70a",
+  "storedVersion": "work.pk.io/v1alpha1",
+  "truthClass": "intent"
+ },
+ "work/items/w-121.yaml": {
+  "applyPath": "none",
+  "content": "apiVersion: work.pk.io/v1alpha1\nkind: WorkItem\nid: w-121\ntitle: Talos 1.11 on defiant\nmilestone: defiant-ready\nowner: jonas\nassets: [defiant]\nchanges: []\nkb: []\n",
+  "exists": true,
+  "kind": {
+   "apiVersion": "work.pk.io/v1alpha1",
+   "name": "WorkItem",
+   "objectName": "w-121",
+   "own": true,
+   "version": "v1alpha1"
+  },
+  "language": "yaml",
+  "path": "work/items/w-121.yaml",
+  "problems": [],
+  "readOnly": true,
+  "ref": "main",
+  "schemaUrl": "/api/v1/kinds/WorkItem/schema",
+  "secrets": [],
+  "sha": "41a121c1f06ea6011cff23ba541d16b5e8849965",
+  "storedVersion": "work.pk.io/v1alpha1",
+  "truthClass": "intent"
+ }
+}

@@ -1,0 +1,18 @@
+id: c-2hd7vw
+title: "Move cn-003 to data-a 37"
+intent: "free data-b ports for rack 6Z"
+author: jonas
+date: "2026-09-11T15:05:00Z"
+merged: true
+mergedAt: "2026-09-12T10:15:00Z"
+mergedBy: jonas
+approvedBy: [anna, dennis]
+labRun: {run: c-2hd7vw/run-1, result: pass, report: kb/labs/c-2hd7vw-run-1.md}
+workItems: []
+commits:
+  - message: "fix(inventory): move cn-003 p2 from data-b 37 to data-a 37"
+    files:
+      - control/inventory/cn-003.yaml
+  - message: "docs(lab): add report for c-2hd7vw/run-1"
+    files:
+      - kb/labs/c-2hd7vw-run-1.md

@@ -1,0 +1,183 @@
+{
+ "entries": [
+  {
+   "answer": "BGP policy. cn-036 is in the inventory of this change, in GC5A-6Z, but not in the BGP policy rack-6z. It gets no BGP session. Suggested fix: add 1 line to bgp-rack-6z.yaml. [bgp-rack-6z.yaml; cn-036.yaml]\nNot committed. 1 file is saved but not committed: bgp-rack-6z.yaml. [c-k7m2qz]",
+   "changeId": "c-k7m2qz",
+   "durationMs": 477,
+   "id": "l-ypfxhq76",
+   "mock": true,
+   "model": "mock",
+   "prompt": "Recipe: Check this commit\nQuestion: Does the last commit (and the saved files) do what the intent says? Is something missing?\n\n<data>\n{\n  \"change\": {\n    \"author\": \"dennis\",\n    \"id\": \"c-k7m2qz\",\n    \"intent\": \"2 compute nodes for tenants, in GC5A-6Z U6 and U8\",\n    \"risk\": \"high\",\n    \"state\": \"draft\",\n    \"title\": \"Add cn-035 and cn-036 to defiant\"\n  },\n  \"findings\": [\n    {\n      \"id\": \"f1\",\n      \"title\": \"BGP policy\",\n      \"text\": \"cn-036 is in the inventory of this change, in GC5A-6Z, but not in the BGP policy rack-6z. It gets no BGP session. Suggested fix: add 1 line to bgp-rack-6z.yaml.\",\n      \"severity\": \"risk\",\n      \"sources\": [\n        \"bgp-rack-6z.yaml\",\n        \"cn-036.yaml\"\n      ]\n    },\n    {\n      \"id\": \"f2\",\n      \"title\": \"Not committed\",\n      \"text\": \"1 file is saved but not committed: bgp-rack-6z.yaml.\",\n      \"severity\": \"info\",\n      \"sources\": [\n        \"c-k7m2qz\"\n      ]\n    }\n  ]\n}\n</data>\n\nWrite at most 2 points that answer the question for a reviewer. Answer with one JSON object:\n{\"points\":[{\"title\":\"two to four words\",\"text\":\"one or two sentences\",\"severity\":\"info|warn|risk|ok\",\"findings\":[\"f1\"]}],\"note\":\"optional one line\"}",
+   "recipe": "check-commit",
+   "sources": [
+    {
+     "kind": "file",
+     "label": "bgp-rack-6z.yaml",
+     "ref": "clusters/defiant/infra/cilium/bgp-rack-6z.yaml"
+    },
+    {
+     "kind": "file",
+     "label": "cn-036.yaml",
+     "ref": "control/inventory/cn-036.yaml"
+    },
+    {
+     "kind": "change",
+     "label": "c-k7m2qz",
+     "ref": "c-k7m2qz"
+    }
+   ],
+   "surface": "advisor",
+   "time": "2026-10-28T23:32:46.463110272Z",
+   "user": "dennis"
+  },
+  {
+   "answer": "feat(inventory): add cn-035 and cn-036 in GC5A-6Z\n\n- 2 compute nodes for defiant, U6 and U8\n- bmc and data ports on mgmt, data-b and data-a",
+   "changeId": "c-k7m2qz",
+   "durationMs": 222,
+   "id": "l-ca4wq7df",
+   "mock": true,
+   "model": "mock",
+   "prompt": "Change c-k7m2qz: Add cn-035 and cn-036 to defiant\nIntent: 2 compute nodes for tenants, in GC5A-6Z U6 and U8\n\n<data>\nFiles:\n- control/inventory/cn-035.yaml (added)\n- control/inventory/cn-036.yaml (added)\n\nSemantic diff:\n- cn-035: new compute node in GC5A-6Z, U6\n- cn-036: new compute node in GC5A-6Z, U8\n\nDiff:\n--- /dev/null\n+++ b/control/inventory/cn-035.yaml\n@@ -1 +1,18 @@\n+apiVersion: inventory.pk.io/v1beta1\n+kind: Node\n+metadata:\n+  name: cn-035\n+spec:\n+  cluster: defiant\n+  role: worker\n+  location:\n+    rack: GC5A-6Z\n+    unit: 6\n+    size: 2\n+  bmc:\n+    mac: \"3c:ec:ef:a1:0c:35\"\n+  ports:\n+    - {name: bmc, cable: MGT-0141, peer: {switch: mgmt, port: 37}, network: mgmt}\n+    - {name: p1, cable: DATA-0201, peer: {switch: data-b, port: 37}, network: data}\n+    - {name: p2, cable: DATA-0202, peer: {switch: data-a, port: 38}, network: data}\n \n--- /dev/null\n+++ b/control/inventory/cn-036.yaml\n@@ -1 +1,18 @@\n+apiVersion: inventory.pk.io/v1beta1\n+kind: Node\n+metadata:\n+  name: cn-036\n+spec:\n+  cluster: defiant\n+  role: worker\n+  location:\n+    rack: GC5A-6Z\n+    unit: 8\n+    size: 2\n+  bmc:\n+    mac: \"3c:ec:ef:a1:0c:36\"\n+  ports:\n+    - {name: bmc, cable: MGT-0143, peer: {switch: mgmt, port: 39}, network: mgmt}\n+    - {name: p1, cable: DATA-0203, peer: {switch: data-b, port: 39}, network: data}\n+    - {name: p2, cable: DATA-0204, peer: {switch: data-a, port: 40}, network: data}\n \n</data>\n\nDraft from the rules (improve it, keep the facts):\nfeat(inventory): add cn-035 and cn-036 in GC5A-6Z\n\n- 2 compute nodes for defiant, U6 and U8\n- bmc and data ports on mgmt, data-b and data-a\n",
+   "recipe": "commit-message",
+   "sources": [
+    {
+     "kind": "change",
+     "label": "c-k7m2qz",
+     "ref": "c-k7m2qz"
+    },
+    {
+     "kind": "file",
+     "label": "cn-035.yaml",
+     "ref": "control/inventory/cn-035.yaml"
+    },
+    {
+     "kind": "file",
+     "label": "cn-036.yaml",
+     "ref": "control/inventory/cn-036.yaml"
+    },
+    {
+     "kind": "impact",
+     "label": "impact",
+     "ref": "c-k7m2qz"
+    }
+   ],
+   "surface": "commit-message",
+   "time": "2026-10-28T23:32:40.555532869Z",
+   "user": "dennis"
+  },
+  {
+   "answer": "BGP policy. cn-035 is in the inventory of this change, in GC5A-6Z, but not in the BGP policy rack-6z. It gets no BGP session. Suggested fix: add 1 line to bgp-rack-6z.yaml. [bgp-rack-6z.yaml; cn-035.yaml]\nNo lab run. No lab run yet. The policy needs a lab run on the head of the change (lab gate). [.pk/policy.yaml]\nProblems. cn-003.yaml: port data-a 37 in use by cn-035 (and 1 problem more). The render and the lab use the files as they are. [cn-003.yaml]\nPort history. c-2hd7vw (jonas, 2026-09-12) changed cn-003 p2: data-b 37 to data-a 37, to free data-b ports for rack 6Z. This change uses data-b 37 (freed then) and data-a 37 (the same port). [trailer c-2hd7vw; MR !2]\nAdvisory only. The rating stays \"high\" from the policy.",
+   "changeId": "c-k7m2qz",
+   "durationMs": 1144,
+   "id": "l-6jha4ldv",
+   "mock": true,
+   "model": "mock",
+   "prompt": "Recipe: Risks of this change\nQuestion: What can go wrong with this change, and what should the reviewer check?\n\n<data>\n{\n  \"change\": {\n    \"author\": \"dennis\",\n    \"id\": \"c-k7m2qz\",\n    \"intent\": \"2 compute nodes for tenants, in GC5A-6Z U6 and U8\",\n    \"risk\": \"high\",\n    \"state\": \"draft\",\n    \"title\": \"Add cn-035 and cn-036 to defiant\"\n  },\n  \"findings\": [\n    {\n      \"id\": \"f1\",\n      \"title\": \"BGP policy\",\n      \"text\": \"cn-035 is in the inventory of this change, in GC5A-6Z, but not in the BGP policy rack-6z. It gets no BGP session. Suggested fix: add 1 line to bgp-rack-6z.yaml.\",\n      \"severity\": \"risk\",\n      \"sources\": [\n        \"bgp-rack-6z.yaml\",\n        \"cn-035.yaml\"\n      ]\n    },\n    {\n      \"id\": \"f2\",\n      \"title\": \"No lab run\",\n      \"text\": \"No lab run yet. The policy needs a lab run on the head of the change (lab gate).\",\n      \"severity\": \"risk\",\n      \"sources\": [\n        \".pk/policy.yaml\"\n      ]\n    },\n    {\n      \"id\": \"f3\",\n      \"title\": \"Problems\",\n      \"text\": \"cn-003.yaml: port data-a 37 in use by cn-035 (and 1 problem more). The render and the lab use the files as they are.\",\n      \"severity\": \"risk\",\n      \"sources\": [\n        \"cn-003.yaml\"\n      ]\n    },\n    {\n      \"id\": \"f4\",\n      \"title\": \"Port history\",\n      \"text\": \"c-2hd7vw (jonas, 2026-09-12) changed cn-003 p2: data-b 37 to data-a 37, to free data-b ports for rack 6Z. This change uses data-b 37 (freed then) and data-a 37 (the same port).\",\n      \"severity\": \"info\",\n      \"sources\": [\n        \"trailer c-2hd7vw\",\n        \"MR !2\"\n      ]\n    }\n  ],\n  \"note\": \"Advisory only. The rating stays \\\"high\\\" from the policy.\"\n}\n</data>\n\nWrite at most 4 points that answer the question for a reviewer. Answer with one JSON object:\n{\"points\":[{\"title\":\"two to four words\",\"text\":\"one or two sentences\",\"severity\":\"info|warn|risk|ok\",\"findings\":[\"f1\"]}],\"note\":\"optional one line\"}",
+   "recipe": "risks",
+   "sources": [
+    {
+     "kind": "file",
+     "label": "bgp-rack-6z.yaml",
+     "ref": "clusters/defiant/infra/cilium/bgp-rack-6z.yaml"
+    },
+    {
+     "kind": "file",
+     "label": "cn-035.yaml",
+     "ref": "control/inventory/cn-035.yaml"
+    },
+    {
+     "kind": "policy",
+     "label": ".pk/policy.yaml",
+     "ref": ".pk/policy.yaml"
+    },
+    {
+     "kind": "file",
+     "label": "cn-003.yaml",
+     "ref": "control/inventory/cn-003.yaml:21"
+    },
+    {
+     "kind": "trailer",
+     "label": "trailer c-2hd7vw",
+     "ref": "c-2hd7vw"
+    },
+    {
+     "kind": "mr",
+     "label": "MR !2",
+     "ref": "!2"
+    }
+   ],
+   "surface": "advisor",
+   "time": "2026-10-28T23:31:27.850408297Z",
+   "user": "dennis"
+  },
+  {
+   "answer": "I suggest 1 line in bgp-rack-6z.yaml: it adds cn-037 to rack-6z, so cn-037 gets a BGP session. Review the diff below, then accept or reject it. Note: cn-037 is not in the inventory of this change yet.",
+   "changeId": "c-k7m2qz",
+   "durationMs": 341,
+   "id": "l-a6yluayk",
+   "mock": true,
+   "model": "mock",
+   "prompt": "[change c-k7m2qz]\nuser: Add cn-037 to the rack-6z BGP policy",
+   "sources": [
+    {
+     "kind": "file",
+     "label": "bgp-rack-6z.yaml",
+     "ref": "clusters/defiant/infra/cilium/bgp-rack-6z.yaml"
+    }
+   ],
+   "surface": "chat",
+   "time": "2026-10-28T23:31:26.673844443Z",
+   "user": "dennis"
+  },
+  {
+   "answer": "Open a change first. I make edits only as suggestions in a change.",
+   "id": "l-y7tjemqe",
+   "mock": true,
+   "model": "mock",
+   "prompt": "user: Add cn-037 to the rack-6z BGP policy",
+   "surface": "chat",
+   "time": "2026-10-28T23:31:03.770562024Z",
+   "user": "dennis"
+  },
+  {
+   "answer": "I cannot see it. Secret fields are removed before each call.",
+   "id": "l-ml7fwzio",
+   "mock": true,
+   "model": "mock",
+   "prompt": "user: What is the hubble UI token?",
+   "surface": "chat",
+   "time": "2026-10-28T23:31:03.73839145Z",
+   "user": "dennis"
+  },
+  {
+   "answer": "c-2hd7vw moved cn-003 p2 from data-b 37 to data-a 37, to free data-b ports for rack 6Z. Approved by anna and dennis. Merged 2026-09-12, author jonas.",
+   "durationMs": 583,
+   "id": "l-crxceugf",
+   "mock": true,
+   "model": "mock",
+   "prompt": "user: Why does cn-003 use port 37 on data-a?",
+   "rating": "up",
+   "sources": [
+    {
+     "kind": "trailer",
+     "label": "trailer c-2hd7vw",
+     "ref": "c-2hd7vw"
+    },
+    {
+     "kind": "mr",
+     "label": "MR !2",
+     "ref": "!2"
+    },
+    {
+     "kind": "history",
+     "label": "history 5749a49",
+     "ref": "5749a4974305012471330d39ecb142e1f0cce87b"
+    }
+   ],
+   "surface": "chat",
+   "time": "2026-10-28T23:31:03.722979861Z",
+   "user": "dennis"
+  }
+ ],
+ "total": 7
+}

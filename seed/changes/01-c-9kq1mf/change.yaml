@@ -1,0 +1,32 @@
+id: c-9kq1mf
+title: "Add rack GC5A-6Z compute nodes"
+intent: "10 compute nodes for tenants in the new rack GC5A-6Z, peering with the rack router"
+author: dennis
+date: "2026-09-02T14:20:00Z"
+merged: true
+mergedAt: "2026-09-03T09:40:00Z"
+mergedBy: dennis
+approvedBy: [anna, jonas]
+labRun: {run: c-9kq1mf/run-1, result: pass, report: kb/labs/c-9kq1mf-run-1.md}
+workItems: []
+commits:
+  - message: "feat(inventory): add rack GC5A-6Z and cn-025 to cn-034"
+    files:
+      - control/inventory/racks/gc5a-6z.yaml
+      - control/inventory/cn-025.yaml
+      - control/inventory/cn-026.yaml
+      - control/inventory/cn-027.yaml
+      - control/inventory/cn-028.yaml
+      - control/inventory/cn-029.yaml
+      - control/inventory/cn-030.yaml
+      - control/inventory/cn-031.yaml
+      - control/inventory/cn-032.yaml
+      - control/inventory/cn-033.yaml
+      - control/inventory/cn-034.yaml
+  - message: "feat(cilium): BGP peering policy for rack 6Z"
+    files:
+      - clusters/defiant/infra/cilium/kustomization.yaml
+      - clusters/defiant/infra/cilium/bgp-rack-6z.yaml
+  - message: "docs(lab): add report for c-9kq1mf/run-1"
+    files:
+      - kb/labs/c-9kq1mf-run-1.md

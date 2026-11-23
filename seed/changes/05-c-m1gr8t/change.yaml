@@ -1,0 +1,12 @@
+id: c-m1gr8t
+title: "Migrate Node to v1beta1"
+intent: "Move all Node files from inventory.pk.io/v1alpha1 to v1beta1 (location block)"
+author: sync-bot
+date: "2026-10-08T03:00:00Z"
+merged: true
+mergedAt: "2026-10-09T09:20:00Z"
+mergedBy: anna
+approvedBy: [anna, jonas]
+workItems: []
+trailers:
+  - {key: Pk-Migration, value: "inventory.pk.io/Node v1alpha1 to v1beta1"}

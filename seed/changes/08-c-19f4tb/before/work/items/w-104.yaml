@@ -1,0 +1,10 @@
+apiVersion: work.pk.io/v1alpha1
+kind: WorkItem
+id: w-104
+title: Kernel args on control nodes
+milestone: defiant-ready
+owner: dennis
+assets: [cp-01, cp-02, cp-03]
+changes: []
+kb: []
+notes: IOMMU on for device passthrough tests.

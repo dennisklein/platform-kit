@@ -1,0 +1,12 @@
+# Generates the Go client and models from api/openapi.yaml.
+package: client
+output: client.gen.go
+generate:
+  models: true
+  client: true
+output-options:
+  # Optional fields are plain values with omitempty and omitzero, not pointers.
+  prefer-skip-optional-pointer: true
+  prefer-skip-optional-pointer-with-omitzero: true
+  exclude-operation-ids:
+    - streamEvents

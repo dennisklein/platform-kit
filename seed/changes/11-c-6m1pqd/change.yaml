@@ -1,0 +1,15 @@
+id: c-6m1pqd
+title: "Bump podinfo to 6.9"
+intent: "podinfo 6.9.0 with the new metrics endpoint"
+author: jonas
+date: "2026-10-28T13:40:00Z"
+merged: false
+workItems: []
+commits:
+  - message: "feat(podinfo): bump to 6.9.0"
+    files:
+      - clusters/defiant/apps/podinfo/deployment.yaml
+open:
+  ready: true
+  approvals: []
+  labRuns: []

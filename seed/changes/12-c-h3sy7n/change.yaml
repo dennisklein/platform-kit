@@ -1,0 +1,16 @@
+id: c-h3sy7n
+title: "Sync serials from asset DB"
+intent: "Nightly import: 2 serial numbers differ from the asset DB (asset DB owns the field)"
+author: sync-bot
+date: "2026-10-28T02:10:00Z"
+merged: false
+workItems: []
+commits:
+  - message: "chore(sync): serials of cn-027 and cn-031 from the asset DB"
+    files:
+      - control/inventory/cn-027.yaml
+      - control/inventory/cn-031.yaml
+open:
+  ready: false
+  approvals: []
+  labRuns: []

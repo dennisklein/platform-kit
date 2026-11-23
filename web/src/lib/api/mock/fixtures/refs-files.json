@@ -1,0 +1,80 @@
+{
+ "5749a4974305012471330d39ecb142e1f0cce87b|control/inventory/cn-003.yaml|false": {
+  "applyPath": "flux",
+  "content": "apiVersion: inventory.pk.io/v1alpha1\nkind: Node\nmetadata:\n  name: cn-003\nspec:\n  cluster: defiant\n  role: worker\n  rack: GC5A-6Y\n  unit: 30\n  height: 2\n  model: Supermicro SYS-220U-TNR\n  serial: S4R7K2J0003\n  bmc:\n    mac: 3c:ec:ef:a1:0c:03\n  ports:\n    - {name: bmc, cable: MGT-0109, peer: {switch: mgmt, port: 9}, network: mgmt}\n    - {name: p1, cable: DATA-0111, peer: {switch: data-b, port: 9}, network: data}\n    - {name: p2, cable: DATA-0112, peer: {switch: data-a, port: 37}, network: data}\n",
+  "exists": true,
+  "kind": {
+   "apiVersion": "inventory.pk.io/v1beta1",
+   "name": "Node",
+   "objectName": "cn-003",
+   "own": true,
+   "version": "v1alpha1"
+  },
+  "language": "yaml",
+  "path": "control/inventory/cn-003.yaml",
+  "problems": [
+   {
+    "code": "old-version",
+    "col": 1,
+    "field": "apiVersion",
+    "line": 1,
+    "message": "stored as inventory.pk.io/v1alpha1; the newest version is inventory.pk.io/v1beta1",
+    "path": "control/inventory/cn-003.yaml",
+    "severity": "info",
+    "source": "schema"
+   }
+  ],
+  "readOnly": true,
+  "ref": "5749a4974305012471330d39ecb142e1f0cce87b",
+  "schemaUrl": "/api/v1/kinds/Node/schema?version=v1alpha1",
+  "secrets": [],
+  "sha": "f084266054d210139eb31f0d530f82e4a234c4ce",
+  "storedVersion": "inventory.pk.io/v1alpha1",
+  "truthClass": "intent"
+ },
+ "5749a4974305012471330d39ecb142e1f0cce87b|control/inventory/cn-003.yaml|true": {
+  "applyPath": "flux",
+  "content": "apiVersion: inventory.pk.io/v1beta1\nkind: Node\nmetadata:\n    name: cn-003\nspec:\n    bmc:\n        mac: 3c:ec:ef:a1:0c:03\n    cluster: defiant\n    location:\n        rack: GC5A-6Y\n        size: 2\n        unit: 30\n    model: Supermicro SYS-220U-TNR\n    ports:\n        - cable: MGT-0109\n          name: bmc\n          network: mgmt\n          peer:\n            port: 9\n            switch: mgmt\n        - cable: DATA-0111\n          name: p1\n          network: data\n          peer:\n            port: 9\n            switch: data-b\n        - cable: DATA-0112\n          name: p2\n          network: data\n          peer:\n            port: 37\n            switch: data-a\n    role: worker\n    serial: S4R7K2J0003\n",
+  "convertedFrom": "inventory.pk.io/v1alpha1",
+  "exists": true,
+  "kind": {
+   "apiVersion": "inventory.pk.io/v1beta1",
+   "name": "Node",
+   "objectName": "cn-003",
+   "own": true,
+   "version": "v1beta1"
+  },
+  "language": "yaml",
+  "path": "control/inventory/cn-003.yaml",
+  "problems": [],
+  "readOnly": true,
+  "ref": "5749a4974305012471330d39ecb142e1f0cce87b",
+  "schemaUrl": "/api/v1/kinds/Node/schema",
+  "secrets": [],
+  "sha": "73f92e83e982b8307dfcdb5a0e219e185f5eed8a",
+  "storedVersion": "inventory.pk.io/v1alpha1",
+  "truthClass": "intent"
+ },
+ "main|control/inventory/cn-003.yaml|true": {
+  "applyPath": "flux",
+  "content": "apiVersion: inventory.pk.io/v1beta1\nkind: Node\nmetadata:\n  name: cn-003\n  labels:\n    firmware: \"2.4\"\nspec:\n  cluster: defiant\n  role: worker\n  location:\n    rack: GC5A-6Y\n    unit: 30\n    size: 2\n  model: Supermicro SYS-220U-TNR\n  serial: S4R7K2J0003\n  bmc:\n    mac: 3c:ec:ef:a1:0c:03\n  ports:\n    - {name: bmc, cable: MGT-0109, peer: {switch: mgmt, port: 9}, network: mgmt}\n    - {name: p1, cable: DATA-0111, peer: {switch: data-b, port: 9}, network: data}\n    - {name: p2, cable: DATA-0112, peer: {switch: data-a, port: 37}, network: data}\n",
+  "exists": true,
+  "kind": {
+   "apiVersion": "inventory.pk.io/v1beta1",
+   "name": "Node",
+   "objectName": "cn-003",
+   "own": true,
+   "version": "v1beta1"
+  },
+  "language": "yaml",
+  "path": "control/inventory/cn-003.yaml",
+  "problems": [],
+  "readOnly": true,
+  "ref": "main",
+  "schemaUrl": "/api/v1/kinds/Node/schema",
+  "secrets": [],
+  "sha": "bef1a46d5af3721345df36adcd8a1aff02443b9c",
+  "storedVersion": "inventory.pk.io/v1beta1",
+  "truthClass": "intent"
+ }
+}

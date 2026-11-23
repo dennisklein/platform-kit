@@ -1,0 +1,145 @@
+[
+ {
+  "applied": {
+   "at": "2026-10-28T23:30:28.668869196Z",
+   "change": "c-19f4tb",
+   "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687"
+  },
+  "healthy": true,
+  "id": "defiant",
+  "kustomizations": [
+   {
+    "message": "Applied revision: main@sha1:e08763f23a03b7572c72cd49e904abcf3a5a7687",
+    "name": "flux-system",
+    "path": "clusters/defiant/flux.yaml",
+    "ready": true,
+    "revision": "main@sha1:e08763f23a03b7572c72cd49e904abcf3a5a7687"
+   },
+   {
+    "message": "Applied revision: main@sha1:e08763f23a03b7572c72cd49e904abcf3a5a7687",
+    "name": "infra-metal",
+    "path": "control/inventory",
+    "ready": true,
+    "revision": "main@sha1:e08763f23a03b7572c72cd49e904abcf3a5a7687"
+   },
+   {
+    "message": "Applied revision: main@sha1:e08763f23a03b7572c72cd49e904abcf3a5a7687",
+    "name": "cilium",
+    "path": "clusters/defiant/infra/cilium",
+    "ready": true,
+    "revision": "main@sha1:e08763f23a03b7572c72cd49e904abcf3a5a7687"
+   },
+   {
+    "message": "Applied revision: main@sha1:e08763f23a03b7572c72cd49e904abcf3a5a7687",
+    "name": "podinfo",
+    "path": "clusters/defiant/apps/podinfo",
+    "ready": true,
+    "revision": "main@sha1:e08763f23a03b7572c72cd49e904abcf3a5a7687"
+   }
+  ],
+  "message": "Applied revision main@sha1:e08763f, health checks pass",
+  "objects": 21,
+  "path": "clusters/defiant/cluster.yaml",
+  "reachable": true,
+  "ring": "canary",
+  "role": "tenants",
+  "verified": {
+   "at": "2026-10-28T23:30:35.131360296Z",
+   "change": "c-19f4tb",
+   "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687"
+  }
+ },
+ {
+  "applied": {
+   "at": "2026-10-28T23:30:28.691688826Z",
+   "change": "c-19f4tb",
+   "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687"
+  },
+  "healthy": true,
+  "id": "pegasus",
+  "kustomizations": [
+   {
+    "message": "Applied revision: main@sha1:e08763f23a03b7572c72cd49e904abcf3a5a7687",
+    "name": "flux-system",
+    "path": "clusters/pegasus/flux.yaml",
+    "ready": true,
+    "revision": "main@sha1:e08763f23a03b7572c72cd49e904abcf3a5a7687"
+   },
+   {
+    "message": "Applied revision: main@sha1:e08763f23a03b7572c72cd49e904abcf3a5a7687",
+    "name": "infra-metal",
+    "path": "control/inventory",
+    "ready": true,
+    "revision": "main@sha1:e08763f23a03b7572c72cd49e904abcf3a5a7687"
+   },
+   {
+    "message": "Applied revision: main@sha1:e08763f23a03b7572c72cd49e904abcf3a5a7687",
+    "name": "cilium",
+    "path": "clusters/pegasus/infra/cilium",
+    "ready": true,
+    "revision": "main@sha1:e08763f23a03b7572c72cd49e904abcf3a5a7687"
+   },
+   {
+    "message": "Applied revision: main@sha1:e08763f23a03b7572c72cd49e904abcf3a5a7687",
+    "name": "rook-ceph",
+    "path": "clusters/pegasus/infra/rook-ceph",
+    "ready": true,
+    "revision": "main@sha1:e08763f23a03b7572c72cd49e904abcf3a5a7687"
+   }
+  ],
+  "message": "Applied revision main@sha1:e08763f, health checks pass",
+  "objects": 8,
+  "path": "clusters/pegasus/cluster.yaml",
+  "reachable": true,
+  "ring": "prod",
+  "role": "storage",
+  "verified": {
+   "at": "2026-10-28T23:30:35.131360296Z",
+   "change": "c-19f4tb",
+   "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687"
+  }
+ },
+ {
+  "applied": {
+   "at": "2026-10-28T23:30:28.703267663Z",
+   "change": "c-19f4tb",
+   "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687"
+  },
+  "healthy": true,
+  "id": "phoenix",
+  "kustomizations": [
+   {
+    "message": "Applied revision: main@sha1:e08763f23a03b7572c72cd49e904abcf3a5a7687",
+    "name": "flux-system",
+    "path": "clusters/phoenix/flux.yaml",
+    "ready": true,
+    "revision": "main@sha1:e08763f23a03b7572c72cd49e904abcf3a5a7687"
+   },
+   {
+    "message": "Applied revision: main@sha1:e08763f23a03b7572c72cd49e904abcf3a5a7687",
+    "name": "infra-metal",
+    "path": "control/inventory",
+    "ready": true,
+    "revision": "main@sha1:e08763f23a03b7572c72cd49e904abcf3a5a7687"
+   },
+   {
+    "message": "Applied revision: main@sha1:e08763f23a03b7572c72cd49e904abcf3a5a7687",
+    "name": "cilium",
+    "path": "clusters/phoenix/infra/cilium",
+    "ready": true,
+    "revision": "main@sha1:e08763f23a03b7572c72cd49e904abcf3a5a7687"
+   }
+  ],
+  "message": "Applied revision main@sha1:e08763f, health checks pass",
+  "objects": 8,
+  "path": "clusters/phoenix/cluster.yaml",
+  "reachable": true,
+  "ring": "prod",
+  "role": "control",
+  "verified": {
+   "at": "2026-10-28T23:30:35.131360296Z",
+   "change": "c-19f4tb",
+   "sha": "e08763f23a03b7572c72cd49e904abcf3a5a7687"
+  }
+ }
+]
