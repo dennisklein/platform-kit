@@ -188,7 +188,7 @@ func (x *exec) powerOff(ctx context.Context, a *metalv1alpha1.PowerOffAction) (s
 		// Persist before waiting: a resumed pass must not ask again, nor
 		// start the window over.
 		if err := x.flush(); err != nil {
-			return stepState{}, err
+			return stepState{}, &persistError{err}
 		}
 		if cur, err = x.settle(ctx, bmc.PowerOff); err != nil {
 			return stepState{}, err
@@ -227,7 +227,7 @@ func (x *exec) powerCycle(ctx context.Context) (stepState, error) {
 		// Persist before turning it on: from here on, a resumed pass must
 		// only ever finish this cycle.
 		if err := x.flush(); err != nil {
-			return stepState{}, err
+			return stepState{}, &persistError{err}
 		}
 	}
 	return x.powerTo(ctx, bmc.PowerOn)

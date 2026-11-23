@@ -331,6 +331,13 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 		name := actionName(op.Spec.Actions[i])
 		st, err := x.step(bctx, i)
+		if perr := (*persistError)(nil); errors.As(err, &perr) {
+			// The machine did what was asked; only the record of it did
+			// not land. That is no verdict on the step: end the pass, and
+			// the next one enters the step again, which checks its goal
+			// against the machine first.
+			return ctrl.Result{}, client.IgnoreNotFound(perr.err)
+		}
 		if err != nil && stepTransient(bctx, op.Spec.Actions[i], err) {
 			return held(i, err)
 		}
@@ -386,6 +393,14 @@ func budgetLeft(ctx context.Context, need time.Duration) bool {
 	deadline, ok := ctx.Deadline()
 	return !ok || time.Until(deadline) >= need
 }
+
+// persistError is a status write that failed in the middle of a step, after
+// the machine acted (the off half of a power cycle seen, a graceful shutdown
+// asked for).
+type persistError struct{ err error }
+
+func (e *persistError) Error() string { return "record progress: " + e.err.Error() }
+func (e *persistError) Unwrap() error { return e.err }
 
 // holdError is a connection hold — no reachable path, credentials not
 // readable — met by a step that needed the machine.

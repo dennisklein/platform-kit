@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -284,6 +285,73 @@ func TestGracefulPowerOffForcesAfterTheWindow(t *testing.T) {
 	power, err := st.Power(t.Context(), "1")
 	require.NoError(t, err)
 	assert.Equal(t, bmc.PowerOff, power)
+}
+
+// conflictOnce answers the first status write that match selects with a
+// conflict, as the API server does when another writer moved the object.
+type conflictOnce struct {
+	client.Client
+	match func(*metalv1alpha1.HostOperation) bool
+	hit   bool
+}
+
+func (c *conflictOnce) Status() client.SubResourceWriter {
+	return &conflictOnceStatus{SubResourceWriter: c.Client.Status(), c: c}
+}
+
+type conflictOnceStatus struct {
+	client.SubResourceWriter
+	c *conflictOnce
+}
+
+func (s *conflictOnceStatus) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+	if op, ok := obj.(*metalv1alpha1.HostOperation); ok && !s.c.hit && s.c.match(op) {
+		s.c.hit = true
+		return apierrors.NewConflict(metalv1alpha1.GroupVersion.WithResource("hostoperations").GroupResource(),
+			op.Name, fmt.Errorf("the object has been modified"))
+	}
+	return s.SubResourceWriter.Update(ctx, obj, opts...)
+}
+
+// A status write that fails inside a step is not the machine's verdict. The
+// operation used to end Failed when the record of the off half of a power
+// cycle, or of a graceful shutdown request, did not land; with the machine
+// off. Now the pass ends with the error and the next one finishes the step.
+func TestStepRecordConflictIsNotAFailure(t *testing.T) {
+	for name, tc := range map[string]struct {
+		action metalv1alpha1.HostOperationAction
+		match  func(*metalv1alpha1.HostOperation) bool
+		boots  int
+	}{
+		"power cycle, off half": {
+			action: metalv1alpha1.HostOperationAction{PowerCycle: &metalv1alpha1.PowerCycleAction{}},
+			match:  func(op *metalv1alpha1.HostOperation) bool { return op.Status.OffObserved != nil },
+			boots:  1,
+		},
+		"graceful power-off": {
+			action: metalv1alpha1.HostOperationAction{PowerOff: &metalv1alpha1.PowerOffAction{GracefulTimeoutSeconds: 300}},
+			match:  func(op *metalv1alpha1.HostOperation) bool { return op.Status.ShutdownRequested != nil },
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			op := preClearedOp(tc.action)
+			r, st, _ := executorFor(t, "huawei-2288h-v5", op)
+			before := st.Resets("1")
+			api := &conflictOnce{Client: r.Client, match: tc.match}
+			r.Client = api
+
+			_, err := r.Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(op)})
+			require.True(t, api.hit, "precondition: the step's record met the conflict")
+			assert.True(t, apierrors.IsConflict(err), "the pass ends with the write's error: %v", err)
+			got := &metalv1alpha1.HostOperation{}
+			require.NoError(t, r.Get(t.Context(), client.ObjectKeyFromObject(op), got))
+			assert.False(t, opFinished(got), "%+v", got.Status.Conditions)
+
+			got = runOp(t, r)
+			require.True(t, opSucceeded(got), "%+v", got.Status)
+			assert.Equal(t, before+tc.boots, st.Resets("1"))
+		})
+	}
 }
 
 func TestMaintenanceHoldsAnOperationNotStarted(t *testing.T) {
