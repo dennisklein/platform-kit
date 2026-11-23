@@ -175,6 +175,27 @@ spec:
                   x-kubernetes-list-map-keys:
                     - type
                   x-kubernetes-list-type: map
+                handOff:
+                  description: 'HandOff records that the machine was installed: which host runs which TalosNode, from which config, since when. It is written once, when the boot finishes, and is the record the operator reads to know the work is done — a node that is down later is not installed again, and deleting old HostOperations changes nothing. It goes away with the claim.'
+                  properties:
+                    at:
+                      description: At is when the operator saw the hand-off.
+                      format: date-time
+                      type: string
+                    configDigest:
+                      description: ConfigDigest is sha256:<hex> of the rendered config the machine booted with; empty when the record was rebuilt from an operation that did not carry it.
+                      type: string
+                    host:
+                      description: Host is the Host the node was installed on.
+                      type: string
+                    node:
+                      description: Node is the TalosNode the machine runs.
+                      type: string
+                  required:
+                    - at
+                    - host
+                    - node
+                  type: object
                 hostRef:
                   description: HostRef names the bound Host.
                   properties:

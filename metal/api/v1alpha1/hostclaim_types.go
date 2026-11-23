@@ -98,12 +98,35 @@ type ClaimOS struct {
 	NodeRef Reference `json:"nodeRef"`
 }
 
+// ClaimHandOff is the record of one finished install.
+type ClaimHandOff struct {
+	// Host is the Host the node was installed on.
+	Host string `json:"host"`
+	// Node is the TalosNode the machine runs.
+	Node string `json:"node"`
+	// ConfigDigest is sha256:<hex> of the rendered config the machine booted
+	// with; empty when the record was rebuilt from an operation that did not
+	// carry it.
+	// +optional
+	ConfigDigest string `json:"configDigest,omitempty"`
+	// At is when the operator saw the hand-off.
+	At metav1.Time `json:"at"`
+}
+
 // HostClaimStatus is the claim's side of the bind (the authoritative pointer is
 // Host.spec.claimRef — PV/PVC-style, first writer wins).
 type HostClaimStatus struct {
 	// HostRef names the bound Host.
 	// +optional
 	HostRef *Reference `json:"hostRef,omitempty"`
+
+	// HandOff records that the machine was installed: which host runs which
+	// TalosNode, from which config, since when. It is written once, when the
+	// boot finishes, and is the record the operator reads to know the work is
+	// done — a node that is down later is not installed again, and deleting
+	// old HostOperations changes nothing. It goes away with the claim.
+	// +optional
+	HandOff *ClaimHandOff `json:"handOff,omitempty"`
 
 	// Conditions are the truth — the only thing reconcilers branch on.
 	// +listType=map

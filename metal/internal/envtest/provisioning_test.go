@@ -582,7 +582,31 @@ func TestProvisioning(t *testing.T) {
 		require.Len(t, op.Status.Steps, len(op.Spec.Actions))
 
 		waitHost(dualHost, func(h metalv1alpha1.Host) bool { return h.Status.Phase == metalv1alpha1.HostProvisioned })
-		waitClaim("dual", provisionedReason(metalv1alpha1.ReasonHandedOff))
+		c := waitClaim("dual", provisionedReason(metalv1alpha1.ReasonHandedOff))
+		require.NotNil(t, c.Status.HandOff, "the claim records the hand-off")
+		assert.Equal(t, dualHost, c.Status.HandOff.Host)
+		assert.Equal(t, "node-dual", c.Status.HandOff.Node)
+		assert.True(t, strings.HasPrefix(c.Status.HandOff.ConfigDigest, "sha256:"))
+	})
+
+	t.Run("the hand-off outlives its operations", func(t *testing.T) {
+		// A person tidies up the finished operations, and later the node goes
+		// down. Neither is a reason to install the machine again.
+		for _, op := range opsFor(dualHost, "provision") {
+			require.NoError(t, cl.Delete(ctx, &op))
+		}
+		checkIn("node-dual",
+			metav1.Condition{Type: osv1alpha1.ConditionMachineReachable, Status: metav1.ConditionFalse, Reason: "Unreachable"},
+			metav1.Condition{Type: osv1alpha1.ConditionReady, Status: metav1.ConditionFalse, Reason: "NotReady"})
+		waitClaim("dual", func(c metalv1alpha1.HostClaim) bool {
+			p := provisioned(c)
+			return p != nil && p.Reason == metalv1alpha1.ReasonHandedOff && strings.Contains(p.Message, "does not start a new install")
+		})
+		time.Sleep(5 * pollInterval)
+		assert.Empty(t, opsFor(dualHost, "provision"), "no reinstall is proposed")
+
+		checkIn("node-dual", machineAPI...)
+		waitHost(dualHost, func(h metalv1alpha1.Host) bool { return h.Status.Phase == metalv1alpha1.HostProvisioned })
 	})
 
 	t.Run("deleting the claim powers off and returns the host", func(t *testing.T) {

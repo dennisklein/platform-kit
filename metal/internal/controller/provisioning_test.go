@@ -83,20 +83,80 @@ func TestHandOffBelongsToTheBootedNode(t *testing.T) {
 			c := meta.FindStatusCondition(claim.Status.Conditions, metalv1alpha1.ConditionProvisioned)
 			require.NotNil(t, c)
 			assert.Equal(t, tc.want, c.Reason, c.Message)
+			if tc.want == metalv1alpha1.ReasonHandedOff {
+				require.NotNil(t, claim.Status.HandOff, "the operation's success becomes the claim's record")
+				assert.Equal(t, "host-a", claim.Status.HandOff.Host)
+				assert.Equal(t, "node-b", claim.Status.HandOff.Node)
+			} else {
+				assert.Nil(t, claim.Status.HandOff)
+			}
 		})
 	}
+}
+
+func TestHandOffRecordOutlivesItsOperations(t *testing.T) {
+	// The install finished long ago, its operations were tidied away, and the
+	// node is down now (no check-in). Nothing is proposed: the record on the
+	// claim is what says the machine is installed.
+	host := &metalv1alpha1.Host{ObjectMeta: metav1.ObjectMeta{Name: "host-a"}}
+	node := &osv1alpha1.TalosNode{ObjectMeta: metav1.ObjectMeta{Name: "node-b"}}
+	r := claimReconcilerFor(t, host, node)
+	claim := testClaim("node-b")
+	claim.Status.HandOff = &metalv1alpha1.ClaimHandOff{Host: "host-a", Node: "node-b", At: metav1.Now()}
+
+	require.NoError(t, r.provision(t.Context(), claim, "host-a"))
+	c := meta.FindStatusCondition(claim.Status.Conditions, metalv1alpha1.ConditionProvisioned)
+	require.NotNil(t, c)
+	assert.Equal(t, metalv1alpha1.ReasonHandedOff, c.Reason)
+	assert.Contains(t, c.Message, "does not start a new install")
+	ops, err := r.claimOps(t.Context(), claim, purposeProvision)
+	require.NoError(t, err)
+	assert.Empty(t, ops, "no reinstall is proposed")
+
+	// The record of another node is no record of this one.
+	claim = testClaim("node-b")
+	claim.Status.HandOff = &metalv1alpha1.ClaimHandOff{Host: "host-a", Node: "node-a", At: metav1.Now()}
+	require.NoError(t, r.provision(t.Context(), claim, "host-a"))
+	c = meta.FindStatusCondition(claim.Status.Conditions, metalv1alpha1.ConditionProvisioned)
+	require.NotNil(t, c)
+	assert.NotEqual(t, metalv1alpha1.ReasonHandedOff, c.Reason)
+}
+
+func TestCheckInRecordsTheHandOff(t *testing.T) {
+	host := &metalv1alpha1.Host{ObjectMeta: metav1.ObjectMeta{Name: "host-a"}}
+	node := &osv1alpha1.TalosNode{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-b"},
+		Status: osv1alpha1.TalosNodeStatus{ConfigDigest: "sha256:abc", Conditions: []metav1.Condition{{
+			Type: osv1alpha1.ConditionReady, Status: metav1.ConditionTrue, Reason: osv1alpha1.ReasonNodeReady,
+		}}},
+	}
+	r := claimReconcilerFor(t, host, node)
+	claim := testClaim("node-b")
+	require.NoError(t, r.provision(t.Context(), claim, "host-a"))
+	require.NotNil(t, claim.Status.HandOff)
+	assert.Equal(t, "sha256:abc", claim.Status.HandOff.ConfigDigest)
+	at := claim.Status.HandOff.At
+
+	require.NoError(t, r.provision(t.Context(), claim, "host-a"))
+	assert.Equal(t, at, claim.Status.HandOff.At, "written once, not on every pass")
 }
 
 func TestReleasePowersOffOnlyWhatABootTouched(t *testing.T) {
 	for name, tc := range map[string]struct {
 		executed    bool
+		handedOff   bool
 		wantRelease bool
 	}{
 		"a boot proposed, never taken up": {executed: false, wantRelease: false},
 		"a boot that ran":                 {executed: true, wantRelease: true},
+		// The boot's operation was deleted since; the claim's record remains.
+		"an install recorded on the claim": {executed: false, handedOff: true, wantRelease: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			claim := testClaim("node-b")
+			if tc.handedOff {
+				claim.Status.HandOff = &metalv1alpha1.ClaimHandOff{Host: "host-a", Node: "node-b", At: metav1.Now()}
+			}
 			host := &metalv1alpha1.Host{
 				ObjectMeta: metav1.ObjectMeta{Name: "host-a"},
 				Spec: metalv1alpha1.HostSpec{

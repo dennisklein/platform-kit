@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -43,6 +44,10 @@ const (
 	labelPurpose        = "metal.pk.io/purpose"
 	purposeProvision    = "provision"
 	purposeRelease      = "release"
+
+	// annotationConfigDigest on a boot operation names the rendered config
+	// it boots, so its success can be recorded with the digest.
+	annotationConfigDigest = "metal.pk.io/config-digest"
 
 	// labelProvisioning marks BootAssets the lane created for itself.
 	labelProvisioning = "metal.pk.io/provisioning"
@@ -118,15 +123,29 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 		}
 		return err
 	}
+	// The hand-off record on the claim says the install is done: the node may
+	// simply be down now, and that is not a reason to install it again. A
+	// record of any other host or node is no record of this one.
+	if h := claim.Status.HandOff; h != nil && h.Host == hostName && h.Node == node.Name {
+		at := h.At.UTC().Format(time.RFC3339)
+		msg := fmt.Sprintf("host %s runs TalosNode %s (installed %s)", hostName, node.Name, at)
+		if !nodeCheckedIn(node) {
+			msg = fmt.Sprintf("host %s was installed with TalosNode %s at %s; the node does not answer now, which does not start a new install",
+				hostName, node.Name, at)
+		}
+		set(metav1.ConditionTrue, metalv1alpha1.ReasonHandedOff, msg)
+		return r.withdraw(ctx, ops, "")
+	}
 	if nodeCheckedIn(node) {
+		recordHandOff(claim, hostName, node.Name, node.Status.ConfigDigest)
 		set(metav1.ConditionTrue, metalv1alpha1.ReasonHandedOff, fmt.Sprintf("host %s runs TalosNode %s", hostName, node.Name))
 		return r.withdraw(ctx, ops, "")
 	}
-	// A succeeded boot operation of this node onto this host is the hand-off
-	// record: the node may simply be down now, and that is not a reason to
-	// install it again. A boot of any other node is no record of this one.
+	// A claim from before the record existed: a succeeded boot operation of
+	// this node onto this host is the hand-off, and becomes the record.
 	for i := range ops {
 		if opSucceeded(&ops[i]) && bootsNode(&ops[i], hostName, node.Name) {
+			recordHandOff(claim, hostName, node.Name, ops[i].Annotations[annotationConfigDigest])
 			set(metav1.ConditionTrue, metalv1alpha1.ReasonHandedOff,
 				fmt.Sprintf("operation %s/%s booted host %s", ops[i].Namespace, ops[i].Name, hostName))
 			return nil
@@ -231,6 +250,17 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 	return hold(metalv1alpha1.ReasonAwaitingOperation, "boot operation "+ref+" in flight")
 }
 
+// recordHandOff writes the hand-off record onto the claim, once: a record
+// for this host and node already there keeps its time.
+func recordHandOff(claim *metalv1alpha1.HostClaim, hostName, nodeName, digest string) {
+	if h := claim.Status.HandOff; h != nil && h.Host == hostName && h.Node == nodeName {
+		return
+	}
+	claim.Status.HandOff = &metalv1alpha1.ClaimHandOff{
+		Host: hostName, Node: nodeName, ConfigDigest: digest, At: metav1.Now(),
+	}
+}
+
 // overrideMode is the override mode a boot asks for, given the one the system
 // serves. The media boot UEFI: a system serving another mode would take the
 // override as a legacy boot, so the mode goes along; one serving UEFI already
@@ -288,7 +318,8 @@ func (r *HostClaimReconciler) provisionOp(claim *metalv1alpha1.HostClaim, hostNa
 	return &metalv1alpha1.HostOperation{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name, Namespace: r.OperationsNamespace,
-			Labels: claimLabels(claim, purposeProvision),
+			Labels:      claimLabels(claim, purposeProvision),
+			Annotations: map[string]string{annotationConfigDigest: plan.ConfigDigest},
 		},
 		Spec: metalv1alpha1.HostOperationSpec{
 			HostRef:    metalv1alpha1.Reference{Name: hostName},
@@ -596,7 +627,7 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 		}
 		// The decision to power off is made once, while the boot records are
 		// still there to read; the release operation then carries it.
-		if op != nil || bootRan(provisionOps, host.Name) {
+		if op != nil || bootRan(provisionOps, host.Name) || handedOff(claim, host.Name) {
 			if op == nil {
 				op = r.releaseOp(ctx, claim, host, name)
 				if err := r.Create(ctx, op); err != nil && !apierrors.IsAlreadyExists(err) {
@@ -653,6 +684,12 @@ func bootRan(ops []metalv1alpha1.HostOperation, hostName string) bool {
 	return slices.ContainsFunc(ops, func(op metalv1alpha1.HostOperation) bool {
 		return op.Spec.HostRef.Name == hostName && op.Status.Baseline != nil
 	})
+}
+
+// handedOff: the claim's hand-off record names the host — an install ran on
+// it even when its boot operation was deleted since.
+func handedOff(claim *metalv1alpha1.HostClaim, hostName string) bool {
+	return claim.Status.HandOff != nil && claim.Status.HandOff.Host == hostName
 }
 
 // releaseOp powers the machine off and empties every insertable slot. It is

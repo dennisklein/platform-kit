@@ -492,6 +492,25 @@ _Appears in:_
 | `organizationalUnit` _string_ |  |  | Optional: \{\} <br /> |
 
 
+#### ClaimHandOff
+
+
+
+ClaimHandOff is the record of one finished install.
+
+
+
+_Appears in:_
+- [HostClaimStatus](#hostclaimstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `host` _string_ | Host is the Host the node was installed on. |  |  |
+| `node` _string_ | Node is the TalosNode the machine runs. |  |  |
+| `configDigest` _string_ | ConfigDigest is sha256:<hex> of the rendered config the machine booted<br />with; empty when the record was rebuilt from an operation that did not<br />carry it. |  | Optional: \{\} <br /> |
+| `at` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | At is when the operator saw the hand-off. |  |  |
+
+
 #### ClaimOS
 
 
@@ -858,6 +877,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `hostRef` _[Reference](#reference)_ | HostRef names the bound Host. |  | Optional: \{\} <br /> |
+| `handOff` _[ClaimHandOff](#claimhandoff)_ | HandOff records that the machine was installed: which host runs which<br />TalosNode, from which config, since when. It is written once, when the<br />boot finishes, and is the record the operator reads to know the work is<br />done — a node that is down later is not installed again, and deleting<br />old HostOperations changes nothing. It goes away with the claim. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions are the truth — the only thing reconcilers branch on. |  | Optional: \{\} <br /> |
 | `phase` _[ClaimPhase](#claimphase)_ | Phase summarizes the conditions below for people and for kubectl columns.<br />It is a summary, not the contract: automation should read conditions. |  | Enum: [Pending Bound Ambiguous] <br />Optional: \{\} <br /> |
 | `blockedOn` _string_ | BlockedOn is derived — why the claim isn't binding (AssetNotFound,<br />HostAlreadyClaimed) or, once bound, why its machine isn't provisioning<br />(SingleMediumUnsupported, OperationFailed); a reason, not a phase. |  | Optional: \{\} <br /> |
