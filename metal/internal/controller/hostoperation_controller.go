@@ -18,6 +18,7 @@ import (
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -100,6 +101,19 @@ type HostOperationReconciler struct {
 	// PassTimeout overrides the budget of one pass. Zero budgets by what the
 	// operation runs. A test seam.
 	PassTimeout time.Duration
+	// APIReader reads straight from the API server, bypassing the informer
+	// cache: for the queue check before an operation starts, and for the
+	// check between steps that the operation still exists. Defaults to the
+	// manager's API reader in SetupWithManager.
+	APIReader client.Reader
+}
+
+// reader is the uncached reader when one is wired, the client otherwise.
+func (r *HostOperationReconciler) reader() client.Reader {
+	if r.APIReader != nil {
+		return r.APIReader
+	}
+	return r.Client
 }
 
 // exec is one pass over one operation: the operation, its BMC session (opened
@@ -234,6 +248,15 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// the crash rail: a resumed execution re-derives what already happened from
 	// the world, starting with this record.
 	if op.Status.Baseline == nil {
+		// Starting is the one step that must not race another operation:
+		// confirm the queue against the API server, not the cache.
+		if pred, err := r.activePredecessorUncached(ctx, op); err != nil {
+			return ctrl.Result{}, err
+		} else if pred != "" {
+			setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown,
+				metalv1alpha1.ReasonOperationQueued, "operation "+pred+" holds host "+op.Spec.HostRef.Name)
+			return ctrl.Result{}, client.IgnoreNotFound(flush())
+		}
 		obs, hold, err := x.observe(bctx)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -549,11 +572,32 @@ func (r *HostOperationReconciler) activePredecessor(ctx context.Context, op *met
 	if err := r.List(ctx, ops, client.MatchingFields{opHostIndex: op.Spec.HostRef.Name}); err != nil {
 		return "", err
 	}
-	h := hostHolder(ops.Items)
-	if h == nil || h.UID == op.UID {
-		return "", nil
+	return holderOtherThan(ops.Items, op), nil
+}
+
+// activePredecessorUncached is activePredecessor over the operations as the
+// API server holds them. The cache can lag behind another operation's
+// baseline write; deciding from it would let two operations start on one
+// host. Reconciles of operations run one at a time (SetupWithManager), so a
+// pass that confirms here and then writes its baseline is seen by the next.
+func (r *HostOperationReconciler) activePredecessorUncached(ctx context.Context, op *metalv1alpha1.HostOperation) (string, error) {
+	ops := &metalv1alpha1.HostOperationList{}
+	if err := r.reader().List(ctx, ops); err != nil {
+		return "", err
 	}
-	return h.Namespace + "/" + h.Name, nil
+	onHost := slices.DeleteFunc(ops.Items, func(o metalv1alpha1.HostOperation) bool {
+		return o.Spec.HostRef.Name != op.Spec.HostRef.Name
+	})
+	return holderOtherThan(onHost, op), nil
+}
+
+// holderOtherThan names the holder of the host when it is not op.
+func holderOtherThan(ops []metalv1alpha1.HostOperation, op *metalv1alpha1.HostOperation) string {
+	h := hostHolder(ops)
+	if h == nil || h.UID == op.UID {
+		return ""
+	}
+	return h.Namespace + "/" + h.Name
 }
 
 // client opens the write-capable session on first use. A hold (no reachable
@@ -695,6 +739,9 @@ func approvalDomain(op *metalv1alpha1.HostOperation) string {
 }
 
 func (r *HostOperationReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if r.APIReader == nil {
+		r.APIReader = mgr.GetAPIReader()
+	}
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(),
 		&metalv1alpha1.HostOperation{}, opHostIndex,
 		func(o client.Object) []string {
@@ -706,6 +753,10 @@ func (r *HostOperationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&metalv1alpha1.HostOperation{}).
 		Watches(&metalv1alpha1.HostOperation{}, handler.EnqueueRequestsFromMapFunc(r.siblingOps)).
 		Watches(&metalv1alpha1.Host{}, handler.EnqueueRequestsFromMapFunc(r.opsForHost)).
+		// One pass at a time: the uncached queue check before a start is
+		// only a guard when no other pass can start between it and the
+		// baseline write.
+		WithOptions(controller.Options{MaxConcurrentReconciles: 1}).
 		Named("hostoperation").
 		Complete(r)
 }

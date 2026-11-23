@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"slices"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
@@ -154,4 +156,43 @@ func TestHostHolderOrder(t *testing.T) {
 			}
 		})
 	}
+}
+
+// staleOpCache serves operation lists as an informer cache that has not seen
+// any baseline write yet; everything else, and the API reader, sees the store.
+func staleOpCache(t *testing.T, r *HostOperationReconciler) {
+	t.Helper()
+	live := r.Client.(client.WithWatch)
+	r.APIReader = live
+	r.Client = interceptor.NewClient(live, interceptor.Funcs{
+		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			if err := c.List(ctx, list, opts...); err != nil {
+				return err
+			}
+			if ops, ok := list.(*metalv1alpha1.HostOperationList); ok {
+				for i := range ops.Items {
+					ops.Items[i].Status.Baseline = nil
+				}
+			}
+			return nil
+		},
+	})
+}
+
+func TestStaleCacheDoesNotLetTwoOperationsStart(t *testing.T) {
+	created := time.Now().Add(-time.Hour).Truncate(time.Second)
+	older := opNamed("older", created, metalv1alpha1.HostOperationAction{PowerCycle: &metalv1alpha1.PowerCycleAction{}})
+	// newer has started; the cache has not seen its baseline yet.
+	newer := opNamed("newer", created.Add(time.Minute),
+		metalv1alpha1.HostOperationAction{PowerOff: &metalv1alpha1.PowerOffAction{GracefulTimeoutSeconds: 300}})
+	newer.Status = resumedStatus(0)
+	r, _, rec := executorFor(t, "huawei-2288h-v5", older, newer)
+	staleOpCache(t, r)
+
+	reconcileOp(t, r, "older")
+	assert.Nil(t, getOp(t, r, "older").Status.Baseline, "older does not start")
+	assert.Empty(t, rec.powers)
+	ex := opCond(t, r, "older", metalv1alpha1.ConditionExecuted)
+	assert.Equal(t, metalv1alpha1.ReasonOperationQueued, ex.Reason)
+	assert.Contains(t, ex.Message, "pk-metal/newer")
 }
