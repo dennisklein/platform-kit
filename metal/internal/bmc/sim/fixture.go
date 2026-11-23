@@ -173,6 +173,11 @@ type Protocol struct {
 	// the specification for any resource that serves an ETag, and what the
 	// strictest services do.
 	RequireIfMatch bool `yaml:"require_if_match"`
+	// ETagGzipSuffix plays a Redfish service behind Apache mod_deflate: the
+	// ETag header gets "-gzip" before its closing quote, while @odata.etag in
+	// the body and the If-Match comparison keep the plain tag. A client that
+	// echoes the header unchanged gets 412 on every PATCH.
+	ETagGzipSuffix bool `yaml:"etag_gzip_suffix"`
 	// Sessions serves the SessionService and accepts X-Auth-Token next to
 	// Basic authentication.
 	Sessions bool `yaml:"sessions"`

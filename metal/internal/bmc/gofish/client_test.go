@@ -109,6 +109,30 @@ func TestAccountRotationOverHTTP(t *testing.T) {
 	require.Error(t, err, "the first authenticated read is the oracle")
 }
 
+// TestConformanceBehindDeflate runs the suite against a service whose ETag
+// header carries Apache mod_deflate's "-gzip" suffix, on the fixture that
+// requires If-Match: every PATCH must send the tag without the suffix.
+func TestConformanceBehindDeflate(t *testing.T) {
+	f, err := sim.LoadFixture("generic")
+	require.NoError(t, err)
+	require.True(t, f.Protocol.ETags && f.Protocol.RequireIfMatch)
+	f.Protocol.ETagGzipSuffix = true
+	srv := httptest.NewServer(sim.NewServer(sim.NewState(f)))
+	defer srv.Close()
+
+	ctx := context.Background()
+	cfg := gofishclient.Config{Endpoint: srv.URL}
+	if len(f.Accounts) > 0 {
+		cfg.Username, cfg.Password = f.Accounts[0].Username, f.Accounts[0].Password
+	}
+	c, err := gofishclient.Connect(ctx, cfg)
+	require.NoError(t, err)
+	defer c.Close()
+	require.NoError(t, c.SetBootOverride(ctx, f.Systems[0].ID, bmc.BootOverride{Target: "Cd"}),
+		"a PATCH behind mod_deflate must not fail its precondition")
+	bmctest.Run(t, c, f, false)
+}
+
 // TestReadOnlyRefusesMutation is the read-only rail: a read-only client refuses every write at
 // this layer, regardless of what the caller asks.
 func TestReadOnlyRefusesMutation(t *testing.T) {

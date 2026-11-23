@@ -109,7 +109,18 @@ func (c *client) getRaw(uri string) (body []byte, etag string, err error) {
 		_ = json.Unmarshal(body, &tagged)
 		etag = tagged.ETag
 	}
-	return body, etag, nil
+	return body, stripGzipSuffix(etag), nil
+}
+
+// stripGzipSuffix removes the "-gzip" that Apache mod_deflate appends inside
+// the ETag of a compressed response. The backend compares If-Match against
+// the plain tag, so echoing the suffixed one is a 412 on every attempt. This
+// is the trim gofish applies to typed entities (sanitizeETag).
+func stripGzipSuffix(etag string) string {
+	if strings.HasSuffix(etag, `-gzip"`) {
+		return strings.TrimSuffix(etag, `-gzip"`) + `"`
+	}
+	return etag
 }
 
 // getJSON reads a resource into v (nil to read only the ETag).

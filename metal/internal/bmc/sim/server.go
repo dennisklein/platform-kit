@@ -117,7 +117,8 @@ func (s *Server) preconditionHolds(w http.ResponseWriter, r *http.Request) bool 
 	probe.Header = http.Header{}
 	rec := &recorder{header: http.Header{}}
 	s.mux.ServeHTTP(rec, probe)
-	current := rec.header.Get("ETag")
+	// The proxy's suffix is not part of the tag the backend compares.
+	current := strings.Replace(rec.header.Get("ETag"), `-gzip"`, `"`, 1)
 	if current == "" {
 		return true // not a resource; the handler answers
 	}
@@ -228,8 +229,14 @@ func (s *Server) reply(w http.ResponseWriter, r *http.Request, doc map[string]an
 		sum := sha256.Sum256(raw)
 		tag := `W/"` + hex.EncodeToString(sum[:8]) + `"`
 		doc["@odata.etag"] = tag
-		w.Header().Set("ETag", tag)
-		if r.Header.Get("If-None-Match") == tag {
+		header := tag
+		if s.f.Protocol.ETagGzipSuffix {
+			header = strings.TrimSuffix(tag, `"`) + `-gzip"`
+		}
+		w.Header().Set("ETag", header)
+		// mod_deflate does strip its suffix for If-None-Match, so a
+		// conditional GET works either way; only If-Match trips over it.
+		if inm := r.Header.Get("If-None-Match"); inm == tag || inm == header {
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}

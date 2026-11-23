@@ -1,6 +1,8 @@
 package sim
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,6 +32,40 @@ func TestLoadFixtureRefusesUnknownKeys(t *testing.T) {
 	_, err = LoadFixture(typoPath)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "require_if_mach")
+}
+
+// TestETagGzipSuffix: behind mod_deflate the ETag header carries "-gzip",
+// the body tag does not, and only the plain tag satisfies If-Match.
+func TestETagGzipSuffix(t *testing.T) {
+	f, err := LoadFixture("generic")
+	require.NoError(t, err)
+	f.Protocol.ETagGzipSuffix = true
+	srv := httptest.NewServer(NewServer(NewState(f)))
+	defer srv.Close()
+	uri := srv.URL + "/redfish/v1/Systems/" + f.Systems[0].ID
+	do := func(method string, headers map[string]string, body string) *http.Response {
+		req, err := http.NewRequest(method, uri, strings.NewReader(body))
+		require.NoError(t, err)
+		req.SetBasicAuth(f.Accounts[0].Username, f.Accounts[0].Password)
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		return resp
+	}
+
+	resp := do(http.MethodGet, nil, "")
+	header := resp.Header.Get("ETag")
+	require.True(t, strings.HasSuffix(header, `-gzip"`), "header %s", header)
+	plain := strings.TrimSuffix(header, `-gzip"`) + `"`
+
+	change := `{"Boot":{"BootSourceOverrideEnabled":"Disabled"}}`
+	assert.Equal(t, http.StatusPreconditionFailed, do(http.MethodPatch, map[string]string{"If-Match": header}, change).StatusCode,
+		"the suffixed tag is not the one the backend compares")
+	assert.Less(t, do(http.MethodPatch, map[string]string{"If-Match": plain}, change).StatusCode, 300,
+		"the plain tag passes")
 }
 
 // TestEmbeddedFixturesLoad keeps every shipped fixture valid under strict
