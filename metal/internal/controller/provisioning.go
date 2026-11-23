@@ -478,11 +478,13 @@ func short(digest string) string {
 	return digest
 }
 
-// release hands the claim's machines back: unfinished boot operations are
-// withdrawn, a machine that was handed an OS is powered off and its media
-// ejected by an operator-created operation, and only then are the bind and the
-// hand-off cleared. Returns whether everything is released. Wiping the disks
-// is not part of it.
+// release hands the claim's machines back: a machine a boot operation of the
+// claim actually ran on is powered off and its media ejected by an
+// operator-created operation, unfinished boot operations are withdrawn, and
+// only then are the bind and the hand-off cleared. A machine no boot ever
+// touched is unbound as it is — powering it off would be the first thing the
+// operator ever did to it. Returns whether everything is released. Wiping the
+// disks is not part of it.
 func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.HostClaim, bound []metalv1alpha1.Host) (bool, error) {
 	set := func(reason, msg string) {
 		meta.SetStatusCondition(&claim.Status.Conditions, metav1.Condition{
@@ -493,15 +495,6 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 	provisionOps, err := r.claimOps(ctx, claim, purposeProvision)
 	if err != nil {
 		return false, err
-	}
-	// Running boot operations stop between steps once deleted; their grants
-	// die with them.
-	for i := range provisionOps {
-		if !opFinished(&provisionOps[i]) && provisionOps[i].DeletionTimestamp.IsZero() {
-			if err := r.Delete(ctx, &provisionOps[i]); client.IgnoreNotFound(err) != nil {
-				return false, err
-			}
-		}
 	}
 	releaseOps, err := r.claimOps(ctx, claim, purposeRelease)
 	if err != nil {
@@ -514,14 +507,16 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 		if ref := host.Spec.ClaimRef; ref != nil && ref.UID != "" && ref.UID != claim.UID {
 			continue
 		}
-		if host.Spec.OS != nil || len(provisionOps) > 0 {
-			name := fmt.Sprintf("release-%s-%s", host.Name, short8(string(claim.UID)))
-			var op *metalv1alpha1.HostOperation
-			for j := range releaseOps {
-				if releaseOps[j].Name == name {
-					op = &releaseOps[j]
-				}
+		name := fmt.Sprintf("release-%s-%s", host.Name, short8(string(claim.UID)))
+		var op *metalv1alpha1.HostOperation
+		for j := range releaseOps {
+			if releaseOps[j].Name == name {
+				op = &releaseOps[j]
 			}
+		}
+		// The decision to power off is made once, while the boot records are
+		// still there to read; the release operation then carries it.
+		if op != nil || bootRan(provisionOps, host.Name) {
 			if op == nil {
 				op = r.releaseOp(ctx, claim, host, name)
 				if err := r.Create(ctx, op); err != nil && !apierrors.IsAlreadyExists(err) {
@@ -549,6 +544,16 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 			return false, err
 		}
 	}
+	// Running boot operations stop between steps once deleted; their grants
+	// die with them. They go only after the release operations exist, so a
+	// failed pass never loses the record that a boot ran.
+	for i := range provisionOps {
+		if !opFinished(&provisionOps[i]) && provisionOps[i].DeletionTimestamp.IsZero() {
+			if err := r.Delete(ctx, &provisionOps[i]); client.IgnoreNotFound(err) != nil {
+				return false, err
+			}
+		}
+	}
 	if !done {
 		return false, nil
 	}
@@ -559,6 +564,15 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 		}
 	}
 	return true, nil
+}
+
+// bootRan: a boot operation of the claim was taken up by the executor on the
+// host — it captured its baseline, the record it writes before its first
+// mutating call.
+func bootRan(ops []metalv1alpha1.HostOperation, hostName string) bool {
+	return slices.ContainsFunc(ops, func(op metalv1alpha1.HostOperation) bool {
+		return op.Spec.HostRef.Name == hostName && op.Status.Baseline != nil
+	})
 }
 
 // releaseOp powers the machine off and empties every insertable slot. It is

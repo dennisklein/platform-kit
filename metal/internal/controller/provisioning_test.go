@@ -86,6 +86,52 @@ func TestHandOffBelongsToTheBootedNode(t *testing.T) {
 	}
 }
 
+func TestReleasePowersOffOnlyWhatABootTouched(t *testing.T) {
+	for name, tc := range map[string]struct {
+		executed    bool
+		wantRelease bool
+	}{
+		"a boot proposed, never taken up": {executed: false, wantRelease: false},
+		"a boot that ran":                 {executed: true, wantRelease: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			claim := testClaim("node-b")
+			host := &metalv1alpha1.Host{
+				ObjectMeta: metav1.ObjectMeta{Name: "host-a"},
+				Spec: metalv1alpha1.HostSpec{
+					ClaimRef: &metalv1alpha1.ClaimReference{Namespace: claim.Namespace, Name: claim.Name, UID: claim.UID},
+					OS:       &metalv1alpha1.HostOS{NodeRef: metalv1alpha1.Reference{Name: "node-b"}},
+				},
+			}
+			boot := bootOp("boot", "node-b", false, tc.executed)
+			if !tc.executed {
+				boot.Spec.Approval = metalv1alpha1.OperationApproval{Required: ptr.To(true)}
+			}
+			r := claimReconcilerFor(t, host, boot)
+
+			done, err := r.release(t.Context(), claim, []metalv1alpha1.Host{*host})
+			require.NoError(t, err)
+			release, err := r.claimOps(t.Context(), claim, purposeRelease)
+			require.NoError(t, err)
+			got := &metalv1alpha1.Host{}
+			require.NoError(t, r.Get(t.Context(), client.ObjectKeyFromObject(host), got))
+			if tc.wantRelease {
+				assert.False(t, done, "released only once the machine is off")
+				require.Len(t, release, 1)
+				assert.NotNil(t, release[0].Spec.Actions[0].PowerOff)
+				assert.NotNil(t, got.Spec.ClaimRef, "still bound until the power-off ran")
+			} else {
+				assert.True(t, done)
+				assert.Empty(t, release, "nothing was booted, nothing is powered off")
+				assert.Nil(t, got.Spec.ClaimRef, "unbound directly")
+			}
+			left, err := r.claimOps(t.Context(), claim, purposeProvision)
+			require.NoError(t, err)
+			assert.Empty(t, left, "the unfinished boot is withdrawn either way")
+		})
+	}
+}
+
 func TestDroppedIntentStopsARunningBoot(t *testing.T) {
 	r := claimReconcilerFor(t, bootOp("boot", "node-b", false, true))
 	require.NoError(t, r.provision(t.Context(), testClaim(""), "host-a"))
