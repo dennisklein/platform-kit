@@ -359,7 +359,7 @@ func (x *exec) remountGrants(ctx context.Context, recorded int) error {
 	handle := grantHandle(types.NamespacedName{Namespace: x.op.Namespace, Name: x.op.Name})
 	for j, a := range actions {
 		in := a.InsertMedia
-		if in == nil || in.BootAssetRef == nil || ejectedLater(actions[j+1:], in.MediaID) {
+		if in == nil || in.BootAssetRef == nil || slotReusedLater(actions[j+1:], in.MediaID) {
 			continue
 		}
 		if _, ok := media.Grants.Live(handle, in.BootAssetRef.Name+".iso"); ok {
@@ -381,10 +381,14 @@ func (x *exec) remountGrants(ctx context.Context, recorded int) error {
 	return nil
 }
 
-// ejectedLater: one of the actions empties the slot.
-func ejectedLater(actions []metalv1alpha1.HostOperationAction, slot string) bool {
+// slotReusedLater: one of the actions empties the slot or mounts something
+// else in it. Either way the earlier medium is no longer what the slot is
+// meant to hold, and mounting it again would put back what a recorded step
+// took out: the machine would boot from it.
+func slotReusedLater(actions []metalv1alpha1.HostOperationAction, slot string) bool {
 	return slices.ContainsFunc(actions, func(a metalv1alpha1.HostOperationAction) bool {
-		return a.EjectMedia != nil && a.EjectMedia.MediaID == slot
+		return (a.EjectMedia != nil && a.EjectMedia.MediaID == slot) ||
+			(a.InsertMedia != nil && a.InsertMedia.MediaID == slot)
 	})
 }
 

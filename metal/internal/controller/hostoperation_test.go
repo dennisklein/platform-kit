@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -476,6 +478,58 @@ func TestResumedOperationRemountsAForgottenGrant(t *testing.T) {
 	got := runOp(t, r)
 	require.True(t, opSucceeded(got), "%+v", got.Status)
 	assert.Equal(t, iso, st.BootImage("VirtualMedia1"), "the machine booted the config, not a dead URL")
+}
+
+// A granted medium that a later recorded step replaced in the same slot is not
+// mounted again after a restart. It used to be: the re-mount put the config
+// back over the image the later step mounted, and the machine booted from it.
+func TestRemountLeavesAReplacedMediumAlone(t *testing.T) {
+	ctx := t.Context()
+	iso, err := asset.BuildConfigISO([]byte("version: v1alpha1\n"))
+	require.NoError(t, err)
+	digest := godigest.FromBytes(iso).String()
+	artifact := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-config-artifact", Namespace: "pk-metal"},
+		Data:       map[string][]byte{artifactKey: iso},
+	}
+	config := &osv1alpha1.BootAsset{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-config"},
+		Spec:       osv1alpha1.BootAssetSpec{Strategy: osv1alpha1.StrategyConfigISO, NodeRef: &osv1alpha1.Reference{Name: "node"}},
+		Status: osv1alpha1.BootAssetStatus{
+			Digest:            digest,
+			ArtifactSecretRef: &osv1alpha1.SecretReference{Namespace: "pk-metal", Name: artifact.Name},
+			Conditions: []metav1.Condition{{Type: osv1alpha1.ConditionReady, Status: metav1.ConditionTrue,
+				Reason: "Built", LastTransitionTime: metav1.Now()}},
+		},
+	}
+	installer := []byte("installer image")
+	images := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(installer)
+	}))
+	t.Cleanup(images.Close)
+	imageURL := images.URL + "/installer.iso"
+
+	op := preClearedOp(
+		metalv1alpha1.HostOperationAction{InsertMedia: &metalv1alpha1.InsertMediaAction{
+			MediaID: "VirtualMedia1", BootAssetRef: &metalv1alpha1.Reference{Name: config.Name}, Digest: digest,
+		}},
+		metalv1alpha1.HostOperationAction{InsertMedia: &metalv1alpha1.InsertMediaAction{
+			MediaID: "VirtualMedia1", ImageURL: imageURL,
+		}},
+		metalv1alpha1.HostOperationAction{PowerCycle: &metalv1alpha1.PowerCycleAction{}},
+	)
+	// Both mounts are recorded, the slot holds the image; then the process
+	// went away, and the new one holds no grant for the config.
+	op.Status = resumedStatus(2)
+	op.Status.Steps[0].Action, op.Status.Steps[1].Action = "insertMedia", "insertMedia"
+	op.Status.OffObserved = nil
+	r, st, _ := executorFor(t, "supermicro-x12", op, config, artifact)
+	r.Media = startMedia(t)
+	require.NoError(t, st.InsertMedia(ctx, "VirtualMedia1", imageURL, nil))
+
+	got := runOp(t, r)
+	require.True(t, opSucceeded(got), "%+v", got.Status)
+	assert.Equal(t, installer, st.BootImage("VirtualMedia1"), "the machine booted the image the last step mounted")
 }
 
 func TestUnreachableMachineHoldsTheStep(t *testing.T) {
