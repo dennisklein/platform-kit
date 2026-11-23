@@ -74,6 +74,11 @@ run = [
   "go run ./hack/reflowdesc config/crd/*.yaml",
 ]
 
+[tasks."sim:demo"]
+description = "Curl walk over two generic simulated BMCs: service root, media, boot override, reset, task monitor"
+dir = "metal"
+run = "hack/sim-demo.sh"
+
 [tasks."e2e:kind"]
 description = "Kind tier: simulated BMC, a real Talos container, the full reconcile path"
 dir = "metal"
