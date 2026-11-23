@@ -37,6 +37,8 @@ environment variables:
                         cgroup v1 runs the lab, see lab/README.md"
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+# shellcheck source=lab/distro.sh
+source "$ROOT/lab/distro.sh"
 LAB_DIR=${PK_LAB_DIR:-$ROOT/.lab}
 FLEET=${PK_LAB_FLEET:-$ROOT/lab/fleet.yaml}
 WAIT_TIMEOUT=${PK_LAB_WAIT_TIMEOUT:-2400}
@@ -123,26 +125,97 @@ check() {
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
-kvm_usable() { [[ -r /dev/kvm && -w /dev/kvm ]]; }
+# A line of information in doctor's output: neither a pass nor a miss.
+note() { echo "note  $*" >&2; }
 
-qemu_present() { have qemu-system-x86_64 && have qemu-img; }
+kvm_usable() { [[ -r /dev/kvm && -w /dev/kvm ]]; }
 
 net_tools_present() { have ip && have iptables; }
 
+# The fix for a missing qemu-system-x86_64. The fleet starts the binary of that
+# name from the PATH. RHEL and its rebuilds install QEMU as /usr/libexec/qemu-kvm
+# only, which runs the lab's machines just as well under the upstream name.
+qemu_fix() {
+  if [[ -x /usr/libexec/qemu-kvm ]]; then
+    echo "the fleet runs qemu-system-x86_64 from the PATH, and this host has QEMU as /usr/libexec/qemu-kvm only. Link it: sudo ln -s /usr/libexec/qemu-kvm /usr/local/bin/qemu-system-x86_64"
+  else
+    install_hint "qemu-system-x86 qemu-utils" "qemu-kvm qemu-img" "qemu-system-x86-core qemu-img"
+  fi
+}
+
+# The firmware pairs the QEMU driver probes (metal/internal/machine/qemu), in
+# its order: Fedora and RHEL (edk2-ovmf), Debian and Ubuntu (ovmf), Arch.
+OVMF_PAIRS=(
+  "/usr/share/edk2/ovmf/OVMF_CODE.fd /usr/share/edk2/ovmf/OVMF_VARS.fd"
+  "/usr/share/OVMF/OVMF_CODE.fd /usr/share/OVMF/OVMF_VARS.fd"
+  "/usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_VARS_4M.fd"
+  "/usr/share/edk2-ovmf/x64/OVMF_CODE.fd /usr/share/edk2-ovmf/x64/OVMF_VARS.fd"
+)
+
 ovmf_present() {
-  local pair
+  local pair code vars
   if [[ -n ${PK_METAL_OVMF_CODE:-} ]]; then
     [[ -r $PK_METAL_OVMF_CODE && -r ${PK_METAL_OVMF_VARS:-} ]]
     return
   fi
-  # The list the QEMU driver probes (metal/internal/machine/qemu).
-  for pair in /usr/share/edk2/ovmf /usr/share/OVMF /usr/share/edk2-ovmf/x64; do
-    [[ -r $pair/OVMF_CODE.fd || -r $pair/OVMF_CODE_4M.fd ]] && return 0
+  for pair in "${OVMF_PAIRS[@]}"; do
+    read -r code vars <<<"$pair"
+    [[ -r $code && -r $vars ]] && return 0
   done
   return 1
 }
 
+# The lab is built on Docker Engine on the host itself: kind's node sits on a
+# host bridge the lab network routes to, and lab/net.sh puts its forwarding
+# rules into Docker's DOCKER-USER chain. Podman (also behind the podman-docker
+# shim, where `docker` is podman) and Docker Desktop (the engine runs in a VM)
+# answer `docker info` as well, but neither gives that.
+docker_is_engine() {
+  local version os
+  version=$(docker version 2>/dev/null) || return 1
+  grep -qi podman <<<"$version" && return 1
+  os=$(docker info --format '{{.OperatingSystem}}' 2>/dev/null) || return 1
+  [[ $os != *"Docker Desktop"* ]]
+}
+
+# Rootless Docker runs the kind node in a user namespace behind a userspace
+# network: the node's traffic does not come from a host bridge and there is no
+# DOCKER-USER chain in the host's firewall. Nobody has run the lab that way.
+docker_is_rootful() {
+  local options
+  options=$(docker info --format '{{.SecurityOptions}}' 2>/dev/null) || return 1
+  [[ $options != *rootless* ]]
+}
+
+# The proxy settings the lab's processes inherit, if any.
+proxy_in_use() { [[ -n ${HTTPS_PROXY:-}${https_proxy:-}${HTTP_PROXY:-}${http_proxy:-} ]]; }
+
+# Succeeds when NO_PROXY sends the lab network past the proxy. The simulated
+# BMCs fetch boot media from https://10.77.0.1:30443 and honour HTTPS_PROXY,
+# and so does curl in this script; a proxy cannot reach the lab bridge. Go and
+# curl (7.86 and later) both read CIDR entries.
+no_proxy_covers_lab() {
+  local entry
+  local -a entries
+  IFS=, read -r -a entries <<<"${NO_PROXY:-},${no_proxy:-}"
+  for entry in "${entries[@]}"; do
+    entry=${entry// /}
+    case "$entry" in
+      10.77.0.0/24 | 10.77.0.0/16 | 10.0.0.0/8 | 10.77.0.1 | '*') return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# Any HTTP answer means the host is reachable; only a network or TLS failure
+# fails this.
+reachable() { curl --silent --output /dev/null --max-time 10 "$1"; }
+
 sudo_usable() { (( EUID == 0 )) || sudo -n true || sudo -v; }
+
+firewalld_active() { have systemctl && systemctl is-active --quiet firewalld 2>/dev/null; }
+
+nftables_service_active() { have systemctl && systemctl is-active --quiet nftables 2>/dev/null; }
 
 cgroup_v2() { [[ -f /sys/fs/cgroup/cgroup.controllers ]]; }
 
@@ -166,10 +239,19 @@ doctor() {
   for tool in kind kubectl talosctl yq jq; do
     check "$tool" "mise install (the version is pinned in mise.toml)" have "$tool" || missing=$((missing + 1))
   done
-  check "curl" "sudo apt-get install -y curl" have curl || missing=$((missing + 1))
-  check "docker daemon answers" \
-    "install docker (https://docs.docker.com/engine/install/), start it, and add yourself to its group: sudo usermod -aG docker \$USER" \
-    docker info || missing=$((missing + 1))
+  check "curl" "$(install_hint curl curl)" have curl || missing=$((missing + 1))
+  if check "docker daemon answers" \
+    "install Docker Engine (https://docs.docker.com/engine/install/), start it (sudo systemctl enable --now docker), and add yourself to its group: sudo usermod -aG docker \$USER, then log in again. Membership of the docker group is as good as root on this host; on a shared machine, decide that on purpose" \
+    docker info; then
+    check "docker is Docker Engine on this host (not podman, not Docker Desktop)" \
+      "the lab needs Docker Engine: kind's node must sit on a host bridge, and lab/net.sh uses Docker's DOCKER-USER chain. Podman and the podman-docker shim are not supported (on RHEL: sudo dnf remove podman-docker, then install Docker Engine from https://docs.docker.com/engine/install/rhel/); Docker Desktop runs the engine in a VM the lab bridge cannot reach" \
+      docker_is_engine || missing=$((missing + 1))
+    check "docker runs as root (rootless Docker is not supported)" \
+      "the lab's network expects the kind node on a host bridge and Docker's rules in the host firewall; rootless Docker gives neither. Use the system Docker Engine: unset DOCKER_HOST, or docker context use default" \
+      docker_is_rootful || missing=$((missing + 1))
+  else
+    missing=$((missing + 1))
+  fi
   check "kind cluster definition $kind_config" \
     "point PK_LAB_KIND_CONFIG at a kind config file, or unset it to use lab/kind.yaml" \
     test -r "$kind_config" || missing=$((missing + 1))
@@ -185,16 +267,41 @@ doctor() {
   check "/dev/kvm is usable by $(id -un)" \
     "enable virtualization in the firmware setup, load the module (sudo modprobe kvm_intel || sudo modprobe kvm_amd) and join the group: sudo usermod -aG kvm \$USER (then log in again)" \
     kvm_usable || missing=$((missing + 1))
-  check "qemu-system-x86_64 and qemu-img" "sudo apt-get install -y qemu-system-x86 qemu-utils" \
-    qemu_present || missing=$((missing + 1))
+  check "qemu-system-x86_64" "$(qemu_fix)" have qemu-system-x86_64 || missing=$((missing + 1))
+  check "qemu-img" "$(install_hint qemu-utils qemu-img)" have qemu-img || missing=$((missing + 1))
   check "OVMF (UEFI firmware for the machines)" \
-    "sudo apt-get install -y ovmf, or point PK_METAL_OVMF_CODE and PK_METAL_OVMF_VARS at a firmware pair" \
+    "$(install_hint ovmf edk2-ovmf), or point PK_METAL_OVMF_CODE and PK_METAL_OVMF_VARS at a firmware pair (a CODE file and its VARS template, e.g. under /usr/share/edk2/ovmf or /usr/share/OVMF)" \
     ovmf_present || missing=$((missing + 1))
-  check "ip and iptables" "sudo apt-get install -y iproute2 iptables" \
+  check "ip and iptables" "$(install_hint "iproute2 iptables" "iproute iptables-nft")" \
     net_tools_present || missing=$((missing + 1))
-  check "sudo (the lab network needs root)" \
-    "run from a terminal where sudo can ask for the password, or configure passwordless sudo for ip and iptables" \
+  # sudo -v only refreshes sudo's timestamp and runs nothing as root, but it can
+  # ask for the password here, in a command that otherwise changes nothing.
+  check "sudo (the lab network needs root; this may ask for your password)" \
+    "run from a terminal where sudo can ask for the password, or configure passwordless sudo for ip, iptables, sysctl, nft and firewall-cmd" \
     sudo_usable || missing=$((missing + 1))
+  if firewalld_active; then
+    # firewalld (RHEL, Fedora) keeps its own nftables table, and its reject
+    # there wins over the ACCEPT rules lab/net.sh adds through iptables.
+    check "firewall-cmd (firewalld is active; lab/net.sh puts pkbr0 into its trusted zone)" \
+      "$(install_hint firewalld firewalld)" have firewall-cmd || missing=$((missing + 1))
+  fi
+  if nftables_service_active; then
+    note "nftables.service is active. lab/net.sh up warns if its ruleset drops input or forwarded traffic on pkbr0 by policy."
+  fi
+  if proxy_in_use; then
+    check "NO_PROXY includes the lab network 10.77.0.0/24 (a proxy is set)" \
+      "export NO_PROXY=\"\${NO_PROXY:+\$NO_PROXY,}10.77.0.0/24,localhost,127.0.0.1,.local\"; export no_proxy=\"\$NO_PROXY\" (add the kind network too: docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}')" \
+      no_proxy_covers_lab || missing=$((missing + 1))
+    note "a proxy is set. The operator in kind gets it from lab:up; the Talos machines do not: see 'Behind a proxy' in lab/README.md."
+  fi
+  # The simulated BMCs download installer images from the Talos image factory,
+  # and the operator registers its image builds there.
+  check "https://factory.talos.dev answers (installer images)" \
+    "the lab needs it from this workstation. Behind a proxy, set HTTPS_PROXY and NO_PROXY (lab/README.md, 'Behind a proxy'); without internet, see 'Offline' in docs/metal/concepts-for-sysadmins.md" \
+    reachable https://factory.talos.dev/ || missing=$((missing + 1))
+  check "https://ghcr.io answers (Talos and Kubernetes images, pulled by the machines through this host's NAT)" \
+    "the machines pull from ghcr.io and registry.k8s.io through this host. Behind a proxy, give them one too (lab/README.md, 'Behind a proxy')" \
+    reachable https://ghcr.io/ || missing=$((missing + 1))
 
   if have yq; then
     # The machines' memory plus room for the kind node and the fleet process.
@@ -220,12 +327,38 @@ network_up() {
   "$root/lab/net.sh" up "${taps[@]}"
 }
 
+# The host addresses the kind config publishes ports on, other than "all".
+kind_listen_addresses() {
+  yq -r '.nodes[] | .extraPortMappings // [] | .[] | .listenAddress // ""' "$1" \
+    | grep -v -x -e '' -e '0.0.0.0' -e '::' | sort -u
+}
+
+# lab/kind.yaml publishes the media port on the lab bridge address only, so the
+# simulated BMCs and the media service do not answer on the workstation's other
+# interfaces. Docker can bind that address only while the bridge has it: the
+# network comes first, and a node container that stopped while the bridge was
+# gone (a reboot) is started again once it is back.
+cluster_listen_guard() {
+  local kind_config=$1 address
+  while read -r address; do
+    [[ -n $address ]] || continue
+    ip -o addr show | grep -qF " $address/" || die "$kind_config publishes a port on $address, and no interface has that address.
+  The lab network gives it to the bridge; bring that up first: mise run lab:up (or: lab/net.sh up)"
+  done < <(kind_listen_addresses "$kind_config")
+}
+
 cluster_up() {
-  local lab_dir=$1 cluster=$2 kind_config=$3
+  local lab_dir=$1 cluster=$2 kind_config=$3 node
   step "kind cluster $cluster"
   mkdir -p "$lab_dir"
+  cluster_listen_guard "$kind_config"
   if kind get clusters 2>/dev/null | grep -qx "$cluster"; then
     echo "  exists, reusing it" >&2
+    node=$cluster-control-plane
+    if [[ $(docker inspect --format '{{.State.Running}}' "$node" 2>/dev/null) == false ]]; then
+      echo "  its node container $node is stopped, starting it" >&2
+      docker start "$node" >&2 || die "docker could not start $node. Its message above says why; start over with: mise run lab:down && mise run lab:up"
+    fi
     kind export kubeconfig --name "$cluster" --kubeconfig "$lab_dir/kubeconfig" >&2
   else
     kind create cluster --name "$cluster" --config "$kind_config" --kubeconfig "$lab_dir/kubeconfig" --wait 180s >&2 \
@@ -235,13 +368,56 @@ cluster_up() {
   chmod 600 "$lab_dir/kubeconfig"
 }
 
+# A YAML string, quoted: the proxy settings are the person's text.
+yaml_string() { jq -n --arg v "$1" '$v'; }
+
+# Writes a patch that gives the manager the workstation's proxy, and prints its
+# file name; prints nothing, and removes an old patch, when no proxy is set. The
+# manager registers image builds with the Talos image factory, which behind a
+# proxy only the proxy reaches. The lab network, kind's service and pod networks
+# (kind's defaults, lab/kind.yaml changes neither) and the cluster's own names
+# must not go through it.
+write_proxy_patch() {
+  local dir=$1
+  local https=${HTTPS_PROXY:-${https_proxy:-}} http=${HTTP_PROXY:-${http_proxy:-}}
+  local skip="10.77.0.0/24,10.96.0.0/16,10.244.0.0/16,.svc,.cluster.local,localhost,127.0.0.1"
+  local site_skip=${NO_PROXY:-${no_proxy:-}}
+  if [[ -z $https$http ]]; then
+    rm -f "$dir/proxy.yaml"
+    return 0
+  fi
+  [[ -n $site_skip ]] && skip="$skip,$site_skip"
+  {
+    echo "# Generated by $SCRIPT from the proxy settings of the shell that ran it."
+    echo "apiVersion: apps/v1"
+    echo "kind: Deployment"
+    echo "metadata:"
+    echo "  name: $DEPLOYMENT"
+    echo "  namespace: $NAMESPACE"
+    echo "spec:"
+    echo "  template:"
+    echo "    spec:"
+    echo "      containers:"
+    echo "        - name: manager"
+    echo "          env:"
+    if [[ -n $https ]]; then
+      printf '            - name: HTTPS_PROXY\n              value: %s\n' "$(yaml_string "$https")"
+    fi
+    if [[ -n $http ]]; then
+      printf '            - name: HTTP_PROXY\n              value: %s\n' "$(yaml_string "$http")"
+    fi
+    printf '            - name: NO_PROXY\n              value: %s\n' "$(yaml_string "$skip")"
+  } > "$dir/proxy.yaml"
+  echo proxy.yaml
+}
+
 # Generates <lab_dir>/deploy: a kustomization on top of metal/config/lab that
 # adds what is only known now. One `kubectl apply -k` then carries everything,
 # and because the ledger ConfigMap's name follows its content, a changed fleet
 # rolls the manager without anybody restarting it.
 write_deploy_dir() {
   local root=$1 lab_dir=$2 fleet=$3 image=$4
-  local dir=$lab_dir/deploy base
+  local dir=$lab_dir/deploy base proxy_patch
   mkdir -p "$dir"
   chmod 700 "$dir"
 
@@ -262,6 +438,7 @@ write_deploy_dir() {
   } > "$dir/ledger.yaml"
 
   base=$(realpath --relative-to="$dir" "$root/metal/config/lab")
+  proxy_patch=$(write_proxy_patch "$dir")
   cat > "$dir/kustomization.yaml" <<EOF
 # Generated by $SCRIPT. Do not edit; rerun: mise run lab:load
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -288,6 +465,10 @@ secretGenerator:
       # reference kustomize knows how to rewrite.
       disableNameSuffixHash: true
 EOF
+  if [[ -n $proxy_patch ]]; then
+    printf 'patches:\n  - path: %s\n' "$proxy_patch" >> "$dir/kustomization.yaml"
+    echo "  the manager gets this shell's proxy settings ($dir/$proxy_patch)" >&2
+  fi
 }
 
 deploy() {

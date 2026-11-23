@@ -11,7 +11,20 @@
 # interface alias, a rule comment) and `down` removes marked things only: a
 # bridge or a rule somebody else made under the same name is left alone and
 # reported instead.
+#
+# What it changes on the workstation, as root:
+#   - a bridge (pkbr0 with 10.77.0.1/24 by default) and one tap per machine;
+#   - net.ipv4.ip_forward=1, if it was off (down turns it off again);
+#   - iptables rules, each with the comment pk-metal-lab: ACCEPT for traffic
+#     from and to the bridge (DOCKER-USER, or FORWARD without Docker), ACCEPT
+#     for input to 10.77.0.1 from the bridge and from Docker's bridges, and a
+#     MASQUERADE for the lab subnet;
+#   - with firewalld running: pkbr0 in the zone trusted (runtime only).
+# Nothing of it survives a reboot; nothing is written to a file in /etc.
 set -euo pipefail
+
+# shellcheck source=lab/distro.sh
+source "$(dirname "$0")/distro.sh"
 
 SCRIPT=${0##*/}
 HELP="usage: $SCRIPT up [tap...] | down | status [tap...]
@@ -62,8 +75,8 @@ need() {
 }
 
 preflight() {
-  need ip "Install it: sudo apt-get install -y iproute2"
-  need iptables "Install it: sudo apt-get install -y iptables"
+  need ip "Install it: $(install_hint iproute2 iproute)"
+  need iptables "Install it: $(install_hint iptables iptables-nft)"
   if (( EUID != 0 )); then
     need sudo "Run this script as root, or install sudo."
     sudo -v || die "sudo refused. The lab network needs root for ip and iptables;
@@ -120,10 +133,20 @@ rules() {
   echo "filter $chain -o $bridge -j ACCEPT"
   # The simulated BMCs and the published media port listen on the bridge address
   # of the workstation itself. A host firewall with a default-deny INPUT policy
-  # (ufw, firewalld) would silently drop the operator's Redfish calls.
-  echo "filter INPUT -d ${address%/*}/32 -j ACCEPT"
+  # (ufw, firewalld) would silently drop the operator's Redfish calls. Accepted
+  # only from the lab bridge and from Docker's bridges (br-<network id>, where
+  # kind's node sits), never from the workstation's own network.
+  echo "filter INPUT -i $bridge -d ${address%/*}/32 -j ACCEPT"
+  echo "filter INPUT -i br-+ -d ${address%/*}/32 -j ACCEPT"
   # Egress for the VMs: image pulls, time, DNS.
   echo "nat POSTROUTING -s $subnet ! -o $bridge -j MASQUERADE"
+}
+
+# Rules earlier versions of this script made and the current one no longer
+# does. down removes them too, so an upgrade leaves nothing behind.
+retired_rules() {
+  local address=$1
+  echo "filter INPUT -d ${address%/*}/32 -j ACCEPT"
 }
 
 rule_present() {
@@ -183,6 +206,91 @@ up_tap() {
   as_root ip link set dev "$tap" up
 }
 
+# ---------------------------------------------------------------- firewalld
+
+# firewalld (RHEL, Fedora) filters in its own nftables table. A packet must pass
+# that table as well as the iptables rules above, and firewalld rejects what
+# its zones do not allow, whatever iptables accepted. An interface in no zone
+# falls into the default zone (public), which allows neither the operator's
+# Redfish calls nor the machines' forwarded traffic. The zone trusted allows
+# both. Docker puts its own bridges, kind's among them, into its zone docker.
+firewalld_running() {
+  command -v firewall-cmd >/dev/null 2>&1 && as_root firewall-cmd --state >/dev/null 2>&1
+}
+
+firewalld_zone() { as_root firewall-cmd --get-zone-of-interface="$1" 2>/dev/null || true; }
+
+up_firewalld() {
+  local bridge=$1 zone
+  firewalld_running || return 0
+  zone=$(firewalld_zone "$bridge")
+  case "$zone" in
+    trusted) ;;
+    "")
+      step "firewalld: $bridge into the zone trusted (runtime only)"
+      as_root firewall-cmd --quiet --zone=trusted --add-interface="$bridge"
+      as_root mkdir -p "$STATE_DIR"
+      as_root touch "$STATE_DIR/firewalld"
+      ;;
+    *) die "firewalld has $bridge in the zone $zone, which drops the lab's traffic.
+  Move it: sudo firewall-cmd --zone=trusted --change-interface=$bridge, then rerun: $SCRIPT up" ;;
+  esac
+}
+
+down_firewalld() {
+  local bridge=$1
+  [[ -e $STATE_DIR/firewalld ]] || return 0
+  firewalld_running || return 0
+  if [[ $(firewalld_zone "$bridge") == trusted ]]; then
+    step "firewalld: $bridge out of the zone trusted"
+    as_root firewall-cmd --quiet --zone=trusted --remove-interface="$bridge" || true
+  fi
+}
+
+# ---------------------------------------------------------------- nftables
+
+# Base chains of other nftables tables (an nftables.service ruleset, a hand
+# written one) that drop input or forwarded traffic by policy and never name
+# the bridge, one per line as "<family> <table> <chain> <hook>". The iptables
+# tables (ip filter, ip nat, and their ip6 twins) are left out: that is where
+# the rules above live. firewalld's table is handled above. A packet must pass
+# every base chain on its hook, so an ACCEPT in iptables does not help against
+# a drop there. Reject rules at the end of a chain are not detected.
+foreign_drop_chains() {
+  local bridge=$1 ruleset
+  command -v nft >/dev/null 2>&1 || return 0
+  ruleset=$(as_root nft list ruleset 2>/dev/null) || return 0
+  awk -v bridge="\"$bridge\"" '
+    $1 == "table" { family = $2; table = $3; next }
+    $1 == "chain" { chain = $2; hook = ""; drop = 0; named = 0; next }
+    /type filter hook (input|forward)/ {
+      for (i = 1; i <= NF; i++) if ($i == "hook") hook = $(i + 1)
+      if ($0 ~ /policy drop/) drop = 1
+    }
+    index($0, bridge) { named = 1 }
+    $1 == "}" && chain != "" {
+      own = (table == "filter" || table == "nat") && (family == "ip" || family == "ip6")
+      if (hook != "" && drop && !named && !own && table != "firewalld") print family, table, chain, hook
+      chain = ""
+    }' <<<"$ruleset"
+}
+
+warn_foreign_drops() {
+  local bridge=$1 address=$2 family table chain hook
+  while read -r family table chain hook; do
+    [[ -n $chain ]] || continue
+    echo "  WARNING: nftables chain $family $table $chain drops $hook traffic by policy and does not mention $bridge." >&2
+    echo "  The lab's iptables rules cannot override it. Allow the lab's traffic there:" >&2
+    if [[ $hook == input ]]; then
+      echo "    sudo nft insert rule $family $table $chain iifname \"$bridge\" accept" >&2
+      echo "    sudo nft insert rule $family $table $chain iifname \"br-*\" ip daddr ${address%/*} accept" >&2
+    else
+      echo "    sudo nft insert rule $family $table $chain iifname \"$bridge\" accept" >&2
+      echo "    sudo nft insert rule $family $table $chain oifname \"$bridge\" accept" >&2
+    fi
+  done < <(foreign_drop_chains "$bridge")
+}
+
 up_forwarding() {
   if [[ $(cat /proc/sys/net/ipv4/ip_forward) != 1 ]]; then
     step "enable IPv4 forwarding"
@@ -215,6 +323,8 @@ up() {
     # shellcheck disable=SC2086
     add_rule "$table" "$rule_chain" $rule
   done < <(rules "$chain" "$bridge" "$address")
+  up_firewalld "$bridge"
+  warn_foreign_drops "$bridge" "$address"
 
   # The outcome guard: everything above can succeed and the lab still be
   # unusable (a rule removed by a firewall manager, an address that did not
@@ -237,6 +347,11 @@ down() {
       delete_rule "$table" "$rule_chain" $rule
     done < <(rules "$chain" "$bridge" "$address")
   done
+  while read -r table rule_chain rule; do
+    # shellcheck disable=SC2086 # see up(): a list of iptables arguments.
+    delete_rule "$table" "$rule_chain" $rule
+  done < <(retired_rules "$address")
+  down_firewalld "$bridge"
 
   if link_exists "$bridge"; then
     link_is_ours "$bridge" || die "$bridge was not made by this script, leaving it alone.
@@ -269,7 +384,7 @@ down() {
 status() {
   local bridge=$1 address=$2
   shift 2
-  local missing=0 chain tap table rule_chain rule
+  local missing=0 chain tap table rule_chain rule zone family hook
 
   if link_exists "$bridge" && ip -o -4 addr show dev "$bridge" | grep -qF " $address "; then
     echo "bridge   $bridge $address"
@@ -301,6 +416,19 @@ status() {
       missing=1
     fi
   done < <(rules "$chain" "$bridge" "$address")
+  if firewalld_running; then
+    zone=$(firewalld_zone "$bridge")
+    if [[ $zone == trusted ]]; then
+      echo "firewall firewalld: $bridge in the zone trusted"
+    else
+      echo "firewall firewalld: $bridge in the zone ${zone:-<none, so the default zone>} MISSING (want trusted)"
+      missing=1
+    fi
+  fi
+  while read -r family table rule_chain hook; do
+    [[ -n $rule_chain ]] || continue
+    echo "firewall nftables $family $table $rule_chain drops $hook traffic by policy and does not mention $bridge (see $SCRIPT up)"
+  done < <(foreign_drop_chains "$bridge")
   return "$missing"
 }
 

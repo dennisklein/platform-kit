@@ -16,7 +16,12 @@ nodes:
       # would: over HTTPS from an address they can route to. That address is the
       # lab bridge (https://10.77.0.1:30443, the manager's --media-url), and this
       # mapping leads from there to the NodePort of the media Service.
+      #
+      # Published on the bridge address only, not on every interface: the
+      # media service and the simulated BMCs are for the lab, not for the
+      # workstation's network. Docker can bind it only while the bridge has
+      # the address, so lab:up brings the network up before the cluster.
       - containerPort: 30443
         hostPort: 30443
-        listenAddress: 0.0.0.0
+        listenAddress: 10.77.0.1
         protocol: TCP
