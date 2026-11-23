@@ -801,6 +801,10 @@ func handedOff(claim *metalv1alpha1.HostClaim, hostName string) bool {
 // a boot that failed or is still going — is released pre-cleared: deleting
 // the claim was the decision, and admission lets only the operator create
 // such an operation.
+//
+// The gate is decided once, here. A node that comes up after a pre-cleared
+// release was created does not make that release wait for a person: the
+// claim's deletion still stands, and approval.required is frozen.
 func (r *HostClaimReconciler) releaseOp(ctx context.Context, claim *metalv1alpha1.HostClaim, host *metalv1alpha1.Host, name string) *metalv1alpha1.HostOperation {
 	actions := []metalv1alpha1.HostOperationAction{{PowerOff: &metalv1alpha1.PowerOffAction{
 		GracefulTimeoutSeconds: int32(r.releaseShutdownTimeout().Seconds()),

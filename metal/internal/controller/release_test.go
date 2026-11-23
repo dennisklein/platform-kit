@@ -1,0 +1,273 @@
+package controller
+
+import (
+	"context"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+
+	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/bmc"
+)
+
+// boundHost is host-a bound to the test claim.
+func boundHost(claim *metalv1alpha1.HostClaim) *metalv1alpha1.Host {
+	return &metalv1alpha1.Host{
+		ObjectMeta: metav1.ObjectMeta{Name: "host-a"},
+		Spec: metalv1alpha1.HostSpec{
+			ClaimRef: &metalv1alpha1.ClaimReference{Namespace: claim.Namespace, Name: claim.Name, UID: claim.UID},
+			OS:       &metalv1alpha1.HostOS{NodeRef: metalv1alpha1.Reference{Name: "node-b"}},
+		},
+	}
+}
+
+// releasePass runs one release pass with the host as the API holds it now.
+func releasePass(t *testing.T, r *HostClaimReconciler, claim *metalv1alpha1.HostClaim) bool {
+	t.Helper()
+	host := &metalv1alpha1.Host{}
+	require.NoError(t, r.Get(t.Context(), client.ObjectKey{Name: "host-a"}, host))
+	var bound []metalv1alpha1.Host
+	if host.Spec.ClaimRef != nil {
+		bound = append(bound, *host)
+	}
+	done, err := r.release(t.Context(), claim, bound)
+	require.NoError(t, err)
+	return done
+}
+
+func hostBound(t *testing.T, r *HostClaimReconciler) bool {
+	t.Helper()
+	host := &metalv1alpha1.Host{}
+	require.NoError(t, r.Get(t.Context(), client.ObjectKey{Name: "host-a"}, host))
+	return host.Spec.ClaimRef != nil
+}
+
+func releaseOps(t *testing.T, r *HostClaimReconciler, claim *metalv1alpha1.HostClaim) []metalv1alpha1.HostOperation {
+	t.Helper()
+	ops, err := r.claimOps(t.Context(), claim, purposeRelease)
+	require.NoError(t, err)
+	return ops
+}
+
+func failOp(t *testing.T, r *HostClaimReconciler, op *metalv1alpha1.HostOperation, msg string) {
+	t.Helper()
+	meta.SetStatusCondition(&op.Status.Conditions, metav1.Condition{
+		Type: metalv1alpha1.ConditionExecuted, Status: metav1.ConditionFalse,
+		Reason: metalv1alpha1.ReasonStepFailed, Message: msg,
+	})
+	require.NoError(t, r.Status().Update(t.Context(), op))
+}
+
+func succeedOp(t *testing.T, r *HostClaimReconciler, op *metalv1alpha1.HostOperation) {
+	t.Helper()
+	meta.SetStatusCondition(&op.Status.Conditions, metav1.Condition{
+		Type: metalv1alpha1.ConditionExecuted, Status: metav1.ConditionTrue,
+		Reason: metalv1alpha1.ReasonStepsSucceeded, Message: "done",
+	})
+	require.NoError(t, r.Status().Update(t.Context(), op))
+}
+
+func provisionedCond(t *testing.T, claim *metalv1alpha1.HostClaim) *metav1.Condition {
+	t.Helper()
+	c := meta.FindStatusCondition(claim.Status.Conditions, metalv1alpha1.ConditionProvisioned)
+	require.NotNil(t, c)
+	return c
+}
+
+func TestFailedReleaseKeepsTheMachineBound(t *testing.T) {
+	claim := testClaim("node-b")
+	claim.Status.HandOff = &metalv1alpha1.ClaimHandOff{Host: "host-a", Node: "node-b", Operation: "pk-metal/boot", At: metav1.Now()}
+	r := claimReconcilerFor(t, boundHost(claim))
+
+	require.False(t, releasePass(t, r, claim))
+	rel := releaseOps(t, r, claim)
+	require.Len(t, rel, 1)
+	assert.Equal(t, metalv1alpha1.ReasonReleasing, provisionedCond(t, claim).Reason)
+
+	failOp(t, r, &rel[0], "step 1/1 powerOff: BMC refused the request")
+	for range 2 {
+		require.False(t, releasePass(t, r, claim), "a failed release never completes on its own")
+		c := provisionedCond(t, claim)
+		assert.Equal(t, metalv1alpha1.ReasonReleaseFailed, c.Reason)
+		assert.Contains(t, c.Message, "BMC refused the request", "the message says why")
+		assert.Contains(t, c.Message, "pk-metal retry pk-metal/"+rel[0].Name, "and how to try again")
+		assert.True(t, hostBound(t, r), "the machine stays bound")
+		assert.Len(t, releaseOps(t, r, claim), 1, "nothing new is proposed while the failure stands")
+	}
+
+	// A retry deletes the failed operation; the hand-off record makes the
+	// next pass propose the power-off again.
+	require.NoError(t, r.Delete(t.Context(), &rel[0]))
+	require.False(t, releasePass(t, r, claim))
+	rel = releaseOps(t, r, claim)
+	require.Len(t, rel, 1)
+	assert.True(t, hostBound(t, r))
+
+	// It succeeds: only now is the machine handed back.
+	succeedOp(t, r, &rel[0])
+	require.True(t, releasePass(t, r, claim))
+	assert.False(t, hostBound(t, r))
+}
+
+func TestHoldWithdrawsAPendingReleaseProposal(t *testing.T) {
+	claim := testClaim("node-b")
+	claim.Status.HandOff = &metalv1alpha1.ClaimHandOff{Host: "host-a", Node: "node-b", Operation: "pk-metal/boot", At: metav1.Now()}
+	host := boundHost(claim)
+	// A running node: the release waits for a person.
+	host.Status.Conditions = []metav1.Condition{{Type: metalv1alpha1.ConditionOSReady, Status: metav1.ConditionTrue,
+		Reason: "NodeReady", LastTransitionTime: metav1.Now()}}
+	r := claimReconcilerFor(t, host)
+
+	require.False(t, releasePass(t, r, claim))
+	require.Len(t, releaseOps(t, r, claim), 1, "the release is proposed")
+
+	claim.Annotations = map[string]string{metalv1alpha1.AnnotationHold: "keep it running for the demo"}
+	require.False(t, releasePass(t, r, claim))
+	assert.Empty(t, releaseOps(t, r, claim), "a hold takes the proposal back")
+	c := provisionedCond(t, claim)
+	assert.Equal(t, metalv1alpha1.ReasonHeldByUser, c.Reason)
+	assert.Contains(t, c.Message, "keep it running for the demo")
+	assert.True(t, hostBound(t, r))
+
+	claim.Annotations = nil
+	require.False(t, releasePass(t, r, claim))
+	rel := releaseOps(t, r, claim)
+	require.Len(t, rel, 1, "lifting the hold proposes it again")
+	assert.True(t, *rel[0].Spec.Approval.Required)
+}
+
+func TestHoldDoesNotStopAnApprovedRelease(t *testing.T) {
+	claim := testClaim("node-b")
+	claim.Status.HandOff = &metalv1alpha1.ClaimHandOff{Host: "host-a", Node: "node-b", Operation: "pk-metal/boot", At: metav1.Now()}
+	r := claimReconcilerFor(t, boundHost(claim))
+
+	require.False(t, releasePass(t, r, claim))
+	rel := releaseOps(t, r, claim)
+	require.Len(t, rel, 1)
+	require.False(t, *rel[0].Spec.Approval.Required, "pre-cleared: the node never came up")
+
+	claim.Annotations = map[string]string{metalv1alpha1.AnnotationHold: ""}
+	require.False(t, releasePass(t, r, claim))
+	assert.Len(t, releaseOps(t, r, claim), 1, "one already cleared to run finishes")
+}
+
+func TestReleaseSkipsAHostOfAnotherClaimWithTheSameName(t *testing.T) {
+	claim := testClaim("node-b")
+	// A claim of the same namespace and name, deleted and created again, holds
+	// the host now.
+	host := boundHost(claim)
+	host.Spec.ClaimRef.UID = "new-claim-uid"
+	r := claimReconcilerFor(t, host, bootOp("boot", "node-b", false, true))
+
+	require.True(t, releasePass(t, r, claim), "nothing of this claim's is bound")
+	assert.Empty(t, releaseOps(t, r, claim), "the other claim's machine is not powered off")
+	got := &metalv1alpha1.Host{}
+	require.NoError(t, r.Get(t.Context(), client.ObjectKey{Name: "host-a"}, got))
+	require.NotNil(t, got.Spec.ClaimRef)
+	assert.EqualValues(t, "new-claim-uid", got.Spec.ClaimRef.UID, "and stays bound to it")
+}
+
+func TestReleaseApprovalIsDecidedOnceAtCreation(t *testing.T) {
+	claim := testClaim("node-b")
+	r := claimReconcilerFor(t, boundHost(claim), bootOp("boot", "node-b", false, true))
+
+	require.False(t, releasePass(t, r, claim))
+	rel := releaseOps(t, r, claim)
+	require.Len(t, rel, 1)
+	require.False(t, *rel[0].Spec.Approval.Required, "the boot never finished: pre-cleared")
+
+	// The node comes up before the release ran. The release is not re-gated:
+	// deleting the claim was the decision, and approval.required is frozen.
+	host := &metalv1alpha1.Host{}
+	require.NoError(t, r.Get(t.Context(), client.ObjectKey{Name: "host-a"}, host))
+	host.Status.Conditions = []metav1.Condition{{Type: metalv1alpha1.ConditionOSReady, Status: metav1.ConditionTrue,
+		Reason: "NodeReady", LastTransitionTime: metav1.Now()}}
+	require.NoError(t, r.Update(t.Context(), host))
+
+	require.False(t, releasePass(t, r, claim))
+	rel = releaseOps(t, r, claim)
+	require.Len(t, rel, 1)
+	assert.False(t, *rel[0].Spec.Approval.Required)
+	assert.Contains(t, provisionedCond(t, claim).Message, "powering off host host-a")
+}
+
+func TestReleaseEjectsEveryInsertableSlot(t *testing.T) {
+	claim := testClaim("node-b")
+	claim.Status.HandOff = &metalv1alpha1.ClaimHandOff{Host: "host-a", Node: "node-b", Operation: "pk-metal/boot", At: metav1.Now()}
+	host := boundHost(claim)
+	host.Status.ManagedBy = []metalv1alpha1.ManagementPath{{EndpointRef: metalv1alpha1.Reference{Name: "ep"}, SystemID: "1", Reachable: true}}
+	ep := &metalv1alpha1.ManagementEndpoint{ObjectMeta: metav1.ObjectMeta{Name: "ep"}}
+	ep.Status.VirtualMedia = []metalv1alpha1.DiscoveredMedia{
+		{ID: "CD", MediaTypes: []string{"CD", "DVD"}},
+		{ID: "USB", MediaTypes: []string{"USBStick"}},
+		{ID: "Floppy", MediaTypes: []string{"Floppy"}},
+	}
+	ep.Status.Capabilities = &metalv1alpha1.EndpointCapabilities{MediaDialects: map[string]string{
+		"CD": string(bmc.DialectStandard), "USB": string(bmc.DialectVmmControl), "Floppy": string(bmc.DialectNone),
+	}}
+	r := claimReconcilerFor(t, host, ep)
+
+	require.False(t, releasePass(t, r, claim))
+	rel := releaseOps(t, r, claim)
+	require.Len(t, rel, 1)
+	var ejects []string
+	for _, a := range rel[0].Spec.Actions[1:] {
+		require.NotNil(t, a.EjectMedia)
+		ejects = append(ejects, a.EjectMedia.MediaID)
+	}
+	require.NotNil(t, rel[0].Spec.Actions[0].PowerOff, "off first, then the slots")
+	assert.Equal(t, []string{"CD", "USB"}, ejects, "every slot a boot could have used")
+}
+
+func TestClaimDeletedMidBootProposesTheReleaseBeforeStoppingTheBoot(t *testing.T) {
+	boot := []metalv1alpha1.HostOperationAction{
+		{InsertMedia: &metalv1alpha1.InsertMediaAction{MediaID: "CD", ImageURL: "https://203.0.113.5/installer.iso"}},
+		{SetBootOverride: &metalv1alpha1.SetBootOverrideAction{Target: "Cd"}},
+		{PowerCycle: &metalv1alpha1.PowerCycleAction{}},
+		{AwaitCheckIn: &metalv1alpha1.AwaitCheckInAction{NodeRef: metalv1alpha1.Reference{Name: "node-b"}}},
+	}
+	for done := range len(boot) {
+		t.Run(actionName(boot[done]), func(t *testing.T) {
+			claim := testClaim("node-b")
+			op := bootOp("boot", "node-b", false, true)
+			op.Spec.Actions = boot
+			// The steps before this one are recorded; this one is in flight.
+			for _, a := range boot[:done] {
+				op.Status.Steps = append(op.Status.Steps, metalv1alpha1.OperationStep{Action: actionName(a), Phase: "Succeeded"})
+			}
+			var writes []string
+			cl := fake.NewClientBuilder().WithScheme(testScheme(t)).
+				WithStatusSubresource(&metalv1alpha1.HostOperation{}, &metalv1alpha1.HostClaim{}).
+				WithObjects(boundHost(claim), op).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+						writes = append(writes, "create "+obj.GetName())
+						return c.Create(ctx, obj, opts...)
+					},
+					Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+						writes = append(writes, "delete "+obj.GetName())
+						return c.Delete(ctx, obj, opts...)
+					},
+					Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+						writes = append(writes, "update "+obj.GetName())
+						return c.Update(ctx, obj, opts...)
+					},
+				}).Build()
+			r := &HostClaimReconciler{Client: cl, OperationsNamespace: "pk-metal", Proposer: "operator"}
+
+			require.False(t, releasePass(t, r, claim))
+			rel := releaseOps(t, r, claim)
+			require.Len(t, rel, 1)
+			assert.Equal(t, []string{"create " + rel[0].Name, "delete boot"}, writes,
+				"the release exists before the running boot is stopped, and the host is not unbound")
+			assert.True(t, hostBound(t, r))
+			assert.False(t, *rel[0].Spec.Approval.Required, "a machine mid-boot runs no node: pre-cleared")
+		})
+	}
+}
