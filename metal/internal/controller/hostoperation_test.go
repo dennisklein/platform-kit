@@ -296,6 +296,39 @@ func TestMaintenanceHoldsAnOperationNotStarted(t *testing.T) {
 	require.True(t, opSucceeded(got), "%+v", got.Status)
 }
 
+func TestCheckInTimeoutSaysWhereToLook(t *testing.T) {
+	node := &osv1alpha1.TalosNode{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-2"},
+		Spec:       osv1alpha1.TalosNodeSpec{Address: "192.0.2.12"},
+		Status:     osv1alpha1.TalosNodeStatus{Stage: "installing"},
+	}
+	op := preClearedOp(metalv1alpha1.HostOperationAction{AwaitCheckIn: &metalv1alpha1.AwaitCheckInAction{
+		NodeRef: metalv1alpha1.Reference{Name: "node-2"}, TimeoutSeconds: 60,
+	}})
+	// The wait began two minutes ago.
+	op.Status = resumedStatus(0)
+	op.Status.Baseline.CapturedAt = &metav1.Time{Time: time.Now().Add(-2 * time.Minute)}
+	r, _, _ := executorFor(t, "huawei-2288h-v5", op, node)
+	host := &metalv1alpha1.Host{}
+	require.NoError(t, r.Get(t.Context(), client.ObjectKey{Name: "host-a"}, host))
+	host.Labels = map[string]string{labelAsset: "node-2"}
+	require.NoError(t, r.Update(t.Context(), host))
+
+	got := runOp(t, r)
+	ex := meta.FindStatusCondition(got.Status.Conditions, metalv1alpha1.ConditionExecuted)
+	require.NotNil(t, ex)
+	assert.Equal(t, metav1.ConditionFalse, ex.Status)
+	for _, want := range []string{
+		"gave up after 1m0s",
+		"last stage seen: installing",
+		"serial-over-LAN",
+		".lab/state/node-2/console.log",
+		"talosctl -n 192.0.2.12 --insecure get addresses",
+	} {
+		assert.Contains(t, ex.Message, want)
+	}
+}
+
 // resumedStatus is an executing operation whose first n steps are recorded,
 // whose baseline saw the machine on, and whose power cycle was seen off.
 func resumedStatus(n int) metalv1alpha1.HostOperationStatus {

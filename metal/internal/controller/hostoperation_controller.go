@@ -117,10 +117,12 @@ type exec struct {
 }
 
 // stepState is what a step reports besides an error: done, or still waiting
-// on the world (with what it waits for).
+// on the world (with what it waits for). hint is added to the message only
+// when the wait runs out: where a person looks next.
 type stepState struct {
 	done    bool
 	waiting string
+	hint    string
 }
 
 var stepDone = stepState{done: true}
@@ -317,7 +319,7 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			return held(i, err)
 		}
 		if err == nil && st.waiting != "" && time.Since(x.stepStart(i)) > x.stepBudget(i) {
-			err = fmt.Errorf("%s (gave up after %s)", st.waiting, x.stepBudget(i))
+			err = fmt.Errorf("%s (gave up after %s)%s", st.waiting, x.stepBudget(i), st.hint)
 		}
 		switch {
 		case err != nil:

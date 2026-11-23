@@ -453,7 +453,33 @@ func (x *exec) awaitCheckIn(ctx context.Context, a *metalv1alpha1.AwaitCheckInAc
 	if nodeCheckedIn(node) {
 		return stepDone, nil
 	}
-	return waitingOn("waiting for TalosNode %s to check in", node.Name), nil
+	seen := "no answer from the machine yet"
+	if node.Status.Stage != "" {
+		seen = "last stage seen: " + node.Status.Stage
+	}
+	st := waitingOn("waiting for TalosNode %s to check in (%s)", node.Name, seen)
+	st.hint = checkInHint(x.host, node)
+	return st, nil
+}
+
+// checkInHint says where to look when a machine never checks in: what a
+// kickstart admin opens first, the console, then what the machine got from
+// the network if it sits in Talos' maintenance mode.
+func checkInHint(host *metalv1alpha1.Host, node *osv1alpha1.TalosNode) string {
+	machine := "<machine>"
+	if a := host.Labels[labelAsset]; a != "" {
+		machine = a
+	}
+	hint := fmt.Sprintf(". Look at the machine's console: the BMC's serial-over-LAN or remote console "+
+		"(in the virtual lab: .lab/state/%s/console.log)", machine)
+	addr := node.Status.Address
+	if addr == "" {
+		addr = node.Spec.Address
+	}
+	if addr != "" {
+		hint += fmt.Sprintf(". If it waits in maintenance mode, see which address it got: talosctl -n %s --insecure get addresses", addr)
+	}
+	return hint
 }
 
 // nodeCheckedIn: the machine runs the node's config — the authenticated API
