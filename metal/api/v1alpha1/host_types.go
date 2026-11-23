@@ -140,6 +140,7 @@ type HostStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,categories=metal
+// +kubebuilder:printcolumn:name="Asset",type=string,JSONPath=`.metadata.labels.metal\.pk\.io/asset`
 // +kubebuilder:printcolumn:name="Serial",type=string,JSONPath=`.status.identity.serial`
 // +kubebuilder:printcolumn:name="Vendor",type=string,JSONPath=`.status.identity.vendor`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`

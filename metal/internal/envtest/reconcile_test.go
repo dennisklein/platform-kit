@@ -308,7 +308,10 @@ func TestReconcile(t *testing.T) {
 	})
 
 	t.Run("host projects from the endpoint and reaches Available", func(t *testing.T) {
-		h := waitHost("simhw2288v5000391", hostPhaseIs(metalv1alpha1.HostAvailable))
+		h := waitHost("simhw2288v5000391", func(h metalv1alpha1.Host) bool {
+			return h.Status.Phase == metalv1alpha1.HostAvailable && h.Labels["metal.pk.io/asset"] != ""
+		})
+		assert.Equal(t, "ci-huawei", h.Labels["metal.pk.io/asset"], "the host names the asset it was found by")
 
 		require.NotNil(t, h.Status.Identity)
 		assert.Equal(t, "SIMHW2288V5000391", h.Status.Identity.Serial, "the Huawei anchor: system serial")

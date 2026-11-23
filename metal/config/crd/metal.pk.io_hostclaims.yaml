@@ -23,6 +23,9 @@ spec:
         - jsonPath: .status.hostRef.name
           name: Host
           type: string
+        - jsonPath: .spec.os.nodeRef.name
+          name: Node
+          type: string
         - jsonPath: .status.phase
           name: Phase
           type: string

@@ -30,33 +30,35 @@ func TestStampLabels(t *testing.T) {
 	}}
 
 	t.Run("bind stamps both axes and bookkeeps", func(t *testing.T) {
-		require.True(t, stampLabels(host, claim, "Supermicro", "X12DPi-N6"))
+		require.True(t, stampLabels(host, claim, "node-1", "Supermicro", "X12DPi-N6"))
 		assert.Equal(t, map[string]string{
 			"human":              "kept",
 			"role":               "worker",
+			"metal.pk.io/asset":  "node-1",
 			"metal.pk.io/vendor": "Supermicro",
 			"metal.pk.io/model":  "X12DPi-N6",
 		}, host.Labels)
-		assert.Equal(t, "metal.pk.io/model,metal.pk.io/vendor,role",
+		assert.Equal(t, "metal.pk.io/asset,metal.pk.io/model,metal.pk.io/vendor,role",
 			host.Annotations[managedLabelsAnnotation])
-		assert.False(t, stampLabels(host, claim, "Supermicro", "X12DPi-N6"), "steady state changes nothing")
+		assert.False(t, stampLabels(host, claim, "node-1", "Supermicro", "X12DPi-N6"), "steady state changes nothing")
 	})
 
 	t.Run("intent edit follows", func(t *testing.T) {
 		claim.Spec.Labels = map[string]metalv1alpha1.LabelValue{"role": "controller", "pool": "gpu"}
-		require.True(t, stampLabels(host, claim, "Supermicro", "X12DPi-N6"))
+		require.True(t, stampLabels(host, claim, "node-1", "Supermicro", "X12DPi-N6"))
 		assert.Equal(t, "controller", host.Labels["role"])
 		assert.Equal(t, "gpu", host.Labels["pool"])
 	})
 
 	t.Run("release clears intent, keeps discovery and humans", func(t *testing.T) {
-		require.True(t, stampLabels(host, nil, "Supermicro", "X12DPi-N6"))
+		require.True(t, stampLabels(host, nil, "node-1", "Supermicro", "X12DPi-N6"))
 		assert.Equal(t, map[string]string{
 			"human":              "kept",
+			"metal.pk.io/asset":  "node-1",
 			"metal.pk.io/vendor": "Supermicro",
 			"metal.pk.io/model":  "X12DPi-N6",
 		}, host.Labels)
-		assert.Equal(t, "metal.pk.io/model,metal.pk.io/vendor",
+		assert.Equal(t, "metal.pk.io/asset,metal.pk.io/model,metal.pk.io/vendor",
 			host.Annotations[managedLabelsAnnotation])
 	})
 }

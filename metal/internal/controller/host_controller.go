@@ -117,7 +117,7 @@ func (r *HostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		}
 	}
 	id := identity.Normalize(paths[0].ep.Status.Vendor, paths[0].ep.Status.BoardSerial, paths[0].sys)
-	if stampLabels(host, claim, id.Vendor, paths[0].ep.Status.Model) {
+	if stampLabels(host, claim, paths[0].ep.Spec.AssetRef.Name, id.Vendor, paths[0].ep.Status.Model) {
 		if err := r.Update(ctx, host); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}

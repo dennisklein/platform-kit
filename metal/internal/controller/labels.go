@@ -20,18 +20,25 @@ import (
 // reconciler); which keys it manages is bookkept in one annotation so
 // human-applied labels survive every pass.
 const (
-	labelDomain             = "metal.pk.io/"
-	labelVendor             = labelDomain + "vendor"
-	labelModel              = labelDomain + "model"
-	labelVLAN               = labelDomain + "vlan"
+	labelDomain = "metal.pk.io/"
+	labelVendor = labelDomain + "vendor"
+	labelModel  = labelDomain + "model"
+	labelVLAN   = labelDomain + "vlan"
+	// labelAsset joins a Host to the Asset a person named the machine by, so
+	// `kubectl get hosts -l metal.pk.io/asset=node-1` finds it.
+	labelAsset              = labelDomain + "asset"
 	managedLabelsAnnotation = labelDomain + "managed-labels"
 )
 
 // stampLabels reconciles the managed subset of the host's labels and reports
 // whether anything changed (the caller then persists the metadata write).
-// claim is the bound claim or nil; vendor/model are the discovered facts.
-func stampLabels(host *metalv1alpha1.Host, claim *metalv1alpha1.HostClaim, vendor, model string) bool {
+// claim is the bound claim or nil; asset is the Asset of the host's first
+// path; vendor/model are the discovered facts.
+func stampLabels(host *metalv1alpha1.Host, claim *metalv1alpha1.HostClaim, asset, vendor, model string) bool {
 	desired := map[string]string{}
+	if v := labelValue(asset); v != "" {
+		desired[labelAsset] = v
+	}
 	if v := labelValue(vendor); v != "" {
 		desired[labelVendor] = v
 	}

@@ -132,6 +132,7 @@ type HostClaimStatus struct {
 // +kubebuilder:resource:categories=metal
 // +kubebuilder:printcolumn:name="Asset",type=string,JSONPath=`.spec.assetRef.name`
 // +kubebuilder:printcolumn:name="Host",type=string,JSONPath=`.status.hostRef.name`
+// +kubebuilder:printcolumn:name="Node",type=string,JSONPath=`.spec.os.nodeRef.name`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Provisioned",type=string,JSONPath=`.status.conditions[?(@.type=="Provisioned")].reason`
 // +kubebuilder:printcolumn:name="Blocked",type=string,JSONPath=`.status.blockedOn`,priority=1

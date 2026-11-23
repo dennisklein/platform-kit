@@ -17,6 +17,9 @@ spec:
   scope: Cluster
   versions:
     - additionalPrinterColumns:
+        - jsonPath: .metadata.labels.metal\.pk\.io/asset
+          name: Asset
+          type: string
         - jsonPath: .status.identity.serial
           name: Serial
           type: string
