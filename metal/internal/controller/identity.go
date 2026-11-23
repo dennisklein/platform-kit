@@ -28,7 +28,6 @@ import (
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
-	gofishclient "github.com/dennisklein/platform-kit/metal/internal/bmc/gofish"
 )
 
 // The identity lane: a cert-manager-signed HTTPS identity for
@@ -253,13 +252,6 @@ func (r *EndpointConvergenceReconciler) managerCSR(ctx context.Context, ep *meta
 	if err != nil {
 		return nil, err
 	}
-	cctx, cancel := context.WithTimeout(ctx, connectTimeout)
-	defer cancel()
-	cl, err := gofishclient.Connect(cctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	defer cl.Close() //nolint:errcheck // best-effort logout
 	subject := bmc.CSRSubject{
 		CommonName:  desired.CommonName,
 		DNSNames:    desired.DNSNames,
@@ -269,7 +261,12 @@ func (r *EndpointConvergenceReconciler) managerCSR(ctx context.Context, ep *meta
 		subject.Country, subject.State, subject.Locality = s.Country, s.State, s.Locality
 		subject.Organization, subject.OrganizationalUnit = s.Organization, s.OrganizationalUnit
 	}
-	return cl.GenerateCSR(cctx, subject)
+	var csr []byte
+	err = withSession(ctx, r.Dial, cfg, func(ctx context.Context, cl bmc.Client) error {
+		csr, err = cl.GenerateCSR(ctx, subject)
+		return err
+	})
+	return csr, err
 }
 
 // pushIdentity delivers the signed chain per dialect and restarts the
@@ -284,34 +281,32 @@ func (r *EndpointConvergenceReconciler) pushIdentity(ctx context.Context, ep *me
 	if err != nil {
 		return nil, err
 	}
-	cctx, cancel := context.WithTimeout(ctx, connectTimeout)
-	defer cancel()
-	cl, err := gofishclient.Connect(cctx, cfg)
+	err = withSession(ctx, r.Dial, cfg, func(ctx context.Context, cl bmc.Client) error {
+		switch dialect {
+		case bmc.DialectCSRNative:
+			// The full chain imports — "less than 10 levels" allowed, the
+			// manager then serves it whole.
+			if err := cl.ImportServerCertificate(ctx, chain); err != nil {
+				return err
+			}
+		case bmc.DialectKeyUpload:
+			// Leaf only — both X12 field implementations strip the chain.
+			if keyPEM == nil {
+				return fmt.Errorf("no in-flight key for the upload dialect")
+			}
+			if err := cl.UploadServerIdentity(ctx, leafPEM, keyPEM); err != nil {
+				return err
+			}
+		}
+		if err := cl.ResetManager(ctx, bmc.ActionGracefulRestart); err != nil {
+			if err := cl.ResetManager(ctx, bmc.ActionForceRestart); err != nil {
+				return fmt.Errorf("manager reset refused: %w", err)
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
-	}
-	defer cl.Close() //nolint:errcheck // best-effort logout
-
-	switch dialect {
-	case bmc.DialectCSRNative:
-		// The full chain imports — "less than 10 levels" allowed, the
-		// manager then serves it whole.
-		if err := cl.ImportServerCertificate(cctx, chain); err != nil {
-			return nil, err
-		}
-	case bmc.DialectKeyUpload:
-		// Leaf only — both X12 field implementations strip the chain.
-		if keyPEM == nil {
-			return nil, fmt.Errorf("no in-flight key for the upload dialect")
-		}
-		if err := cl.UploadServerIdentity(cctx, leafPEM, keyPEM); err != nil {
-			return nil, err
-		}
-	}
-	if err := cl.ResetManager(cctx, bmc.ActionGracefulRestart); err != nil {
-		if err := cl.ResetManager(cctx, bmc.ActionForceRestart); err != nil {
-			return nil, fmt.Errorf("manager reset refused: %w", err)
-		}
 	}
 	return leaf, nil
 }

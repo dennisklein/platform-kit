@@ -43,6 +43,8 @@ type ManagementEndpointReconciler struct {
 	CredentialsNamespace string
 	// PollInterval is the steady-state re-observation cadence.
 	PollInterval time.Duration
+	// Dial opens the session to the endpoint; nil dials over gofish.
+	Dial Dialer
 }
 
 // +kubebuilder:rbac:groups=metal.pk.io,resources=managementendpoints,verbs=get;list;watch;update
@@ -130,33 +132,33 @@ func (r *ManagementEndpointReconciler) observe(ctx context.Context, ep *metalv1a
 		setCond(metalv1alpha1.ConditionReachable, metav1.ConditionFalse, reason, err.Error())
 		return
 	}
-	cctx, cancel := context.WithTimeout(ctx, connectTimeout)
-	defer cancel()
-	cl, err := gofishclient.Connect(cctx, cfg)
+	// The pass reports through conditions and never returns an error, so an
+	// error from withSession is always the dial's.
+	err = withSession(ctx, r.Dial, cfg, func(ctx context.Context, cl bmc.Client) error {
+		setCond(metalv1alpha1.ConditionReachable, metav1.ConditionTrue, "SessionUp", "")
+
+		d, err := discover(ctx, cl)
+		if err != nil {
+			setCond(metalv1alpha1.ConditionInventoried, metav1.ConditionFalse, "DiscoveryError", err.Error())
+			return nil
+		}
+		ep.Status.Vendor = d.mgr.Vendor
+		ep.Status.Model = d.chassis.Model
+		ep.Status.FirmwareVersion = d.mgr.FirmwareVersion
+		ep.Status.BoardSerial = d.chassis.BoardSerial
+		ep.Status.Firmware = firmwareItems(d.firmware)
+		ep.Status.Systems = discoveredSystems(d.systems)
+		ep.Status.Capabilities = endpointCapabilities(d.caps)
+		ep.Status.VirtualMedia = discoveredMedia(d.media)
+		setCond(metalv1alpha1.ConditionInventoried, metav1.ConditionTrue, "FactsGathered", "")
+
+		status, reason, msg := verifiedCondition(ep.Status.Asset, d.mgr.MAC, serialAnchors(d.chassis, d.systems))
+		setCond(metalv1alpha1.ConditionVerified, status, reason, msg)
+		return nil
+	})
 	if err != nil {
 		setCond(metalv1alpha1.ConditionReachable, metav1.ConditionFalse, "DialError", err.Error())
-		return
 	}
-	defer cl.Close()
-	setCond(metalv1alpha1.ConditionReachable, metav1.ConditionTrue, "SessionUp", "")
-
-	d, err := discover(cctx, cl)
-	if err != nil {
-		setCond(metalv1alpha1.ConditionInventoried, metav1.ConditionFalse, "DiscoveryError", err.Error())
-		return
-	}
-	ep.Status.Vendor = d.mgr.Vendor
-	ep.Status.Model = d.chassis.Model
-	ep.Status.FirmwareVersion = d.mgr.FirmwareVersion
-	ep.Status.BoardSerial = d.chassis.BoardSerial
-	ep.Status.Firmware = firmwareItems(d.firmware)
-	ep.Status.Systems = discoveredSystems(d.systems)
-	ep.Status.Capabilities = endpointCapabilities(d.caps)
-	ep.Status.VirtualMedia = discoveredMedia(d.media)
-	setCond(metalv1alpha1.ConditionInventoried, metav1.ConditionTrue, "FactsGathered", "")
-
-	status, reason, msg := verifiedCondition(ep.Status.Asset, d.mgr.MAC, serialAnchors(d.chassis, d.systems))
-	setCond(metalv1alpha1.ConditionVerified, status, reason, msg)
 }
 
 // connectConfig resolves the read-only observation config (the read-only rail — nothing

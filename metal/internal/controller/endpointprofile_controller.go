@@ -24,7 +24,6 @@ import (
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
-	gofishclient "github.com/dennisklein/platform-kit/metal/internal/bmc/gofish"
 	"github.com/dennisklein/platform-kit/metal/internal/phase"
 )
 
@@ -61,6 +60,8 @@ type EndpointConvergenceReconciler struct {
 	// no push also stops declaring it and so deletes the record. Defaults to
 	// the manager's API reader in SetupWithManager.
 	APIReader client.Reader
+	// Dial opens the sessions to the endpoint; nil dials over gofish.
+	Dial Dialer
 }
 
 // +kubebuilder:rbac:groups=metal.pk.io,resources=managementendpoints,verbs=get;list;watch
@@ -255,31 +256,29 @@ func (r *EndpointConvergenceReconciler) ntp(ctx context.Context, ep *metalv1alph
 	if err != nil {
 		return metav1.ConditionFalse, reason, err.Error(), nil
 	}
-	cctx, cancel := context.WithTimeout(ctx, connectTimeout)
-	defer cancel()
-	cl, err := gofishclient.Connect(cctx, cfg)
-	if err != nil {
-		return metav1.ConditionFalse, metalv1alpha1.ReasonNTPFailed, err.Error(), nil
-	}
-	defer cl.Close() //nolint:errcheck // best-effort logout
-
 	want := bmc.NTPConfig{Enabled: true, Servers: pol.Servers}
-	got, err := cl.NTP(cctx)
-	if err != nil {
-		return metav1.ConditionFalse, metalv1alpha1.ReasonNTPFailed, err.Error(), nil
-	}
-	if !ntpEqual(got, want) {
-		if err := cl.SetNTP(cctx, want); err != nil {
-			return metav1.ConditionFalse, metalv1alpha1.ReasonNTPFailed, err.Error(), nil
+	err = withSession(ctx, r.Dial, cfg, func(ctx context.Context, cl bmc.Client) error {
+		got, err := cl.NTP(ctx)
+		if err != nil {
+			return err
 		}
-		if got, err = cl.NTP(cctx); err != nil {
-			return metav1.ConditionFalse, metalv1alpha1.ReasonNTPFailed, err.Error(), nil
+		if ntpEqual(got, want) {
+			return nil
+		}
+		if err := cl.SetNTP(ctx, want); err != nil {
+			return err
+		}
+		if got, err = cl.NTP(ctx); err != nil {
+			return err
 		}
 		if !ntpEqual(got, want) {
-			return metav1.ConditionFalse, metalv1alpha1.ReasonNTPFailed,
-				fmt.Sprintf("wrote %v but read back %v", want.Servers, got.Servers), nil
+			return fmt.Errorf("wrote %v but read back %v", want.Servers, got.Servers)
 		}
 		logf.FromContext(ctx).Info("converged NTP", "endpoint", ep.Name, "servers", want.Servers)
+		return nil
+	})
+	if err != nil {
+		return metav1.ConditionFalse, metalv1alpha1.ReasonNTPFailed, err.Error(), nil
 	}
 	return metav1.ConditionTrue, metalv1alpha1.ReasonInSync,
 		"ntp " + strings.Join(pol.Servers, ","), nil
@@ -298,15 +297,10 @@ func (r *EndpointConvergenceReconciler) probe(ctx context.Context, ep *metalv1al
 		return err
 	}
 	cfg.Username, cfg.Password = user, pass
-	cctx, cancel := context.WithTimeout(ctx, connectTimeout)
-	defer cancel()
-	cl, err := gofishclient.Connect(cctx, cfg)
-	if err != nil {
+	return withSession(ctx, r.Dial, cfg, func(ctx context.Context, cl bmc.Client) error {
+		_, err := cl.Manager(ctx)
 		return err
-	}
-	defer cl.Close() //nolint:errcheck // read-only session
-	_, err = cl.Manager(cctx)
-	return err
+	})
 }
 
 // repair brings the managed account to the Secret's password through a
@@ -325,14 +319,9 @@ func (r *EndpointConvergenceReconciler) repair(ctx context.Context, ep *metalv1a
 		return err
 	}
 	cfg.Username, cfg.Password = fuser, fpass
-	cctx, cancel := context.WithTimeout(ctx, connectTimeout)
-	defer cancel()
-	cl, err := gofishclient.Connect(cctx, cfg)
-	if err != nil {
-		return fmt.Errorf("factory session: %w", err)
-	}
-	defer cl.Close() //nolint:errcheck // best-effort logout
-	if err := cl.EnsureAccount(cctx, user, pass); err != nil {
+	if err := withSession(ctx, r.Dial, cfg, func(ctx context.Context, cl bmc.Client) error {
+		return cl.EnsureAccount(ctx, user, pass)
+	}); err != nil {
 		return fmt.Errorf("factory session: %w", err)
 	}
 	return nil
