@@ -44,6 +44,10 @@ func Normalize(endpointVendor, boardSerial string, sys metalv1alpha1.DiscoveredS
 // lowercased with anything outside DNS-1123 mapped to '-'. Deterministic, so
 // every path to the same system converges on the same Host object. ok=false
 // when there is no serial anchor to key on — such a system cannot enroll.
+//
+// The name is cut to the 253 characters an object name may have. Two serials
+// that share the cut prefix map to one Host, but the identity keeps the full
+// serial, so the Host reports IdentityDiverged rather than merging them.
 func Name(id metalv1alpha1.HostIdentity) (string, bool) {
 	var b strings.Builder
 	for _, r := range strings.ToLower(id.Serial) {
@@ -55,8 +59,14 @@ func Name(id metalv1alpha1.HostIdentity) (string, bool) {
 		}
 	}
 	name := strings.Trim(b.String(), "-")
+	if len(name) > maxNameLen {
+		name = strings.TrimRight(name[:maxNameLen], "-")
+	}
 	return name, name != ""
 }
+
+// maxNameLen is the longest Kubernetes object name (a DNS-1123 subdomain).
+const maxNameLen = 253
 
 // MAC returns a hardware address in the one form this operator compares and
 // stores: lower case, colon-separated (0c:c4:7a:12:34:56). It accepts what
