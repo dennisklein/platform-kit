@@ -44,29 +44,28 @@ const (
 	HostMaintenance  HostPhase = "Maintenance"
 )
 
-// HostSpec carries the claim bind and the OS payload hand-off. Both are stamped
-// by the HostClaimReconciler (single writer); everything else about a Host is
-// discovered, not authored.
+// HostSpec is written by the operator from the HostClaim that binds the
+// machine; you do not edit it. Everything else about a Host is what the
+// operator found, not what anyone wrote.
 type HostSpec struct {
-	// ClaimRef is the authoritative bind pointer (PV-style): set by the
-	// HostClaimReconciler, first writer wins via apiserver optimistic concurrency.
-	// The UID pins the exact claim object — a deleted-and-recreated claim of the
-	// same name is a different claimant.
+	// ClaimRef names the HostClaim that holds this machine. The first claim
+	// to set it wins; any other claim on the same machine waits
+	// (HostAlreadyClaimed). The UID pins the exact claim: a claim deleted and
+	// created again under the same name is a new claim.
 	// +optional
 	ClaimRef *ClaimReference `json:"claimRef,omitempty"`
 
-	// OS is the operating system this machine should be running, copied here
-	// from the claim that bound it and cleared when the claim is released.
-	// Setting it is what starts provisioning: until it is present, a bound
-	// machine is reserved and idle.
+	// OS is the TalosNode this machine should run, copied from the claim and
+	// cleared when the claim is released. Until it is set, a bound machine is
+	// reserved and nothing is done to it.
 	// +optional
 	OS *HostOS `json:"os,omitempty"`
 }
 
-// HostOS is the osRef edge into the os API group.
+// HostOS names what the machine runs.
 type HostOS struct {
-	// NodeRef points at the TalosNode (os.pk.io, cluster-scoped like
-	// the Host) whose rendered config this machine boots.
+	// NodeRef names the TalosNode (os.pk.io) whose config this machine
+	// boots.
 	NodeRef Reference `json:"nodeRef"`
 }
 
@@ -78,56 +77,53 @@ type ClaimReference struct {
 	UID types.UID `json:"uid,omitempty"`
 }
 
-// HostIdentity is the vendor-normalized anchor — independent of access path (the
-// multipath discipline). Computed by a per-vendor strategy over bmc.Client: Huawei's
-// ComputerSystem carries the chassis serial, Supermicro's carries none (the board
-// serial lives on Chassis); the normalizer must return byte-identical identity for a
-// system reached via two managers (the identity-invariant test).
+// HostIdentity identifies the machine, whichever BMC it is reached through:
+// the same machine seen through two BMCs gets the same identity, and so one
+// Host. Vendors put the serial number in different places (Huawei on the
+// system, Supermicro on the board); the operator reads the right one for each.
 type HostIdentity struct {
 	// +optional
 	UUID string `json:"uuid,omitempty"`
-	// Serial is the normalized serial anchor (chassis board serial on Supermicro,
-	// system serial on Huawei).
+	// Serial is the machine's serial number: the board serial on Supermicro,
+	// the system serial on Huawei and other vendors.
 	// +optional
 	Serial string `json:"serial,omitempty"`
 	// +optional
 	Vendor string `json:"vendor,omitempty"`
 }
 
-// ManagementPath is one discovered way to reach this host (from Redfish
-// Links.ManagedBy) — N fungible paths with independent health, never an identity.
+// ManagementPath is one way to reach this host: a BMC and the system behind
+// it. A machine can have more than one, each reachable or not on its own.
 type ManagementPath struct {
-	// EndpointRef names the ManagementEndpoint fronting this system.
+	// EndpointRef names the ManagementEndpoint (the BMC).
 	EndpointRef Reference `json:"endpointRef"`
-	// SystemID is the Redfish ComputerSystem member id behind that endpoint, opaque.
+	// SystemID is the Redfish ComputerSystem id behind that BMC.
 	SystemID string `json:"systemId"`
-	// Reachable is this path's independent health.
+	// Reachable says whether this BMC answers.
 	Reachable bool `json:"reachable"`
 }
 
-// HostStatus is discovered truth about the machine itself.
+// HostStatus is what the operator found out about the machine itself.
 type HostStatus struct {
 	// +optional
 	Identity *HostIdentity `json:"identity,omitempty"`
 
-	// ManagedBy lists the discovered access paths — a list, length 1 today, N-ready
-	// (multiple managers, moved boards, Redfish aggregators). Atomic: one writer
-	// (the HostReconciler) replaces it whole.
+	// ManagedBy lists the ways to reach the machine — usually one BMC.
 	// +listType=atomic
 	// +optional
 	ManagedBy []ManagementPath `json:"managedBy,omitempty"`
 
-	// LastResetTime is the newest reset-time observation across paths — the drift
-	// memory: an advance with no explaining HostOperation raises Drifted. Absent
-	// where the vendor serves no such observable (iBMC) — drift detection then
-	// degrades openly rather than being simulated.
+	// LastResetTime is when the BMC last saw the machine reset. When it moves
+	// and no operation explains it, the Drifted condition says somebody reset
+	// the machine another way (ipmitool, the BMC web page, the power button).
+	// Not every BMC reports it (Huawei iBMC does not); drift is then not
+	// detected.
 	// +optional
 	LastResetTime *metav1.MicroTime `json:"lastResetTime,omitempty"`
 
-	// FirmwareProposed is the firmware domain's plan memory (the BIOS domain's
-	// lives on the materialized BiosSettings). Written by the convergence
-	// reconciler alone; the HostReconciler leaves it untouched — the two share
-	// this status with disjoint fields.
+	// FirmwareProposed remembers the last firmware plan proposed for this
+	// machine, so the same plan is not proposed twice. Written by the
+	// firmware lane only.
 	// +optional
 	FirmwareProposed *ProposedPlan `json:"firmwareProposed,omitempty"`
 
@@ -142,14 +138,22 @@ type HostStatus struct {
 	// +optional
 	Phase HostPhase `json:"phase,omitempty"`
 
-	// BlockedOn is derived — why the host isn't advancing (Approval(bios),
-	// SerialMismatch); a reason, not a phase, because it recurs across phases.
+	// BlockedOn says why the host is not moving on (Approval(Provisioning),
+	// SerialMismatch, HostInMaintenance); a reason, not a phase, because it
+	// can happen in any phase.
 	// +optional
 	BlockedOn string `json:"blockedOn,omitempty"`
 }
 
-// Host is one realized machine (Redfish ComputerSystem), keyed by identity, reached
-// via managedBy paths. Cluster-scoped; bound by a namespaced HostClaim.
+// Host is one physical machine as the operator found it through its BMC. The
+// operator creates it and names it after the machine's serial number, in lower
+// case; the label metal.pk.io/asset names the Asset it was found by. You read
+// it to see the state of the machine: kubectl get hosts shows the asset,
+// serial, vendor and phase, and kubectl describe host <name> shows why it
+// waits.
+//
+// A HostClaim binds a Host for use. To take a machine out of the operator's
+// hands for hardware work, set the metal.pk.io/maintenance annotation on it.
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status

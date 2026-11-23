@@ -61,19 +61,19 @@ spec:
                     - name
                   type: object
                 installDiskSelector:
-                  description: InstallDiskSelector picks the disk Talos installs onto. Every matcher that is set must hold (they are ANDed into one CEL expression).
+                  description: InstallDiskSelector picks the disk Talos installs onto. That disk is repartitioned and everything on it is erased. A disk matches when every matcher you set holds; if several disks match, Talos takes the first one it finds, which can change between boots. Prefer serial or wwid, which name exactly one disk.
                   properties:
                     busPath:
-                      description: BusPath matches the disk's bus path.
+                      description: BusPath matches the disk's bus path. It changes when a disk moves to another slot.
                       type: string
                     match:
                       description: Match is a CEL expression over `disk` (Talos' disk locator environment), for example `disk.size > 100u * GB && !disk.rotational`.
                       type: string
                     model:
-                      description: Model matches the disk model.
+                      description: Model matches the disk model. Machines often have several disks of the same model; combine it with another matcher.
                       type: string
                     serial:
-                      description: Serial matches the disk serial number, the one fact that survives re-cabling and enumeration order.
+                      description: Serial matches the disk serial number. It names one disk and does not change when disks are re-cabled or found in another order.
                       type: string
                     wwid:
                       description: WWID matches the disk's world wide identifier.

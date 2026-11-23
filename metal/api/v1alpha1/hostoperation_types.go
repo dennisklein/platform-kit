@@ -20,15 +20,14 @@ const (
 	OperationFailed           OperationPhase = "Failed"
 )
 
-// HostOperationSpec is one disruptive thing to do to a machine, and the gate a
-// human passes to let it happen.
+// HostOperationSpec is what to do to a machine, and the approval that lets it
+// happen.
 //
-// The cluster proposes an operation by creating it; a person approves it by
-// patching it. That split works with ordinary RBAC because the target machine and
-// the actions are frozen once created — the only thing left to change is the
-// approval, so permission to patch is permission to approve. Who may approve, and
-// the rule that nobody approves their own proposal in advance, are enforced at
-// admission.
+// The operator proposes an operation by creating it; a person approves it by
+// setting spec.approval. The machine and the actions cannot be changed after
+// creation, so the right to edit an operation is only the right to approve
+// it. The cluster checks who may approve, and refuses an approval by the
+// person who proposed the operation.
 //
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.proposedBy) || (has(self.proposedBy) && self.proposedBy == oldSelf.proposedBy)",message="proposedBy is frozen after creation"
 type HostOperationSpec struct {
@@ -356,10 +355,20 @@ type HostOperationStatus struct {
 	BlockedOn string `json:"blockedOn,omitempty"`
 }
 
-// HostOperation is one disruptive thing done to one machine, and the record that
-// it was done: a power cycle, a BIOS apply, a firmware flash. It is namespaced,
-// short-lived, and never retried on its own — if it failed, it stays failed until
-// a person looks at it.
+// HostOperation is one step that changes a machine — an install, a shutdown, a
+// BIOS change, a firmware flash — and the record of what happened. The
+// operator proposes it; spec.actions lists exactly what will be done, in
+// order, so read it before you approve.
+//
+//   - Approve:   pk-metal approve <namespace>/<operation>
+//     (someone other than the proposer must approve).
+//   - Refuse:    delete the operation, or set metal.pk.io/hold on the
+//     HostClaim so the operator stops proposing.
+//   - Retry:     pk-metal retry <namespace>/<operation> once you have fixed
+//     the cause. A failed operation is never retried on its own.
+//
+// kubectl get hostoperations shows what waits (Phase AwaitingApproval) and
+// what failed; kubectl describe shows each step's message.
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status

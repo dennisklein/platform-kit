@@ -71,29 +71,29 @@ func main() {
 		shutdown     time.Duration
 	)
 	flag.StringVar(&ledgerPath, "ledger", "",
-		"path to the MAC→URL BMC ledger YAML (required; projection of the bmc-access dnsmasq ledger)")
+		"path to the ledger file (required): YAML that maps each BMC MAC address to the BMC's https URL; entries that do not parse are logged and skipped")
 	flag.StringVar(&credsNS, "credentials-namespace", "pk-metal",
-		"namespace holding endpoint credential and CA secrets; receives rendered configs and published cluster credentials")
+		"namespace for the operator's Secrets: BMC logins and CAs are read from it, and node configs and cluster credentials are written to it")
 	flag.StringVar(&caSecret, "bmc-ca-secret", "",
-		"secret (key ca.crt) that materialized endpoints pin for TLS (live: internal-ca)")
+		"Secret (key ca.crt) with the CA that signed your BMCs' HTTPS certificates; empty trusts the system CAs")
 	flag.StringVar(&imageFactory, "image-factory", render.PublicFactory,
-		"host of the Talos image factory: it serves the install images, and is told about the schematics naming them (a self-hosted one speaks the same API)")
+		"host of the Talos image factory that builds and serves install images; a self-hosted factory works the same way")
 	flag.StringVar(&registryCA, "registry-ca", "",
-		"PEM file verifying the OCI registry serving firmware images (live: the registry's internal CA); empty uses the system store")
+		"PEM file with the CA of the registry that serves firmware images; empty trusts the system CAs")
 	flag.BoolVar(&bmcInsecure, "bmc-insecure", false,
-		"materialize endpoints with insecureSkipVerify (lab/sim only)")
-	flag.DurationVar(&poll, "poll-interval", 5*time.Minute, "endpoint re-observation cadence")
+		"accept any BMC certificate without checking it; for simulated BMCs in a lab only")
+	flag.DurationVar(&poll, "poll-interval", 5*time.Minute, "how often each BMC is asked again what it reports")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "metrics address ('0' disables)")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", "0", "health probe address ('0' disables)")
 	flag.BoolVar(&leaderElect, "leader-elect", false, "enable leader election")
 	flag.StringVar(&mediaListen, "media-listen", ":8443",
-		"address the media service binds (HTTPS; BMCs pull granted boot media from it)")
+		"address the media service listens on (HTTPS); BMCs download boot images from it")
 	flag.StringVar(&mediaURL, "media-url", "",
-		"https://host[:port] BMCs reach the media service at (a NodePort, a load balancer); empty disables the media service and with it in-cluster provisioning")
+		"https://host[:port] at which BMCs reach the media service (a NodePort or a load balancer); empty turns the media service off, and with it installing machines")
 	flag.StringVar(&mediaCert, "media-cert-secret", "",
-		"secret (keys tls.crt, tls.key) the media service serves; empty mints an ephemeral self-signed certificate (BMCs do not verify media TLS)")
+		"Secret (keys tls.crt, tls.key) with the media service's certificate; empty uses a self-signed one made at start-up (BMCs do not check it)")
 	flag.DurationVar(&checkIn, "checkin-timeout", 30*time.Minute,
-		"how long a boot operation waits for the node to check in before it fails")
+		"how long an install waits for the machine to come up and answer before it fails")
 	flag.DurationVar(&shutdown, "release-shutdown-timeout", 5*time.Minute,
 		"when a HostClaim is deleted, how long its machine's OS gets to shut down before the machine is forced off")
 	showVersion := flag.Bool("version", false, "print the build version and exit")

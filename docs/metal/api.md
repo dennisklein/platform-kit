@@ -38,10 +38,16 @@ not on the phase string.
 
 
 
-Asset is what the organization asserts about one machine: the serial it was
-bought under, the MAC of its management controller, where it was installed. It
-is the entry point — creating an Asset is how a machine becomes known to the
-cluster at all.
+Asset is one physical machine as your records know it: its serial number and
+the MAC address of its BMC. You create one per machine, by hand or from your
+CMDB or inventory export. It is the entry point: the operator does nothing
+with a machine until an Asset names it.
+
+From the bmcMac the operator finds the BMC's address in the ledger and
+creates a ManagementEndpoint; through that BMC it finds the machine and
+creates a Host. It checks that the serial and MAC it finds are the ones
+written here, so a cabling or ledger mistake stops work instead of touching
+the wrong machine.
 
 Its status says one thing only: whether the operator could turn it into a
 ManagementEndpoint (condition Materialized), and if not, why — most often a
@@ -186,8 +192,15 @@ is disruptive enough that the operation waits for approval.
 
 
 
-Host is one realized machine (Redfish ComputerSystem), keyed by identity, reached
-via managedBy paths. Cluster-scoped; bound by a namespaced HostClaim.
+Host is one physical machine as the operator found it through its BMC. The
+operator creates it and names it after the machine's serial number, in lower
+case; the label metal.pk.io/asset names the Asset it was found by. You read
+it to see the state of the machine: kubectl get hosts shows the asset,
+serial, vendor and phase, and kubectl describe host <name> shows why it
+waits.
+
+A HostClaim binds a Host for use. To take a machine out of the operator's
+hands for hardware work, set the metal.pk.io/maintenance annotation on it.
 
 
 
@@ -206,9 +219,28 @@ via managedBy paths. Cluster-scoped; bound by a namespaced HostClaim.
 
 
 
-HostClaim binds one Host exclusively, PVC-style. Namespaced so the door to
-multi-team tenancy stays open (deferred: one core team today); lives in git —
-claiming a machine is a reviewed change, not a live write.
+HostClaim takes one machine for your use. What it does to the machine:
+
+  - Creating it with spec.os proposes installing that TalosNode. Once the
+    install is approved, the disk picked by the TalosNode's
+    installDiskSelector is erased and overwritten.
+  - Deleting it releases the machine. If the operator installed the machine,
+    it is shut down: a graceful shutdown first, then forced off after 5
+    minutes (the manager's --release-shutdown-timeout). If the machine runs
+    a node, the shutdown waits for approval unless
+    spec.provisioning.approval is Automatic. A machine the claim never
+    installed is left running.
+  - Without spec.os the claim only reserves the machine; nothing is done to
+    it.
+
+Each proposed step is a HostOperation; with approval Required (the
+default) it waits until you run pk-metal approve <namespace>/<operation>.
+To stop all proposals for a claim, set the metal.pk.io/hold annotation on
+it. After a finished install, status.handOff records which machine runs
+which node; the operator does not install it again.
+
+A claim binds exactly one Host, and only one claim can hold a Host. Keep
+claims in git, so that taking a machine is a reviewed change.
 
 
 
@@ -227,10 +259,20 @@ claiming a machine is a reviewed change, not a live write.
 
 
 
-HostOperation is one disruptive thing done to one machine, and the record that
-it was done: a power cycle, a BIOS apply, a firmware flash. It is namespaced,
-short-lived, and never retried on its own — if it failed, it stays failed until
-a person looks at it.
+HostOperation is one step that changes a machine — an install, a shutdown, a
+BIOS change, a firmware flash — and the record of what happened. The
+operator proposes it; spec.actions lists exactly what will be done, in
+order, so read it before you approve.
+
+  - Approve:   pk-metal approve <namespace>/<operation>
+    (someone other than the proposer must approve).
+  - Refuse:    delete the operation, or set metal.pk.io/hold on the
+    HostClaim so the operator stops proposing.
+  - Retry:     pk-metal retry <namespace>/<operation> once you have fixed
+    the cause. A failed operation is never retried on its own.
+
+kubectl get hostoperations shows what waits (Phase AwaitingApproval) and
+what failed; kubectl describe shows each step's message.
 
 
 
@@ -249,8 +291,16 @@ a person looks at it.
 
 
 
-ManagementEndpoint is one realized Redfish manager (any managerType — BMC was too
-narrow). Cluster-scoped; owned by the operator; verification = assertion vs discovery.
+ManagementEndpoint is one BMC — iDRAC, iLO, XCC, iBMC or any other Redfish
+controller — that the operator talks to. The operator creates it from an
+Asset; you read it to see whether the BMC answers and what it reports
+(kubectl get mep).
+
+Its status holds what the BMC reports: vendor, model, serial numbers, the
+machines behind it, virtual media slots and firmware. The Verified
+condition compares that with the Asset. Phase Mismatch means the BMC at
+this address is not the machine the Asset describes, and the operator does
+nothing to it; Unreachable means nothing answered at the address.
 
 
 
@@ -297,7 +347,8 @@ _Appears in:_
 
 
 
-AssetSnapshot is the consumer-side cache of the last-resolved Asset spec.
+AssetSnapshot is the copy of the Asset spec that the endpoint last used. It
+keeps work going on the last known values if the Asset is briefly gone.
 
 
 
@@ -317,10 +368,9 @@ _Appears in:_
 
 
 
-AssetSpec is the org's assertion about one physical machine — what the CMDB *claims*,
-never what Redfish discovered (the two must stay independent origins or Verified
-compares Redfish to Redfish and can catch nothing). Filled today by Flux from git
-YAML; filled later by fnt-sync from FNT Command — same CR downstream.
+AssetSpec is what your records say about the machine — never what the
+operator found by looking. Keeping the two apart is what lets the operator
+catch a mistake: it compares what you wrote here with what the BMC reports.
 
 
 
@@ -329,11 +379,11 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `cid` _string_ | CID is the org's durable identity for this machine (FNT Configuration Item ID). |  | MinLength: 1 <br /> |
-| `serial` _string_ | Serial is the org-asserted chassis/board serial — the Verify join key, checked<br />against discovery (assertion vs Redfish, two origins). |  | MinLength: 1 <br /> |
+| `cid` _string_ | CID is your asset tag or CMDB id for the machine; any unique string. |  | MinLength: 1 <br /> |
+| `serial` _string_ | Serial is the machine's serial number as your records have it: the<br />chassis or board serial on the label. The operator compares it with<br />the serial the BMC reports, and does nothing to the machine if they<br />differ. |  | MinLength: 1 <br /> |
 | `bmcMac` _string_ | BMCMac is the MAC address of the BMC's own network port, as printed on<br />the label or shown by `ipmitool lan print`. Either case, with ':' or '-'<br />between the bytes. The operator looks it up in the ledger to find the<br />BMC's address, and checks that the BMC at that address reports it. |  | MaxLength: 17 <br />Optional: \{\} <br /> |
-| `vlan` _integer_ | VLAN is the management network the endpoint lives on (1034 servers, 1035 routers). |  | Maximum: 4094 <br />Minimum: 1 <br />Optional: \{\} <br /> |
-| `credentialsRef` _[LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#localobjectreference-v1-core)_ | CredentialsRef names a Secret in the operator's namespace holding the endpoint<br />credentials — factory creds at adoption, rotated by EndpointProfile. |  |  |
+| `vlan` _integer_ | VLAN is the management network the BMC is on. It is used only to pick<br />matching EndpointProfiles; the operator does not configure any network. |  | Maximum: 4094 <br />Minimum: 1 <br />Optional: \{\} <br /> |
+| `credentialsRef` _[LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#localobjectreference-v1-core)_ | CredentialsRef names a Secret in the operator's namespace with the<br />BMC's login (keys username and password), usually the factory default.<br />An EndpointProfile can later move the BMC to a managed account; this<br />login then stays as the way back in. |  |  |
 
 
 #### AssetStatus
@@ -516,10 +566,9 @@ _Appears in:_
 
 
 
-ClaimOS is the claim's OS intent. The node it names is fixed while the
-intent stands: a boot operation and its hand-off record belong to one node,
-and dropping the intent (which stops a boot still running) is the only way
-to another.
+ClaimOS names what the machine should run. The node cannot be changed in
+place: an install belongs to one node. To switch, remove spec.os (which
+stops an install still running) and set it again.
 
 
 
@@ -528,14 +577,13 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `nodeRef` _[Reference](#reference)_ | NodeRef names the TalosNode (os.pk.io, cluster-scoped) whose<br />rendered config the machine boots. |  |  |
+| `nodeRef` _[Reference](#reference)_ | NodeRef names the TalosNode (os.pk.io) whose config the machine boots. |  |  |
 
 
 #### ClaimPhase
 
 _Underlying type:_ _string_
 
-ClaimPhase is derived write-only from the Bound condition (internal/phase).
 ClaimPhase says how many machines the claim's selection resolved to: none yet
 (Pending), exactly one (Bound), or more than one with nothing to choose between
 them (Ambiguous). Ambiguous is a stop — the cluster will not guess.
@@ -668,8 +716,8 @@ _Appears in:_
 
 
 
-EndpointCapabilities is what the endpoint can DO — vendor asymmetries live in data,
-not types (the HOW-is-data rule). Values mirror internal/bmc, grounded in the hardware PoC.
+EndpointCapabilities is what this BMC can do, as discovered. Vendors differ
+here, and the operator records the difference instead of assuming it.
 
 
 
@@ -678,9 +726,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `dualMedia` _boolean_ | DualMedia: two virtual media slots hold inserts concurrently (X12 yes,<br />iBMC no) — gates the `secondary` config-delivery strategy. |  | Optional: \{\} <br /> |
+| `dualMedia` _boolean_ | DualMedia: two virtual media slots can hold an image at the same time<br />(Supermicro X12 yes, Huawei iBMC no) — needed to mount the installer<br />and the node's config together. |  | Optional: \{\} <br /> |
 | `mediaDialects` _object (keys:string, values:string)_ | MediaDialects maps media slot id → insert dialect<br />("insert-media" \| "vmm-control" \| "none"). |  | Optional: \{\} <br /> |
-| `updateDialect` _string_ | UpdateDialect is the firmware-update transport the endpoint advertises<br />("multipart-push" \| "simple-update" \| "none"). Only multipart-push is<br />proven on our hardware — the convergence reconciler proposes a flash<br />nowhere else. |  | Optional: \{\} <br /> |
+| `updateDialect` _string_ | UpdateDialect is the firmware-update method the BMC offers<br />("multipart-push" \| "simple-update" \| "none"). The operator proposes a<br />firmware flash only over multipart-push, the one it has been tested<br />with. |  | Optional: \{\} <br /> |
 | `identityDialect` _string_ | IdentityDialect is how the manager's HTTPS certificate is replaced<br />("csr-native" \| "key-upload" \| "none"): the iBMC generates its CSR on<br />the manager — the key never leaves it — while the X12 takes a<br />locally-generated leaf and key over an OEM upload. |  | Optional: \{\} <br /> |
 
 
@@ -743,7 +791,7 @@ _Appears in:_
 
 
 
-EndpointTLS is the endpoint's server-certificate verification policy.
+EndpointTLS says how a BMC's HTTPS certificate is checked.
 
 
 
@@ -752,8 +800,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `caSecretRef` _[LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#localobjectreference-v1-core)_ | CASecretRef names a Secret (operator namespace, key ca.crt) whose bundle<br />verifies the endpoint's certificate. Wins over insecureSkipVerify. |  | Optional: \{\} <br /> |
-| `insecureSkipVerify` _boolean_ | InsecureSkipVerify accepts any certificate — the lab/sim fallback, never<br />the live default (identity is solved: internal-ca on every BMC). |  | Optional: \{\} <br /> |
+| `caSecretRef` _[LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#localobjectreference-v1-core)_ | CASecretRef names a Secret (operator namespace, key ca.crt) with the<br />CA that signed the BMC's certificate. Wins over insecureSkipVerify. |  | Optional: \{\} <br /> |
+| `insecureSkipVerify` _boolean_ | InsecureSkipVerify accepts any certificate. For simulated BMCs in the<br />lab only. |  | Optional: \{\} <br /> |
 
 
 #### FirmwareInventoryItem
@@ -840,14 +888,13 @@ _Appears in:_
 
 
 
-HostClaimSpec selects one machine and binds it exclusively — the system's ONLY
-claim (decisions attach to machines, not to controllers; the endpoint has none).
-Selection goes through the Asset: the org's durable identity is what a human
-commits, the Host name is discovered later.
+HostClaimSpec says which machine you want and what it should run. You pick
+the machine by its Asset, because you know the Asset name before the
+operator has found the machine and named its Host.
 
-What the claim binds is fixed for its lifetime: pointing it elsewhere would
-leave the machine it already bound without a release (power off, media
-out) and a boot in flight for the old target. Re-targeting is a new claim.
+The machine a claim names cannot be changed: pointing it elsewhere would
+leave the first machine running without a release. To use another machine,
+delete the claim and create a new one.
 
 
 
@@ -857,9 +904,9 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `assetRef` _[Reference](#reference)_ | AssetRef names the Asset whose machine this claim binds. |  |  |
-| `systemRef` _[Reference](#reference)_ | SystemRef picks one ComputerSystem by its Redfish member id when the<br />endpoint fronts several; optional when it fronts one. |  | Optional: \{\} <br /> |
-| `labels` _object (keys:string, values:[LabelValue](#labelvalue))_ | Labels is the intent axis for profile matching: a free-form label map<br />(role: worker today; rack zone, tenant tier, GPU pool need no schema<br />change) stamped onto the bound Host's metadata labels and cleared on<br />release — an unclaimed machine carries no intent labels by construction.<br />Keys are unprefixed (no "/"), so they can never collide with the<br />discovered-fact labels stamped under metal.pk.io/. |  | MaxProperties: 16 <br />Optional: \{\} <br /> |
-| `os` _[ClaimOS](#claimos)_ | OS names the payload the bound machine runs. Without it the claim only<br />reserves the machine (Assigned) — provisioning starts when the intent<br />appears and the reconciler stamps it onto the Host. |  | Optional: \{\} <br /> |
+| `systemRef` _[Reference](#reference)_ | SystemRef picks one machine by its Redfish system id when the BMC<br />manages more than one (a multi-node chassis). Leave it out when the BMC<br />manages one machine. |  | Optional: \{\} <br /> |
+| `labels` _object (keys:string, values:[LabelValue](#labelvalue))_ | Labels are copied onto the bound Host and removed when the claim goes<br />away, for example role: worker. EndpointProfiles and firmware plans<br />select machines by them. Keys have no prefix (no "/"), so they never<br />clash with the labels the operator sets under metal.pk.io/. |  | MaxProperties: 16 <br />Optional: \{\} <br /> |
+| `os` _[ClaimOS](#claimos)_ | OS names the TalosNode the machine should run. Setting it proposes an<br />install that erases the disk chosen by the TalosNode's<br />installDiskSelector. Without it the claim only reserves the machine and<br />nothing is done to it. |  | Optional: \{\} <br /> |
 | `provisioning` _[ClaimProvisioning](#claimprovisioning)_ | Provisioning tunes how the operator installs the OS onto the machine. |  | Optional: \{\} <br /> |
 
 
@@ -867,8 +914,9 @@ _Appears in:_
 
 
 
-HostClaimStatus is the claim's side of the bind (the authoritative pointer is
-Host.spec.claimRef — PV/PVC-style, first writer wins).
+HostClaimStatus says which machine the claim holds and how far its install
+got. The Host's spec.claimRef is what actually holds the machine; the first
+claim to set it wins.
 
 
 
@@ -881,18 +929,17 @@ _Appears in:_
 | `handOff` _[ClaimHandOff](#claimhandoff)_ | HandOff records that the machine was installed: which host runs which<br />TalosNode, from which config, since when. It is written once, when the<br />boot finishes, and is the record the operator reads to know the work is<br />done — a node that is down later is not installed again, and deleting<br />old HostOperations changes nothing. It goes away with the claim. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions are the truth — the only thing reconcilers branch on. |  | Optional: \{\} <br /> |
 | `phase` _[ClaimPhase](#claimphase)_ | Phase summarizes the conditions below for people and for kubectl columns.<br />It is a summary, not the contract: automation should read conditions. |  | Enum: [Pending Bound Ambiguous] <br />Optional: \{\} <br /> |
-| `blockedOn` _string_ | BlockedOn is derived — why the claim isn't binding (AssetNotFound,<br />HostAlreadyClaimed) or, once bound, why its machine isn't provisioning<br />(SingleMediumUnsupported, OperationFailed); a reason, not a phase. |  | Optional: \{\} <br /> |
+| `blockedOn` _string_ | BlockedOn says why the claim is not moving on: why it cannot bind<br />(AssetNotFound, AssetNotMaterialized, HostAlreadyClaimed) or, once<br />bound, why the install waits (Approval(Provisioning), HeldByUser,<br />HostInMaintenance, OperationFailed). kubectl describe shows the message<br />with the command to run. |  | Optional: \{\} <br /> |
 
 
 #### HostIdentity
 
 
 
-HostIdentity is the vendor-normalized anchor — independent of access path (the
-multipath discipline). Computed by a per-vendor strategy over bmc.Client: Huawei's
-ComputerSystem carries the chassis serial, Supermicro's carries none (the board
-serial lives on Chassis); the normalizer must return byte-identical identity for a
-system reached via two managers (the identity-invariant test).
+HostIdentity identifies the machine, whichever BMC it is reached through:
+the same machine seen through two BMCs gets the same identity, and so one
+Host. Vendors put the serial number in different places (Huawei on the
+system, Supermicro on the board); the operator reads the right one for each.
 
 
 
@@ -902,7 +949,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `uuid` _string_ |  |  | Optional: \{\} <br /> |
-| `serial` _string_ | Serial is the normalized serial anchor (chassis board serial on Supermicro,<br />system serial on Huawei). |  | Optional: \{\} <br /> |
+| `serial` _string_ | Serial is the machine's serial number: the board serial on Supermicro,<br />the system serial on Huawei and other vendors. |  | Optional: \{\} <br /> |
 | `vendor` _string_ |  |  | Optional: \{\} <br /> |
 
 
@@ -910,7 +957,7 @@ _Appears in:_
 
 
 
-HostOS is the osRef edge into the os API group.
+HostOS names what the machine runs.
 
 
 
@@ -919,7 +966,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `nodeRef` _[Reference](#reference)_ | NodeRef points at the TalosNode (os.pk.io, cluster-scoped like<br />the Host) whose rendered config this machine boots. |  |  |
+| `nodeRef` _[Reference](#reference)_ | NodeRef names the TalosNode (os.pk.io) whose config this machine<br />boots. |  |  |
 
 
 
@@ -952,15 +999,14 @@ _Appears in:_
 
 
 
-HostOperationSpec is one disruptive thing to do to a machine, and the gate a
-human passes to let it happen.
+HostOperationSpec is what to do to a machine, and the approval that lets it
+happen.
 
-The cluster proposes an operation by creating it; a person approves it by
-patching it. That split works with ordinary RBAC because the target machine and
-the actions are frozen once created — the only thing left to change is the
-approval, so permission to patch is permission to approve. Who may approve, and
-the rule that nobody approves their own proposal in advance, are enforced at
-admission.
+The operator proposes an operation by creating it; a person approves it by
+setting spec.approval. The machine and the actions cannot be changed after
+creation, so the right to edit an operation is only the right to approve
+it. The cluster checks who may approve, and refuses an approval by the
+person who proposed the operation.
 
 
 
@@ -1042,9 +1088,9 @@ _Appears in:_
 
 
 
-HostSpec carries the claim bind and the OS payload hand-off. Both are stamped
-by the HostClaimReconciler (single writer); everything else about a Host is
-discovered, not authored.
+HostSpec is written by the operator from the HostClaim that binds the
+machine; you do not edit it. Everything else about a Host is what the
+operator found, not what anyone wrote.
 
 
 
@@ -1053,15 +1099,15 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `claimRef` _[ClaimReference](#claimreference)_ | ClaimRef is the authoritative bind pointer (PV-style): set by the<br />HostClaimReconciler, first writer wins via apiserver optimistic concurrency.<br />The UID pins the exact claim object — a deleted-and-recreated claim of the<br />same name is a different claimant. |  | Optional: \{\} <br /> |
-| `os` _[HostOS](#hostos)_ | OS is the operating system this machine should be running, copied here<br />from the claim that bound it and cleared when the claim is released.<br />Setting it is what starts provisioning: until it is present, a bound<br />machine is reserved and idle. |  | Optional: \{\} <br /> |
+| `claimRef` _[ClaimReference](#claimreference)_ | ClaimRef names the HostClaim that holds this machine. The first claim<br />to set it wins; any other claim on the same machine waits<br />(HostAlreadyClaimed). The UID pins the exact claim: a claim deleted and<br />created again under the same name is a new claim. |  | Optional: \{\} <br /> |
+| `os` _[HostOS](#hostos)_ | OS is the TalosNode this machine should run, copied from the claim and<br />cleared when the claim is released. Until it is set, a bound machine is<br />reserved and nothing is done to it. |  | Optional: \{\} <br /> |
 
 
 #### HostStatus
 
 
 
-HostStatus is discovered truth about the machine itself.
+HostStatus is what the operator found out about the machine itself.
 
 
 
@@ -1071,12 +1117,12 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `identity` _[HostIdentity](#hostidentity)_ |  |  | Optional: \{\} <br /> |
-| `managedBy` _[ManagementPath](#managementpath) array_ | ManagedBy lists the discovered access paths — a list, length 1 today, N-ready<br />(multiple managers, moved boards, Redfish aggregators). Atomic: one writer<br />(the HostReconciler) replaces it whole. |  | Optional: \{\} <br /> |
-| `lastResetTime` _[MicroTime](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#microtime-v1-meta)_ | LastResetTime is the newest reset-time observation across paths — the drift<br />memory: an advance with no explaining HostOperation raises Drifted. Absent<br />where the vendor serves no such observable (iBMC) — drift detection then<br />degrades openly rather than being simulated. |  | Optional: \{\} <br /> |
-| `firmwareProposed` _[ProposedPlan](#proposedplan)_ | FirmwareProposed is the firmware domain's plan memory (the BIOS domain's<br />lives on the materialized BiosSettings). Written by the convergence<br />reconciler alone; the HostReconciler leaves it untouched — the two share<br />this status with disjoint fields. |  | Optional: \{\} <br /> |
+| `managedBy` _[ManagementPath](#managementpath) array_ | ManagedBy lists the ways to reach the machine — usually one BMC. |  | Optional: \{\} <br /> |
+| `lastResetTime` _[MicroTime](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#microtime-v1-meta)_ | LastResetTime is when the BMC last saw the machine reset. When it moves<br />and no operation explains it, the Drifted condition says somebody reset<br />the machine another way (ipmitool, the BMC web page, the power button).<br />Not every BMC reports it (Huawei iBMC does not); drift is then not<br />detected. |  | Optional: \{\} <br /> |
+| `firmwareProposed` _[ProposedPlan](#proposedplan)_ | FirmwareProposed remembers the last firmware plan proposed for this<br />machine, so the same plan is not proposed twice. Written by the<br />firmware lane only. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions are the truth — the only thing reconcilers branch on. |  | Optional: \{\} <br /> |
 | `phase` _[HostPhase](#hostphase)_ | Phase summarizes the conditions below for people and for kubectl columns.<br />It is a summary, not the contract: automation should read conditions. |  | Enum: [Enrolling Inspecting Available Assigned Provisioning Provisioned Releasing Failed Maintenance] <br />Optional: \{\} <br /> |
-| `blockedOn` _string_ | BlockedOn is derived — why the host isn't advancing (Approval(bios),<br />SerialMismatch); a reason, not a phase, because it recurs across phases. |  | Optional: \{\} <br /> |
+| `blockedOn` _string_ | BlockedOn says why the host is not moving on (Approval(Provisioning),<br />SerialMismatch, HostInMaintenance); a reason, not a phase, because it<br />can happen in any phase. |  | Optional: \{\} <br /> |
 
 
 #### IdentityPolicy
@@ -1093,7 +1139,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `issuerRef` _[IssuerRef](#issuerref)_ | IssuerRef names the cert-manager issuer (group cert-manager.io) that<br />signs the identity. |  |  |
-| `domain` _string_ | Domain completes the identity: CN and DNS SAN are<br />bmc-<endpoint>.<domain>; the endpoint address, when an IP literal,<br />rides along as IP SAN (clients dial IP literals on the island). | metal.internal | MinLength: 1 <br />Optional: \{\} <br /> |
+| `domain` _string_ | Domain completes the identity: CN and DNS SAN are<br />bmc-<endpoint>.<domain>; the endpoint address, when an IP literal,<br />is added as an IP SAN (clients often reach BMCs by IP address). | metal.internal | MinLength: 1 <br />Optional: \{\} <br /> |
 | `duration` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#duration-v1-meta)_ | Duration of issued certificates. | 2160h | Optional: \{\} <br /> |
 | `renewBefore` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#duration-v1-meta)_ | RenewBefore re-issues when less than this remains on the served<br />certificate. Must stay below duration. | 720h | Optional: \{\} <br /> |
 | `subject` _[CertificateSubject](#certificatesubject)_ | Subject carries the organizational attributes of the identity. The<br />iBMC's on-manager CSR generation requires country; everything else is<br />cosmetic. |  | Optional: \{\} <br /> |
@@ -1164,9 +1210,8 @@ _Appears in:_
 
 _Underlying type:_ _string_
 
-LabelValue is one intent label value, constrained to the k8s label-value
-shape at the schema level (a value the Host metadata would reject must
-already fail at claim admission).
+LabelValue is one label value. It must be a valid Kubernetes label value,
+so that a value the Host would reject is refused when you apply the claim.
 
 _Validation:_
 - MaxLength: 63
@@ -1182,8 +1227,8 @@ _Appears in:_
 
 
 
-ManagementEndpointSpec is written by the operator when it materializes an Asset —
-pure infrastructure, no claim (adoption is implied by a HostClaim on the Asset).
+ManagementEndpointSpec is written by the operator from the Asset and the
+ledger; you do not edit it.
 
 
 
@@ -1192,17 +1237,18 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `assetRef` _[Reference](#reference)_ | AssetRef names the Asset this endpoint materializes and verifies against. |  |  |
-| `address` _string_ | Address is the endpoint's base URL — an access path, never an identity<br />(the multipath discipline: identity lives on Host.status.identity). |  | Pattern: `^https://` <br /> |
+| `assetRef` _[Reference](#reference)_ | AssetRef names the Asset this endpoint was made from, and whose serial<br />and MAC it is checked against. |  |  |
+| `address` _string_ | Address is the BMC's https URL, from the ledger. It is how the operator<br />reaches the machine, not what identifies it: a Host is identified by<br />the serial number the BMC reports. |  | Pattern: `^https://` <br /> |
 | `credentialsRef` _[LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#localobjectreference-v1-core)_ | CredentialsRef names the Secret (operator namespace) used to connect,<br />defaulted from the Asset at materialization — the factory credentials,<br />kept as standing break-glass. Once an EndpointProfile rotates the<br />endpoint onto a managed account, every connect prefers the managed<br />Secret and this ref is the repair fallback. |  | Optional: \{\} <br /> |
-| `tls` _[EndpointTLS](#endpointtls)_ | TLS pins how the endpoint's server certificate is verified. The hardware-PoC verdict:<br />both vendors serve internal-ca identities (CN=bmc-<node>.metal.internal),<br />so live endpoints pin that CA; unset falls back to the system trust store. |  | Optional: \{\} <br /> |
+| `tls` _[EndpointTLS](#endpointtls)_ | TLS says how the BMC's HTTPS certificate is checked, from the manager's<br />--bmc-ca-secret or --bmc-insecure. Unset uses the system's trusted CAs. |  | Optional: \{\} <br /> |
 
 
 #### ManagementEndpointStatus
 
 
 
-ManagementEndpointStatus is discovered truth (assertion lives on the Asset).
+ManagementEndpointStatus is what the BMC reports; what your records say is
+on the Asset.
 
 
 
@@ -1217,7 +1263,7 @@ _Appears in:_
 | `firmwareVersion` _string_ | FirmwareVersion is the manager's firmware as served. |  | Optional: \{\} <br /> |
 | `boardSerial` _string_ | BoardSerial is the chassis board serial — the Supermicro identity anchor<br />(its ComputerSystem serves none; Huawei's matches the system serial). |  | Optional: \{\} <br /> |
 | `firmware` _[FirmwareInventoryItem](#firmwareinventoryitem) array_ | Firmware lists the UpdateService inventory — the firmware-convergence<br />observable (desired version vs the entries here), small and bounded<br />(~5 members per vendor). Sorted by id. |  | Optional: \{\} <br /> |
-| `systems` _[DiscoveredSystem](#discoveredsystem) array_ | Systems lists the ComputerSystems this endpoint fronts (1 today, N-ready) —<br />cached discovery like the rest of status: an unreachable endpoint keeps its<br />last view. |  | Optional: \{\} <br /> |
+| `systems` _[DiscoveredSystem](#discoveredsystem) array_ | Systems lists the machines (Redfish ComputerSystems) behind this BMC —<br />usually one, several for a chassis with more than one node. It is<br />kept like the rest of status: an unreachable endpoint keeps its<br />last view. |  | Optional: \{\} <br /> |
 | `capabilities` _[EndpointCapabilities](#endpointcapabilities)_ |  |  | Optional: \{\} <br /> |
 | `virtualMedia` _[DiscoveredMedia](#discoveredmedia) array_ | VirtualMedia lists the media slots in the endpoint's collection order,<br />with the media types each advertises — what a boot picks its slots by<br />(optical first, in this order), next to capabilities.mediaDialects,<br />which says how each is inserted. |  | Optional: \{\} <br /> |
 | `asset` _[AssetSnapshot](#assetsnapshot)_ | Asset caches the last-resolved assertion, so an asset-source outage<br />degrades to the snapshot rather than failing resolution. |  | Optional: \{\} <br /> |
@@ -1231,8 +1277,8 @@ _Appears in:_
 
 
 
-ManagementPath is one discovered way to reach this host (from Redfish
-Links.ManagedBy) — N fungible paths with independent health, never an identity.
+ManagementPath is one way to reach this host: a BMC and the system behind
+it. A machine can have more than one, each reachable or not on its own.
 
 
 
@@ -1241,9 +1287,9 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `endpointRef` _[Reference](#reference)_ | EndpointRef names the ManagementEndpoint fronting this system. |  |  |
-| `systemId` _string_ | SystemID is the Redfish ComputerSystem member id behind that endpoint, opaque. |  |  |
-| `reachable` _boolean_ | Reachable is this path's independent health. |  |  |
+| `endpointRef` _[Reference](#reference)_ | EndpointRef names the ManagementEndpoint (the BMC). |  |  |
+| `systemId` _string_ | SystemID is the Redfish ComputerSystem id behind that BMC. |  |  |
+| `reachable` _boolean_ | Reachable says whether this BMC answers. |  |  |
 
 
 #### NTPPolicy
@@ -1399,8 +1445,9 @@ _Appears in:_
 
 _Underlying type:_ _string_
 
-ProvisioningApproval says whether the operator's boot operation for this
-claim waits for a person.
+ProvisioningApproval says whether the operations the operator proposes for
+this claim (install, and shutting down a running node on release) wait for a
+person.
 
 _Validation:_
 - Enum: [Required Automatic]
@@ -1410,8 +1457,8 @@ _Appears in:_
 
 | Field | Description |
 | --- | --- |
-| `Required` | ProvisioningApprovalRequired: the boot operation waits for a person to<br />approve it — the default, because it powers the machine.<br /> |
-| `Automatic` | ProvisioningApprovalAutomatic: the operator creates the boot operation<br />pre-cleared — for cattle, where the claim itself is the decision.<br /> |
+| `Required` | ProvisioningApprovalRequired: each operation waits for a person to<br />approve it (pk-metal approve). The default, because these operations<br />erase disks and power machines off.<br /> |
+| `Automatic` | ProvisioningApprovalAutomatic: the operations run without approval.<br />Use it for machines you can reinstall at any time, where merging the<br />claim is the decision.<br /> |
 
 
 #### Reference
@@ -1705,8 +1752,9 @@ _Appears in:_
 
 
 
-DiskSelector matches the install disk. String matchers take glob patterns
-(*, ?); Match is a raw Talos disk CEL expression for anything else.
+DiskSelector says which disk to install onto, and so which disk to erase.
+String matchers take glob patterns (*, ?); Match is a Talos disk expression
+for anything else. Set at least one; serial or wwid is safest.
 
 
 
@@ -1715,10 +1763,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `serial` _string_ | Serial matches the disk serial number, the one fact that survives<br />re-cabling and enumeration order. |  | Optional: \{\} <br /> |
-| `model` _string_ | Model matches the disk model. |  | Optional: \{\} <br /> |
+| `serial` _string_ | Serial matches the disk serial number. It names one disk and does not<br />change when disks are re-cabled or found in another order. |  | Optional: \{\} <br /> |
+| `model` _string_ | Model matches the disk model. Machines often have several disks of<br />the same model; combine it with another matcher. |  | Optional: \{\} <br /> |
 | `wwid` _string_ | WWID matches the disk's world wide identifier. |  | Optional: \{\} <br /> |
-| `busPath` _string_ | BusPath matches the disk's bus path. |  | Optional: \{\} <br /> |
+| `busPath` _string_ | BusPath matches the disk's bus path. It changes when a disk moves to<br />another slot. |  | Optional: \{\} <br /> |
 | `match` _string_ | Match is a CEL expression over `disk` (Talos' disk locator<br />environment), for example `disk.size > 100u * GB && !disk.rotational`. |  | Optional: \{\} <br /> |
 
 
@@ -2028,7 +2076,7 @@ _Appears in:_
 | `clusterRef` _[Reference](#reference)_ | ClusterRef names the TalosCluster this node is a member of. |  |  |
 | `role` _[NodeRole](#noderole)_ | Role is controlplane or worker. |  | Enum: [controlplane worker] <br /> |
 | `address` _string_ | Address is where the operator and talosctl reach the node's Talos API.<br />Empty means the first static address of the first link. A node that only<br />takes DHCP addresses needs it set, or its check-in has nothing to dial. |  | Optional: \{\} <br /> |
-| `installDiskSelector` _[DiskSelector](#diskselector)_ | InstallDiskSelector picks the disk Talos installs onto. Every matcher<br />that is set must hold (they are ANDed into one CEL expression). |  |  |
+| `installDiskSelector` _[DiskSelector](#diskselector)_ | InstallDiskSelector picks the disk Talos installs onto. That disk is<br />repartitioned and everything on it is erased. A disk matches when every<br />matcher you set holds; if several disks match, Talos takes the first one<br />it finds, which can change between boots. Prefer serial or wwid, which<br />name exactly one disk. |  |  |
 | `network` _[NodeNetwork](#nodenetwork)_ | Network configures the node's links. |  | Optional: \{\} <br /> |
 | `labels` _object (keys:string, values:string)_ | Labels are Kubernetes node labels the kubelet registers with. Worker<br />nodes may only set labels the NodeRestriction admission plugin allows. |  | Optional: \{\} <br /> |
 | `taints` _[Taint](#taint) array_ | Taints are Kubernetes node taints the kubelet registers with. |  | Optional: \{\} <br /> |

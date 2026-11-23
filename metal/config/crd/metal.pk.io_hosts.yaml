@@ -43,7 +43,10 @@ spec:
       name: v1alpha1
       schema:
         openAPIV3Schema:
-          description: Host is one realized machine (Redfish ComputerSystem), keyed by identity, reached via managedBy paths. Cluster-scoped; bound by a namespaced HostClaim.
+          description: |-
+            Host is one physical machine as the operator found it through its BMC. The operator creates it and names it after the machine's serial number, in lower case; the label metal.pk.io/asset names the Asset it was found by. You read it to see the state of the machine: kubectl get hosts shows the asset, serial, vendor and phase, and kubectl describe host <name> shows why it waits.
+
+            A HostClaim binds a Host for use. To take a machine out of the operator's hands for hardware work, set the metal.pk.io/maintenance annotation on it.
           properties:
             apiVersion:
               description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
@@ -54,10 +57,10 @@ spec:
             metadata:
               type: object
             spec:
-              description: HostSpec carries the claim bind and the OS payload hand-off. Both are stamped by the HostClaimReconciler (single writer); everything else about a Host is discovered, not authored.
+              description: HostSpec is written by the operator from the HostClaim that binds the machine; you do not edit it. Everything else about a Host is what the operator found, not what anyone wrote.
               properties:
                 claimRef:
-                  description: 'ClaimRef is the authoritative bind pointer (PV-style): set by the HostClaimReconciler, first writer wins via apiserver optimistic concurrency. The UID pins the exact claim object — a deleted-and-recreated claim of the same name is a different claimant.'
+                  description: 'ClaimRef names the HostClaim that holds this machine. The first claim to set it wins; any other claim on the same machine waits (HostAlreadyClaimed). The UID pins the exact claim: a claim deleted and created again under the same name is a new claim.'
                   properties:
                     name:
                       type: string
@@ -71,10 +74,10 @@ spec:
                     - namespace
                   type: object
                 os:
-                  description: 'OS is the operating system this machine should be running, copied here from the claim that bound it and cleared when the claim is released. Setting it is what starts provisioning: until it is present, a bound machine is reserved and idle.'
+                  description: OS is the TalosNode this machine should run, copied from the claim and cleared when the claim is released. Until it is set, a bound machine is reserved and nothing is done to it.
                   properties:
                     nodeRef:
-                      description: NodeRef points at the TalosNode (os.pk.io, cluster-scoped like the Host) whose rendered config this machine boots.
+                      description: NodeRef names the TalosNode (os.pk.io) whose config this machine boots.
                       properties:
                         name:
                           type: string
@@ -86,10 +89,10 @@ spec:
                   type: object
               type: object
             status:
-              description: HostStatus is discovered truth about the machine itself.
+              description: HostStatus is what the operator found out about the machine itself.
               properties:
                 blockedOn:
-                  description: BlockedOn is derived — why the host isn't advancing (Approval(bios), SerialMismatch); a reason, not a phase, because it recurs across phases.
+                  description: BlockedOn says why the host is not moving on (Approval(Provisioning), SerialMismatch, HostInMaintenance); a reason, not a phase, because it can happen in any phase.
                   type: string
                 conditions:
                   description: Conditions are the truth — the only thing reconcilers branch on.
@@ -139,7 +142,7 @@ spec:
                     - type
                   x-kubernetes-list-type: map
                 firmwareProposed:
-                  description: FirmwareProposed is the firmware domain's plan memory (the BIOS domain's lives on the materialized BiosSettings). Written by the convergence reconciler alone; the HostReconciler leaves it untouched — the two share this status with disjoint fields.
+                  description: FirmwareProposed remembers the last firmware plan proposed for this machine, so the same plan is not proposed twice. Written by the firmware lane only.
                   properties:
                     operation:
                       description: Operation is the proposed HostOperation as namespace/name.
@@ -152,10 +155,10 @@ spec:
                     - planHash
                   type: object
                 identity:
-                  description: 'HostIdentity is the vendor-normalized anchor — independent of access path (the multipath discipline). Computed by a per-vendor strategy over bmc.Client: Huawei''s ComputerSystem carries the chassis serial, Supermicro''s carries none (the board serial lives on Chassis); the normalizer must return byte-identical identity for a system reached via two managers (the identity-invariant test).'
+                  description: 'HostIdentity identifies the machine, whichever BMC it is reached through: the same machine seen through two BMCs gets the same identity, and so one Host. Vendors put the serial number in different places (Huawei on the system, Supermicro on the board); the operator reads the right one for each.'
                   properties:
                     serial:
-                      description: Serial is the normalized serial anchor (chassis board serial on Supermicro, system serial on Huawei).
+                      description: 'Serial is the machine''s serial number: the board serial on Supermicro, the system serial on Huawei and other vendors.'
                       type: string
                     uuid:
                       type: string
@@ -163,16 +166,16 @@ spec:
                       type: string
                   type: object
                 lastResetTime:
-                  description: 'LastResetTime is the newest reset-time observation across paths — the drift memory: an advance with no explaining HostOperation raises Drifted. Absent where the vendor serves no such observable (iBMC) — drift detection then degrades openly rather than being simulated.'
+                  description: LastResetTime is when the BMC last saw the machine reset. When it moves and no operation explains it, the Drifted condition says somebody reset the machine another way (ipmitool, the BMC web page, the power button). Not every BMC reports it (Huawei iBMC does not); drift is then not detected.
                   format: date-time
                   type: string
                 managedBy:
-                  description: 'ManagedBy lists the discovered access paths — a list, length 1 today, N-ready (multiple managers, moved boards, Redfish aggregators). Atomic: one writer (the HostReconciler) replaces it whole.'
+                  description: ManagedBy lists the ways to reach the machine — usually one BMC.
                   items:
-                    description: ManagementPath is one discovered way to reach this host (from Redfish Links.ManagedBy) — N fungible paths with independent health, never an identity.
+                    description: 'ManagementPath is one way to reach this host: a BMC and the system behind it. A machine can have more than one, each reachable or not on its own.'
                     properties:
                       endpointRef:
-                        description: EndpointRef names the ManagementEndpoint fronting this system.
+                        description: EndpointRef names the ManagementEndpoint (the BMC).
                         properties:
                           name:
                             type: string
@@ -180,10 +183,10 @@ spec:
                           - name
                         type: object
                       reachable:
-                        description: Reachable is this path's independent health.
+                        description: Reachable says whether this BMC answers.
                         type: boolean
                       systemId:
-                        description: SystemID is the Redfish ComputerSystem member id behind that endpoint, opaque.
+                        description: SystemID is the Redfish ComputerSystem id behind that BMC.
                         type: string
                     required:
                       - endpointRef

@@ -28,8 +28,11 @@ type TalosNodeSpec struct {
 	// +optional
 	Address string `json:"address,omitempty"`
 
-	// InstallDiskSelector picks the disk Talos installs onto. Every matcher
-	// that is set must hold (they are ANDed into one CEL expression).
+	// InstallDiskSelector picks the disk Talos installs onto. That disk is
+	// repartitioned and everything on it is erased. A disk matches when every
+	// matcher you set holds; if several disks match, Talos takes the first one
+	// it finds, which can change between boots. Prefer serial or wwid, which
+	// name exactly one disk.
 	InstallDiskSelector DiskSelector `json:"installDiskSelector"`
 
 	// Network configures the node's links.
@@ -57,21 +60,24 @@ type TalosNodeSpec struct {
 	Patches []Patch `json:"patches,omitempty"`
 }
 
-// DiskSelector matches the install disk. String matchers take glob patterns
-// (*, ?); Match is a raw Talos disk CEL expression for anything else.
+// DiskSelector says which disk to install onto, and so which disk to erase.
+// String matchers take glob patterns (*, ?); Match is a Talos disk expression
+// for anything else. Set at least one; serial or wwid is safest.
 // +kubebuilder:validation:XValidation:rule="has(self.serial) || has(self.model) || has(self.wwid) || has(self.busPath) || has(self.match)",message="at least one matcher is required: a node that does not say where to install does not install"
 type DiskSelector struct {
-	// Serial matches the disk serial number, the one fact that survives
-	// re-cabling and enumeration order.
+	// Serial matches the disk serial number. It names one disk and does not
+	// change when disks are re-cabled or found in another order.
 	// +optional
 	Serial string `json:"serial,omitempty"`
-	// Model matches the disk model.
+	// Model matches the disk model. Machines often have several disks of
+	// the same model; combine it with another matcher.
 	// +optional
 	Model string `json:"model,omitempty"`
 	// WWID matches the disk's world wide identifier.
 	// +optional
 	WWID string `json:"wwid,omitempty"`
-	// BusPath matches the disk's bus path.
+	// BusPath matches the disk's bus path. It changes when a disk moves to
+	// another slot.
 	// +optional
 	BusPath string `json:"busPath,omitempty"`
 	// Match is a CEL expression over `disk` (Talos' disk locator

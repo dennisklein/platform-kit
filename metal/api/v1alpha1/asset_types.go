@@ -5,17 +5,18 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// AssetSpec is the org's assertion about one physical machine — what the CMDB *claims*,
-// never what Redfish discovered (the two must stay independent origins or Verified
-// compares Redfish to Redfish and can catch nothing). Filled today by Flux from git
-// YAML; filled later by fnt-sync from FNT Command — same CR downstream.
+// AssetSpec is what your records say about the machine — never what the
+// operator found by looking. Keeping the two apart is what lets the operator
+// catch a mistake: it compares what you wrote here with what the BMC reports.
 type AssetSpec struct {
-	// CID is the org's durable identity for this machine (FNT Configuration Item ID).
+	// CID is your asset tag or CMDB id for the machine; any unique string.
 	// +kubebuilder:validation:MinLength=1
 	CID string `json:"cid"`
 
-	// Serial is the org-asserted chassis/board serial — the Verify join key, checked
-	// against discovery (assertion vs Redfish, two origins).
+	// Serial is the machine's serial number as your records have it: the
+	// chassis or board serial on the label. The operator compares it with
+	// the serial the BMC reports, and does nothing to the machine if they
+	// differ.
 	// +kubebuilder:validation:MinLength=1
 	Serial string `json:"serial"`
 
@@ -28,21 +29,30 @@ type AssetSpec struct {
 	// +optional
 	BMCMac string `json:"bmcMac,omitempty"`
 
-	// VLAN is the management network the endpoint lives on (1034 servers, 1035 routers).
+	// VLAN is the management network the BMC is on. It is used only to pick
+	// matching EndpointProfiles; the operator does not configure any network.
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=4094
 	// +optional
 	VLAN int `json:"vlan,omitempty"`
 
-	// CredentialsRef names a Secret in the operator's namespace holding the endpoint
-	// credentials — factory creds at adoption, rotated by EndpointProfile.
+	// CredentialsRef names a Secret in the operator's namespace with the
+	// BMC's login (keys username and password), usually the factory default.
+	// An EndpointProfile can later move the BMC to a managed account; this
+	// login then stays as the way back in.
 	CredentialsRef corev1.LocalObjectReference `json:"credentialsRef"`
 }
 
-// Asset is what the organization asserts about one machine: the serial it was
-// bought under, the MAC of its management controller, where it was installed. It
-// is the entry point — creating an Asset is how a machine becomes known to the
-// cluster at all.
+// Asset is one physical machine as your records know it: its serial number and
+// the MAC address of its BMC. You create one per machine, by hand or from your
+// CMDB or inventory export. It is the entry point: the operator does nothing
+// with a machine until an Asset names it.
+//
+// From the bmcMac the operator finds the BMC's address in the ledger and
+// creates a ManagementEndpoint; through that BMC it finds the machine and
+// creates a Host. It checks that the serial and MAC it finds are the ones
+// written here, so a cabling or ledger mistake stops work instead of touching
+// the wrong machine.
 //
 // Its status says one thing only: whether the operator could turn it into a
 // ManagementEndpoint (condition Materialized), and if not, why — most often a
@@ -87,7 +97,8 @@ type AssetList struct {
 	Items           []Asset `json:"items"`
 }
 
-// AssetSnapshot is the consumer-side cache of the last-resolved Asset spec.
+// AssetSnapshot is the copy of the Asset spec that the endpoint last used. It
+// keeps work going on the last known values if the Asset is briefly gone.
 type AssetSnapshot struct {
 	CID    string `json:"cid,omitempty"`
 	Serial string `json:"serial,omitempty"`

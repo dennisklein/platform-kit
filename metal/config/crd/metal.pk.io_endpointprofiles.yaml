@@ -112,7 +112,7 @@ spec:
                   properties:
                     domain:
                       default: metal.internal
-                      description: 'Domain completes the identity: CN and DNS SAN are bmc-<endpoint>.<domain>; the endpoint address, when an IP literal, rides along as IP SAN (clients dial IP literals on the island).'
+                      description: 'Domain completes the identity: CN and DNS SAN are bmc-<endpoint>.<domain>; the endpoint address, when an IP literal, is added as an IP SAN (clients often reach BMCs by IP address).'
                       minLength: 1
                       type: string
                     duration:

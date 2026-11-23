@@ -11,7 +11,6 @@ import (
 // stopped by it. Remove the annotation to go on.
 const AnnotationHold = "metal.pk.io/hold"
 
-// ClaimPhase is derived write-only from the Bound condition (internal/phase).
 // ClaimPhase says how many machines the claim's selection resolved to: none yet
 // (Pending), exactly one (Bound), or more than one with nothing to choose between
 // them (Ambiguous). Ambiguous is a stop — the cluster will not guess.
@@ -24,39 +23,38 @@ const (
 	ClaimAmbiguous ClaimPhase = "Ambiguous"
 )
 
-// HostClaimSpec selects one machine and binds it exclusively — the system's ONLY
-// claim (decisions attach to machines, not to controllers; the endpoint has none).
-// Selection goes through the Asset: the org's durable identity is what a human
-// commits, the Host name is discovered later.
+// HostClaimSpec says which machine you want and what it should run. You pick
+// the machine by its Asset, because you know the Asset name before the
+// operator has found the machine and named its Host.
 //
-// What the claim binds is fixed for its lifetime: pointing it elsewhere would
-// leave the machine it already bound without a release (power off, media
-// out) and a boot in flight for the old target. Re-targeting is a new claim.
+// The machine a claim names cannot be changed: pointing it elsewhere would
+// leave the first machine running without a release. To use another machine,
+// delete the claim and create a new one.
 // +kubebuilder:validation:XValidation:rule="self.assetRef == oldSelf.assetRef",message="assetRef is immutable: delete the claim and create another"
 // +kubebuilder:validation:XValidation:rule="has(self.systemRef) == has(oldSelf.systemRef) && (!has(self.systemRef) || self.systemRef == oldSelf.systemRef)",message="systemRef is immutable: delete the claim and create another"
 type HostClaimSpec struct {
 	// AssetRef names the Asset whose machine this claim binds.
 	AssetRef Reference `json:"assetRef"`
 
-	// SystemRef picks one ComputerSystem by its Redfish member id when the
-	// endpoint fronts several; optional when it fronts one.
+	// SystemRef picks one machine by its Redfish system id when the BMC
+	// manages more than one (a multi-node chassis). Leave it out when the BMC
+	// manages one machine.
 	// +optional
 	SystemRef *Reference `json:"systemRef,omitempty"`
 
-	// Labels is the intent axis for profile matching: a free-form label map
-	// (role: worker today; rack zone, tenant tier, GPU pool need no schema
-	// change) stamped onto the bound Host's metadata labels and cleared on
-	// release — an unclaimed machine carries no intent labels by construction.
-	// Keys are unprefixed (no "/"), so they can never collide with the
-	// discovered-fact labels stamped under metal.pk.io/.
+	// Labels are copied onto the bound Host and removed when the claim goes
+	// away, for example role: worker. EndpointProfiles and firmware plans
+	// select machines by them. Keys have no prefix (no "/"), so they never
+	// clash with the labels the operator sets under metal.pk.io/.
 	// +kubebuilder:validation:MaxProperties=16
 	// +kubebuilder:validation:XValidation:rule="self.all(k, size(k) <= 63 && k.matches('^[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?$'))",message="label keys must be unprefixed valid label names"
 	// +optional
 	Labels map[string]LabelValue `json:"labels,omitempty"`
 
-	// OS names the payload the bound machine runs. Without it the claim only
-	// reserves the machine (Assigned) — provisioning starts when the intent
-	// appears and the reconciler stamps it onto the Host.
+	// OS names the TalosNode the machine should run. Setting it proposes an
+	// install that erases the disk chosen by the TalosNode's
+	// installDiskSelector. Without it the claim only reserves the machine and
+	// nothing is done to it.
 	// +optional
 	OS *ClaimOS `json:"os,omitempty"`
 
@@ -65,17 +63,20 @@ type HostClaimSpec struct {
 	Provisioning *ClaimProvisioning `json:"provisioning,omitempty"`
 }
 
-// ProvisioningApproval says whether the operator's boot operation for this
-// claim waits for a person.
+// ProvisioningApproval says whether the operations the operator proposes for
+// this claim (install, and shutting down a running node on release) wait for a
+// person.
 // +kubebuilder:validation:Enum=Required;Automatic
 type ProvisioningApproval string
 
 const (
-	// ProvisioningApprovalRequired: the boot operation waits for a person to
-	// approve it — the default, because it powers the machine.
+	// ProvisioningApprovalRequired: each operation waits for a person to
+	// approve it (pk-metal approve). The default, because these operations
+	// erase disks and power machines off.
 	ProvisioningApprovalRequired ProvisioningApproval = "Required"
-	// ProvisioningApprovalAutomatic: the operator creates the boot operation
-	// pre-cleared — for cattle, where the claim itself is the decision.
+	// ProvisioningApprovalAutomatic: the operations run without approval.
+	// Use it for machines you can reinstall at any time, where merging the
+	// claim is the decision.
 	ProvisioningApprovalAutomatic ProvisioningApproval = "Automatic"
 )
 
@@ -87,21 +88,18 @@ type ClaimProvisioning struct {
 	Approval ProvisioningApproval `json:"approval,omitempty"`
 }
 
-// LabelValue is one intent label value, constrained to the k8s label-value
-// shape at the schema level (a value the Host metadata would reject must
-// already fail at claim admission).
+// LabelValue is one label value. It must be a valid Kubernetes label value,
+// so that a value the Host would reject is refused when you apply the claim.
 // +kubebuilder:validation:MaxLength=63
 // +kubebuilder:validation:Pattern=`^(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])?$`
 type LabelValue string
 
-// ClaimOS is the claim's OS intent. The node it names is fixed while the
-// intent stands: a boot operation and its hand-off record belong to one node,
-// and dropping the intent (which stops a boot still running) is the only way
-// to another.
+// ClaimOS names what the machine should run. The node cannot be changed in
+// place: an install belongs to one node. To switch, remove spec.os (which
+// stops an install still running) and set it again.
 // +kubebuilder:validation:XValidation:rule="self.nodeRef == oldSelf.nodeRef",message="os.nodeRef is immutable: drop the OS intent first, or create another claim"
 type ClaimOS struct {
-	// NodeRef names the TalosNode (os.pk.io, cluster-scoped) whose
-	// rendered config the machine boots.
+	// NodeRef names the TalosNode (os.pk.io) whose config the machine boots.
 	NodeRef Reference `json:"nodeRef"`
 }
 
@@ -126,8 +124,9 @@ type ClaimHandOff struct {
 	At metav1.Time `json:"at"`
 }
 
-// HostClaimStatus is the claim's side of the bind (the authoritative pointer is
-// Host.spec.claimRef — PV/PVC-style, first writer wins).
+// HostClaimStatus says which machine the claim holds and how far its install
+// got. The Host's spec.claimRef is what actually holds the machine; the first
+// claim to set it wins.
 type HostClaimStatus struct {
 	// HostRef names the bound Host.
 	// +optional
@@ -152,16 +151,37 @@ type HostClaimStatus struct {
 	// +optional
 	Phase ClaimPhase `json:"phase,omitempty"`
 
-	// BlockedOn is derived — why the claim isn't binding (AssetNotFound,
-	// HostAlreadyClaimed) or, once bound, why its machine isn't provisioning
-	// (SingleMediumUnsupported, OperationFailed); a reason, not a phase.
+	// BlockedOn says why the claim is not moving on: why it cannot bind
+	// (AssetNotFound, AssetNotMaterialized, HostAlreadyClaimed) or, once
+	// bound, why the install waits (Approval(Provisioning), HeldByUser,
+	// HostInMaintenance, OperationFailed). kubectl describe shows the message
+	// with the command to run.
 	// +optional
 	BlockedOn string `json:"blockedOn,omitempty"`
 }
 
-// HostClaim binds one Host exclusively, PVC-style. Namespaced so the door to
-// multi-team tenancy stays open (deferred: one core team today); lives in git —
-// claiming a machine is a reviewed change, not a live write.
+// HostClaim takes one machine for your use. What it does to the machine:
+//
+//   - Creating it with spec.os proposes installing that TalosNode. Once the
+//     install is approved, the disk picked by the TalosNode's
+//     installDiskSelector is erased and overwritten.
+//   - Deleting it releases the machine. If the operator installed the machine,
+//     it is shut down: a graceful shutdown first, then forced off after 5
+//     minutes (the manager's --release-shutdown-timeout). If the machine runs
+//     a node, the shutdown waits for approval unless
+//     spec.provisioning.approval is Automatic. A machine the claim never
+//     installed is left running.
+//   - Without spec.os the claim only reserves the machine; nothing is done to
+//     it.
+//
+// Each proposed step is a HostOperation; with approval Required (the
+// default) it waits until you run pk-metal approve <namespace>/<operation>.
+// To stop all proposals for a claim, set the metal.pk.io/hold annotation on
+// it. After a finished install, status.handOff records which machine runs
+// which node; the operator does not install it again.
+//
+// A claim binds exactly one Host, and only one claim can hold a Host. Keep
+// claims in git, so that taking a machine is a reviewed change.
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status

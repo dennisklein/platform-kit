@@ -25,14 +25,16 @@ const (
 	EndpointMismatch     EndpointPhase = "Mismatch"
 )
 
-// ManagementEndpointSpec is written by the operator when it materializes an Asset —
-// pure infrastructure, no claim (adoption is implied by a HostClaim on the Asset).
+// ManagementEndpointSpec is written by the operator from the Asset and the
+// ledger; you do not edit it.
 type ManagementEndpointSpec struct {
-	// AssetRef names the Asset this endpoint materializes and verifies against.
+	// AssetRef names the Asset this endpoint was made from, and whose serial
+	// and MAC it is checked against.
 	AssetRef Reference `json:"assetRef"`
 
-	// Address is the endpoint's base URL — an access path, never an identity
-	// (the multipath discipline: identity lives on Host.status.identity).
+	// Address is the BMC's https URL, from the ledger. It is how the operator
+	// reaches the machine, not what identifies it: a Host is identified by
+	// the serial number the BMC reports.
 	// +kubebuilder:validation:Pattern=`^https://`
 	Address string `json:"address"`
 
@@ -44,31 +46,31 @@ type ManagementEndpointSpec struct {
 	// +optional
 	CredentialsRef *corev1.LocalObjectReference `json:"credentialsRef,omitempty"`
 
-	// TLS pins how the endpoint's server certificate is verified. The hardware-PoC verdict:
-	// both vendors serve internal-ca identities (CN=bmc-<node>.metal.internal),
-	// so live endpoints pin that CA; unset falls back to the system trust store.
+	// TLS says how the BMC's HTTPS certificate is checked, from the manager's
+	// --bmc-ca-secret or --bmc-insecure. Unset uses the system's trusted CAs.
 	// +optional
 	TLS *EndpointTLS `json:"tls,omitempty"`
 }
 
-// EndpointTLS is the endpoint's server-certificate verification policy.
+// EndpointTLS says how a BMC's HTTPS certificate is checked.
 type EndpointTLS struct {
-	// CASecretRef names a Secret (operator namespace, key ca.crt) whose bundle
-	// verifies the endpoint's certificate. Wins over insecureSkipVerify.
+	// CASecretRef names a Secret (operator namespace, key ca.crt) with the
+	// CA that signed the BMC's certificate. Wins over insecureSkipVerify.
 	// +optional
 	CASecretRef *corev1.LocalObjectReference `json:"caSecretRef,omitempty"`
 
-	// InsecureSkipVerify accepts any certificate — the lab/sim fallback, never
-	// the live default (identity is solved: internal-ca on every BMC).
+	// InsecureSkipVerify accepts any certificate. For simulated BMCs in the
+	// lab only.
 	// +optional
 	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
 }
 
-// EndpointCapabilities is what the endpoint can DO — vendor asymmetries live in data,
-// not types (the HOW-is-data rule). Values mirror internal/bmc, grounded in the hardware PoC.
+// EndpointCapabilities is what this BMC can do, as discovered. Vendors differ
+// here, and the operator records the difference instead of assuming it.
 type EndpointCapabilities struct {
-	// DualMedia: two virtual media slots hold inserts concurrently (X12 yes,
-	// iBMC no) — gates the `secondary` config-delivery strategy.
+	// DualMedia: two virtual media slots can hold an image at the same time
+	// (Supermicro X12 yes, Huawei iBMC no) — needed to mount the installer
+	// and the node's config together.
 	// +optional
 	DualMedia bool `json:"dualMedia,omitempty"`
 
@@ -77,10 +79,10 @@ type EndpointCapabilities struct {
 	// +optional
 	MediaDialects map[string]string `json:"mediaDialects,omitempty"`
 
-	// UpdateDialect is the firmware-update transport the endpoint advertises
-	// ("multipart-push" | "simple-update" | "none"). Only multipart-push is
-	// proven on our hardware — the convergence reconciler proposes a flash
-	// nowhere else.
+	// UpdateDialect is the firmware-update method the BMC offers
+	// ("multipart-push" | "simple-update" | "none"). The operator proposes a
+	// firmware flash only over multipart-push, the one it has been tested
+	// with.
 	// +optional
 	UpdateDialect string `json:"updateDialect,omitempty"`
 
@@ -172,7 +174,8 @@ type DiscoveredMedia struct {
 	MediaTypes []string `json:"mediaTypes,omitempty"`
 }
 
-// ManagementEndpointStatus is discovered truth (assertion lives on the Asset).
+// ManagementEndpointStatus is what the BMC reports; what your records say is
+// on the Asset.
 type ManagementEndpointStatus struct {
 	// ManagerType is the discovered Redfish Manager type, kept opaque
 	// (BMC | EnclosureManager | RackManager | …).
@@ -202,8 +205,9 @@ type ManagementEndpointStatus struct {
 	// +optional
 	Firmware []FirmwareInventoryItem `json:"firmware,omitempty"`
 
-	// Systems lists the ComputerSystems this endpoint fronts (1 today, N-ready) —
-	// cached discovery like the rest of status: an unreachable endpoint keeps its
+	// Systems lists the machines (Redfish ComputerSystems) behind this BMC —
+	// usually one, several for a chassis with more than one node. It is
+	// kept like the rest of status: an unreachable endpoint keeps its
 	// last view.
 	// +listType=atomic
 	// +optional
@@ -247,8 +251,16 @@ type ManagementEndpointStatus struct {
 	BlockedOn string `json:"blockedOn,omitempty"`
 }
 
-// ManagementEndpoint is one realized Redfish manager (any managerType — BMC was too
-// narrow). Cluster-scoped; owned by the operator; verification = assertion vs discovery.
+// ManagementEndpoint is one BMC — iDRAC, iLO, XCC, iBMC or any other Redfish
+// controller — that the operator talks to. The operator creates it from an
+// Asset; you read it to see whether the BMC answers and what it reports
+// (kubectl get mep).
+//
+// Its status holds what the BMC reports: vendor, model, serial numbers, the
+// machines behind it, virtual media slots and firmware. The Verified
+// condition compares that with the Asset. Phase Mismatch means the BMC at
+// this address is not the machine the Asset describes, and the operator does
+// nothing to it; Unreachable means nothing answered at the address.
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status

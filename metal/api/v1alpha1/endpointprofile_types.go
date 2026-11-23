@@ -78,7 +78,7 @@ type IdentityPolicy struct {
 
 	// Domain completes the identity: CN and DNS SAN are
 	// bmc-<endpoint>.<domain>; the endpoint address, when an IP literal,
-	// rides along as IP SAN (clients dial IP literals on the island).
+	// is added as an IP SAN (clients often reach BMCs by IP address).
 	// +kubebuilder:default="metal.internal"
 	// +kubebuilder:validation:MinLength=1
 	// +optional

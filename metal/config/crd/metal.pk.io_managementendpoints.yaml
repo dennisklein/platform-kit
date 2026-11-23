@@ -38,7 +38,10 @@ spec:
       name: v1alpha1
       schema:
         openAPIV3Schema:
-          description: ManagementEndpoint is one realized Redfish manager (any managerType — BMC was too narrow). Cluster-scoped; owned by the operator; verification = assertion vs discovery.
+          description: |-
+            ManagementEndpoint is one BMC — iDRAC, iLO, XCC, iBMC or any other Redfish controller — that the operator talks to. The operator creates it from an Asset; you read it to see whether the BMC answers and what it reports (kubectl get mep).
+
+            Its status holds what the BMC reports: vendor, model, serial numbers, the machines behind it, virtual media slots and firmware. The Verified condition compares that with the Asset. Phase Mismatch means the BMC at this address is not the machine the Asset describes, and the operator does nothing to it; Unreachable means nothing answered at the address.
           properties:
             apiVersion:
               description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
@@ -49,14 +52,14 @@ spec:
             metadata:
               type: object
             spec:
-              description: ManagementEndpointSpec is written by the operator when it materializes an Asset — pure infrastructure, no claim (adoption is implied by a HostClaim on the Asset).
+              description: ManagementEndpointSpec is written by the operator from the Asset and the ledger; you do not edit it.
               properties:
                 address:
-                  description: 'Address is the endpoint''s base URL — an access path, never an identity (the multipath discipline: identity lives on Host.status.identity).'
+                  description: 'Address is the BMC''s https URL, from the ledger. It is how the operator reaches the machine, not what identifies it: a Host is identified by the serial number the BMC reports.'
                   pattern: ^https://
                   type: string
                 assetRef:
-                  description: AssetRef names the Asset this endpoint materializes and verifies against.
+                  description: AssetRef names the Asset this endpoint was made from, and whose serial and MAC it is checked against.
                   properties:
                     name:
                       type: string
@@ -73,10 +76,10 @@ spec:
                   type: object
                   x-kubernetes-map-type: atomic
                 tls:
-                  description: 'TLS pins how the endpoint''s server certificate is verified. The hardware-PoC verdict: both vendors serve internal-ca identities (CN=bmc-<node>.metal.internal), so live endpoints pin that CA; unset falls back to the system trust store.'
+                  description: TLS says how the BMC's HTTPS certificate is checked, from the manager's --bmc-ca-secret or --bmc-insecure. Unset uses the system's trusted CAs.
                   properties:
                     caSecretRef:
-                      description: CASecretRef names a Secret (operator namespace, key ca.crt) whose bundle verifies the endpoint's certificate. Wins over insecureSkipVerify.
+                      description: CASecretRef names a Secret (operator namespace, key ca.crt) with the CA that signed the BMC's certificate. Wins over insecureSkipVerify.
                       properties:
                         name:
                           default: ""
@@ -85,7 +88,7 @@ spec:
                       type: object
                       x-kubernetes-map-type: atomic
                     insecureSkipVerify:
-                      description: 'InsecureSkipVerify accepts any certificate — the lab/sim fallback, never the live default (identity is solved: internal-ca on every BMC).'
+                      description: InsecureSkipVerify accepts any certificate. For simulated BMCs in the lab only.
                       type: boolean
                   type: object
               required:
@@ -93,7 +96,7 @@ spec:
                 - assetRef
               type: object
             status:
-              description: ManagementEndpointStatus is discovered truth (assertion lives on the Asset).
+              description: ManagementEndpointStatus is what the BMC reports; what your records say is on the Asset.
               properties:
                 asset:
                   description: Asset caches the last-resolved assertion, so an asset-source outage degrades to the snapshot rather than failing resolution.
@@ -118,10 +121,10 @@ spec:
                   description: BoardSerial is the chassis board serial — the Supermicro identity anchor (its ComputerSystem serves none; Huawei's matches the system serial).
                   type: string
                 capabilities:
-                  description: EndpointCapabilities is what the endpoint can DO — vendor asymmetries live in data, not types (the HOW-is-data rule). Values mirror internal/bmc, grounded in the hardware PoC.
+                  description: EndpointCapabilities is what this BMC can do, as discovered. Vendors differ here, and the operator records the difference instead of assuming it.
                   properties:
                     dualMedia:
-                      description: 'DualMedia: two virtual media slots hold inserts concurrently (X12 yes, iBMC no) — gates the `secondary` config-delivery strategy.'
+                      description: 'DualMedia: two virtual media slots can hold an image at the same time (Supermicro X12 yes, Huawei iBMC no) — needed to mount the installer and the node''s config together.'
                       type: boolean
                     identityDialect:
                       description: 'IdentityDialect is how the manager''s HTTPS certificate is replaced ("csr-native" | "key-upload" | "none"): the iBMC generates its CSR on the manager — the key never leaves it — while the X12 takes a locally-generated leaf and key over an OEM upload.'
@@ -132,7 +135,7 @@ spec:
                       description: MediaDialects maps media slot id → insert dialect ("insert-media" | "vmm-control" | "none").
                       type: object
                     updateDialect:
-                      description: UpdateDialect is the firmware-update transport the endpoint advertises ("multipart-push" | "simple-update" | "none"). Only multipart-push is proven on our hardware — the convergence reconciler proposes a flash nowhere else.
+                      description: UpdateDialect is the firmware-update method the BMC offers ("multipart-push" | "simple-update" | "none"). The operator proposes a firmware flash only over multipart-push, the one it has been tested with.
                       type: string
                   type: object
                 conditions:
@@ -232,7 +235,7 @@ spec:
                     - Mismatch
                   type: string
                 systems:
-                  description: 'Systems lists the ComputerSystems this endpoint fronts (1 today, N-ready) — cached discovery like the rest of status: an unreachable endpoint keeps its last view.'
+                  description: 'Systems lists the machines (Redfish ComputerSystems) behind this BMC — usually one, several for a chassis with more than one node. It is kept like the rest of status: an unreachable endpoint keeps its last view.'
                   items:
                     description: DiscoveredSystem is one ComputerSystem as seen through this endpoint — the projection the HostReconciler joins into identity-keyed Hosts. ID is a path coordinate (an opaque Redfish member id), never an identity; identity is normalized in internal/identity over the serial anchors.
                     properties:
