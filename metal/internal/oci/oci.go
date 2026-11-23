@@ -25,7 +25,8 @@ import (
 
 // maxBytes bounds a fetched body. BMC images run tens of MB; anything near
 // this limit is a misconfigured reference, not firmware.
-const maxBytes = 256 << 20
+// A var only so that a test can lower it.
+var maxBytes = 256 << 20
 
 type manifest struct {
 	Layers []struct {
@@ -102,7 +103,7 @@ func fetch(ctx context.Context, hc *http.Client, url string, want digest.Digest,
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GET %s: %s", url, resp.Status)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(maxBytes)+1))
 	if err != nil {
 		return nil, err
 	}
