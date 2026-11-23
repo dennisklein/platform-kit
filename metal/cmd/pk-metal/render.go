@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -22,25 +20,24 @@ import (
 // bundle is read from a file or stdin, so a sealed bundle can be decrypted
 // straight into it without plaintext touching disk.
 func renderCmd(args []string) {
-	fs := flag.NewFlagSet("render", flag.ExitOnError)
+	fs := newFlags("render")
 	dir := fs.String("dir", "", "directory with TalosCluster/TalosNode (and patch ConfigMap) manifests (required)")
 	secretsFile := fs.String("secrets", "", "secrets bundle from `talosctl gen secrets`, or - for stdin (required)")
 	out := fs.String("out", "clusterconfig", "output directory: <node>.yaml per node, talosconfig, kubeconfig")
 	factoryHost := fs.String("image-factory", render.PublicFactory, "image factory host the installer image is named on")
 	register := fs.Bool("register", false, "tell the image factory about each schematic (needs network); off computes ids offline")
-	_ = fs.Parse(args)
+	parseFlags(fs, args)
 	if fs.NArg() != 0 || *dir == "" || *secretsFile == "" {
-		fmt.Fprintln(os.Stderr, "usage: pk-metal render --dir <manifests> --secrets <secrets.yaml|-> [--out clusterconfig] [--image-factory host] [--register]")
-		os.Exit(2)
+		badUsage(fs, "--dir and --secrets are required, and render takes no other arguments")
 	}
 
 	m, bundle := loadInputs(*dir, *secretsFile)
 	configs, err := renderAll(context.Background(), m, bundle, render.NewFactory(*factoryHost), *register)
 	if err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 	if err := os.MkdirAll(*out, 0o700); err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 	for name, cfg := range configs {
 		writeSecretFile(filepath.Join(*out, name+".yaml"), cfg)
@@ -56,12 +53,12 @@ func renderCmd(args []string) {
 	}
 	tc, err := render.Talosconfig(bundle, m.Cluster.Name, endpoints, 365*24*time.Hour)
 	if err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 	writeSecretFile(filepath.Join(*out, "talosconfig"), tc)
 	kc, err := render.Kubeconfig(bundle, m.Cluster.Name, m.Cluster.Spec.Endpoint, 365*24*time.Hour)
 	if err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 	writeSecretFile(filepath.Join(*out, "kubeconfig"), kc)
 	fmt.Printf("rendered %d node configs, talosconfig and kubeconfig for %s into %s\n", len(configs), m.Cluster.Name, *out)
@@ -71,7 +68,7 @@ func renderCmd(args []string) {
 func loadInputs(dir, secretsFile string) (*render.Manifests, *secrets.Bundle) {
 	m, err := render.LoadDir(dir)
 	if err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 	var data []byte
 	if secretsFile == "-" {
@@ -80,11 +77,11 @@ func loadInputs(dir, secretsFile string) (*render.Manifests, *secrets.Bundle) {
 		data, err = os.ReadFile(secretsFile)
 	}
 	if err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 	bundle, err := render.LoadBundle(data, m.Cluster.Spec.TalosVersion)
 	if err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 	return m, bundle
 }
@@ -128,6 +125,6 @@ func renderAll(ctx context.Context, m *render.Manifests, bundle *secrets.Bundle,
 // writeSecretFile writes owner-only: every output here carries key material.
 func writeSecretFile(path string, data []byte) {
 	if err := os.WriteFile(path, data, 0o600); err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 }

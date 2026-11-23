@@ -1,6 +1,5 @@
 // pk-metal is the operator's terminal twin: the day-0 executor and the typed successor
-// to tools/*.sh (ADR 0012). Verbs arrive with the features they front — see usage()
-// for the current set.
+// to tools/*.sh (ADR 0012). The verbs are listed in cli.go's command table.
 package main
 
 import (
@@ -32,39 +31,6 @@ import (
 // and by the image build.
 var version = "dev"
 
-func main() {
-	if len(os.Args) < 2 {
-		usage()
-		os.Exit(2)
-	}
-	switch os.Args[1] {
-	case "version":
-		fmt.Println(version)
-	case "sim":
-		simCmd(os.Args[2:])
-	case "inventory":
-		inventoryCmd(os.Args[2:])
-	case "check":
-		checkCmd(os.Args[2:])
-	case "status":
-		statusCmd(os.Args[2:])
-	case "approve":
-		approveCmd(os.Args[2:])
-	case "render":
-		renderCmd(os.Args[2:])
-	case "relay":
-		relayCmd(os.Args[2:])
-	case "boot":
-		bootCmd(os.Args[2:])
-	case "bootstrap":
-		bootstrapCmd(os.Args[2:])
-	default:
-		fmt.Fprintf(os.Stderr, "pk-metal: unknown command %q\n", os.Args[1])
-		usage()
-		os.Exit(2)
-	}
-}
-
 // connectFlags returns the shared endpoint/auth flag set for read-only verbs. The
 // password comes ONLY from PK_METAL_BMC_PASSWORD (never argv — the bmc-inventory.sh rule).
 func connectFlags(fs *flag.FlagSet) (user *string, insecure *bool) {
@@ -82,20 +48,19 @@ func mustConnect(endpoint string, user string, insecure, readOnly bool) bmc.Clie
 		ReadOnly: readOnly,
 	})
 	if err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 	return c
 }
 
 func inventoryCmd(args []string) {
-	fs := flag.NewFlagSet("inventory", flag.ExitOnError)
+	fs := newFlags("inventory")
 	node := fs.String("node", "", "node name for the fact file (default: derived from the endpoint host)")
 	address := fs.String("address", "", "address label for the fact file (default: endpoint host)")
 	user, insecure := connectFlags(fs)
-	_ = fs.Parse(args)
+	parseFlags(fs, args)
 	if fs.NArg() != 1 {
-		fmt.Fprintln(os.Stderr, "usage: pk-metal inventory [flags] <endpoint-url>")
-		os.Exit(2)
+		badUsage(fs, "give exactly one BMC URL, for example https://10.0.0.5")
 	}
 	endpoint := fs.Arg(0)
 	host := endpointHost(endpoint)
@@ -110,18 +75,17 @@ func inventoryCmd(args []string) {
 	defer c.Close()
 	facts, err := inventory.Gather(context.Background(), c)
 	if err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 	inventory.Write(os.Stdout, *node, *address, time.Now(), facts)
 }
 
 func checkCmd(args []string) {
-	fs := flag.NewFlagSet("check", flag.ExitOnError)
+	fs := newFlags("check")
 	user, insecure := connectFlags(fs)
-	_ = fs.Parse(args)
+	parseFlags(fs, args)
 	if fs.NArg() != 1 {
-		fmt.Fprintln(os.Stderr, "usage: pk-metal check [flags] <endpoint-url>")
-		os.Exit(2)
+		badUsage(fs, "give exactly one BMC URL, for example https://10.0.0.5")
 	}
 	c := mustConnect(fs.Arg(0), *user, *insecure, true) // check is read-only by construction
 	defer c.Close()
@@ -129,19 +93,19 @@ func checkCmd(args []string) {
 
 	m, err := c.Manager(ctx)
 	if err != nil {
-		log.Fatalf("check: FAIL — %v", err)
+		dief("check failed: %v", err)
 	}
 	fmt.Printf("manager:  %s fw %s\n", orDash(m.Vendor), orDash(m.FirmwareVersion))
 	caps, err := c.Capabilities(ctx)
 	if err != nil {
-		log.Fatalf("check: FAIL — %v", err)
+		dief("check failed: %v", err)
 	}
 	for _, id := range slices.Sorted(maps.Keys(caps.MediaDialect)) {
 		fmt.Printf("media:    %-14s dialect=%s\n", id, caps.MediaDialect[id])
 	}
 	systems, err := c.Systems(ctx)
 	if err != nil {
-		log.Fatalf("check: FAIL — %v", err)
+		dief("check failed: %v", err)
 	}
 	for _, s := range systems {
 		fmt.Printf("system:   %s serial=%s power=%s\n", s.ID, orDash(s.SerialNumber), s.PowerState)
@@ -170,32 +134,40 @@ func simCmd(args []string) {
 		return
 	}
 	if len(args) < 1 || args[0] != "serve" {
-		fmt.Fprintln(os.Stderr, `usage: pk-metal sim serve [--fixture <name|path>] [--listen addr] [--tls]
-       pk-metal sim fleet --config <file>`)
-		os.Exit(2)
+		w, code := os.Stderr, 1
+		if len(args) > 0 && (args[0] == "-h" || args[0] == "-help" || args[0] == "--help") {
+			w, code = os.Stdout, 0
+		}
+		fmt.Fprintln(w, `pk-metal sim: run simulated BMCs (Redfish) for tests and demos
+
+usage: pk-metal sim serve [--fixture <name|path>] [--listen addr] [--tls] [--verbose]
+       pk-metal sim fleet --config <file> [--verbose]
+
+run: pk-metal sim serve -h, or pk-metal sim fleet -h, for the flags`)
+		os.Exit(code)
 	}
-	fs := flag.NewFlagSet("sim serve", flag.ExitOnError)
+	fs := newFlags("sim serve")
 	fixture := fs.String("fixture", "generic",
 		"embedded fixture name ("+strings.Join(sim.Fixtures(), ", ")+") or a path to a fixture YAML")
 	listen := fs.String("listen", "127.0.0.1:8000", "listen address")
 	serveTLS := fs.Bool("tls", false, "serve HTTPS with an ephemeral self-signed certificate (what spec.address requires)")
 	verbose := fs.Bool("verbose", false, "log every request (default: only state-changing ones)")
-	_ = fs.Parse(args[1:])
+	parseFlags(fs, args[1:])
 
 	f, err := sim.LoadFixture(*fixture)
 	if err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 	// Bind BEFORE logging, so the "serving" line means the listener is really up.
 	ln, err := net.Listen("tcp", *listen)
 	if err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 	scheme := "http"
 	if *serveTLS {
 		cert, err := asset.EphemeralCert()
 		if err != nil {
-			log.Fatal(err)
+			die(err)
 		}
 		ln = tls.NewListener(ln, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12})
 		scheme = "https"
@@ -207,7 +179,7 @@ func simCmd(args []string) {
 		account = "account " + f.Accounts[0].Username + " / " + f.Accounts[0].Password
 	}
 	log.Printf("sim: serving %s (%s) on %s://%s/redfish/v1 (%s)", f.Name, f.Vendor, scheme, ln.Addr(), account)
-	log.Fatal(http.Serve(ln, logRequests(sim.NewServer(sim.NewState(f)), "sim", *verbose)))
+	die(http.Serve(ln, logRequests(sim.NewServer(sim.NewState(f)), "sim", *verbose)))
 }
 
 // logRequests is the sim's console: state-changing requests — power, media, boot,
@@ -264,21 +236,4 @@ type statusRecorder struct {
 func (r *statusRecorder) WriteHeader(code int) {
 	r.code = code
 	r.ResponseWriter.WriteHeader(code)
-}
-
-func usage() {
-	fmt.Fprintln(os.Stderr, `usage: pk-metal <command>
-
-commands:
-  version      print the build version (git sha8)
-  sim serve    serve a simulated Redfish endpoint from a fixture
-  sim fleet    serve several simulated BMCs from a fleet file, a machine behind each
-  inventory    Redfish inventory -> fact-file YAML on stdout (read-only)
-  check        preflight an endpoint: reachability, dialects, systems (read-only)
-  status       render the rack from the cluster: hosts, endpoints, pending claims
-  approve      approve a HostOperation as yourself (VAP-gated)
-  render       TalosCluster/TalosNode manifests -> Talos 1.14 machine configs, talosconfig, kubeconfig
-  relay        L4 reverse tunnel on a BMC-reachable box (media in, Redfish out)
-  boot         media boot ladder: grant-serve a config ISO, mount, override, power
-  bootstrap    day-0 without an operator: [apply configs], bootstrap etcd once, wait Ready`)
 }

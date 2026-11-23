@@ -2,17 +2,13 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
-	"log"
 	"os"
 	"slices"
 	"strings"
 	"text/tabwriter"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 )
@@ -21,24 +17,17 @@ import (
 // claims and path health, endpoints, and any claim still hunting for its machine.
 // Reads the kubeconfig-default cluster; no flags, no BMC connection.
 func statusCmd(args []string) {
-	fs := flag.NewFlagSet("status", flag.ExitOnError)
-	_ = fs.Parse(args)
+	fs := newFlags("status")
+	addGlobalFlags(fs)
+	parseFlags(fs, args)
 	if fs.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "usage: pk-metal status")
 		os.Exit(2)
 	}
 
-	s := runtime.NewScheme()
-	if err := metalv1alpha1.AddToScheme(s); err != nil {
-		log.Fatal(err)
-	}
-	cfg, err := config.GetConfig()
+	cl, err := newClient()
 	if err != nil {
-		log.Fatal(err)
-	}
-	cl, err := client.New(cfg, client.Options{Scheme: s})
-	if err != nil {
-		log.Fatal(err)
+		die(err)
 	}
 	ctx := context.Background()
 
@@ -48,7 +37,7 @@ func statusCmd(args []string) {
 	ops := &metalv1alpha1.HostOperationList{}
 	for _, list := range []client.ObjectList{hosts, eps, claims, ops} {
 		if err := cl.List(ctx, list); err != nil {
-			log.Fatal(err)
+			die(err)
 		}
 	}
 	fmt.Print(renderStatus(hosts.Items, eps.Items, claims.Items, ops.Items))

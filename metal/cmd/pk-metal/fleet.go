@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"flag"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -19,17 +17,16 @@ import (
 // nothing, a QEMU VM or a Talos container. It runs until interrupted, then
 // powers its machines off.
 func simFleetCmd(args []string) {
-	fs := flag.NewFlagSet("sim fleet", flag.ExitOnError)
+	fs := newFlags("sim fleet")
 	config := fs.String("config", "", "fleet file (YAML): the machines, their BMC addresses, identities and backends")
 	verbose := fs.Bool("verbose", false, "log every request (default: only state-changing ones)")
-	_ = fs.Parse(args)
+	parseFlags(fs, args)
 	if *config == "" {
-		fmt.Fprintln(os.Stderr, "usage: pk-metal sim fleet --config <file> [--verbose]")
-		os.Exit(2)
+		badUsage(fs, "--config is required")
 	}
 	cfg, err := fleet.Load(*config)
 	if err != nil {
-		log.Fatalf("sim fleet: %v", err)
+		dief("sim fleet: %v", err)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -40,7 +37,7 @@ func simFleetCmd(args []string) {
 		},
 	})
 	if err != nil {
-		log.Fatalf("sim fleet: %v", err)
+		dief("sim fleet: %v", err)
 	}
 	// Logged only now, so that each line means the listener is really up.
 	for _, ep := range f.Endpoints() {
@@ -67,6 +64,6 @@ func simFleetCmd(args []string) {
 		log.Printf("sim fleet: shutdown: %v", err)
 	}
 	if failure != nil {
-		log.Fatalf("sim fleet: %v", failure)
+		dief("sim fleet: %v", failure)
 	}
 }
