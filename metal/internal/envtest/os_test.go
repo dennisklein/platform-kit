@@ -96,7 +96,7 @@ func stubFactory(t *testing.T) (*render.Factory, func() []string) {
 
 func TestOSLane(t *testing.T) {
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
-		t.Skip("KUBEBUILDER_ASSETS unset — run via `make -C metal envtest`")
+		t.Skip("KUBEBUILDER_ASSETS unset — run via `mise run envtest`")
 	}
 	env := &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd")},

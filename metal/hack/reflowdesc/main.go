@@ -2,7 +2,7 @@
 // description fields verbatim, source line breaks included, and `kubectl explain`
 // re-wraps that pre-broken text into ragged orphan lines. This joins the lines inside
 // each paragraph (blank lines and bullet items survive) so descriptions flow at
-// whatever width the reader's terminal has. Runs as part of `make manifests`.
+// whatever width the reader's terminal has. Runs as part of `mise run generate`.
 //
 // usage: go run ./hack/reflowdesc <crd.yaml>...
 package main

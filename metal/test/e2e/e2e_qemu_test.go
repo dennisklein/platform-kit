@@ -14,7 +14,7 @@
 // certificates and endpoints — reachable identically from host and guest.
 //
 // Needs qemu-system-x86_64, /dev/kvm, OVMF, and the dev cluster; run via
-// `make -C metal e2e-qemu`.
+// `mise run e2e:qemu`.
 package e2e_test
 
 import (
@@ -111,7 +111,7 @@ func TestE2EQemu(t *testing.T) {
 	raw, err := clientcmd.NewDefaultClientConfigLoadingRules().Load()
 	require.NoError(t, err)
 	require.True(t, strings.HasPrefix(raw.CurrentContext, "kind-"),
-		"current kube-context %q is not a kind cluster — `make dev-up` and switch to kind-pk-metal", raw.CurrentContext)
+		"current kube-context %q is not a kind cluster — `mise run lab:up` and switch to kind-pk-metal", raw.CurrentContext)
 	cfg, err := ctrl.GetConfig()
 	require.NoError(t, err)
 

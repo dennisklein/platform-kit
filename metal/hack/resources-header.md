@@ -16,7 +16,7 @@ from: markdown-tex_math_dollars
 ---
 
 ::: {.callout-note appearance="simple"}
-This page is generated from the API types by `make -C metal docs`. Edit the Go
+This page is generated from the API types by `mise run docs`. Edit the Go
 doc comments, not this file. Behaviour — what the controllers *do* with these
 fields, and what every condition reason means — is written by hand in
 [Behaviour](behaviour.md).

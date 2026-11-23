@@ -9,7 +9,7 @@
 // no media channel, so the config travels --apply-insecure here and rides the
 // BMC's virtual media only from the QEMU tier up.
 //
-// Needs docker and the dev cluster (`make dev-up`); run via `make -C metal e2e-kind`.
+// Needs docker and the dev cluster (`mise run lab:up`); run via `mise run e2e:kind`.
 package e2e_test
 
 import (
@@ -85,7 +85,7 @@ func TestE2EKind(t *testing.T) {
 	raw, err := clientcmd.NewDefaultClientConfigLoadingRules().Load()
 	require.NoError(t, err)
 	require.True(t, strings.HasPrefix(raw.CurrentContext, "kind-"),
-		"current kube-context %q is not a kind cluster — `make dev-up` and switch to kind-pk-metal", raw.CurrentContext)
+		"current kube-context %q is not a kind cluster — `mise run lab:up` and switch to kind-pk-metal", raw.CurrentContext)
 	cfg, err := ctrl.GetConfig()
 	require.NoError(t, err)
 

@@ -1,0 +1,85 @@
+# Toolchain and tasks for platform-kit. `mise install` puts every CLI on $PATH at a known
+# version; `mise run <task>` (or `mise tasks` for the list) runs the build, test and lab
+# flows. https://mise.jdx.dev
+#
+# Pinning policy: the minor is pinned, the patch floats. Versions that must match a
+# running system (Talos, Kubernetes) are noted next to their pin.
+#
+# Not managed here (system packages): docker, qemu-system-x86_64, OVMF, iproute2,
+# iptables. The virtual lab checks for them in `mise run lab:doctor`.
+
+[tools]
+go = "1.26"
+# Talos 1.14 — the release the os.pk.io kinds render for (metal/go.mod pins machinery).
+talosctl = "1.14"
+# Kubernetes 1.36 — the k8s.io/* modules in metal/go.mod and the kind node image.
+kubectl = "1.36"
+kind = "0.32"
+golangci-lint = "2"
+jq = "1"
+yq = "4"
+
+[env]
+GOTOOLCHAIN = "local"
+
+[tasks.build]
+description = "Build the pk-metal CLI and the manager into metal/bin/"
+dir = "metal"
+run = [
+  "CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o bin/pk-metal ./cmd/pk-metal",
+  "CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o bin/manager ./cmd/manager",
+]
+
+[tasks.test]
+description = "Unit tests, and vet of the e2e build tag so the harness cannot rot"
+dir = "metal"
+run = ["go test ./...", "go vet -tags e2e ./test/e2e/"]
+
+[tasks.envtest]
+description = "Controller tests against a real kube-apiserver and etcd"
+dir = "metal"
+# The suite skips when KUBEBUILDER_ASSETS is unset, and a skip reports ok. Resolve the
+# path first and refuse an empty answer, so a failed download cannot read as a pass.
+run = '''
+assets=$(go tool setup-envtest use 1.36 --bin-dir "$PWD/bin/envtest" -p path)
+[ -n "$assets" ] || { echo "envtest: no control-plane binaries resolved for k8s 1.36" >&2; exit 1; }
+KUBEBUILDER_ASSETS="$assets" go test ./internal/envtest/
+'''
+
+[tasks.lint]
+description = "golangci-lint, the phase invariant and the docs coverage check"
+depends = ["lint:go", "lint:phase"]
+
+[tasks."lint:go"]
+dir = "metal"
+run = "golangci-lint run"
+
+[tasks."lint:phase"]
+description = "Reconcilers must not write .Status.Phase or .Status.BlockedOn; internal/phase is the only write site"
+dir = "metal"
+run = '''
+if grep -rEn '\.Status\.(Phase|BlockedOn)' internal/controller/; then
+  echo "lint:phase: reconcilers must not touch .Status.Phase/.Status.BlockedOn, go through internal/phase" >&2
+  exit 1
+fi
+echo "lint:phase: clean"
+'''
+
+[tasks.generate]
+description = "Regenerate deepcopy code, CRDs and RBAC from the API types"
+dir = "metal"
+run = [
+  "go tool controller-gen object paths=./api/...",
+  "go tool controller-gen crd paths=./api/... output:crd:artifacts:config=config/crd",
+  "go run ./hack/reflowdesc config/crd/*.yaml",
+]
+
+[tasks."e2e:kind"]
+description = "Kind tier: simulated BMC, a real Talos container, the full reconcile path"
+dir = "metal"
+run = "go test -tags e2e -count 1 -timeout 20m -run TestE2EKind -v ./test/e2e/"
+
+[tasks."e2e:qemu"]
+description = "VM tier: simulated BMC, a real UEFI VM, config over virtual media, a real install"
+dir = "metal"
+run = "go test -tags e2e -count 1 -timeout 40m -run TestE2EQemu -v ./test/e2e/"

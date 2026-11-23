@@ -61,7 +61,7 @@ func simServer(t *testing.T, fixture string) (*httptest.Server, *sim.State) {
 
 func TestReconcile(t *testing.T) {
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
-		t.Skip("KUBEBUILDER_ASSETS unset — run via `make -C metal envtest`")
+		t.Skip("KUBEBUILDER_ASSETS unset — run via `mise run envtest`")
 	}
 	env := &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd")},

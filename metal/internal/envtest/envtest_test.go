@@ -1,6 +1,6 @@
 // The API-scaffold gate: the generated CRDs install into a real apiserver, the types round-trip
 // through it, and the schema actually rejects what the markers claim it rejects.
-// Needs the envtest control-plane binaries — `make -C metal envtest` provides them and
+// Needs the envtest control-plane binaries — `mise run envtest` provides them and
 // runs this; a bare `go test ./...` skips.
 package envtest_test
 
@@ -23,7 +23,7 @@ import (
 
 func TestAPI(t *testing.T) {
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
-		t.Skip("KUBEBUILDER_ASSETS unset — run via `make -C metal envtest`")
+		t.Skip("KUBEBUILDER_ASSETS unset — run via `mise run envtest`")
 	}
 	env := &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd")},

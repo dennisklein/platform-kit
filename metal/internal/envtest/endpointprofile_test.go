@@ -60,7 +60,7 @@ const (
 
 func TestEndpointConvergence(t *testing.T) {
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
-		t.Skip("KUBEBUILDER_ASSETS unset — run via `make -C metal envtest`")
+		t.Skip("KUBEBUILDER_ASSETS unset — run via `mise run envtest`")
 	}
 	env := &envtest.Environment{
 		CRDDirectoryPaths: []string{
