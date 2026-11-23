@@ -1,0 +1,102 @@
+# The workload cluster the lab installs: one control plane and two workers on
+# the lab bridge, the Kubernetes API on a virtual IP the control plane holds.
+#
+#   node-1  10.77.0.11  control plane   (VIP 10.77.0.10)
+#   node-2  10.77.0.12  worker
+#   node-3  10.77.0.13  worker
+#
+# Links and install disks are selected by what lab/fleet.yaml gives each machine
+# (NIC MAC, disk serial), never by a device name that depends on probe order.
+# The gateway is the workstation's end of the bridge, which NATs.
+#
+# The secrets bundle is not here and the operator never makes one. `mise run
+# lab:up` generates it once on the workstation with `talosctl gen secrets` and
+# creates the Secret the cluster names below (key secrets.yaml).
+apiVersion: os.pk.io/v1alpha1
+kind: TalosCluster
+metadata:
+  name: lab
+spec:
+  talosVersion: v1.14.6
+  kubernetesVersion: v1.36.2
+  endpoint: https://10.77.0.10:6443
+  controlPlane:
+    vip: 10.77.0.10
+  network:
+    cni:
+      name: flannel
+  secretsRef:
+    namespace: pk-metal
+    name: lab-talos-secrets
+  schematic:
+    customization:
+      extraKernelArgs:
+        # The simulated BMC records the machine's serial console; without this
+        # the boot is invisible in .lab/state/<machine>/.
+        - console=ttyS0
+  patches:
+    # Talos holds the boot until the clock is synchronized, forever by default.
+    # A lab machine's clock comes from the workstation and is right from the
+    # first second, while NTP may not be reachable at all (a CI runner, a
+    # laptop behind a captive portal). Two minutes, then carry on.
+    - inline: |
+        apiVersion: v1alpha1
+        kind: TimeSyncConfig
+        bootTimeout: 2m0s
+---
+apiVersion: os.pk.io/v1alpha1
+kind: TalosNode
+metadata:
+  name: node-1
+spec:
+  clusterRef:
+    name: lab
+  role: controlplane
+  installDiskSelector:
+    serial: pklab-disk-1
+  network:
+    links:
+      - name: lan
+        hardwareAddr: "52:54:00:77:00:11"
+        addresses:
+          - 10.77.0.11/24
+        routes:
+          - gateway: 10.77.0.1
+---
+apiVersion: os.pk.io/v1alpha1
+kind: TalosNode
+metadata:
+  name: node-2
+spec:
+  clusterRef:
+    name: lab
+  role: worker
+  installDiskSelector:
+    serial: pklab-disk-2
+  network:
+    links:
+      - name: lan
+        hardwareAddr: "52:54:00:77:00:12"
+        addresses:
+          - 10.77.0.12/24
+        routes:
+          - gateway: 10.77.0.1
+---
+apiVersion: os.pk.io/v1alpha1
+kind: TalosNode
+metadata:
+  name: node-3
+spec:
+  clusterRef:
+    name: lab
+  role: worker
+  installDiskSelector:
+    serial: pklab-disk-3
+  network:
+    links:
+      - name: lan
+        hardwareAddr: "52:54:00:77:00:13"
+        addresses:
+          - 10.77.0.13/24
+        routes:
+          - gateway: 10.77.0.1

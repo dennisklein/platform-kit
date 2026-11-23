@@ -1,0 +1,45 @@
+# The decisions: each claim binds one machine, through its Asset, and says what
+# it is to run. This is what starts provisioning. The operator answers a bound
+# claim by proposing a boot operation, and a person lets it happen with
+# `pk-metal approve` (`mise run lab:approve`).
+apiVersion: metal.pk.io/v1alpha1
+kind: HostClaim
+metadata:
+  name: node-1
+  namespace: default
+spec:
+  assetRef:
+    name: node-1
+  labels:
+    role: controlplane
+  os:
+    nodeRef:
+      name: node-1
+---
+apiVersion: metal.pk.io/v1alpha1
+kind: HostClaim
+metadata:
+  name: node-2
+  namespace: default
+spec:
+  assetRef:
+    name: node-2
+  labels:
+    role: worker
+  os:
+    nodeRef:
+      name: node-2
+---
+apiVersion: metal.pk.io/v1alpha1
+kind: HostClaim
+metadata:
+  name: node-3
+  namespace: default
+spec:
+  assetRef:
+    name: node-3
+  labels:
+    role: worker
+  os:
+    nodeRef:
+      name: node-3

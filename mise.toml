@@ -111,3 +111,48 @@ run = "go test -tags e2e -count 1 -timeout 20m -run TestE2EKind -v ./test/e2e/"
 description = "VM tier: simulated BMC, a real UEFI VM, config over virtual media, a real install"
 dir = "metal"
 run = "go test -tags e2e -count 1 -timeout 40m -run TestE2EQemu -v ./test/e2e/"
+
+# The virtual lab (lab/README.md): a kind cluster running the operator, simulated BMCs
+# driving QEMU machines, and a bridge between them. The flow lives in lab/lab.sh; the
+# tasks exist so that it runs with the pinned tools on its PATH.
+
+[tasks."lab:doctor"]
+description = "Check the workstation for what the virtual lab needs; every miss names its fix"
+run = "lab/lab.sh doctor"
+
+[tasks."lab:up"]
+description = "Bring the virtual lab up: network, kind, operator, simulated fleet, lab manifests"
+depends = ["build"]
+run = "lab/lab.sh up"
+
+[tasks."lab:load"]
+description = "Build the operator image, load it into the lab's kind cluster and roll the manager"
+run = "lab/lab.sh deploy"
+
+[tasks."lab:status"]
+description = "The rack as the operator sees it, then every kind"
+run = "lab/lab.sh status"
+
+[tasks."lab:approve"]
+description = "Approve every operation that waits for a person"
+run = "lab/lab.sh approve"
+
+[tasks."lab:kubeconfig"]
+description = "Write the workload cluster's kubeconfig and talosconfig to .lab/"
+run = "lab/lab.sh kubeconfig"
+
+[tasks."lab:wait"]
+description = "Unattended: approve what is proposed and wait until every host is Provisioned and every node Ready"
+run = "lab/lab.sh wait"
+
+[tasks."lab:collect"]
+description = "Write logs and object dumps of the lab to .lab/diagnostics"
+run = "lab/lab.sh collect"
+
+[tasks."lab:down"]
+description = "Stop the fleet, delete the kind cluster, remove the lab network; keeps disks and caches"
+run = "lab/lab.sh down"
+
+[tasks."lab:reset"]
+description = "Wipe the lab machines' disks (the lab must be down)"
+run = "lab/lab.sh reset"

@@ -1,0 +1,50 @@
+# What the organization asserts about the three lab machines, and the credentials
+# that open their management controllers. In a real site these are the files a
+# person commits when a machine is racked; here they mirror lab/fleet.yaml.
+#
+# The operator joins each Asset's bmcMac against its ledger to find the
+# controller, logs in with the referenced Secret, and compares the serial the
+# machine reports with the one asserted here before it trusts the machine.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: lab-bmc
+  namespace: pk-metal
+type: Opaque
+stringData:
+  # The simulators' credentials from lab/fleet.yaml. They open nothing else.
+  username: admin
+  password: admin-pass
+---
+apiVersion: metal.pk.io/v1alpha1
+kind: Asset
+metadata:
+  name: node-1
+spec:
+  cid: PKLAB-0001
+  serial: PKLAB0001
+  bmcMac: "02:77:00:00:01:01"
+  credentialsRef:
+    name: lab-bmc
+---
+apiVersion: metal.pk.io/v1alpha1
+kind: Asset
+metadata:
+  name: node-2
+spec:
+  cid: PKLAB-0002
+  serial: PKLAB0002
+  bmcMac: "02:77:00:00:01:02"
+  credentialsRef:
+    name: lab-bmc
+---
+apiVersion: metal.pk.io/v1alpha1
+kind: Asset
+metadata:
+  name: node-3
+spec:
+  cid: PKLAB-0003
+  serial: PKLAB0003
+  bmcMac: "02:77:00:00:01:03"
+  credentialsRef:
+    name: lab-bmc
