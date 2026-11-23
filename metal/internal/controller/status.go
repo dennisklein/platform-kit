@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -57,6 +58,17 @@ func setCondition(conds *[]metav1.Condition, gen int64, t string, s metav1.Condi
 	meta.SetStatusCondition(conds, metav1.Condition{
 		Type: t, Status: s, Reason: reason, Message: msg, ObservedGeneration: gen,
 	})
+}
+
+// updateStatusIfChanged writes obj's status when after differs from before,
+// and does nothing otherwise. It uses Update, not a patch: these objects have
+// one status writer, and a resourceVersion conflict is how a pass learns it
+// worked from a stale read.
+func updateStatusIfChanged[S any](ctx context.Context, c client.Client, obj client.Object, before, after *S) error {
+	if equality.Semantic.DeepEqual(before, after) {
+		return nil
+	}
+	return c.Status().Update(ctx, obj)
 }
 
 // applyOwnedStatus sends obj's status as a server-side apply under owner. The

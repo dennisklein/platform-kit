@@ -10,7 +10,6 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -74,10 +73,8 @@ func (r *AssetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	if err != nil {
 		return res, err
 	}
-	if !equality.Semantic.DeepEqual(orig.Status, asset.Status) {
-		if err := r.Status().Update(ctx, asset); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
+	if err := updateStatusIfChanged(ctx, r.Client, asset, &orig.Status, &asset.Status); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	return res, nil
 }

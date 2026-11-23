@@ -11,7 +11,6 @@ import (
 
 	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -114,10 +113,8 @@ func (r *TalosClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if !equality.Semantic.DeepEqual(orig.Status, cluster.Status) {
-		if err := r.Status().Update(ctx, cluster); err != nil {
-			return ctrl.Result{}, err
-		}
+	if err := updateStatusIfChanged(ctx, r.Client, cluster, &orig.Status, &cluster.Status); err != nil {
+		return ctrl.Result{}, err
 	}
 	return res, nil
 }

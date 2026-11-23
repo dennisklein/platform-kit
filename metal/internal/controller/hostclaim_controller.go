@@ -142,12 +142,7 @@ func (r *HostClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 func (r *HostClaimReconciler) writeStatus(ctx context.Context, orig, claim *metalv1alpha1.HostClaim) error {
 	phase.StampClaim(claim)
-	if !equality.Semantic.DeepEqual(orig.Status, claim.Status) {
-		if err := r.Status().Update(ctx, claim); err != nil {
-			return client.IgnoreNotFound(err)
-		}
-	}
-	return nil
+	return client.IgnoreNotFound(updateStatusIfChanged(ctx, r.Client, claim, &orig.Status, &claim.Status))
 }
 
 // finishRelease runs the release while the finalizer holds the claim, and lets

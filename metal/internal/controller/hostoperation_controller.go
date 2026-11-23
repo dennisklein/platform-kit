@@ -11,7 +11,6 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -168,10 +167,7 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 	flush := func() error {
 		phase.StampOperation(op)
-		if equality.Semantic.DeepEqual(orig.Status, op.Status) {
-			return nil
-		}
-		if err := r.Status().Update(ctx, op); err != nil {
+		if err := updateStatusIfChanged(ctx, r.Client, op, &orig.Status, &op.Status); err != nil {
 			return err
 		}
 		orig = op.DeepCopy()

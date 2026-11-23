@@ -6,7 +6,6 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -80,10 +79,8 @@ func (r *BootAssetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
-	if !equality.Semantic.DeepEqual(orig.Status, ba.Status) {
-		if err := r.Status().Update(ctx, ba); err != nil {
-			return ctrl.Result{}, err
-		}
+	if err := updateStatusIfChanged(ctx, r.Client, ba, &orig.Status, &ba.Status); err != nil {
+		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, nil
 }

@@ -365,10 +365,8 @@ func (r *ConvergenceReconciler) bios(ctx context.Context, host *metalv1alpha1.Ho
 	}
 
 	setCondition(&settings.Status.Conditions, settings.Generation, metalv1alpha1.ConditionConverged, status, reason, msg)
-	if !equality.Semantic.DeepEqual(origSettings.Status, settings.Status) {
-		if err := r.Status().Update(ctx, settings); err != nil {
-			return false, client.IgnoreNotFound(err)
-		}
+	if err := updateStatusIfChanged(ctx, r.Client, settings, &origSettings.Status, &settings.Status); err != nil {
+		return false, client.IgnoreNotFound(err)
 	}
 	setCond(metalv1alpha1.ConditionBiosConverged, status, reason, msg)
 	return requeue, nil
