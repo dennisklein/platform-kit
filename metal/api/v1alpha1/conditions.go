@@ -200,6 +200,9 @@ const (
 	// ReasonReleaseFailed: the release operation failed — the machine stays
 	// bound until a person deletes the failed operation (which retries it).
 	ReasonReleaseFailed = "ReleaseFailed"
+	// ReasonHeldByUser: the claim carries the metal.pk.io/hold annotation —
+	// nothing is proposed for it until the annotation is removed.
+	ReasonHeldByUser = "HeldByUser"
 )
 
 // ConditionMaterialized: on an Asset — the operator found the BMC's address in

@@ -180,7 +180,7 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	if approvalRequired(op) && op.Spec.Approval.ApprovedBy == "" {
 		setCond(metalv1alpha1.ConditionApproved, metav1.ConditionFalse,
-			metalv1alpha1.ReasonAwaitingApproval, "a human must stamp spec.approval.approvedBy")
+			metalv1alpha1.ReasonAwaitingApproval, awaitingApprovalMessage(op))
 		return ctrl.Result{}, client.IgnoreNotFound(flush())
 	}
 	if approvalRequired(op) {
@@ -339,6 +339,17 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	r.Recorder.Eventf(op, nil, corev1.EventTypeNormal, metalv1alpha1.ReasonStepsSucceeded,
 		"Execute", "%d steps succeeded on host %s", len(op.Spec.Actions), op.Spec.HostRef.Name)
 	return ctrl.Result{}, client.IgnoreNotFound(flush())
+}
+
+// awaitingApprovalMessage says who may let the operation run and how; for an
+// operation serving a claim, also how to say no.
+func awaitingApprovalMessage(op *metalv1alpha1.HostOperation) string {
+	ref := op.Namespace + "/" + op.Name
+	msg := fmt.Sprintf("waits for a person other than %s to approve it: pk-metal approve %s", op.Spec.ProposedBy, ref)
+	if l := op.Labels; l[labelClaimName] != "" {
+		msg += fmt.Sprintf(". To say no for now: pk-metal hold %s/%s", l[labelClaimNamespace], l[labelClaimName])
+	}
+	return msg
 }
 
 // budgetLeft: the pass deadline is at least need away.

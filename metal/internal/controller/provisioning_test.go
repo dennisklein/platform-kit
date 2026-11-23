@@ -255,6 +255,67 @@ func TestReleaseOfARunningNodeWaitsForAPerson(t *testing.T) {
 	}
 }
 
+func TestHoldWithdrawsAndStopsProposals(t *testing.T) {
+	host := &metalv1alpha1.Host{ObjectMeta: metav1.ObjectMeta{Name: "host-a"}}
+	node := &osv1alpha1.TalosNode{ObjectMeta: metav1.ObjectMeta{Name: "node-b"}}
+	waiting := bootOp("boot", "node-b", false, false)
+	waiting.Spec.Approval = metalv1alpha1.OperationApproval{Required: ptr.To(true)}
+	r := claimReconcilerFor(t, host, node, waiting)
+	claim := testClaim("node-b")
+	claim.Annotations = map[string]string{metalv1alpha1.AnnotationHold: "change freeze until Monday"}
+
+	require.NoError(t, r.provision(t.Context(), claim, "host-a"))
+	c := meta.FindStatusCondition(claim.Status.Conditions, metalv1alpha1.ConditionProvisioned)
+	require.NotNil(t, c)
+	assert.Equal(t, metalv1alpha1.ReasonHeldByUser, c.Reason)
+	assert.Contains(t, c.Message, "change freeze until Monday", "the reason is shown")
+	assert.Contains(t, c.Message, "kubectl annotate hostclaim -n default claim metal.pk.io/hold-", "and how to lift it")
+	ops, err := r.claimOps(t.Context(), claim, purposeProvision)
+	require.NoError(t, err)
+	assert.Empty(t, ops, "the proposal waiting for approval is withdrawn, and none is made")
+}
+
+func TestHoldKeepsADeletedClaimsMachine(t *testing.T) {
+	claim := testClaim("node-b")
+	claim.Annotations = map[string]string{metalv1alpha1.AnnotationHold: ""}
+	claim.Status.HandOff = &metalv1alpha1.ClaimHandOff{Host: "host-a", Node: "node-b", Operation: "pk-metal/boot", At: metav1.Now()}
+	host := &metalv1alpha1.Host{
+		ObjectMeta: metav1.ObjectMeta{Name: "host-a"},
+		Spec: metalv1alpha1.HostSpec{
+			ClaimRef: &metalv1alpha1.ClaimReference{Namespace: claim.Namespace, Name: claim.Name, UID: claim.UID},
+		},
+	}
+	r := claimReconcilerFor(t, host)
+
+	done, err := r.release(t.Context(), claim, []metalv1alpha1.Host{*host})
+	require.NoError(t, err)
+	assert.False(t, done, "held: the machine is not handed back")
+	release, err := r.claimOps(t.Context(), claim, purposeRelease)
+	require.NoError(t, err)
+	assert.Empty(t, release, "no release is proposed while held")
+	c := meta.FindStatusCondition(claim.Status.Conditions, metalv1alpha1.ConditionProvisioned)
+	require.NotNil(t, c)
+	assert.Equal(t, metalv1alpha1.ReasonHeldByUser, c.Reason)
+
+	// Lifted, the release is proposed.
+	claim.Annotations = nil
+	done, err = r.release(t.Context(), claim, []metalv1alpha1.Host{*host})
+	require.NoError(t, err)
+	assert.False(t, done)
+	release, err = r.claimOps(t.Context(), claim, purposeRelease)
+	require.NoError(t, err)
+	assert.Len(t, release, 1)
+}
+
+func TestMessagesSayHowToApproveRefuseAndRetry(t *testing.T) {
+	claim := testClaim("node-b")
+	op := bootOp("provision-host-a-12345678", "node-b", false, false)
+	msg := awaitsApprovalMessage(claim, op, "boot", "install")
+	assert.Contains(t, msg, "pk-metal approve pk-metal/provision-host-a-12345678")
+	assert.Contains(t, msg, "pk-metal hold default/claim")
+	assert.Contains(t, awaitingApprovalMessage(op), "pk-metal hold default/claim", "the operation itself says it too")
+}
+
 func TestBootSlotsFollowMediaTypes(t *testing.T) {
 	ep := &metalv1alpha1.ManagementEndpoint{
 		ObjectMeta: metav1.ObjectMeta{Name: "ep"},

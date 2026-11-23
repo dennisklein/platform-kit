@@ -547,6 +547,29 @@ func TestProvisioning(t *testing.T) {
 		assert.Len(t, opsFor(dualHost, "provision"), 1, "nothing is proposed twice")
 	})
 
+	t.Run("a hold withdraws the proposal until it is lifted", func(t *testing.T) {
+		annotate := func(value string) {
+			c, err := claimOf("dual")
+			require.NoError(t, err)
+			require.NoError(t, cl.Patch(ctx, &c, client.RawPatch(types.MergePatchType,
+				[]byte(`{"metadata":{"annotations":{"metal.pk.io/hold":`+value+`}}}`))))
+		}
+		annotate(`"change freeze"`)
+		c := waitClaim("dual", func(c metalv1alpha1.HostClaim) bool { return c.Status.BlockedOn == metalv1alpha1.ReasonHeldByUser })
+		assert.Contains(t, provisioned(c).Message, "change freeze")
+		require.Eventually(t, func() bool { return len(opsFor(dualHost, "provision")) == 0 }, waitFor, tick,
+			"the proposal waiting for approval is withdrawn")
+		time.Sleep(3 * pollInterval)
+		assert.Empty(t, opsFor(dualHost, "provision"), "and none comes back while held")
+
+		annotate(`null`)
+		waitClaim("dual", func(c metalv1alpha1.HostClaim) bool {
+			p := provisioned(c)
+			return p != nil && strings.Contains(p.Message, "awaits approval") && c.Status.BlockedOn == ""
+		})
+		require.Len(t, opsFor(dualHost, "provision"), 1, "lifted, the same plan is proposed again")
+	})
+
 	t.Run("approval mounts both media with credentials, overrides, powers on", func(t *testing.T) {
 		op := opsFor(dualHost, "provision")[0]
 		key := client.ObjectKeyFromObject(&op)

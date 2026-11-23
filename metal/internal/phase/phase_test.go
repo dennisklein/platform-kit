@@ -175,6 +175,21 @@ func TestForClaim(t *testing.T) {
 		{name: "missing asset blocks",
 			conds: []metav1.Condition{c(metalv1alpha1.ConditionBound, metav1.ConditionFalse, metalv1alpha1.ReasonAssetNotFound)},
 			phase: metalv1alpha1.ClaimPending, blocked: "AssetNotFound"},
+		{name: "an asset with no endpoint blocks",
+			conds: []metav1.Condition{c(metalv1alpha1.ConditionBound, metav1.ConditionFalse, metalv1alpha1.ReasonAssetNotMaterialized)},
+			phase: metalv1alpha1.ClaimPending, blocked: "AssetNotMaterialized"},
+		{name: "a hold blocks a bound claim",
+			conds: []metav1.Condition{
+				c(metalv1alpha1.ConditionBound, metav1.ConditionTrue, metalv1alpha1.ReasonHostBound),
+				c(metalv1alpha1.ConditionProvisioned, metav1.ConditionFalse, metalv1alpha1.ReasonHeldByUser),
+			},
+			phase: metalv1alpha1.ClaimBound, blocked: "HeldByUser"},
+		{name: "waiting on an operation is not a block",
+			conds: []metav1.Condition{
+				c(metalv1alpha1.ConditionBound, metav1.ConditionTrue, metalv1alpha1.ReasonHostBound),
+				c(metalv1alpha1.ConditionProvisioned, metav1.ConditionFalse, metalv1alpha1.ReasonAwaitingOperation),
+			},
+			phase: metalv1alpha1.ClaimBound},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

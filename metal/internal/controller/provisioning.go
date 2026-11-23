@@ -159,6 +159,23 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 			return nil
 		}
 	}
+	// A person said no for now: nothing new is proposed, and what still waits
+	// for approval is taken back. An approved boot keeps running — stopping
+	// one halfway is what dropping spec.os is for.
+	if why, held := heldBy(claim); held {
+		if err := r.withdraw(ctx, ops, ""); err != nil {
+			return err
+		}
+		msg := fmt.Sprintf("held%s: no install is proposed while the claim carries the %s annotation. To go on: %s",
+			why, metalv1alpha1.AnnotationHold, releaseHoldCommand(claim))
+		for i := range ops {
+			if opActive(&ops[i]) && ops[i].DeletionTimestamp.IsZero() {
+				msg += fmt.Sprintf(". Boot operation %s/%s was approved before the hold and keeps running; to stop it, remove spec.os from the claim",
+					ops[i].Namespace, ops[i].Name)
+			}
+		}
+		return hold(metalv1alpha1.ReasonHeldByUser, msg)
+	}
 	if !meta.IsStatusConditionTrue(host.Status.Conditions, metalv1alpha1.ConditionVerified) {
 		return hold(metalv1alpha1.ReasonAwaitingVerification, fmt.Sprintf("host %s is not verified", hostName))
 	}
@@ -241,6 +258,9 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 		}
 		logf.FromContext(ctx).Info("proposed boot operation", "operation", op.Namespace+"/"+op.Name,
 			"host", hostName, "node", node.Name, "approvalRequired", *op.Spec.Approval.Required)
+		if *op.Spec.Approval.Required {
+			return hold(metalv1alpha1.ReasonAwaitingOperation, awaitsApprovalMessage(claim, op, "boot", "install"))
+		}
 		return hold(metalv1alpha1.ReasonAwaitingOperation, fmt.Sprintf("boot operation %s/%s proposed", op.Namespace, op.Name))
 	}
 
@@ -248,14 +268,41 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 	ref := current.Namespace + "/" + current.Name
 	switch {
 	case opAwaitsApproval(current):
-		return hold(metalv1alpha1.ReasonAwaitingOperation, "boot operation "+ref+" awaits approval")
+		return hold(metalv1alpha1.ReasonAwaitingOperation, awaitsApprovalMessage(claim, current, "boot", "install"))
 	case ex != nil && ex.Status == metav1.ConditionFalse:
 		return hold(metalv1alpha1.ReasonOperationFailed, fmt.Sprintf(
-			"boot operation %s failed: %s — delete it to try again", ref, ex.Message))
+			"boot operation %s failed: %s. To try again: pk-metal retry %s. To stop trying: pk-metal hold %s/%s",
+			ref, ex.Message, ref, claim.Namespace, claim.Name))
 	case ex != nil && ex.Message != "":
 		return hold(metalv1alpha1.ReasonAwaitingOperation, "boot operation "+ref+": "+ex.Message)
 	}
 	return hold(metalv1alpha1.ReasonAwaitingOperation, "boot operation "+ref+" in flight")
+}
+
+// heldBy reports whether the claim carries the hold annotation, with its
+// reason shaped for a message: " (reason)", or "" when none was given.
+func heldBy(claim *metalv1alpha1.HostClaim) (string, bool) {
+	v, ok := claim.Annotations[metalv1alpha1.AnnotationHold]
+	if !ok {
+		return "", false
+	}
+	if v = strings.TrimSpace(v); v != "" {
+		return " (" + v + ")", true
+	}
+	return "", true
+}
+
+// releaseHoldCommand is what a person runs to lift the hold.
+func releaseHoldCommand(claim *metalv1alpha1.HostClaim) string {
+	return fmt.Sprintf("kubectl annotate hostclaim -n %s %s %s-", claim.Namespace, claim.Name, metalv1alpha1.AnnotationHold)
+}
+
+// awaitsApprovalMessage tells a person what waits, and the commands that say
+// yes or no to it.
+func awaitsApprovalMessage(claim *metalv1alpha1.HostClaim, op *metalv1alpha1.HostOperation, kind, verb string) string {
+	ref := op.Namespace + "/" + op.Name
+	return fmt.Sprintf("%s operation %s awaits approval. To %s: pk-metal approve %s. To say no for now: pk-metal hold %s/%s",
+		kind, ref, verb, ref, claim.Namespace, claim.Name)
 }
 
 // recordHandOff writes the hand-off record onto the claim, once: a record
@@ -625,6 +672,7 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 		return false, err
 	}
 
+	why, held := heldBy(claim)
 	done := true
 	for i := range bound {
 		host := &bound[i]
@@ -641,6 +689,21 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 		// The decision to power off is made once, while the boot records are
 		// still there to read; the release operation then carries it.
 		if op != nil || bootRan(provisionOps, host.Name) || handedOff(claim, host.Name) {
+			// A hold stops the release before it is approved: the proposal is
+			// taken back, and none is made. One already running finishes.
+			if held && (op == nil || opAwaitsApproval(op)) {
+				if op != nil {
+					logf.FromContext(ctx).Info("withdrew release proposal of a held claim", "operation", op.Namespace+"/"+op.Name)
+					if err := r.Delete(ctx, op); client.IgnoreNotFound(err) != nil {
+						return false, err
+					}
+				}
+				set(metalv1alpha1.ReasonHeldByUser, fmt.Sprintf(
+					"held%s: the claim is deleted, but host %s is neither shut down nor released while the claim carries the %s annotation. To go on: %s",
+					why, host.Name, metalv1alpha1.AnnotationHold, releaseHoldCommand(claim)))
+				done = false
+				continue
+			}
 			if op == nil {
 				op = r.releaseOp(ctx, claim, host, name)
 				if err := r.Create(ctx, op); err != nil && !apierrors.IsAlreadyExists(err) {
@@ -654,13 +717,15 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 			case opAwaitsApproval(op):
 				set(metalv1alpha1.ReasonReleasing, fmt.Sprintf(
 					"host %s runs a node, so releasing it waits for a person: the release shuts the machine down "+
-						"(forced off after %s) and ejects its media. To go ahead: pk-metal approve %s/%s",
-					host.Name, r.releaseShutdownTimeout(), op.Namespace, op.Name))
+						"(forced off after %s) and ejects its media. To go ahead: pk-metal approve %s/%s. "+
+						"To keep the machine running for now: pk-metal hold %s/%s",
+					host.Name, r.releaseShutdownTimeout(), op.Namespace, op.Name, claim.Namespace, claim.Name))
 				done = false
 				continue
 			case ex != nil && ex.Status == metav1.ConditionFalse:
 				set(metalv1alpha1.ReasonReleaseFailed, fmt.Sprintf(
-					"release operation %s/%s failed: %s — delete it to retry", op.Namespace, op.Name, ex.Message))
+					"release operation %s/%s failed: %s. To try again: pk-metal retry %s/%s",
+					op.Namespace, op.Name, ex.Message, op.Namespace, op.Name))
 				done = false
 				continue
 			case ex == nil || ex.Status != metav1.ConditionTrue:
@@ -672,6 +737,11 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 		if err := r.releaseAll(ctx, []metalv1alpha1.Host{*host}, ""); err != nil {
 			return false, err
 		}
+	}
+	// A held claim keeps its boot records: they are what the release reads
+	// once the hold is lifted.
+	if held && !done {
+		return false, nil
 	}
 	// Running boot operations stop between steps once deleted; their grants
 	// die with them. They go only after the release operations exist, so a
