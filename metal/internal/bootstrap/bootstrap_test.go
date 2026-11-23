@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/talos"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/fake"
 )
 
@@ -166,18 +168,26 @@ func TestRunApplyInsecure(t *testing.T) {
 func TestRunLateEtcdBootstrapsOnce(t *testing.T) {
 	m := configured("booting", false)
 	m.SetEtcdStartsLate(true)
+	// Every round dials the machine, so the dials count the rounds.
+	var dials atomic.Int64
+	dial := func(ctx context.Context, tgt talos.Target) (talos.Client, error) {
+		dials.Add(1)
+		return m.Dialer()(ctx, tgt)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
 		done <- Run(ctx, Options{
-			Dial: m.Dialer(), Nodes: []Node{{Name: "node-1", Endpoint: "n1", ControlPlane: true}},
+			Dial: dial, Nodes: []Node{{Name: "node-1", Endpoint: "n1", ControlPlane: true}},
 			Talosconfig: []byte("tc"), Poll: time.Millisecond, Logf: t.Logf,
 		})
 	}()
 
 	require.Eventually(t, m.Bootstrapped, 5*time.Second, time.Millisecond)
-	time.Sleep(50 * time.Millisecond) // dozens of rounds with no etcd running
+	// Dozens of rounds with no etcd running.
+	mark := dials.Load()
+	require.Eventually(t, func() bool { return dials.Load() >= mark+30 }, 5*time.Second, time.Millisecond)
 	m.SetEtcdRunning(true)
 	m.SetStage("running", true)
 	require.NoError(t, <-done)
