@@ -46,6 +46,31 @@ jobs:
       - name: Controller tests (envtest)
         run: mise run envtest
 
+  # The same tests under the race detector. A separate job, so a data race
+  # reads as its own failure and the plain run above stays quick. The race
+  # build is several times larger, so it keeps its own cache.
+  race:
+    name: race detector
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
+      - name: Locate the Go caches
+        id: go
+        run: |
+          echo "modcache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "buildcache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go.outputs.modcache }}
+            ${{ steps.go.outputs.buildcache }}
+          key: go-race-${{ runner.os }}-${{ hashFiles('metal/go.sum') }}
+          restore-keys: go-race-${{ runner.os }}-
+      - name: Unit and controller tests with -race
+        run: mise run test:race
+
   lint:
     name: lint
     runs-on: ubuntu-latest

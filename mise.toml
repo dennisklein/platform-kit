@@ -57,6 +57,18 @@ assets=$(go tool setup-envtest use 1.36 --bin-dir "$PWD/bin/envtest" -p path)
 KUBEBUILDER_ASSETS="$assets" go test ./internal/envtest/
 '''
 
+[tasks."test:race"]
+description = "Unit and controller tests under the race detector (needs cgo and a C compiler)"
+dir = "metal"
+# The relay, the media server's grants, the simulator and the Redfish client all run
+# goroutines, and the reconcilers share their caches. The controller tests run here
+# too, so the same refusal of an empty asset path applies.
+run = '''
+assets=$(go tool setup-envtest use 1.36 --bin-dir "$PWD/bin/envtest" -p path)
+[ -n "$assets" ] || { echo "test:race: no control-plane binaries resolved for k8s 1.36" >&2; exit 1; }
+CGO_ENABLED=1 KUBEBUILDER_ASSETS="$assets" go test -race ./...
+'''
+
 [tasks.lint]
 description = "golangci-lint, the phase invariant and shellcheck"
 depends = ["lint:go", "lint:phase", "lint:shell"]
