@@ -242,3 +242,24 @@ func TestLadderNoPower(t *testing.T) {
 	require.NoError(t, err, "a running machine needs no consent when pk-metal does not touch power")
 	assert.True(t, res.ReadComplete, "the person's restart boots the medium")
 }
+
+// stuckMedia is a manager whose eject never takes: the slot reads inserted
+// for ever, and the media read ignores ctx the way a Redfish GET does.
+type stuckMedia struct{ bmc.Client }
+
+func (stuckMedia) Media(context.Context) ([]bmc.VirtualMedia, error) {
+	return []bmc.VirtualMedia{{ID: "CD", Inserted: true}}, nil
+}
+
+func (stuckMedia) EjectMedia(context.Context, string) error { return nil }
+
+// TestEjectAndVerifyHonoursCancel: a cancelled reconcile must not sit out the
+// ten-second eject window.
+func TestEjectAndVerifyHonoursCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	time.AfterFunc(100*time.Millisecond, cancel)
+	start := time.Now()
+	err := boot.EjectAndVerify(ctx, stuckMedia{}, "CD", nil)
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Less(t, time.Since(start), 2*time.Second, "cancellation must end the eject wait")
+}

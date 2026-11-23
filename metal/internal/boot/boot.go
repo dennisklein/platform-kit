@@ -21,6 +21,7 @@ import (
 
 	"github.com/dennisklein/platform-kit/metal/internal/asset"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
+	"github.com/dennisklein/platform-kit/metal/internal/poll"
 	"github.com/dennisklein/platform-kit/metal/internal/relay"
 )
 
@@ -336,19 +337,18 @@ func EjectAndVerify(ctx context.Context, c bmc.Client, slot string, logf func(st
 		return fmt.Errorf("boot: eject %s: %w", slot, err)
 	}
 	deadline := time.Now().Add(10 * time.Second)
-	for {
+	return poll.Until(ctx, poll.Every(200*time.Millisecond), func(ctx context.Context) (bool, error) {
 		inserted, err := slotInserted(ctx, c, slot)
-		if err != nil {
-			return err
+		switch {
+		case err != nil:
+			return false, err
+		case !inserted:
+			return true, nil
+		case time.Now().After(deadline):
+			return false, fmt.Errorf("boot: media %s still inserted after eject", slot)
 		}
-		if !inserted {
-			return nil
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("boot: media %s still inserted after eject", slot)
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
+		return false, nil
+	})
 }
 
 func slotInserted(ctx context.Context, c bmc.Client, slot string) (bool, error) {

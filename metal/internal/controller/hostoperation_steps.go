@@ -22,6 +22,7 @@ import (
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	"github.com/dennisklein/platform-kit/metal/internal/boot"
 	"github.com/dennisklein/platform-kit/metal/internal/oci"
+	"github.com/dennisklein/platform-kit/metal/internal/poll"
 )
 
 // defaultCheckInTimeout mirrors the schema default for awaitCheckIn.
@@ -112,17 +113,17 @@ func (x *exec) power(ctx context.Context) (bmc.PowerState, error) {
 // settle window ends; it returns the last reading.
 func (x *exec) settle(ctx context.Context, want bmc.PowerState) (bmc.PowerState, error) {
 	deadline := time.Now().Add(x.r.powerSettle())
-	for {
-		cur, err := x.power(ctx)
-		if err != nil || cur == want || time.Now().After(deadline) {
-			return cur, err
-		}
-		select {
-		case <-ctx.Done():
-			return cur, nil
-		case <-time.After(500 * time.Millisecond):
-		}
-	}
+	var (
+		cur bmc.PowerState
+		err error
+	)
+	// The end of ctx is not an error here: the caller reads the last
+	// reading, and its own ctx check reports the cancellation.
+	_ = poll.Until(ctx, poll.Every(500*time.Millisecond), func(ctx context.Context) (bool, error) {
+		cur, err = x.power(ctx)
+		return err != nil || cur == want || time.Now().After(deadline), nil
+	})
+	return cur, err
 }
 
 // powerTo converges the reported power state on want: already there is
@@ -548,19 +549,13 @@ func (r *HostOperationReconciler) flashFirmware(ctx context.Context, cl bmc.Clie
 	if err := cl.UpdateFirmware(ctx, image); err != nil {
 		return err
 	}
-	tick := time.NewTicker(2 * time.Second)
-	defer tick.Stop()
-	for {
+	if err := poll.Until(ctx, poll.Every(2*time.Second), func(ctx context.Context) (bool, error) {
 		// Mid-flash reads fail while the BMC reboots — expected, keep polling.
 		m, err := cl.Manager(ctx)
-		if err == nil && m.FirmwareVersion == a.Version &&
-			(before.LastResetTime.IsZero() || m.LastResetTime.After(before.LastResetTime)) {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("upload accepted but version %s never read back: %w", a.Version, ctx.Err())
-		case <-tick.C:
-		}
+		return err == nil && m.FirmwareVersion == a.Version &&
+			(before.LastResetTime.IsZero() || m.LastResetTime.After(before.LastResetTime)), nil
+	}); err != nil {
+		return fmt.Errorf("upload accepted but version %s never read back: %w", a.Version, err)
 	}
+	return nil
 }

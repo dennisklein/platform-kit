@@ -31,6 +31,7 @@ import (
 	"time"
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/poll"
 	"github.com/dennisklein/platform-kit/metal/internal/talos"
 )
 
@@ -281,16 +282,13 @@ func (o *Options) applyInsecure(ctx context.Context, n Node, poll time.Duration,
 
 // wait retries fn every poll until it succeeds or ctx ends; the last error
 // wins the report.
-func wait(ctx context.Context, poll time.Duration, fn func() error) error {
+func wait(ctx context.Context, every time.Duration, fn func() error) error {
 	var last error
-	for {
-		if last = fn(); last == nil {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("%w (last: %w)", ctx.Err(), last)
-		case <-time.After(poll):
-		}
+	if err := poll.Until(ctx, poll.Every(every), func(context.Context) (bool, error) {
+		last = fn()
+		return last == nil, nil
+	}); err != nil {
+		return fmt.Errorf("%w (last: %w)", err, last)
 	}
+	return nil
 }

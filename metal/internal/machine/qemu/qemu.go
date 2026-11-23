@@ -45,6 +45,7 @@ import (
 	"time"
 
 	"github.com/dennisklein/platform-kit/metal/internal/bmc/sim"
+	"github.com/dennisklein/platform-kit/metal/internal/poll"
 )
 
 // Options shapes one VM. Zero values take the documented defaults.
@@ -276,28 +277,33 @@ func (m *Machine) Start(ctx context.Context) error {
 	m.mu.Unlock()
 
 	deadline := time.Now().Add(15 * time.Second)
-	for {
+	exited := false
+	err = poll.Until(ctx, poll.Every(200*time.Millisecond), func(ctx context.Context) (bool, error) {
 		select {
 		case <-done:
-			return fmt.Errorf("qemu: exited during startup: %s", m.logTail())
-		case <-ctx.Done():
-			_ = m.Stop(context.WithoutCancel(ctx))
-			return ctx.Err()
+			exited = true
+			return false, fmt.Errorf("qemu: exited during startup: %s", m.logTail())
 		default:
 		}
-		if err := m.qmp(ctx, "query-status", nil); err == nil {
-			if err := m.afterBoot(ctx); err != nil {
-				_ = m.Stop(context.WithoutCancel(ctx))
-				return err
-			}
-			return nil
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		if m.qmp(ctx, "query-status", nil) == nil {
+			return true, nil
 		}
 		if time.Now().After(deadline) {
-			_ = m.Stop(context.WithoutCancel(ctx))
-			return fmt.Errorf("qemu: QMP never answered: %s", m.logTail())
+			return false, fmt.Errorf("qemu: QMP never answered: %s", m.logTail())
 		}
-		time.Sleep(200 * time.Millisecond)
+		return false, nil
+	})
+	if err == nil {
+		err = m.afterBoot(ctx)
 	}
+	if err != nil && !exited {
+		// A process that already exited has nothing left to stop.
+		_ = m.Stop(context.WithoutCancel(ctx))
+	}
+	return err
 }
 
 // Stop quits the VM — the machine goes off, the process goes away. A VM that

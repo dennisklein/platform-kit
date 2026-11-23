@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
+	"github.com/dennisklein/platform-kit/metal/internal/poll"
 )
 
 // The manager's HTTPS identity has three replacement surfaces. The two OEM
@@ -259,24 +259,24 @@ func (c *client) oemGenerateCSR(ctx context.Context, uri string, subject bmc.CSR
 	}
 	resp.Body.Close()
 
-	delay := 50 * time.Millisecond
-	for {
+	var csr []byte
+	err = poll.Until(ctx, taskBackoff, func(context.Context) (bool, error) {
 		var doc struct {
 			CertificateSigningRequest string
 		}
 		if _, err := c.getJSON(uri, &doc); err != nil {
-			return nil, fmt.Errorf("bmc: HttpsCert: %w", err)
+			return false, fmt.Errorf("bmc: HttpsCert: %w", err)
 		}
 		if strings.Contains(doc.CertificateSigningRequest, "BEGIN CERTIFICATE REQUEST") {
-			return []byte(doc.CertificateSigningRequest), nil
+			csr = []byte(doc.CertificateSigningRequest)
+			return true, nil
 		}
-		select {
-		case <-ctx.Done():
-			return nil, fmt.Errorf("bmc: CSR never appeared: %w", ctx.Err())
-		case <-time.After(delay):
-		}
-		delay = min(2*delay, 2*time.Second)
+		return false, nil
+	})
+	if err != nil && ctx.Err() != nil {
+		return nil, fmt.Errorf("bmc: CSR never appeared: %w", err)
 	}
+	return csr, err
 }
 
 // ImportServerCertificate hands the signed chain back to the manager that

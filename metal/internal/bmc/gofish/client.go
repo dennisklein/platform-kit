@@ -32,6 +32,7 @@ import (
 	"github.com/stmcginnis/gofish/schemas"
 
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
+	"github.com/dennisklein/platform-kit/metal/internal/poll"
 )
 
 type Config struct {
@@ -180,15 +181,12 @@ func (c *client) members(uri string) ([]string, error) {
 // the manager it is the expected end.
 var errTaskLost = errors.New("bmc: task monitor lost")
 
-// pollTask follows a task monitor to the end of the operation. The interval
-// starts short and backs off: a task on a real manager runs for minutes, one
-// on the sim for milliseconds.
+// pollTask follows a task monitor to the end of the operation.
 func (c *client) pollTask(ctx context.Context, uri string) error {
-	delay := 50 * time.Millisecond
-	for {
+	return poll.Until(ctx, taskBackoff, func(context.Context) (bool, error) {
 		resp, err := c.api.Get(uri)
 		if err != nil {
-			return fmt.Errorf("%w: %s: %v", errTaskLost, uri, err)
+			return false, fmt.Errorf("%w: %s: %v", errTaskLost, uri, err)
 		}
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
@@ -199,28 +197,25 @@ func (c *client) pollTask(ctx context.Context, uri string) error {
 		_ = json.Unmarshal(body, &task)
 		switch task.TaskState {
 		case "Completed":
-			return nil
+			return true, nil
 		case "Exception", "Killed", "Cancelled":
 			var why []string
 			for _, m := range task.Messages {
 				why = append(why, m.Message)
 			}
-			return fmt.Errorf("bmc: task %s: %s %s", uri, task.TaskState, strings.Join(why, "; "))
+			return false, fmt.Errorf("bmc: task %s: %s %s", uri, task.TaskState, strings.Join(why, "; "))
 		case "":
 			// A task monitor answers 202 while the operation runs and with the
 			// operation's own response once it is done — which is no Task.
-			if resp.StatusCode != http.StatusAccepted {
-				return nil
-			}
+			return resp.StatusCode != http.StatusAccepted, nil
 		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(delay):
-		}
-		delay = min(2*delay, 2*time.Second)
-	}
+		return false, nil
+	})
 }
+
+// taskBackoff paces task and CSR polling. It starts short and backs off: a
+// task on a real manager runs for minutes, one on the sim for milliseconds.
+var taskBackoff = poll.Backoff{Initial: 50 * time.Millisecond, Max: 2 * time.Second, Factor: 2}
 
 // pollAccepted follows the task behind a raw response, if the response was a
 // 202 naming a monitor. Some firmwares answer the same action synchronously.
