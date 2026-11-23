@@ -14,9 +14,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -187,7 +189,7 @@ func TestProvisioning(t *testing.T) {
 		return c, cl.Get(ctx, client.ObjectKey{Namespace: "default", Name: name}, &c)
 	}
 	provisioned := func(c metalv1alpha1.HostClaim) *metav1.Condition {
-		return findCondition(c.Status.Conditions, metalv1alpha1.ConditionProvisioned)
+		return meta.FindStatusCondition(c.Status.Conditions, metalv1alpha1.ConditionProvisioned)
 	}
 	waitClaim := func(name string, ok func(metalv1alpha1.HostClaim) bool) metalv1alpha1.HostClaim {
 		var last metalv1alpha1.HostClaim
@@ -230,12 +232,12 @@ func TestProvisioning(t *testing.T) {
 	}
 	executing := func(step string) func(metalv1alpha1.HostOperation) bool {
 		return func(op metalv1alpha1.HostOperation) bool {
-			ex := findCondition(op.Status.Conditions, metalv1alpha1.ConditionExecuted)
+			ex := meta.FindStatusCondition(op.Status.Conditions, metalv1alpha1.ConditionExecuted)
 			return ex != nil && ex.Reason == metalv1alpha1.ReasonExecuting && strings.Contains(ex.Message, step)
 		}
 	}
 	succeeded := func(op metalv1alpha1.HostOperation) bool {
-		ex := findCondition(op.Status.Conditions, metalv1alpha1.ConditionExecuted)
+		ex := meta.FindStatusCondition(op.Status.Conditions, metalv1alpha1.ConditionExecuted)
 		return ex != nil && ex.Status == metav1.ConditionTrue
 	}
 	// renderedNode creates a TalosNode whose render is scripted: the config
@@ -672,12 +674,12 @@ func TestProvisioning(t *testing.T) {
 			Spec:       metalv1alpha1.HostClaimSpec{AssetRef: metalv1alpha1.Reference{Name: "lab-dual"}},
 		}))
 		waitHost(dualHost, func(h metalv1alpha1.Host) bool {
-			return h.Status.Phase == metalv1alpha1.HostAssigned && slicesContain(h.Finalizers, "metal.pk.io/claim-protection")
+			return h.Status.Phase == metalv1alpha1.HostAssigned && slices.Contains(h.Finalizers, "metal.pk.io/claim-protection")
 		})
 		require.Eventually(t, func() bool {
 			ep := &metalv1alpha1.ManagementEndpoint{}
 			return cl.Get(ctx, client.ObjectKey{Name: "lab-dual"}, ep) == nil &&
-				slicesContain(ep.Finalizers, "metal.pk.io/claim-protection")
+				slices.Contains(ep.Finalizers, "metal.pk.io/claim-protection")
 		}, waitFor, tick, "the fronting endpoint is protected too")
 
 		// The asset goes; envtest runs no garbage collector, so its cascade is
@@ -687,7 +689,7 @@ func TestProvisioning(t *testing.T) {
 		require.NoError(t, cl.Delete(ctx, &metalv1alpha1.Host{ObjectMeta: metav1.ObjectMeta{Name: dualHost}}))
 
 		h := waitHost(dualHost, func(h metalv1alpha1.Host) bool {
-			d := findCondition(h.Status.Conditions, metalv1alpha1.ConditionDeletionHeld)
+			d := meta.FindStatusCondition(h.Status.Conditions, metalv1alpha1.ConditionDeletionHeld)
 			return d != nil && d.Status == metav1.ConditionTrue
 		})
 		assert.NotNil(t, h.DeletionTimestamp, "deletion requested, the host stays")
@@ -697,7 +699,7 @@ func TestProvisioning(t *testing.T) {
 			if cl.Get(ctx, client.ObjectKey{Name: "lab-dual"}, ep) != nil {
 				return false
 			}
-			d := findCondition(ep.Status.Conditions, metalv1alpha1.ConditionDeletionHeld)
+			d := meta.FindStatusCondition(ep.Status.Conditions, metalv1alpha1.ConditionDeletionHeld)
 			return d != nil && d.Reason == metalv1alpha1.ReasonHostClaimed
 		}, waitFor, tick, "the endpoint says why it is held")
 
@@ -712,13 +714,4 @@ func TestProvisioning(t *testing.T) {
 			return apierrors.IsNotFound(err) && apierrors.IsNotFound(epErr)
 		}, waitFor, tick, "released, the held objects go")
 	})
-}
-
-func slicesContain(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
 }

@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"slices"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -444,7 +445,7 @@ func identityDrift(leaf *x509.Certificate, desired identityDesired, renewBefore 
 		return fmt.Sprintf("served CN %q, want %q", leaf.Subject.CommonName, desired.CommonName)
 	}
 	for _, dns := range desired.DNSNames {
-		if !contains(leaf.DNSNames, dns) {
+		if !slices.Contains(leaf.DNSNames, dns) {
 			return fmt.Sprintf("served certificate lacks DNS SAN %q", dns)
 		}
 	}
@@ -465,15 +466,6 @@ func identityDrift(leaf *x509.Certificate, desired identityDesired, renewBefore 
 		return fmt.Sprintf("served certificate expires %s — inside the renewal window", leaf.NotAfter.Format(time.RFC3339))
 	}
 	return ""
-}
-
-func contains(list []string, want string) bool {
-	for _, s := range list {
-		if s == want {
-			return true
-		}
-	}
-	return false
 }
 
 func certFingerprint(c *x509.Certificate) string {

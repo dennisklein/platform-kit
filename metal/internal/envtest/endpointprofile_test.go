@@ -17,6 +17,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"net"
 	"net/http"
 	"slices"
@@ -111,7 +112,7 @@ func TestEndpointConvergence(t *testing.T) {
 		return last
 	}
 	configured := func(ep metalv1alpha1.ManagementEndpoint) *metav1.Condition {
-		return findCondition(ep.Status.Conditions, metalv1alpha1.ConditionConfigured)
+		return meta.FindStatusCondition(ep.Status.Conditions, metalv1alpha1.ConditionConfigured)
 	}
 	configuredReason := func(reason string) func(metalv1alpha1.ManagementEndpoint) bool {
 		return func(ep metalv1alpha1.ManagementEndpoint) bool {
@@ -213,7 +214,7 @@ func TestEndpointConvergence(t *testing.T) {
 		}, waitFor, tick)
 
 		ep := endpoint("ci-smc")
-		v := findCondition(ep.Status.Conditions, metalv1alpha1.ConditionVerified)
+		v := meta.FindStatusCondition(ep.Status.Conditions, metalv1alpha1.ConditionVerified)
 		require.NotNil(t, v)
 		assert.Equal(t, metav1.ConditionTrue, v.Status, "the endpoint stays verified through the rotation")
 	})

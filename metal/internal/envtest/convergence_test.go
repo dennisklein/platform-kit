@@ -10,6 +10,7 @@ package envtest_test
 import (
 	"encoding/json"
 	"fmt"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -134,7 +135,7 @@ func TestConvergence(t *testing.T) {
 		return bs
 	}
 	converged := func(bs metalv1alpha1.BiosSettings) *metav1.Condition {
-		return findCondition(bs.Status.Conditions, metalv1alpha1.ConditionConverged)
+		return meta.FindStatusCondition(bs.Status.Conditions, metalv1alpha1.ConditionConverged)
 	}
 	waitSettings := func(name string, ok func(metalv1alpha1.BiosSettings) bool) metalv1alpha1.BiosSettings {
 		var last metalv1alpha1.BiosSettings
@@ -178,7 +179,7 @@ func TestConvergence(t *testing.T) {
 			if err := cl.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &op); err != nil {
 				return false
 			}
-			c := findCondition(op.Status.Conditions, metalv1alpha1.ConditionExecuted)
+			c := meta.FindStatusCondition(op.Status.Conditions, metalv1alpha1.ConditionExecuted)
 			return c != nil && c.Status == metav1.ConditionTrue
 		}, waitFor, tick, "operation %s never succeeded", nsName)
 	}
@@ -290,9 +291,9 @@ func TestConvergence(t *testing.T) {
 		// by two reconcilers — wait for both to land.
 		h := waitHost(smcHost, func(h metalv1alpha1.Host) bool {
 			return h.Status.BlockedOn == "Approval(BiosConvergence)" &&
-				findCondition(h.Status.Conditions, metalv1alpha1.ConditionBiosConverged) != nil
+				meta.FindStatusCondition(h.Status.Conditions, metalv1alpha1.ConditionBiosConverged) != nil
 		})
-		c := findCondition(h.Status.Conditions, metalv1alpha1.ConditionBiosConverged)
+		c := meta.FindStatusCondition(h.Status.Conditions, metalv1alpha1.ConditionBiosConverged)
 		assert.Equal(t, metalv1alpha1.ReasonAwaitingOperation, c.Reason, "mirrored onto the host")
 	})
 
@@ -338,7 +339,7 @@ func TestConvergence(t *testing.T) {
 		assert.Equal(t, `"Enabled"`, string(bs.Status.Observed["CSMSupport"].Raw))
 		assert.Equal(t, `false`, string(bs.Status.Observed["QuietBoot"].Raw))
 		h := waitHost(smcHost, func(h metalv1alpha1.Host) bool {
-			c := findCondition(h.Status.Conditions, metalv1alpha1.ConditionBiosConverged)
+			c := meta.FindStatusCondition(h.Status.Conditions, metalv1alpha1.ConditionBiosConverged)
 			return c != nil && c.Status == metav1.ConditionTrue && h.Status.BlockedOn == ""
 		})
 		assert.Equal(t, metalv1alpha1.HostAssigned, h.Status.Phase)
@@ -421,7 +422,7 @@ func TestConvergence(t *testing.T) {
 			}}
 		require.NoError(t, cl.Create(ctx, fw))
 		h := waitHost(smcHost, func(h metalv1alpha1.Host) bool {
-			c := findCondition(h.Status.Conditions, metalv1alpha1.ConditionFirmwareConverged)
+			c := meta.FindStatusCondition(h.Status.Conditions, metalv1alpha1.ConditionFirmwareConverged)
 			return c != nil && c.Reason == metalv1alpha1.ReasonAwaitingOperation
 		})
 		require.NotNil(t, h.Status.FirmwareProposed)
@@ -439,7 +440,7 @@ func TestConvergence(t *testing.T) {
 		approve(h.Status.FirmwareProposed.Operation)
 		waitOpSucceeded(h.Status.FirmwareProposed.Operation)
 		waitHost(smcHost, func(h metalv1alpha1.Host) bool {
-			c := findCondition(h.Status.Conditions, metalv1alpha1.ConditionFirmwareConverged)
+			c := meta.FindStatusCondition(h.Status.Conditions, metalv1alpha1.ConditionFirmwareConverged)
 			return c != nil && c.Status == metav1.ConditionTrue
 		})
 		ep := metalv1alpha1.ManagementEndpoint{}
@@ -459,8 +460,8 @@ func TestConvergence(t *testing.T) {
 		waitOpSucceeded(bs.Status.Proposed.Operation)
 		waitSettings(smcHost, settingsReason(metalv1alpha1.ReasonInSync))
 		waitHost(smcHost, func(h metalv1alpha1.Host) bool {
-			b := findCondition(h.Status.Conditions, metalv1alpha1.ConditionBiosConverged)
-			f := findCondition(h.Status.Conditions, metalv1alpha1.ConditionFirmwareConverged)
+			b := meta.FindStatusCondition(h.Status.Conditions, metalv1alpha1.ConditionBiosConverged)
+			f := meta.FindStatusCondition(h.Status.Conditions, metalv1alpha1.ConditionFirmwareConverged)
 			return b != nil && b.Status == metav1.ConditionTrue && f != nil && f.Status == metav1.ConditionTrue
 		})
 	})
@@ -474,7 +475,7 @@ func TestConvergence(t *testing.T) {
 			}}
 		require.NoError(t, cl.Create(ctx, fw))
 		h := waitHost(huaweiHost, func(h metalv1alpha1.Host) bool {
-			c := findCondition(h.Status.Conditions, metalv1alpha1.ConditionFirmwareConverged)
+			c := meta.FindStatusCondition(h.Status.Conditions, metalv1alpha1.ConditionFirmwareConverged)
 			return c != nil && c.Reason == metalv1alpha1.ReasonNoUpdateTransport
 		})
 		assert.Nil(t, h.Status.FirmwareProposed, "drift is visible but nothing is proposed over an unproven transport")

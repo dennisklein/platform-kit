@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
@@ -344,7 +345,7 @@ func TestReconcile(t *testing.T) {
 		assert.Equal(t, metalv1alpha1.Reference{Name: "ref-2288h"}, h.Spec.OS.NodeRef)
 		// The intent engages the lane, but its TalosNode doesn't exist — the
 		// authoring error is an observation, not a phase.
-		osReady := findCondition(h.Status.Conditions, metalv1alpha1.ConditionOSReady)
+		osReady := meta.FindStatusCondition(h.Status.Conditions, metalv1alpha1.ConditionOSReady)
 		require.NotNil(t, osReady)
 		assert.Equal(t, metav1.ConditionUnknown, osReady.Status)
 		assert.Equal(t, metalv1alpha1.ReasonNodeNotFound, osReady.Reason)
@@ -400,7 +401,7 @@ func TestReconcile(t *testing.T) {
 
 		// No observation yet: the lane is engaged and waiting.
 		h := waitHost("simhw2288v5000391", func(h metalv1alpha1.Host) bool {
-			cond := findCondition(h.Status.Conditions, metalv1alpha1.ConditionOSReady)
+			cond := meta.FindStatusCondition(h.Status.Conditions, metalv1alpha1.ConditionOSReady)
 			return cond != nil && cond.Reason == metalv1alpha1.ReasonAwaitingContact
 		})
 		assert.Equal(t, metalv1alpha1.HostProvisioning, h.Status.Phase)
@@ -419,11 +420,11 @@ func TestReconcile(t *testing.T) {
 		require.NoError(t, cl.Status().Update(ctx, node))
 
 		h = waitHost("simhw2288v5000391", func(h metalv1alpha1.Host) bool {
-			cond := findCondition(h.Status.Conditions, metalv1alpha1.ConditionBooted)
+			cond := meta.FindStatusCondition(h.Status.Conditions, metalv1alpha1.ConditionBooted)
 			return cond != nil && cond.Status == metav1.ConditionTrue
 		})
 		assert.Equal(t, osv1alpha1.ReasonMaintenanceMode,
-			findCondition(h.Status.Conditions, metalv1alpha1.ConditionBooted).Reason)
+			meta.FindStatusCondition(h.Status.Conditions, metalv1alpha1.ConditionBooted).Reason)
 		assert.Equal(t, metalv1alpha1.HostProvisioning, h.Status.Phase, "blank machine is still provisioning")
 
 		// The node converges — Provisioned.
@@ -436,14 +437,14 @@ func TestReconcile(t *testing.T) {
 		require.NoError(t, cl.Status().Update(ctx, node))
 		h = waitHost("simhw2288v5000391", hostPhaseIs(metalv1alpha1.HostProvisioned))
 		assert.Equal(t, osv1alpha1.ReasonNodeReady,
-			findCondition(h.Status.Conditions, metalv1alpha1.ConditionOSReady).Reason)
+			meta.FindStatusCondition(h.Status.Conditions, metalv1alpha1.ConditionOSReady).Reason)
 
 		// Release: the OS observations leave with the claim.
 		c2 := claimByName("fleet-prov")
 		require.NoError(t, cl.Delete(ctx, &c2))
 		h = waitHost("simhw2288v5000391", hostPhaseIs(metalv1alpha1.HostAvailable))
-		assert.Nil(t, findCondition(h.Status.Conditions, metalv1alpha1.ConditionOSReady))
-		assert.Nil(t, findCondition(h.Status.Conditions, metalv1alpha1.ConditionBooted))
+		assert.Nil(t, meta.FindStatusCondition(h.Status.Conditions, metalv1alpha1.ConditionOSReady))
+		assert.Nil(t, meta.FindStatusCondition(h.Status.Conditions, metalv1alpha1.ConditionBooted))
 		require.NoError(t, cl.Delete(ctx, node))
 	})
 
@@ -456,7 +457,7 @@ func TestReconcile(t *testing.T) {
 
 		ep := waitPhase("ci-huawei", metalv1alpha1.EndpointMismatch)
 		assert.Equal(t, "SerialMismatch", ep.Status.BlockedOn)
-		cond := findCondition(ep.Status.Conditions, metalv1alpha1.ConditionVerified)
+		cond := meta.FindStatusCondition(ep.Status.Conditions, metalv1alpha1.ConditionVerified)
 		require.NotNil(t, cond)
 		assert.Equal(t, metav1.ConditionFalse, cond.Status)
 
@@ -504,7 +505,7 @@ func TestReconcile(t *testing.T) {
 			if cl.Get(ctx, client.ObjectKey{Name: "ci-unknown"}, a) != nil {
 				return false
 			}
-			cond = findCondition(a.Status.Conditions, metalv1alpha1.ConditionMaterialized)
+			cond = meta.FindStatusCondition(a.Status.Conditions, metalv1alpha1.ConditionMaterialized)
 			return cond != nil
 		}, waitFor, tick, "the asset says whether it materialized")
 		assert.Equal(t, metav1.ConditionFalse, cond.Status)
@@ -522,7 +523,7 @@ func TestReconcile(t *testing.T) {
 		c := waitClaim("unknown", func(c metalv1alpha1.HostClaim) bool {
 			return c.Status.BlockedOn == metalv1alpha1.ReasonAssetNotMaterialized
 		})
-		b := findCondition(c.Status.Conditions, metalv1alpha1.ConditionBound)
+		b := meta.FindStatusCondition(c.Status.Conditions, metalv1alpha1.ConditionBound)
 		require.NotNil(t, b)
 		assert.Contains(t, b.Message, "FF-FF-FF-FF-FF-FF")
 		require.NoError(t, cl.Delete(ctx, &c))
@@ -530,7 +531,7 @@ func TestReconcile(t *testing.T) {
 		// A known asset's condition names its endpoint.
 		a := &metalv1alpha1.Asset{}
 		require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: "ci-smc"}, a))
-		m := findCondition(a.Status.Conditions, metalv1alpha1.ConditionMaterialized)
+		m := meta.FindStatusCondition(a.Status.Conditions, metalv1alpha1.ConditionMaterialized)
 		require.NotNil(t, m)
 		assert.Equal(t, metav1.ConditionTrue, m.Status)
 	})
@@ -635,10 +636,10 @@ func TestReconcile(t *testing.T) {
 		// not error (the host stays in its phase).
 		require.NoError(t, smcState.SetPower(ctx, "1", bmc.ActionForceRestart))
 		h := waitHost("simx12b000001", func(h metalv1alpha1.Host) bool {
-			d := findCondition(h.Status.Conditions, metalv1alpha1.ConditionDrifted)
+			d := meta.FindStatusCondition(h.Status.Conditions, metalv1alpha1.ConditionDrifted)
 			return d != nil && d.Status == metav1.ConditionTrue
 		})
-		d := findCondition(h.Status.Conditions, metalv1alpha1.ConditionDrifted)
+		d := meta.FindStatusCondition(h.Status.Conditions, metalv1alpha1.ConditionDrifted)
 		assert.Equal(t, metalv1alpha1.ReasonUnexpectedReset, d.Reason)
 		assert.Equal(t, metalv1alpha1.HostAvailable, h.Status.Phase, "drift is not a failure")
 	})
@@ -652,7 +653,7 @@ func TestReconcile(t *testing.T) {
 		annotate(`"replacing DIMM B2"`)
 		h := waitHost("simx12b000001", hostPhaseIs(metalv1alpha1.HostMaintenance))
 		assert.Equal(t, metalv1alpha1.ReasonHostInMaintenance, h.Status.BlockedOn)
-		m := findCondition(h.Status.Conditions, metalv1alpha1.ConditionMaintenance)
+		m := meta.FindStatusCondition(h.Status.Conditions, metalv1alpha1.ConditionMaintenance)
 		require.NotNil(t, m)
 		assert.Contains(t, m.Message, "replacing DIMM B2", "the person's reason is shown")
 
@@ -671,7 +672,7 @@ func TestReconcile(t *testing.T) {
 		waitOp("cycle-in-maintenance", opPhaseIs(metalv1alpha1.OperationSucceeded))
 		assert.Equal(t, before+1, smcState.Resets("1"))
 		h = waitHost("simx12b000001", hostPhaseIs(metalv1alpha1.HostAvailable))
-		assert.Nil(t, findCondition(h.Status.Conditions, metalv1alpha1.ConditionMaintenance))
+		assert.Nil(t, meta.FindStatusCondition(h.Status.Conditions, metalv1alpha1.ConditionMaintenance))
 	})
 }
 
@@ -680,13 +681,4 @@ func readFile(t *testing.T, path string) string {
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	return string(data)
-}
-
-func findCondition(conds []metav1.Condition, t string) *metav1.Condition {
-	for i := range conds {
-		if conds[i].Type == t {
-			return &conds[i]
-		}
-	}
-	return nil
 }
