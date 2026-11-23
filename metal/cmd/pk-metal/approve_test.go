@@ -49,7 +49,9 @@ func bootPlan() (*metalv1alpha1.HostOperation, []client.Object) {
 			},
 		},
 		Status: metalv1alpha1.HostOperationStatus{
-			Phase: metalv1alpha1.OperationAwaitingApproval, BlockedOn: metalv1alpha1.ReasonAwaitingApproval},
+			Phase: metalv1alpha1.OperationAwaitingApproval, BlockedOn: metalv1alpha1.ReasonAwaitingApproval,
+			Conditions: []metav1.Condition{{Type: metalv1alpha1.ConditionApproved, Status: metav1.ConditionFalse,
+				Reason: metalv1alpha1.ReasonAwaitingApproval}}},
 	}
 	host := &metalv1alpha1.Host{
 		ObjectMeta: metav1.ObjectMeta{Name: "pk0001"},
@@ -273,11 +275,29 @@ func TestApprove(t *testing.T) {
 
 	t.Run("a finished operation has nothing to approve", func(t *testing.T) {
 		op, objs := bootPlan()
-		op.Status.Phase = metalv1alpha1.OperationFailed
+		op.Status.Conditions = append(op.Status.Conditions, executed(metav1.ConditionFalse))
 		var out bytes.Buffer
 		a := req(op, &out)
 		a.Yes = true
 		assert.ErrorContains(t, approve(ctx, fakeClient(objs...), a), "has finished (Failed)")
+	})
+
+	t.Run("the conditions decide, not a stale phase", func(t *testing.T) {
+		// The phase is written after the conditions and can lag behind them.
+		op, objs := bootPlan()
+		op.Status.Phase = metalv1alpha1.OperationFailed
+		var out bytes.Buffer
+		a := req(op, &out)
+		a.Yes = true
+		require.NoError(t, approve(ctx, fakeClient(objs...), a), "no Executed outcome: the operation still waits")
+
+		op, objs = bootPlan()
+		op.Status.Conditions = append(op.Status.Conditions, executed(metav1.ConditionTrue))
+		out.Reset()
+		a = req(op, &out)
+		a.Yes = true
+		assert.ErrorContains(t, approve(ctx, fakeClient(objs...), a), "has finished (Succeeded)",
+			"an AwaitingApproval phase does not hide a recorded outcome")
 	})
 }
 
@@ -288,7 +308,7 @@ func TestListPending(t *testing.T) {
 	auto.Spec.Approval.Required = ptr.To(false)
 	done := op.DeepCopy()
 	done.Name, done.ResourceVersion = "done", ""
-	done.Status.Phase = metalv1alpha1.OperationSucceeded
+	done.Status.Conditions = append(done.Status.Conditions, executed(metav1.ConditionTrue))
 	cl := fakeClient(append(objs, auto, done)...)
 
 	var out bytes.Buffer
@@ -310,4 +330,13 @@ func TestShortDuration(t *testing.T) {
 	} {
 		assert.Equal(t, want, shortDuration(d))
 	}
+}
+
+// executed is the executor's outcome condition.
+func executed(status metav1.ConditionStatus) metav1.Condition {
+	reason := metalv1alpha1.ReasonStepFailed
+	if status == metav1.ConditionTrue {
+		reason = metalv1alpha1.ReasonStepsSucceeded
+	}
+	return metav1.Condition{Type: metalv1alpha1.ConditionExecuted, Status: status, Reason: reason}
 }

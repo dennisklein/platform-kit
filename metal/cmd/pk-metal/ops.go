@@ -64,9 +64,9 @@ func retry(ctx context.Context, cl client.Client, namespace, name string, w io.W
 		return err
 	}
 	ref := op.Namespace + "/" + op.Name
-	if op.Status.Phase != metalv1alpha1.OperationFailed {
+	if p := opPhase(op); p != metalv1alpha1.OperationFailed {
 		return fmt.Errorf("operation %s is %s, not Failed; retry deletes failed operations only",
-			ref, orDash(string(op.Status.Phase)))
+			ref, orDash(string(p)))
 	}
 	if why := explain(op.Status.Conditions, "", metalv1alpha1.ConditionExecuted); why != "" {
 		fmt.Fprintf(w, "operation %s failed: %s\n", ref, why)

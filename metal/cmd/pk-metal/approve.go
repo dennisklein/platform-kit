@@ -22,6 +22,7 @@ import (
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/phase"
 )
 
 func init() {
@@ -134,8 +135,8 @@ func approve(ctx context.Context, cl client.Client, a approval) error {
 	case op.Spec.Approval.ApprovedBy != "":
 		return fmt.Errorf("operation %s is already approved by %s (an approval cannot be changed)",
 			ref, op.Spec.Approval.ApprovedBy)
-	case op.Status.Phase == metalv1alpha1.OperationSucceeded || op.Status.Phase == metalv1alpha1.OperationFailed:
-		return fmt.Errorf("operation %s has finished (%s); there is nothing to approve", ref, op.Status.Phase)
+	case finished(op):
+		return fmt.Errorf("operation %s has finished (%s); there is nothing to approve", ref, opPhase(op))
 	case op.Spec.Approval.Required != nil && !*op.Spec.Approval.Required:
 		return fmt.Errorf("operation %s does not need approval; the operator runs it on its own", ref)
 	case op.Spec.ProposedBy == a.User:
@@ -179,11 +180,25 @@ func approve(ctx context.Context, cl client.Client, a approval) error {
 	return nil
 }
 
+// opPhase derives the operation's phase from its conditions. The stored
+// phase is a summary for people to read, written after the conditions; a
+// decision reads the conditions themselves, so a phase that lags behind them
+// cannot make approve or retry act on the wrong operation.
+func opPhase(op *metalv1alpha1.HostOperation) metalv1alpha1.OperationPhase {
+	p, _ := phase.ForOperation(op.Status.Conditions)
+	return p
+}
+
+// finished: the executor recorded an outcome, success or failure.
+func finished(op *metalv1alpha1.HostOperation) bool {
+	p := opPhase(op)
+	return p == metalv1alpha1.OperationSucceeded || p == metalv1alpha1.OperationFailed
+}
+
 // waitsForApproval: the operation needs a person and nobody has approved it.
-// It does not wait for the status: a just-proposed operation has no phase yet.
+// It does not wait for the status: a just-proposed operation has no conditions yet.
 func waitsForApproval(op *metalv1alpha1.HostOperation) bool {
-	switch op.Status.Phase {
-	case metalv1alpha1.OperationSucceeded, metalv1alpha1.OperationFailed:
+	if finished(op) {
 		return false
 	}
 	required := op.Spec.Approval.Required == nil || *op.Spec.Approval.Required

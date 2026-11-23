@@ -22,7 +22,11 @@ func TestRetry(t *testing.T) {
 	err := retry(ctx, fakeClient(objs...), op.Namespace, op.Name, &out)
 	assert.ErrorContains(t, err, "is AwaitingApproval, not Failed", "only failed operations are retried")
 
-	op.Status.Phase = metalv1alpha1.OperationFailed
+	stale := op.DeepCopy()
+	stale.Status.Phase = metalv1alpha1.OperationFailed
+	err = retry(ctx, fakeClient(append([]client.Object{stale}, objs[1:]...)...), op.Namespace, op.Name, &out)
+	assert.ErrorContains(t, err, "not Failed", "a stale Failed phase without a failed outcome is not retried")
+
 	op.Status.Conditions = []metav1.Condition{{Type: metalv1alpha1.ConditionExecuted, Status: metav1.ConditionFalse,
 		Reason: metalv1alpha1.ReasonStepFailed, Message: "step 7/9 awaitCheckIn: gave up after 30m0s"}}
 	claim := &metalv1alpha1.HostClaim{
