@@ -14,7 +14,7 @@ import (
 // secure dial takes over and the insecure one dies with the maintenance service.
 func TestLadder(t *testing.T) {
 	ctx := context.Background()
-	m := NewMachine("v1.13.4")
+	m := NewMachine("v1.14.6")
 	dial := m.Dialer()
 
 	// Secure dial before any config: nothing serves the cluster PKI.
@@ -26,7 +26,7 @@ func TestLadder(t *testing.T) {
 
 	v, err := c.Version(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, "v1.13.4", v)
+	assert.Equal(t, "v1.14.6", v)
 
 	st, err := c.Status(ctx)
 	require.NoError(t, err)
@@ -56,9 +56,35 @@ func TestLadder(t *testing.T) {
 	assert.Equal(t, [][]byte{[]byte("cfg")}, m.Applied())
 }
 
+// Talos refuses a second bootstrap of a node with etcd data, and only a node
+// running etcd lists members.
+func TestBootstrapOnceAndEtcd(t *testing.T) {
+	ctx := context.Background()
+	fleet := NewFleet()
+	m := NewMachine("v1.14.6")
+	m.Configure([]byte("cfg"))
+	fleet.Add("10.77.0.11", "node-1", m)
+	dial := fleet.Dialer()
+
+	c, err := dial(ctx, talos.Target{Endpoint: "10.77.0.11:50000", Talosconfig: []byte("tc")})
+	require.NoError(t, err, "the fleet routes host:port by host")
+	_, err = c.EtcdMembers(ctx)
+	require.Error(t, err, "no etcd before bootstrap")
+
+	require.NoError(t, c.Bootstrap(ctx))
+	members, err := c.EtcdMembers(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"node-1"}, members)
+	require.ErrorIs(t, c.Bootstrap(ctx), talos.ErrAlreadyBootstrapped)
+	assert.Equal(t, 2, m.BootstrapCalls())
+
+	_, err = dial(ctx, talos.Target{Endpoint: "10.77.0.99", Talosconfig: []byte("tc")})
+	require.Error(t, err, "an address with no machine has no route")
+}
+
 func TestUnreachable(t *testing.T) {
 	ctx := context.Background()
-	m := NewMachine("v1.13.4")
+	m := NewMachine("v1.14.6")
 	m.SetUnreachable(true)
 
 	_, err := m.Dialer()(ctx, talos.Target{Endpoint: "n1", Insecure: true})

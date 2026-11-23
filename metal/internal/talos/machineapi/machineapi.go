@@ -8,12 +8,15 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/cosi-project/runtime/pkg/safe"
 	machineapi "github.com/siderolabs/talos/pkg/machinery/api/machine"
 	"github.com/siderolabs/talos/pkg/machinery/client"
 	clientconfig "github.com/siderolabs/talos/pkg/machinery/client/config"
 	runtimeres "github.com/siderolabs/talos/pkg/machinery/resources/runtime"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/dennisklein/platform-kit/metal/internal/talos"
 )
@@ -55,11 +58,24 @@ func Dial(ctx context.Context, t talos.Target) (talos.Client, error) {
 	return &conn{c: c}, nil
 }
 
+// CallTimeout bounds every machine-API call. A controller's context has no
+// deadline, and a node that is up but not ready (etcd not started, apid still
+// waiting for its peers) can hold an unbounded gRPC call open, which stops the
+// controller's only worker for good.
+var CallTimeout = 20 * time.Second
+
+func bounded(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, CallTimeout)
+}
+
 type conn struct {
 	c *client.Client
 }
 
 func (m *conn) ApplyConfiguration(ctx context.Context, machineConfig []byte) error {
+	ctx, cancel := bounded(ctx)
+	defer cancel()
+
 	_, err := m.c.ApplyConfiguration(ctx, &machineapi.ApplyConfigurationRequest{
 		Data: machineConfig,
 		Mode: machineapi.ApplyConfigurationRequest_AUTO,
@@ -72,14 +88,46 @@ func (m *conn) ApplyConfiguration(ctx context.Context, machineConfig []byte) err
 }
 
 func (m *conn) Bootstrap(ctx context.Context) error {
+	ctx, cancel := bounded(ctx)
+	defer cancel()
+
 	if err := m.c.Bootstrap(ctx, &machineapi.BootstrapRequest{}); err != nil {
+		// Talos answers AlreadyExists exactly when the etcd data directory
+		// is not empty, which is the observable form of "bootstrapped".
+		if status.Code(err) == codes.AlreadyExists {
+			return fmt.Errorf("bootstrap: %w: %w", talos.ErrAlreadyBootstrapped, err)
+		}
+
 		return fmt.Errorf("bootstrap: %w", err)
 	}
 
 	return nil
 }
 
+func (m *conn) EtcdMembers(ctx context.Context) ([]string, error) {
+	ctx, cancel := bounded(ctx)
+	defer cancel()
+
+	resp, err := m.c.EtcdMemberList(ctx, &machineapi.EtcdMemberListRequest{QueryLocal: true})
+	if err != nil {
+		return nil, fmt.Errorf("etcd members: %w", err)
+	}
+
+	var names []string
+
+	for _, msg := range resp.GetMessages() {
+		for _, member := range msg.GetMembers() {
+			names = append(names, member.GetHostname())
+		}
+	}
+
+	return names, nil
+}
+
 func (m *conn) Version(ctx context.Context) (string, error) {
+	ctx, cancel := bounded(ctx)
+	defer cancel()
+
 	resp, err := m.c.Version(ctx)
 	if err != nil {
 		return "", fmt.Errorf("version: %w", err)
@@ -93,6 +141,9 @@ func (m *conn) Version(ctx context.Context) (string, error) {
 }
 
 func (m *conn) Status(ctx context.Context) (talos.Status, error) {
+	ctx, cancel := bounded(ctx)
+	defer cancel()
+
 	ms, err := safe.StateGetByID[*runtimeres.MachineStatus](ctx, m.c.COSI, runtimeres.MachineStatusID)
 	if err != nil {
 		return talos.Status{}, fmt.Errorf("machine status: %w", err)
