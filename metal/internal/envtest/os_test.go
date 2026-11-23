@@ -35,16 +35,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/asset"
 	"github.com/dennisklein/platform-kit/metal/internal/controller"
-	pkscheme "github.com/dennisklein/platform-kit/metal/internal/scheme"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/fake"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
 )
@@ -112,17 +107,7 @@ func labSample(t *testing.T) *render.Manifests {
 }
 
 func TestOSLane(t *testing.T) {
-	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
-		t.Skip("KUBEBUILDER_ASSETS unset: run via `mise run envtest`")
-	}
-	env := &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd")},
-		ErrorIfCRDPathMissing: true,
-	}
-	env.ControlPlane.GetAPIServer().Configure().Set("advertise-address", "127.0.0.1")
-	cfg, err := env.Start()
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, env.Stop()) })
+	st := startEnv(t)
 
 	// The scripted lab: one machine per sample node, all off.
 	fleet := fake.NewFleet()
@@ -144,10 +129,7 @@ func TestOSLane(t *testing.T) {
 		return "v1.36.2", nil
 	}
 
-	s, err := pkscheme.New()
-	require.NoError(t, err)
-	cl, err := client.New(cfg, client.Options{Scheme: s})
-	require.NoError(t, err)
+	cl := st.cl
 	ctx := t.Context()
 
 	// The cluster secrets bundle, as a person creates it from the output of
@@ -162,11 +144,7 @@ func TestOSLane(t *testing.T) {
 	}
 	createBundle("lab-talos-secrets")
 
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme:  s,
-		Metrics: metricsserver.Options{BindAddress: "0"},
-	})
-	require.NoError(t, err)
+	mgr := st.newManager(t)
 	factory, posted := stubFactory(t)
 	require.NoError(t, controller.SetupAll(mgr, controller.Options{
 		CredentialsNamespace: "default",
@@ -176,11 +154,7 @@ func TestOSLane(t *testing.T) {
 		CheckInterval:        100 * time.Millisecond,
 		ReadyInterval:        200 * time.Millisecond,
 	}, controller.LaneTalosNode, controller.LaneTalosCluster, controller.LaneBootAsset))
-	go func() {
-		if err := mgr.Start(ctx); err != nil {
-			t.Logf("manager: %v", err)
-		}
-	}()
+	runManager(t, ctx, mgr)
 
 	lab := labSample(t)
 	lab.Cluster.Spec.SecretsRef.Namespace = "default"

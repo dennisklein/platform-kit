@@ -9,10 +9,8 @@
 package envtest_test
 
 import (
-	"encoding/pem"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -25,19 +23,13 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/config"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc/sim"
 	"github.com/dennisklein/platform-kit/metal/internal/controller"
-	"github.com/dennisklein/platform-kit/metal/internal/ledger"
-	pkscheme "github.com/dennisklein/platform-kit/metal/internal/scheme"
 )
 
 const (
@@ -57,17 +49,7 @@ func simServer(t *testing.T, fixture string) (*httptest.Server, *sim.State) {
 }
 
 func TestReconcile(t *testing.T) {
-	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
-		t.Skip("KUBEBUILDER_ASSETS unset — run via `mise run envtest`")
-	}
-	env := &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd")},
-		ErrorIfCRDPathMissing: true,
-	}
-	env.ControlPlane.GetAPIServer().Configure().Set("advertise-address", "127.0.0.1")
-	cfg, err := env.Start()
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, env.Stop()) })
+	st := startEnv(t)
 
 	huawei, _ := simServer(t, "huawei-2288h-v5")
 	smc, smcState := simServer(t, "supermicro-x12")
@@ -87,68 +69,35 @@ func TestReconcile(t *testing.T) {
 	// way a BMC label prints it (upper case, dashes) and still joins the
 	// asset's lower-case colon form; the line that is no MAC is skipped, not
 	// fatal.
-	dir := t.TempDir()
-	ledgerPath := filepath.Join(dir, "ledger.yaml")
-	require.NoError(t, os.WriteFile(ledgerPath, []byte(`
+	led := writeLedger(t, `
 "02:00:48:0b:74:60": `+huawei.URL+`
 "02:00:48:0b:74:99": `+huawei2.URL+`
 "02-00-5A-3A-CC-18": `+smc.URL+`
 "aa:bb:cc:dd:ee:01": `+huawei.URL+`
 "00:11:22:33:44:55": https://127.0.0.1:1
 "02:00:5a:3a:cc": https://127.0.0.1:2
-`), 0o600))
-	led, err := ledger.Load(ledgerPath)
-	require.NoError(t, err)
+`)
 	require.Len(t, led.Problems(), 1, "the five-byte line is skipped")
 
-	s, err := pkscheme.New()
-	require.NoError(t, err)
-	cl, err := client.New(cfg, client.Options{Scheme: s})
-	require.NoError(t, err)
+	cl := st.cl
 	ctx := t.Context()
 
 	// The endpoints pin the httptest CA — the same trust posture as live endpoints
 	// pinning internal-ca (the PoC identity verdict).
-	var caBundle []byte
-	for _, srv := range []*httptest.Server{huawei, huawei2, smc} {
-		caBundle = append(caBundle,
-			pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})...)
-	}
-	for _, sec := range []*corev1.Secret{
-		{ObjectMeta: metav1.ObjectMeta{Name: "bmc-ca", Namespace: "default"},
-			Data: map[string][]byte{"ca.crt": caBundle}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "ibmc-factory", Namespace: "default"},
-			Data: map[string][]byte{"username": []byte("admin"), "password": []byte("dev")}},
-	} {
-		require.NoError(t, cl.Create(ctx, sec))
-	}
+	seedBMCSecrets(t, ctx, cl,
+		huawei.Certificate().Raw, huawei2.Certificate().Raw, smc.Certificate().Raw)
 
 	// The committed policy IS what's tested: the approval gate loads from
 	// config/policy, not from a test-local copy.
 	operator := whoAmI(t, ctx, cl)
 	installApprovalPolicy(t, ctx, cl, operator)
 
-	// Two humans: system:masters skips RBAC (not under test), usernames stay
-	// distinct — exactly what the VAP's request.userInfo rules see.
-	userClient := func(name string) client.Client {
-		u, err := env.AddUser(envtest.User{Name: name, Groups: []string{"system:masters"}}, nil)
-		require.NoError(t, err)
-		c, err := client.New(u.Config(), client.Options{Scheme: s})
-		require.NoError(t, err)
-		return c
-	}
-	aliceCl := userClient("alice")
-	malloryCl := userClient("mallory")
+	// Two humans, distinct usernames: exactly what the VAP's
+	// request.userInfo rules see.
+	aliceCl := st.userClient(t, "alice")
+	malloryCl := st.userClient(t, "mallory")
 
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme:  s,
-		Metrics: metricsserver.Options{BindAddress: "0"},
-		// The convergence suite runs the same controllers in this process —
-		// controller names are process-global (metrics uniqueness), so the
-		// test binary must opt out of the collision check.
-		Controller: config.Controller{SkipNameValidation: ptr.To(true)},
-	})
-	require.NoError(t, err)
+	mgr := st.newManager(t)
 	require.NoError(t, controller.SetupAll(mgr, controller.Options{
 		CredentialsNamespace: "default",
 		OperationsNamespace:  "default",
@@ -158,11 +107,7 @@ func TestReconcile(t *testing.T) {
 		PollInterval:         pollInterval,
 	}, controller.LaneAsset, controller.LaneEndpoint, controller.LaneHost, controller.LaneHostClaim,
 		controller.LaneHostOperation))
-	go func() {
-		if err := mgr.Start(ctx); err != nil {
-			t.Logf("manager: %v", err)
-		}
-	}()
+	runManager(t, ctx, mgr)
 
 	asset := func(name, serial, mac string) *metalv1alpha1.Asset {
 		return &metalv1alpha1.Asset{

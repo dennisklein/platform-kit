@@ -17,8 +17,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -33,11 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/config"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
@@ -45,8 +39,6 @@ import (
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc/sim"
 	"github.com/dennisklein/platform-kit/metal/internal/controller"
-	"github.com/dennisklein/platform-kit/metal/internal/ledger"
-	pkscheme "github.com/dennisklein/platform-kit/metal/internal/scheme"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
 )
 
@@ -91,17 +83,7 @@ func freeAddr(t *testing.T) string {
 }
 
 func TestProvisioning(t *testing.T) {
-	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
-		t.Skip("KUBEBUILDER_ASSETS unset — run via `mise run envtest`")
-	}
-	env := &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd")},
-		ErrorIfCRDPathMissing: true,
-	}
-	env.ControlPlane.GetAPIServer().Configure().Set("advertise-address", "127.0.0.1")
-	cfg, err := env.Start()
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, env.Stop()) })
+	st := startEnv(t)
 
 	// Two BMCs: one that holds several media at once, one that holds one.
 	dualFix, err := sim.LoadFixture("supermicro-x12")
@@ -112,17 +94,10 @@ func TestProvisioning(t *testing.T) {
 	single, singleState := simServer(t, "huawei-2288h-v5")
 	factory := fakeFactory(t)
 
-	dir := t.TempDir()
-	ledgerPath := filepath.Join(dir, "ledger.yaml")
-	require.NoError(t, os.WriteFile(ledgerPath, []byte(fmt.Sprintf("%q: %s\n%q: %s\n",
-		dualFix.Manager.MAC, dual.URL, singleFix.Manager.MAC, single.URL)), 0o600))
-	led, err := ledger.Load(ledgerPath)
-	require.NoError(t, err)
+	led := writeLedger(t, fmt.Sprintf("%q: %s\n%q: %s\n",
+		dualFix.Manager.MAC, dual.URL, singleFix.Manager.MAC, single.URL))
 
-	s, err := pkscheme.New()
-	require.NoError(t, err)
-	cl, err := client.New(cfg, client.Options{Scheme: s})
-	require.NoError(t, err)
+	cl := st.cl
 	ctx := t.Context()
 
 	for _, sec := range []*corev1.Secret{
@@ -135,16 +110,9 @@ func TestProvisioning(t *testing.T) {
 	installApprovalPolicy(t, ctx, cl, operator)
 	installClaimPolicy(t, ctx, cl)
 
-	userClient := func(name string, groups ...string) client.Client {
-		u, err := env.AddUser(envtest.User{Name: name, Groups: append(groups, "system:masters")}, nil)
-		require.NoError(t, err)
-		c, err := client.New(u.Config(), client.Options{Scheme: s})
-		require.NoError(t, err)
-		return c
-	}
-	aliceCl := userClient("alice")
-	bobCl := userClient("bob")
-	carolCl := userClient("carol", "pk-metal:admins")
+	aliceCl := st.userClient(t, "alice")
+	bobCl := st.userClient(t, "bob")
+	carolCl := st.userClient(t, "carol", "pk-metal:admins")
 
 	cert, err := asset.EphemeralCert()
 	require.NoError(t, err)
@@ -155,12 +123,7 @@ func TestProvisioning(t *testing.T) {
 	imageFactory := render.NewFactory(strings.TrimPrefix(factory.URL, "https://"))
 	imageFactory.HTTPClient = factory.Client()
 
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme:     s,
-		Metrics:    metricsserver.Options{BindAddress: "0"},
-		Controller: config.Controller{SkipNameValidation: ptr.To(true)},
-	})
-	require.NoError(t, err)
+	mgr := st.newManager(t)
 	require.NoError(t, controller.SetupAll(mgr, controller.Options{
 		CredentialsNamespace: "default",
 		OperationsNamespace:  "default",
@@ -173,11 +136,7 @@ func TestProvisioning(t *testing.T) {
 		Factory:              imageFactory,
 	}, controller.LaneAsset, controller.LaneEndpoint, controller.LaneHost, controller.LaneHostClaim,
 		controller.LaneProtection, controller.LaneHostOperation, controller.LaneBootAsset))
-	go func() {
-		if err := mgr.Start(ctx); err != nil {
-			t.Logf("manager: %v", err)
-		}
-	}()
+	runManager(t, ctx, mgr)
 
 	// --- helpers -----------------------------------------------------------
 

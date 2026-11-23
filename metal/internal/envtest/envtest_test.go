@@ -5,8 +5,6 @@
 package envtest_test
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,32 +12,15 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/phase"
-	pkscheme "github.com/dennisklein/platform-kit/metal/internal/scheme"
 )
 
 func TestAPI(t *testing.T) {
-	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
-		t.Skip("KUBEBUILDER_ASSETS unset — run via `mise run envtest`")
-	}
-	env := &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd")},
-		ErrorIfCRDPathMissing: true,
-	}
-	// envtest is loopback-only; without this the apiserver enumerates routes via
-	// netlink to pick an advertise address, which sandboxes may forbid.
-	env.ControlPlane.GetAPIServer().Configure().Set("advertise-address", "127.0.0.1")
-	cfg, err := env.Start()
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, env.Stop()) })
+	st := startEnv(t)
 
-	s, err := pkscheme.New()
-	require.NoError(t, err)
-	cl, err := client.New(cfg, client.Options{Scheme: s})
-	require.NoError(t, err)
+	cl := st.cl
 	ctx := t.Context()
 
 	t.Run("asset round-trip and validation", func(t *testing.T) {

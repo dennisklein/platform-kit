@@ -24,8 +24,6 @@ import (
 	"math/big"
 	"net"
 	"net/http"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -37,19 +35,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/config"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/asset"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc/sim"
 	"github.com/dennisklein/platform-kit/metal/internal/controller"
-	"github.com/dennisklein/platform-kit/metal/internal/ledger"
-	pkscheme "github.com/dennisklein/platform-kit/metal/internal/scheme"
 )
 
 const (
@@ -58,22 +49,9 @@ const (
 )
 
 func TestEndpointConvergence(t *testing.T) {
-	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
-		t.Skip("KUBEBUILDER_ASSETS unset — run via `mise run envtest`")
-	}
-	env := &envtest.Environment{
-		CRDDirectoryPaths: []string{
-			filepath.Join("..", "..", "config", "crd"),
-			// The CertificateRequest stand-in — real clusters run
-			// cert-manager's own CRD, this suite plays the issuer itself.
-			filepath.Join("testdata"),
-		},
-		ErrorIfCRDPathMissing: true,
-	}
-	env.ControlPlane.GetAPIServer().Configure().Set("advertise-address", "127.0.0.1")
-	cfg, err := env.Start()
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, env.Stop()) })
+	// testdata holds the CertificateRequest stand-in: real clusters run
+	// cert-manager's own CRD, this suite plays the issuer itself.
+	st := startEnv(t, "testdata")
 
 	// Enforcement-enabled sims: the factory account seeded, everything else
 	// requires whatever credential the operator runs. The listeners serve
@@ -82,19 +60,12 @@ func TestEndpointConvergence(t *testing.T) {
 	huaweiURL, huaweiState, huaweiSeed := authSimServer(t, "huawei-2288h-v5")
 	smcURL, smcState, smcSeed := authSimServer(t, "supermicro-x12")
 
-	dir := t.TempDir()
-	ledgerPath := filepath.Join(dir, "ledger.yaml")
-	require.NoError(t, os.WriteFile(ledgerPath, []byte(`
+	led := writeLedger(t, `
 "02:00:48:0b:74:60": `+huaweiURL+`
 "02:00:5a:3a:cc:18": `+smcURL+`
-`), 0o600))
-	led, err := ledger.Load(ledgerPath)
-	require.NoError(t, err)
+`)
 
-	s, err := pkscheme.New()
-	require.NoError(t, err)
-	cl, err := client.New(cfg, client.Options{Scheme: s})
-	require.NoError(t, err)
+	cl := st.cl
 	ctx := t.Context()
 
 	// The suite's CA plays cert-manager's issuer; the pinned bmc-ca bundle
@@ -104,37 +75,16 @@ func TestEndpointConvergence(t *testing.T) {
 	caCert, caKey := testCA(t)
 	go issuerLoop(t, cl, caCert, caKey)
 
-	var caBundle []byte
-	for _, der := range [][]byte{huaweiSeed.Raw, smcSeed.Raw, caCert.Raw} {
-		caBundle = append(caBundle,
-			pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})...)
-	}
-	for _, sec := range []*corev1.Secret{
-		{ObjectMeta: metav1.ObjectMeta{Name: "bmc-ca", Namespace: "default"},
-			Data: map[string][]byte{"ca.crt": caBundle}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "ibmc-factory", Namespace: "default"},
-			Data: map[string][]byte{"username": []byte("admin"), "password": []byte("dev")}},
-	} {
-		require.NoError(t, cl.Create(ctx, sec))
-	}
+	seedBMCSecrets(t, ctx, cl, huaweiSeed.Raw, smcSeed.Raw, caCert.Raw)
 
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme:     s,
-		Metrics:    metricsserver.Options{BindAddress: "0"},
-		Controller: config.Controller{SkipNameValidation: ptr.To(true)},
-	})
-	require.NoError(t, err)
+	mgr := st.newManager(t)
 	require.NoError(t, controller.SetupAll(mgr, controller.Options{
 		CredentialsNamespace: "default",
 		Ledger:               led,
 		TLS:                  &metalv1alpha1.EndpointTLS{CASecretRef: &corev1.LocalObjectReference{Name: "bmc-ca"}},
 		PollInterval:         pollInterval,
 	}, controller.LaneAsset, controller.LaneEndpoint, controller.LaneEndpointConvergence))
-	go func() {
-		if err := mgr.Start(ctx); err != nil {
-			t.Logf("manager: %v", err)
-		}
-	}()
+	runManager(t, ctx, mgr)
 
 	for _, a := range []*metalv1alpha1.Asset{
 		{ObjectMeta: metav1.ObjectMeta{Name: "ci-huawei"},
