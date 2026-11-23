@@ -28,7 +28,8 @@ type Options struct {
 	NodeName string
 	// Config is the rendered machine config to pack and serve.
 	Config []byte
-	// MediaID is the slot to mount on; empty picks the first insertable one.
+	// MediaID is the slot to mount on; empty picks the first insertable
+	// optical slot, or the first insertable slot when none is optical.
 	MediaID string
 	// SystemID is the system to boot; empty requires the endpoint to front
 	// exactly one.
@@ -137,7 +138,14 @@ func Run(ctx context.Context, o Options) (Result, error) {
 	}
 	logf("boot: media mounted")
 
-	if err := o.Client.SetBootOverride(ctx, system.ID, bmc.BootOverride{Target: target, Enabled: bmc.OverrideOnce}); err != nil {
+	override := bmc.BootOverride{Target: target, Enabled: bmc.OverrideOnce}
+	// The medium boots UEFI. A system that serves another mode would take the
+	// override as a legacy boot (the X12 reports Legacy out of the box), so
+	// the mode goes along; one that serves none is not asked for it.
+	if mode := system.BootOverride.Mode; mode != "" && mode != "UEFI" {
+		override.Mode = "UEFI"
+	}
+	if err := o.Client.SetBootOverride(ctx, system.ID, override); err != nil {
 		return res, cleanupAfter(ctx, o, grants, grant.Token, slot, err)
 	}
 	logf("boot: boot override %s (once)", target)
@@ -222,17 +230,13 @@ func pickSlot(ctx context.Context, c bmc.Client, want string) (string, bmc.Media
 	return "", "", fmt.Errorf("boot: endpoint advertises no insertable media slot")
 }
 
-// InsertableSlots lists the slots that advertise an insert mechanism, in the
-// endpoint's own order (deterministic). Its length is what decides whether an
-// installer and a config medium can be mounted side by side.
+// InsertableSlots lists the slots that advertise an insert mechanism, the best
+// boot slot first: optical slots lead, wherever they sit in the endpoint's
+// collection, the others follow in the endpoint's order (deterministic). Its
+// length is what decides whether an installer and a config medium can be
+// mounted side by side.
 func InsertableSlots(dialects map[string]bmc.MediaDialect, media []bmc.VirtualMedia) []string {
-	var out []string
-	for _, m := range media {
-		if d := dialects[m.ID]; d != "" && d != bmc.DialectNone {
-			out = append(out, m.ID)
-		}
-	}
-	return out
+	return bmc.InsertableSlots(media, bmc.Capabilities{MediaDialect: dialects})
 }
 
 func pickSystem(ctx context.Context, c bmc.Client, want string) (bmc.System, error) {
