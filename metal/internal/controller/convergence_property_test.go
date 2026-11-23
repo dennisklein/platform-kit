@@ -276,7 +276,7 @@ func TestValidateBiosProperties(t *testing.T) {
 	bad := map[string][]any{
 		"BootModeSelect": {"Insecure", true, float64(1)},
 		"QuietBoot":      {"yes", float64(1), nil},
-		"ErrorThreshold": {1.5, "512", true},
+		"ErrorThreshold": {1.5, "512", true, float64(1<<53 + 2)},
 		"AssetTag":       {float64(7), false, nil},
 	}
 	forAll(t, func(t *testing.T, r *rand.Rand) {

@@ -114,6 +114,18 @@ func TestValidateBios(t *testing.T) {
 		}, schema)
 		require.Len(t, got, 1)
 	})
+	t.Run("an integer float64 cannot hold exactly is refused", func(t *testing.T) {
+		// 2^53+1 decodes to 2^53: staging it would write a value nobody
+		// approved, and drift between the two would never show.
+		got := validateBios(map[string]apiextensionsv1.JSON{
+			"CorrectableErrorThreshold": {Raw: []byte("9007199254740993")},
+		}, schema)
+		require.Len(t, got, 1)
+		assert.Contains(t, got[0], "9007199254740993 is beyond")
+		assert.Empty(t, validateBios(map[string]apiextensionsv1.JSON{
+			"CorrectableErrorThreshold": {Raw: []byte("9007199254740991")},
+		}, schema), "2^53-1 is exact")
+	})
 	t.Run("no registry validates nothing", func(t *testing.T) {
 		assert.Empty(t, validateBios(map[string]apiextensionsv1.JSON{"Anything": jsonOf(1)}, nil))
 	})

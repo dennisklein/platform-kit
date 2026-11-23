@@ -122,8 +122,15 @@ func validateBios(attrs map[string]apiextensionsv1.JSON, schema []bmc.BiosAttrib
 			}
 		case "Integer":
 			f, ok := v.(float64)
-			if !ok || math.Trunc(f) != f {
+			switch {
+			case !ok || math.Trunc(f) != f:
 				violations = append(violations, fmt.Sprintf("%s: %v is not an integer", k, v))
+			case math.Abs(f) > maxExactInteger:
+				// Values travel as float64 (the seam's JSON typing). From 2^53 on
+				// the decode rounds, so the operator would stage, and compare
+				// against, a number nobody wrote.
+				violations = append(violations,
+					fmt.Sprintf("%s: %s is beyond ±(2^53-1), the largest integer staged exactly", k, j.Raw))
 			}
 		case "String":
 			if _, ok := v.(string); !ok {
@@ -134,6 +141,10 @@ func validateBios(attrs map[string]apiextensionsv1.JSON, schema []bmc.BiosAttrib
 	sort.Strings(violations)
 	return violations
 }
+
+// maxExactInteger is 2^53-1, the largest integer that a float64 holds
+// exactly with no other integer rounding to it (2^53+1 decodes to 2^53).
+const maxExactInteger = 1<<53 - 1
 
 // planHash hashes a desired state canonically (JSON with sorted map keys) —
 // the identity an operation proposal is bound to.
