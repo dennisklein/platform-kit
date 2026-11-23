@@ -699,7 +699,15 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 		}
 		// The decision to power off is made once, while the boot records are
 		// still there to read; the release operation then carries it.
-		if op != nil || bootRan(provisionOps, host.Name) || handedOff(claim, host.Name) || powerOffDecided(host, claim) {
+		powerOff := op != nil || bootRan(provisionOps, host.Name) || handedOff(claim, host.Name) || powerOffDecided(host, claim)
+		if !powerOff {
+			// Unbinding as it is cannot be taken back: confirm against the
+			// API server that no boot of the claim ran.
+			if powerOff, err = r.bootRanUncached(ctx, claim, host.Name); err != nil {
+				return false, err
+			}
+		}
+		if powerOff {
 			// A hold stops the release before it is approved: the proposal is
 			// taken back, and none is made. One already running finishes.
 			if held && (op == nil || opAwaitsApproval(op)) {
@@ -793,6 +801,19 @@ func bootRan(ops []metalv1alpha1.HostOperation, hostName string) bool {
 	return slices.ContainsFunc(ops, func(op metalv1alpha1.HostOperation) bool {
 		return op.Spec.HostRef.Name == hostName && op.Status.Baseline != nil
 	})
+}
+
+// bootRanUncached is bootRan over the claim's boot operations as the API
+// server holds them. The executor writes the baseline before its first
+// mutating call, and the cache can lag behind that write.
+func (r *HostClaimReconciler) bootRanUncached(ctx context.Context, claim *metalv1alpha1.HostClaim, hostName string) (bool, error) {
+	ops := &metalv1alpha1.HostOperationList{}
+	if err := r.reader().List(ctx, ops, client.InNamespace(r.OperationsNamespace), client.MatchingLabels{
+		labelClaimUID: string(claim.UID), labelPurpose: purposeProvision,
+	}); err != nil {
+		return false, err
+	}
+	return bootRan(ops.Items, hostName), nil
 }
 
 // powerOffDecided: an earlier pass decided that releasing the host for this

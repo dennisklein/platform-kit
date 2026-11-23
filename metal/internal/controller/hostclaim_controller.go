@@ -51,6 +51,20 @@ type HostClaimReconciler struct {
 	// ReleaseShutdownTimeout is how long a release lets the OS shut down
 	// before it forces the machine off; zero defaults to 5 minutes.
 	ReleaseShutdownTimeout time.Duration
+	// APIReader reads straight from the API server, bypassing the informer
+	// cache. A release that finds no boot of the claim in the cache unbinds
+	// the machine as it is; it confirms that with this reader first, because
+	// a cache behind the executor's baseline write would hand back a machine
+	// mid-boot. Defaults to the manager's API reader in SetupWithManager.
+	APIReader client.Reader
+}
+
+// reader is the uncached reader when one is wired, the client otherwise.
+func (r *HostClaimReconciler) reader() client.Reader {
+	if r.APIReader != nil {
+		return r.APIReader
+	}
+	return r.Client
 }
 
 // defaultReleaseShutdownTimeout mirrors the manager's flag default.
@@ -310,6 +324,9 @@ func (r *HostClaimReconciler) releaseAll(ctx context.Context, bound []metalv1alp
 }
 
 func (r *HostClaimReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if r.APIReader == nil {
+		r.APIReader = mgr.GetAPIReader()
+	}
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(),
 		&metalv1alpha1.HostClaim{}, claimAssetIndex,
 		func(o client.Object) []string {
