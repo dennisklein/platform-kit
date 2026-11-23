@@ -17,7 +17,8 @@ import (
 )
 
 // operatorNamespace is where the operator creates its HostOperations (the
-// manager's --credentials-namespace default).
+// manager's --credentials-namespace default). HostClaims usually live
+// elsewhere, so the claim verbs default to "default".
 const operatorNamespace = "pk-metal"
 
 // holdAnnotation on a HostClaim tells the operator to propose no new
@@ -29,6 +30,10 @@ const (
 	labelClaimNamespace = "metal.pk.io/claim-namespace"
 	labelClaimName      = "metal.pk.io/claim-name"
 )
+
+// claimNamespace is where HostClaims usually live: they are the user's
+// requests, not the operator's records.
+const claimNamespace = "default"
 
 // newScheme knows every kind the CLI reads or writes.
 func newScheme() *runtime.Scheme {
