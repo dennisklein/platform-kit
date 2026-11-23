@@ -1,0 +1,251 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: talosnodes.os.pk.io
+spec:
+  group: os.pk.io
+  names:
+    categories:
+      - metal
+      - os
+    kind: TalosNode
+    listKind: TalosNodeList
+    plural: talosnodes
+    singular: talosnode
+  scope: Cluster
+  versions:
+    - additionalPrinterColumns:
+        - jsonPath: .spec.clusterRef.name
+          name: Cluster
+          type: string
+        - jsonPath: .spec.controlPlane
+          name: CP
+          type: boolean
+        - jsonPath: .spec.ipAddress
+          name: Address
+          type: string
+        - jsonPath: .status.stage
+          name: Stage
+          type: string
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: TalosNode is the per-machine half of the rendered OS config.
+          properties:
+            apiVersion:
+              description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+              type: string
+            kind:
+              description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: TalosNodeSpec is one `nodes:` entry of talconfig.yaml. The hostname is the CR's metadata.name. Disk and interface selectors are copied facts today (serials, MACs from the inventory ledger); resolving them as hints against discovered hardware is the M-later step that retires the copy.
+              properties:
+                clusterRef:
+                  description: ClusterRef names the TalosCluster this node renders against.
+                  properties:
+                    name:
+                      type: string
+                  required:
+                    - name
+                  type: object
+                controlPlane:
+                  description: ControlPlane marks the node a control-plane member.
+                  type: boolean
+                installDiskSelector:
+                  description: InstallDiskSelector looks up the install disk on the machine (serial is the raven convention — the one fact that survives cabling and enumeration).
+                  properties:
+                    busPath:
+                      description: BusPath matches the device bus path.
+                      type: string
+                    model:
+                      description: Model matches the disk model string.
+                      type: string
+                    name:
+                      description: Name matches the kernel device name (least stable — prefer serial).
+                      type: string
+                    serial:
+                      description: Serial matches the disk serial number.
+                      type: string
+                  type: object
+                ipAddress:
+                  description: IPAddress is where talosctl reaches the node (feeds the rendered talosconfig and cert SANs; comma-separated addresses allowed, talhelper semantics).
+                  minLength: 1
+                  type: string
+                networkInterfaces:
+                  description: NetworkInterfaces configure the node's links. CP nodes use named interfaces (talhelper derives a VIP's link from the name); workers may select by MAC.
+                  items:
+                    description: NetworkInterface is one machine.network.interfaces entry. Exactly one of Interface or DeviceSelector picks the link.
+                    properties:
+                      addresses:
+                        description: Addresses are the static addresses, primary family first.
+                        items:
+                          type: string
+                        type: array
+                      deviceSelector:
+                        description: DeviceSelector picks the link by hardware fact instead of name.
+                        properties:
+                          busPath:
+                            description: BusPath matches the PCI/USB bus prefix.
+                            type: string
+                          hardwareAddr:
+                            description: HardwareAddr matches the MAC address.
+                            type: string
+                        type: object
+                      dhcp:
+                        description: 'DHCP; nil renders nothing, an explicit false renders `dhcp: false` — the talconfig convention for statically-addressed links.'
+                        type: boolean
+                      interface:
+                        description: Interface names the link (eno1np0). CP nodes must use names where a VIP rides the link — talhelper derives the VIP's link from the interface name.
+                        type: string
+                      mtu:
+                        description: MTU overrides the link MTU.
+                        type: integer
+                      routes:
+                        description: Routes are static routes over this link.
+                        items:
+                          description: Route is a static route.
+                          properties:
+                            gateway:
+                              description: Gateway is the next hop.
+                              type: string
+                            metric:
+                              description: Metric orders competing routes.
+                              format: int32
+                              type: integer
+                            network:
+                              description: Network is the destination CIDR.
+                              type: string
+                          required:
+                            - network
+                          type: object
+                        type: array
+                      vip:
+                        description: VIP is the Talos-managed shared virtual IP on this link (CP only).
+                        properties:
+                          ip:
+                            type: string
+                        required:
+                          - ip
+                        type: object
+                    type: object
+                    x-kubernetes-validations:
+                      - message: exactly one of interface or deviceSelector must pick the link
+                        rule: has(self.interface) != has(self.deviceSelector)
+                  type: array
+                nodeLabels:
+                  additionalProperties:
+                    type: string
+                  description: NodeLabels are Kubernetes labels the node registers with.
+                  type: object
+                patches:
+                  description: 'Patches apply to this node only, after the cluster-wide ones: inline strategic-merge YAML or "@./path" references (same resolution as cluster patches).'
+                  items:
+                    type: string
+                  type: array
+                schematic:
+                  description: Schematic customizes the Image Factory install image (system extensions such as siderolabs/drbd). Shape mirrors talconfig/the factory schematic.
+                  properties:
+                    customization:
+                      description: SchematicCustomization holds the image customization knobs.
+                      properties:
+                        extraKernelArgs:
+                          description: ExtraKernelArgs append to the image's kernel command line. This is how a boot medium is told to read its config off the second medium (talos.config=metal-iso) and where to put the console (console=ttyS0 — what the BMC's serial-over-LAN shows).
+                          items:
+                            type: string
+                          type: array
+                        systemExtensions:
+                          description: SystemExtensions bakes extensions into the install image.
+                          properties:
+                            officialExtensions:
+                              description: OfficialExtensions are siderolabs/* extension names (drbd, intel-ucode).
+                              items:
+                                type: string
+                              type: array
+                          type: object
+                      type: object
+                  type: object
+              required:
+                - clusterRef
+                - ipAddress
+              type: object
+            status:
+              description: 'TalosNodeStatus reports the render. Rendered=False is alert-and-hold: the last rendered Secret stays in place — a broken input never un-renders a machine''s config.'
+              properties:
+                conditions:
+                  description: 'Conditions: Rendered, plus the check-in observations MachineReachable and Ready while a Host hands this node a machine.'
+                  items:
+                    description: Condition contains details for one aspect of the current state of this API Resource.
+                    properties:
+                      lastTransitionTime:
+                        description: lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                        format: date-time
+                        type: string
+                      message:
+                        description: message is a human readable message indicating details about the transition. This may be an empty string.
+                        maxLength: 32768
+                        type: string
+                      observedGeneration:
+                        description: observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      reason:
+                        description: reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty.
+                        maxLength: 1024
+                        minLength: 1
+                        pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                        type: string
+                      status:
+                        description: status of the condition, one of True, False, Unknown.
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                        type: string
+                      type:
+                        description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                        maxLength: 316
+                        pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                        type: string
+                    required:
+                      - lastTransitionTime
+                      - message
+                      - reason
+                      - status
+                      - type
+                    type: object
+                  type: array
+                configDigest:
+                  description: ConfigDigest is sha256:<hex> of the rendered config — what BootAsset builds key their rebuilds on.
+                  type: string
+                configSecretRef:
+                  description: ConfigSecretRef points at the Secret holding this node's rendered machine config (key config.yaml). Owned by the TalosNode and GC'd with it — the single place the rendered secrets exist at rest.
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                  required:
+                    - name
+                    - namespace
+                  type: object
+                machineVersion:
+                  description: MachineVersion is the Talos version the machine reports.
+                  type: string
+                stage:
+                  description: Stage is the machine's observed boot stage (maintenance | booting | running | …) — empty while no machine has answered the check-in.
+                  type: string
+              type: object
+          required:
+            - spec
+          type: object
+      served: true
+      storage: true
+      subresources:
+        status: {}

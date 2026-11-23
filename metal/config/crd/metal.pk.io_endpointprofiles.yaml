@@ -1,0 +1,166 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: endpointprofiles.metal.pk.io
+spec:
+  group: metal.pk.io
+  names:
+    categories:
+      - metal
+    kind: EndpointProfile
+    listKind: EndpointProfileList
+    plural: endpointprofiles
+    singular: endpointprofile
+  scope: Cluster
+  versions:
+    - additionalPrinterColumns:
+        - jsonPath: .spec.layer
+          name: Layer
+          type: integer
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: |-
+            EndpointProfile is how management controllers themselves should be configured — their users, network settings, time sources — authored in git and applied to whichever endpoints match its selector.
+
+            Unlike BIOS and firmware there is no approval step: nothing here disturbs the machine the controller is attached to, so merging the profile is the approval. When something cannot be applied the endpoint holds and says so on its Configured condition rather than retrying into a broken state.
+          properties:
+            apiVersion:
+              description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+              type: string
+            kind:
+              description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: 'EndpointProfileSpec is a shared endpoint-configuration class: it selects ManagementEndpoints by label and declares how the manager itself is run — the operator''s own account, the manager''s time sources. Overlap follows the profile merge rules: profiles order by (layer, name), a later layer overrides a whole stanza, same-layer disagreement on a stanza holds the endpoint.'
+              properties:
+                credentials:
+                  description: 'Credentials makes the operator run its own account on the manager: created through the asset''s factory credentials, password kept in a managed Secret, rotated on cadence. The factory account is left untouched — it is the standing break-glass, and the reason every credential fault self-heals instead of locking the operator out.'
+                  properties:
+                    maxAge:
+                      description: MaxAge rotates the managed password when the Secret grows older than this. Unset rotates only when the Secret is missing or names another account.
+                      type: string
+                    username:
+                      description: Username of the operator's managed account (role Administrator — the executor flashes firmware and resets the manager over it).
+                      pattern: ^[a-z][a-z0-9-]{0,15}$
+                      type: string
+                  required:
+                    - username
+                  type: object
+                layer:
+                  default: 0
+                  description: 'Layer orders overlapping profiles: higher layers override lower ones, stanza by stanza. Profiles on the same layer must agree.'
+                  format: int32
+                  type: integer
+                match:
+                  description: Match selects ManagementEndpoints by label. Endpoints carry only discovered facts (vendor, model, vlan) — there is no claim, hence no intent axis. An empty selector matches every endpoint.
+                  properties:
+                    matchExpressions:
+                      description: matchExpressions is a list of label selector requirements. The requirements are ANDed.
+                      items:
+                        description: A label selector requirement is a selector that contains values, a key, and an operator that relates the key and values.
+                        properties:
+                          key:
+                            description: key is the label key that the selector applies to.
+                            type: string
+                          operator:
+                            description: operator represents a key's relationship to a set of values. Valid operators are In, NotIn, Exists and DoesNotExist.
+                            type: string
+                          values:
+                            description: values is an array of string values. If the operator is In or NotIn, the values array must be non-empty. If the operator is Exists or DoesNotExist, the values array must be empty. This array is replaced during a strategic merge patch.
+                            items:
+                              type: string
+                            type: array
+                            x-kubernetes-list-type: atomic
+                        required:
+                          - key
+                          - operator
+                        type: object
+                      type: array
+                      x-kubernetes-list-type: atomic
+                    matchLabels:
+                      additionalProperties:
+                        type: string
+                      description: matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels map is equivalent to an element of matchExpressions, whose key field is "key", the operator is "In", and the values array contains only "value". The requirements are ANDed.
+                      type: object
+                  type: object
+                  x-kubernetes-map-type: atomic
+                ntp:
+                  description: 'NTP converges the manager''s own clock sources. A skewed BMC clock is not cosmetic: it rejects freshly-issued certificates (NotBefore in its future) and mistimes every log line.'
+                  properties:
+                    servers:
+                      description: Servers, in preference order. At most three — the iBMC carries exactly three server slots.
+                      items:
+                        minLength: 1
+                        type: string
+                      maxItems: 3
+                      minItems: 1
+                      type: array
+                  required:
+                    - servers
+                  type: object
+                tls:
+                  description: 'TLS runs the manager''s HTTPS identity: a cert-manager-signed certificate for bmc-<endpoint>.<domain>, pushed over the vendor''s dialect and renewed on cadence. The factory certificate is replaced and cannot be restored — a CA-signed identity is strictly better and the intended end state.'
+                  properties:
+                    domain:
+                      default: metal.internal
+                      description: 'Domain completes the identity: CN and DNS SAN are bmc-<endpoint>.<domain>; the endpoint address, when an IP literal, rides along as IP SAN (clients dial IP literals on the island).'
+                      minLength: 1
+                      type: string
+                    duration:
+                      default: 2160h
+                      description: Duration of issued certificates.
+                      type: string
+                    issuerRef:
+                      description: IssuerRef names the cert-manager issuer (group cert-manager.io) that signs the identity.
+                      properties:
+                        kind:
+                          default: ClusterIssuer
+                          enum:
+                            - Issuer
+                            - ClusterIssuer
+                          type: string
+                        name:
+                          minLength: 1
+                          type: string
+                      required:
+                        - name
+                      type: object
+                    renewBefore:
+                      default: 720h
+                      description: RenewBefore re-issues when less than this remains on the served certificate. Must stay below duration.
+                      type: string
+                    subject:
+                      description: Subject carries the organizational attributes of the identity. The iBMC's on-manager CSR generation requires country; everything else is cosmetic.
+                      properties:
+                        country:
+                          type: string
+                        locality:
+                          type: string
+                        organization:
+                          type: string
+                        organizationalUnit:
+                          type: string
+                        state:
+                          type: string
+                      type: object
+                  required:
+                    - issuerRef
+                  type: object
+              required:
+                - match
+              type: object
+          required:
+            - spec
+          type: object
+      served: true
+      storage: true
+      subresources: {}

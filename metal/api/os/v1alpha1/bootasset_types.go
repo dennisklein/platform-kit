@@ -1,0 +1,104 @@
+package v1alpha1
+
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// BootAssetStrategy selects how the artifact is produced.
+// +kubebuilder:validation:Enum=configISO;factory
+type BootAssetStrategy string
+
+const (
+	// StrategyConfigISO builds the ~10 KB per-node config medium Talos reads when
+	// booted with talos.config=metal-iso: an ISO9660 volume labeled metal-iso
+	// holding one config.yaml. Mounted as the second virtual medium beside a
+	// generic install image — the `secondary` delivery path. Secret-bearing:
+	// served only under a grant.
+	StrategyConfigISO BootAssetStrategy = "configISO"
+
+	// StrategyFactory points at the generic secret-free install ISO on the image
+	// factory — content-addressed by schematic, shared across nodes, fetched
+	// without a grant.
+	StrategyFactory BootAssetStrategy = "factory"
+)
+
+// BootAssetSpec declares one boot artifact. The strategy decides which of the
+// remaining fields apply; the CEL rules on the kind enforce the pairing.
+type BootAssetSpec struct {
+	// Strategy selects how the artifact is produced. The per-node embedded
+	// install image (imager-built, config baked in — the single-medium fallback
+	// for BMCs that cannot mount two media) joins the enum with OS provisioning
+	// on real hardware.
+	Strategy BootAssetStrategy `json:"strategy"`
+
+	// NodeRef names the TalosNode whose rendered config the artifact carries.
+	// configISO only.
+	// +optional
+	NodeRef *Reference `json:"nodeRef,omitempty"`
+
+	// TalosVersion pins the release of the generic install image. factory only.
+	// +kubebuilder:validation:Pattern=`^v[0-9]+\.[0-9]+\.[0-9]+$`
+	// +optional
+	TalosVersion string `json:"talosVersion,omitempty"`
+
+	// Schematic customizes the install image (system extensions). factory only;
+	// omitted means the vanilla image.
+	// +optional
+	Schematic *Schematic `json:"schematic,omitempty"`
+}
+
+// BootAssetStatus reports the built artifact. Secret-bearing artifacts never get
+// a stable URL — their fetch URLs are minted per mount as grants and revoked on
+// node check-in, eject, or expiry.
+type BootAssetStatus struct {
+	// Conditions: Ready.
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// URL is where the artifact is fetched without a grant. factory only.
+	// +optional
+	URL string `json:"url,omitempty"`
+
+	// Digest is sha256:<hex> of the artifact bytes. configISO only.
+	// +optional
+	Digest string `json:"digest,omitempty"`
+
+	// Size is the artifact size in bytes. configISO only.
+	// +optional
+	Size int64 `json:"size,omitempty"`
+
+	// ArtifactSecretRef is where the built artifact rests (key asset.iso), owned
+	// by this BootAsset and GC'd with it. configISO only.
+	// +optional
+	ArtifactSecretRef *SecretReference `json:"artifactSecretRef,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Cluster,categories=metal;os
+// +kubebuilder:validation:XValidation:rule="self.spec.strategy != 'configISO' || (has(self.spec.nodeRef) && !has(self.spec.talosVersion) && !has(self.spec.schematic))",message="configISO takes nodeRef and nothing else"
+// +kubebuilder:validation:XValidation:rule="self.spec.strategy != 'factory' || (!has(self.spec.nodeRef) && has(self.spec.talosVersion))",message="factory takes talosVersion (and optionally schematic), never nodeRef"
+// +kubebuilder:printcolumn:name="Strategy",type=string,JSONPath=`.spec.strategy`
+// +kubebuilder:printcolumn:name="Node",type=string,JSONPath=`.spec.nodeRef.name`
+// +kubebuilder:printcolumn:name="Size",type=integer,JSONPath=`.status.size`
+
+// BootAsset is a built boot artifact and how to fetch it: the controller produces
+// the artifact and reports readiness, digest, and — for grant-free strategies —
+// a URL.
+type BootAsset struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec BootAssetSpec `json:"spec"`
+	// +optional
+	Status BootAssetStatus `json:"status,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+
+// BootAssetList contains a list of BootAsset.
+type BootAssetList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []BootAsset `json:"items"`
+}

@@ -1,0 +1,87 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: assets.metal.pk.io
+spec:
+  group: metal.pk.io
+  names:
+    categories:
+      - metal
+    kind: Asset
+    listKind: AssetList
+    plural: assets
+    singular: asset
+  scope: Cluster
+  versions:
+    - additionalPrinterColumns:
+        - jsonPath: .spec.cid
+          name: CID
+          type: string
+        - jsonPath: .spec.serial
+          name: Serial
+          type: string
+        - jsonPath: .spec.vlan
+          name: VLAN
+          type: integer
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: |-
+            Asset is what the organization asserts about one machine: the serial it was bought under, the MAC of its management controller, where it was installed. It is the entry point — creating an Asset is how a machine becomes known to the cluster at all.
+
+            It has no status, because nothing about it is discovered. Everything the cluster learns by looking lands on the ManagementEndpoint and Host it materializes into. Those kinds keep a copy of the Asset spec they last resolved, so an outage of whatever authors Assets degrades to the last known values instead of stopping work.
+          properties:
+            apiVersion:
+              description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+              type: string
+            kind:
+              description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: AssetSpec is the org's assertion about one physical machine — what the CMDB *claims*, never what Redfish discovered (the two must stay independent origins or Verified compares Redfish to Redfish and can catch nothing). Filled today by Flux from git YAML; filled later by fnt-sync from FNT Command — same CR downstream.
+              properties:
+                bmcMac:
+                  description: BMCMac is the management controller's own NIC MAC (the dnsmasq-ledger identity on the 1034 island), lowercase colon-separated.
+                  pattern: ^([0-9a-f]{2}:){5}[0-9a-f]{2}$
+                  type: string
+                cid:
+                  description: CID is the org's durable identity for this machine (FNT Configuration Item ID).
+                  minLength: 1
+                  type: string
+                credentialsRef:
+                  description: CredentialsRef names a Secret in the operator's namespace holding the endpoint credentials — factory creds at adoption, rotated by EndpointProfile.
+                  properties:
+                    name:
+                      default: ""
+                      description: 'Name of the referent. This field is effectively required, but due to backwards compatibility is allowed to be empty. Instances of this type with an empty value here are almost certainly wrong. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names'
+                      type: string
+                  type: object
+                  x-kubernetes-map-type: atomic
+                serial:
+                  description: Serial is the org-asserted chassis/board serial — the Verify join key, checked against discovery (assertion vs Redfish, two origins).
+                  minLength: 1
+                  type: string
+                vlan:
+                  description: VLAN is the management network the endpoint lives on (1034 servers, 1035 routers).
+                  maximum: 4094
+                  minimum: 1
+                  type: integer
+              required:
+                - cid
+                - credentialsRef
+                - serial
+              type: object
+          required:
+            - spec
+          type: object
+      served: true
+      storage: true
+      subresources: {}

@@ -1,0 +1,96 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: talosclusters.os.pk.io
+spec:
+  group: os.pk.io
+  names:
+    categories:
+      - metal
+      - os
+    kind: TalosCluster
+    listKind: TalosClusterList
+    plural: talosclusters
+    singular: taloscluster
+  scope: Cluster
+  versions:
+    - additionalPrinterColumns:
+        - jsonPath: .spec.talosVersion
+          name: Talos
+          type: string
+        - jsonPath: .spec.kubernetesVersion
+          name: Kubernetes
+          type: string
+        - jsonPath: .spec.endpoint
+          name: Endpoint
+          type: string
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: 'TalosCluster is the cluster-level half of the rendered OS config. Spec-only for now: status arrives with the reconciler that projects render/convergence state not before something writes it.'
+          properties:
+            apiVersion:
+              description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+              type: string
+            kind:
+              description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: TalosClusterSpec is everything talconfig.yaml says above `nodes:` — the render inputs every member shares. The cluster name is the CR's metadata.name.
+              properties:
+                additionalApiServerCertSans:
+                  description: AdditionalApiServerCertSans lets the API server answer on every VIP and name admins reach it by.
+                  items:
+                    type: string
+                  type: array
+                additionalMachineCertSans:
+                  description: AdditionalMachineCertSans is the same for the machine (apid) certificate.
+                  items:
+                    type: string
+                  type: array
+                allowSchedulingOnControlPlanes:
+                  description: 'AllowSchedulingOnControlPlanes lets workloads run on control-plane nodes (ADR 0001: few nodes — use all).'
+                  type: boolean
+                clusterPodNets:
+                  description: ClusterPodNets are the pod subnets, primary family first (IPv6-primary).
+                  items:
+                    type: string
+                  type: array
+                clusterSvcNets:
+                  description: ClusterSvcNets are the service subnets, primary family first.
+                  items:
+                    type: string
+                  type: array
+                endpoint:
+                  description: Endpoint is the cluster-internal control-plane endpoint machines enroll against (the 1035 VIP — org/admin access rides the 138 VIP via cert SANs).
+                  pattern: ^https://
+                  type: string
+                kubernetesVersion:
+                  description: KubernetesVersion pins the Kubernetes release to install.
+                  pattern: ^v[0-9]+\.[0-9]+\.[0-9]+$
+                  type: string
+                patches:
+                  description: 'Patches apply to every node: inline strategic-merge YAML, or "@./path" references resolved against the render''s patch root (the ConfigMap-mounted mirror of control/talos/ in-cluster, the CR directory on the CLI).'
+                  items:
+                    type: string
+                  type: array
+                talosVersion:
+                  description: TalosVersion pins the Talos release whose config contract the render targets (talenv.yaml's TALOS_VERSION, resolved — CRs carry literals, never ${VAR}).
+                  pattern: ^v[0-9]+\.[0-9]+\.[0-9]+$
+                  type: string
+              required:
+                - endpoint
+                - kubernetesVersion
+                - talosVersion
+              type: object
+          required:
+            - spec
+          type: object
+      served: true
+      storage: true
+      subresources: {}

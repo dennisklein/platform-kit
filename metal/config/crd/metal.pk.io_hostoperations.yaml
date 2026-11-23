@@ -1,0 +1,281 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: hostoperations.metal.pk.io
+spec:
+  group: metal.pk.io
+  names:
+    categories:
+      - metal
+    kind: HostOperation
+    listKind: HostOperationList
+    plural: hostoperations
+    singular: hostoperation
+  scope: Namespaced
+  versions:
+    - additionalPrinterColumns:
+        - jsonPath: .spec.hostRef.name
+          name: Host
+          type: string
+        - jsonPath: .status.phase
+          name: Phase
+          type: string
+        - jsonPath: .spec.approval.approvedBy
+          name: Approved
+          type: string
+        - jsonPath: .status.blockedOn
+          name: Blocked
+          priority: 1
+          type: string
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: 'HostOperation is one disruptive thing done to one machine, and the record that it was done: a power cycle, a BIOS apply, a firmware flash. It is namespaced, short-lived, and never retried on its own — if it failed, it stays failed until a person looks at it.'
+          properties:
+            apiVersion:
+              description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+              type: string
+            kind:
+              description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: |-
+                HostOperationSpec is one disruptive thing to do to a machine, and the gate a human passes to let it happen.
+
+                The cluster proposes an operation by creating it; a person approves it by patching it. That split works with ordinary RBAC because the target machine and the actions are frozen once created — the only thing left to change is the approval, so permission to patch is permission to approve. Who may approve, and the rule that nobody approves their own proposal in advance, are enforced at admission.
+              properties:
+                actions:
+                  description: Actions run in order; each entry is exactly one action. A failed step fails the operation — disruptive one-shots never auto-retry.
+                  items:
+                    description: 'HostOperationAction is a one-of union: exactly one action per entry.'
+                    maxProperties: 1
+                    minProperties: 1
+                    properties:
+                      applyBios:
+                        description: ApplyBios stages a BiosSettings object's desired attributes into the machine's pending (@Redfish.Settings) object. Staging changes nothing — the world moves at the next system reset, so a convergence operation pairs this with a powerCycle.
+                        properties:
+                          settingsRef:
+                            description: SettingsRef names the BiosSettings whose spec.attributes to stage. Only the drifted subset is PATCHed; already-staged keys are converged goals, not conflicts.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                        required:
+                          - settingsRef
+                        type: object
+                      ejectMedia:
+                        description: EjectMedia unmounts a virtual-media slot.
+                        properties:
+                          mediaId:
+                            description: MediaID is the virtual-media slot to empty.
+                            type: string
+                        required:
+                          - mediaId
+                        type: object
+                      flashFirmware:
+                        description: 'FlashFirmware pushes a firmware image to the management controller and waits for proof that it took: the controller rebooting, and the expected version reading back afterwards. A reported success is not believed on its own.'
+                        properties:
+                          image:
+                            description: Image is the digest-pinned OCI reference to fetch and push (the same shape as FirmwareProfile.spec.manager.image).
+                            pattern: '@sha256:[a-f0-9]{64}$'
+                            type: string
+                          version:
+                            description: 'Version is the version expected to read back after the flash — the convergence goal: a manager already serving it makes this step a no-op.'
+                            minLength: 1
+                            type: string
+                        required:
+                          - image
+                          - version
+                        type: object
+                      insertMedia:
+                        description: InsertMedia mounts an image URL on a virtual-media slot, dispatching the dialect the endpoint advertises (standard InsertMedia vs OEM VmmControl).
+                        properties:
+                          imageUrl:
+                            description: ImageURL is what to mount. Already-mounted with the same URL is success — steps converge to their goal, so a resumed operation never double-issues.
+                            type: string
+                          mediaId:
+                            description: MediaID is the virtual-media slot ("CD", "USBStick", …).
+                            type: string
+                        required:
+                          - imageUrl
+                          - mediaId
+                        type: object
+                      powerCycle:
+                        description: 'PowerCycle restarts the system (ForceRestart; On when powered off). The one action needing a baseline: completion is the reset-time observation advancing past it, and a captured baseline is never re-issued into a box mid-reboot.'
+                        type: object
+                      setBootOverride:
+                        description: SetBootOverride sets the source the machine boots from next. The target must be one the endpoint actually offers — machines disagree about what they call a virtual CD, so the value is checked against what was discovered rather than assumed.
+                        properties:
+                          once:
+                            default: true
+                            description: Once limits the override to the next boot (the default); false is Continuous.
+                            type: boolean
+                          target:
+                            description: Target is the boot source (UsbCd, Cd, Pxe, …) — validated against the endpoint's discovered AllowableValues at execution, not at admission.
+                            type: string
+                        required:
+                          - target
+                        type: object
+                    type: object
+                  minItems: 1
+                  type: array
+                  x-kubernetes-list-type: atomic
+                  x-kubernetes-validations:
+                    - message: actions are frozen after creation
+                      rule: self == oldSelf
+                approval:
+                  default:
+                    required: true
+                  description: Approval is the human gate. Omitted means required — the safe default is a closed gate.
+                  properties:
+                    approvedBy:
+                      description: ApprovedBy is stamped by the approver — the ValidatingAdmissionPolicy enforces that it equals the requesting username, is empty at creation, and is write-once.
+                      type: string
+                    required:
+                      default: true
+                      description: 'Required: this operation must be approved before it runs (from the disruption policy; explicit false only where the policy waives the gate). A pointer so that EVERY client that says nothing — YAML omitting the key, a Go zero value — gets the safe default: a closed gate.'
+                      type: boolean
+                  type: object
+                hostRef:
+                  description: HostRef names the Host this operation acts on.
+                  properties:
+                    name:
+                      type: string
+                  required:
+                    - name
+                  type: object
+                  x-kubernetes-validations:
+                    - message: hostRef is frozen after creation
+                      rule: self == oldSelf
+                planHash:
+                  description: PlanHash binds a proposed operation to the desired state it serves — an unchanged hash never spawns a second op (the convergence reconcilers' guard).
+                  type: string
+                reason:
+                  description: Reason names the desired-state gate this operation serves (BiosConvergence, FirmwareConvergence, …); empty for a human-requested op. It becomes the Approval(<reason>) domain on the Host's blockedOn — hence the condition-reason shape.
+                  maxLength: 128
+                  pattern: ^[A-Za-z][A-Za-z0-9]*$
+                  type: string
+                ttlSecondsAfterFinished:
+                  description: TTLSecondsAfterFinished garbage-collects a finished operation Job-style. Unset keeps it forever (human-requested ops stay as their own record); convergence proposals set it — the plan memory on the proposing object, not the operation's existence, is what keeps an unchanged planHash from spawning again.
+                  format: int32
+                  minimum: 0
+                  type: integer
+              required:
+                - actions
+                - hostRef
+              type: object
+            status:
+              description: 'HostOperationStatus is what happened: which steps ran and how they ended, plus the observations that prove the machine really did what was asked.'
+              properties:
+                baseline:
+                  description: Baseline is captured (and persisted) before the first mutating call.
+                  properties:
+                    lastResetTime:
+                      description: 'LastResetTime as observed before any action ran. Micro precision: the sim resets faster than a second, and second-precision would blind the advance predicate.'
+                      format: date-time
+                      type: string
+                    powerState:
+                      type: string
+                  type: object
+                blockedOn:
+                  description: BlockedOn is derived — why the operation isn't advancing (AwaitingApproval, OperationQueued).
+                  type: string
+                conditions:
+                  description: Conditions are the truth — the only thing reconcilers branch on.
+                  items:
+                    description: Condition contains details for one aspect of the current state of this API Resource.
+                    properties:
+                      lastTransitionTime:
+                        description: lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                        format: date-time
+                        type: string
+                      message:
+                        description: message is a human readable message indicating details about the transition. This may be an empty string.
+                        maxLength: 32768
+                        type: string
+                      observedGeneration:
+                        description: observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      reason:
+                        description: reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty.
+                        maxLength: 1024
+                        minLength: 1
+                        pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                        type: string
+                      status:
+                        description: status of the condition, one of True, False, Unknown.
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                        type: string
+                      type:
+                        description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                        maxLength: 316
+                        pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                        type: string
+                    required:
+                      - lastTransitionTime
+                      - message
+                      - reason
+                      - status
+                      - type
+                    type: object
+                  type: array
+                  x-kubernetes-list-map-keys:
+                    - type
+                  x-kubernetes-list-type: map
+                observedResetTime:
+                  description: ObservedResetTime is the reset-time observation after the last step — the proof the reset happened, and what marks a Host reset-time advance as explained rather than Drifted.
+                  format: date-time
+                  type: string
+                phase:
+                  description: 'Phase summarizes the conditions below for people and for kubectl columns. It is a summary, not the contract: automation should read conditions.'
+                  enum:
+                    - Proposed
+                    - AwaitingApproval
+                    - Running
+                    - Succeeded
+                    - Failed
+                  type: string
+                steps:
+                  description: Steps records each action's outcome in execution order.
+                  items:
+                    description: OperationStep is one executed action's outcome.
+                    properties:
+                      action:
+                        description: Action is the union key that ran (powerCycle, insertMedia, …).
+                        type: string
+                      message:
+                        type: string
+                      phase:
+                        enum:
+                          - Succeeded
+                          - Failed
+                        type: string
+                    required:
+                      - action
+                      - phase
+                    type: object
+                  type: array
+                  x-kubernetes-list-type: atomic
+              type: object
+          required:
+            - spec
+          type: object
+      served: true
+      storage: true
+      subresources:
+        status: {}

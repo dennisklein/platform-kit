@@ -1,0 +1,290 @@
+package controller
+
+import (
+	"context"
+	"fmt"
+	"slices"
+
+	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
+	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/identity"
+	"github.com/dennisklein/platform-kit/metal/internal/phase"
+)
+
+const (
+	// claimAssetIndex joins Hosts back to the claims selecting them (via the asset).
+	claimAssetIndex = ".spec.assetRef.name"
+	// hostClaimIndex finds the Host(s) a claim currently holds.
+	hostClaimIndex = ".spec.claimRef"
+)
+
+// HostClaimReconciler binds claims to Hosts PVC-style. The authoritative pointer is
+// Host.spec.claimRef: the first claim to write it wins (apiserver optimistic
+// concurrency — a conflicting writer errors, requeues, and observes the winner);
+// losers hold at HostAlreadyClaimed and retry level-triggered when the host is
+// released. Claim deletion releases the host by clearing the pointer — with no
+// cleanup work in the model yet, that is delete → Available.
+type HostClaimReconciler struct {
+	client.Client
+}
+
+func (r *HostClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	bound, err := r.boundHosts(ctx, req.NamespacedName)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	claim := &metalv1alpha1.HostClaim{}
+	if err := r.Get(ctx, req.NamespacedName, claim); err != nil {
+		if apierrors.IsNotFound(err) {
+			// The claim is gone — release everything it still holds.
+			return ctrl.Result{}, r.releaseAll(ctx, bound, "")
+		}
+		return ctrl.Result{}, err
+	}
+
+	target, failReason, failMsg, err := r.resolveTarget(ctx, claim)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	orig := claim.DeepCopy()
+	claim.Status.HostRef = nil
+	switch {
+	case failReason != "" && len(bound) > 0:
+		// The assetRef stopped resolving under a live bind (asset re-keyed, endpoint
+		// lost the system). A resolution failure never releases a machine —
+		// alert-and-hold: keep the bind, surface the anomaly.
+		claim.Status.HostRef = &metalv1alpha1.Reference{Name: bound[0].Name}
+		r.setBound(claim, metav1.ConditionTrue, metalv1alpha1.ReasonBindRetained,
+			fmt.Sprintf("bound to host %s; %s", bound[0].Name, failMsg))
+	case failReason != "":
+		r.setBound(claim, metav1.ConditionFalse, failReason, failMsg)
+	default:
+		// Re-targeting (edited assetRef/systemRef): drop binds that are not the target.
+		if err := r.releaseAll(ctx, bound, target); err != nil {
+			return ctrl.Result{}, err
+		}
+		reason, msg, err := r.bind(ctx, claim, target)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if reason == "" {
+			claim.Status.HostRef = &metalv1alpha1.Reference{Name: target}
+			r.setBound(claim, metav1.ConditionTrue, metalv1alpha1.ReasonHostBound, "host "+target)
+		} else {
+			r.setBound(claim, metav1.ConditionFalse, reason, msg)
+		}
+	}
+	phase.StampClaim(claim)
+	if !equality.Semantic.DeepEqual(orig.Status, claim.Status) {
+		if err := r.Status().Update(ctx, claim); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+	}
+	return ctrl.Result{}, nil
+}
+
+func (r *HostClaimReconciler) setBound(claim *metalv1alpha1.HostClaim, s metav1.ConditionStatus, reason, msg string) {
+	meta.SetStatusCondition(&claim.Status.Conditions, metav1.Condition{
+		Type: metalv1alpha1.ConditionBound, Status: s, Reason: reason, Message: msg,
+		ObservedGeneration: claim.Generation,
+	})
+}
+
+// resolveTarget walks assetRef → materialized endpoint → discovered systems to the
+// one Host name this claim selects. failReason follows the 0/1/2+ rule: no systems
+// yet is in flight (HostNotDiscovered), several without a systemRef is Ambiguous.
+func (r *HostClaimReconciler) resolveTarget(ctx context.Context, claim *metalv1alpha1.HostClaim) (target, failReason, failMsg string, err error) {
+	asset := &metalv1alpha1.Asset{}
+	if err := r.Get(ctx, client.ObjectKey{Name: claim.Spec.AssetRef.Name}, asset); err != nil {
+		if apierrors.IsNotFound(err) {
+			return "", metalv1alpha1.ReasonAssetNotFound,
+				fmt.Sprintf("asset %s not found", claim.Spec.AssetRef.Name), nil
+		}
+		return "", "", "", err
+	}
+	ep := &metalv1alpha1.ManagementEndpoint{}
+	if err := r.Get(ctx, client.ObjectKey{Name: asset.Name}, ep); err != nil {
+		if apierrors.IsNotFound(err) {
+			return "", metalv1alpha1.ReasonHostNotDiscovered,
+				fmt.Sprintf("asset %s has no endpoint yet", asset.Name), nil
+		}
+		return "", "", "", err
+	}
+
+	names := claimHostNames(ep, claim.Spec.SystemRef)
+	switch {
+	case len(names) == 1:
+		return names[0], "", "", nil
+	case len(names) > 1:
+		return "", metalv1alpha1.ReasonAmbiguousSystem,
+			fmt.Sprintf("endpoint %s fronts %d systems — set systemRef", ep.Name, len(names)), nil
+	case claim.Spec.SystemRef != nil && len(ep.Status.Systems) > 0:
+		return "", metalv1alpha1.ReasonSystemNotFound,
+			fmt.Sprintf("endpoint %s fronts no system %q", ep.Name, claim.Spec.SystemRef.Name), nil
+	}
+	return "", metalv1alpha1.ReasonHostNotDiscovered,
+		fmt.Sprintf("endpoint %s has discovered no system yet", ep.Name), nil
+}
+
+// claimHostNames narrows an endpoint's discovered systems by the optional systemRef
+// (a Redfish member id) and normalizes the rest to distinct Host names.
+func claimHostNames(ep *metalv1alpha1.ManagementEndpoint, systemRef *metalv1alpha1.Reference) []string {
+	var names []string
+	for _, sys := range ep.Status.Systems {
+		if systemRef != nil && sys.ID != systemRef.Name {
+			continue
+		}
+		if n, ok := identity.Name(identity.Normalize(ep.Status.Vendor, ep.Status.BoardSerial, sys)); ok &&
+			!slices.Contains(names, n) {
+			names = append(names, n)
+		}
+	}
+	return names
+}
+
+// bind writes the claim onto the host — the one contended write in the model. A nil
+// pointer is free (first writer wins; a lost race surfaces as an Update conflict and
+// requeues into the loser branch); our UID is idempotent; our namespace/name under a
+// foreign UID is a deleted predecessor whose pointer we take over.
+func (r *HostClaimReconciler) bind(ctx context.Context, claim *metalv1alpha1.HostClaim, target string) (reason, msg string, err error) {
+	host := &metalv1alpha1.Host{}
+	if err := r.Get(ctx, client.ObjectKey{Name: target}, host); err != nil {
+		if apierrors.IsNotFound(err) {
+			return metalv1alpha1.ReasonHostNotDiscovered,
+				fmt.Sprintf("host %s not yet materialized", target), nil
+		}
+		return "", "", err
+	}
+	ref := host.Spec.ClaimRef
+	switch {
+	case ref != nil && ref.UID == claim.UID:
+		// Already ours — but the OS intent is editable, so re-stamp on change.
+		if desired := hostOSFrom(claim); !equality.Semantic.DeepEqual(host.Spec.OS, desired) {
+			host.Spec.OS = desired
+			if err := r.Update(ctx, host); err != nil {
+				return "", "", err
+			}
+		}
+		return "", "", nil
+	case ref != nil && (ref.Namespace != claim.Namespace || ref.Name != claim.Name):
+		return metalv1alpha1.ReasonHostAlreadyClaimed,
+			fmt.Sprintf("host %s is bound to claim %s/%s", target, ref.Namespace, ref.Name), nil
+	}
+	host.Spec.ClaimRef = &metalv1alpha1.ClaimReference{
+		Namespace: claim.Namespace, Name: claim.Name, UID: claim.UID,
+	}
+	host.Spec.OS = hostOSFrom(claim)
+	if err := r.Update(ctx, host); err != nil {
+		return "", "", err
+	}
+	logf.FromContext(ctx).Info("bound host", "host", target, "claim", claim.Namespace+"/"+claim.Name)
+	return "", "", nil
+}
+
+// boundHosts lists the hosts whose claimRef points at the given claim coordinates.
+func (r *HostClaimReconciler) boundHosts(ctx context.Context, key types.NamespacedName) ([]metalv1alpha1.Host, error) {
+	hosts := &metalv1alpha1.HostList{}
+	if err := r.List(ctx, hosts, client.MatchingFields{hostClaimIndex: key.String()}); err != nil {
+		return nil, err
+	}
+	return hosts.Items, nil
+}
+
+// hostOSFrom maps the claim's OS intent onto the Host's hand-off shape; nil in →
+// nil out (a claim without intent only reserves the machine).
+func hostOSFrom(claim *metalv1alpha1.HostClaim) *metalv1alpha1.HostOS {
+	if claim.Spec.OS == nil {
+		return nil
+	}
+	return &metalv1alpha1.HostOS{NodeRef: claim.Spec.OS.NodeRef}
+}
+
+// releaseAll clears the bind pointer and the OS hand-off from every listed host
+// except keep.
+func (r *HostClaimReconciler) releaseAll(ctx context.Context, bound []metalv1alpha1.Host, keep string) error {
+	for i := range bound {
+		host := &bound[i]
+		if host.Name == keep {
+			continue
+		}
+		host.Spec.ClaimRef = nil
+		host.Spec.OS = nil
+		if err := r.Update(ctx, host); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return err
+		}
+		logf.FromContext(ctx).Info("released host", "host", host.Name)
+	}
+	return nil
+}
+
+func (r *HostClaimReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(),
+		&metalv1alpha1.HostClaim{}, claimAssetIndex,
+		func(o client.Object) []string {
+			return []string{o.(*metalv1alpha1.HostClaim).Spec.AssetRef.Name}
+		}); err != nil {
+		return err
+	}
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(),
+		&metalv1alpha1.Host{}, hostClaimIndex,
+		func(o client.Object) []string {
+			if ref := o.(*metalv1alpha1.Host).Spec.ClaimRef; ref != nil {
+				return []string{ref.Namespace + "/" + ref.Name}
+			}
+			return nil
+		}); err != nil {
+		return err
+	}
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&metalv1alpha1.HostClaim{}).
+		Watches(&metalv1alpha1.Host{}, handler.EnqueueRequestsFromMapFunc(r.claimsForHost)).
+		Named("hostclaim").
+		Complete(r)
+}
+
+// claimsForHost fans a host event out to its holder (release/re-check) and to every
+// claim selecting one of its fronting assets (pending claims retry when the host
+// appears or frees up). The asset name is read off the endpoint's spec, not assumed
+// from its object name.
+func (r *HostClaimReconciler) claimsForHost(ctx context.Context, obj client.Object) []ctrl.Request {
+	host := obj.(*metalv1alpha1.Host)
+	var reqs []ctrl.Request
+	seen := map[types.NamespacedName]bool{}
+	add := func(key types.NamespacedName) {
+		if !seen[key] {
+			seen[key] = true
+			reqs = append(reqs, ctrl.Request{NamespacedName: key})
+		}
+	}
+	if ref := host.Spec.ClaimRef; ref != nil {
+		add(types.NamespacedName{Namespace: ref.Namespace, Name: ref.Name})
+	}
+	for _, path := range host.Status.ManagedBy {
+		ep := &metalv1alpha1.ManagementEndpoint{}
+		if err := r.Get(ctx, client.ObjectKey{Name: path.EndpointRef.Name}, ep); err != nil {
+			continue
+		}
+		claims := &metalv1alpha1.HostClaimList{}
+		if err := r.List(ctx, claims, client.MatchingFields{claimAssetIndex: ep.Spec.AssetRef.Name}); err != nil {
+			continue
+		}
+		for i := range claims.Items {
+			add(types.NamespacedName{Namespace: claims.Items[i].Namespace, Name: claims.Items[i].Name})
+		}
+	}
+	return reqs
+}

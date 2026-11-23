@@ -1,0 +1,8 @@
+# Management-controller MAC → the URL it answers at (the --ledger input).
+#
+# A projection of the DHCP reservations, not a source of truth: the operator never
+# invents an address, it joins an Asset's bmcMac against this file and looks one up.
+#
+# A dev loop maps fixture MACs to a simulator instead, e.g.
+#   "02:00:48:0b:74:60": https://127.0.0.1:8443
+"02:00:48:0b:74:83": https://[fd6b:5a2e:1c4d:1034::14]

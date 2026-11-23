@@ -1,0 +1,41 @@
+# A miniature cluster and one node: what every machine in a cluster shares, and
+# what belongs to just this one. Rendering the pair produces that machine's
+# configuration. This is also the shape `pk-metal convert` emits, and what
+# `pk-metal render` wants pointed at it.
+apiVersion: os.pk.io/v1alpha1
+kind: TalosCluster
+metadata:
+  name: demo
+spec:
+  talosVersion: v1.13.4
+  kubernetesVersion: v1.36.2
+  endpoint: https://10.77.35.200:6443
+  allowSchedulingOnControlPlanes: true
+  clusterPodNets:
+    - fd6b:5a2e:1c4d:a000::/56
+    - 10.244.0.0/16
+  clusterSvcNets:
+    - fd6b:5a2e:1c4d:5000::/112
+    - 10.96.0.0/12
+---
+apiVersion: os.pk.io/v1alpha1
+kind: TalosNode
+metadata:
+  name: demo-cp1
+spec:
+  clusterRef:
+    name: demo
+  ipAddress: 10.77.38.202
+  controlPlane: true
+  installDiskSelector:
+    serial: PHLN000000000P6AGN
+  networkInterfaces:
+    - interface: eno1np0
+      dhcp: false
+      addresses:
+        - 10.77.38.202/23
+      routes:
+        - network: 0.0.0.0/0
+          gateway: 10.77.38.1
+      vip:
+        ip: 10.77.38.200

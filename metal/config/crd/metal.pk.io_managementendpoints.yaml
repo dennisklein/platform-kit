@@ -1,0 +1,271 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: managementendpoints.metal.pk.io
+spec:
+  group: metal.pk.io
+  names:
+    categories:
+      - metal
+    kind: ManagementEndpoint
+    listKind: ManagementEndpointList
+    plural: managementendpoints
+    shortNames:
+      - mep
+    singular: managementendpoint
+  scope: Cluster
+  versions:
+    - additionalPrinterColumns:
+        - jsonPath: .spec.address
+          name: Address
+          type: string
+        - jsonPath: .status.vendor
+          name: Vendor
+          type: string
+        - jsonPath: .status.phase
+          name: Phase
+          type: string
+        - jsonPath: .status.blockedOn
+          name: Blocked
+          priority: 1
+          type: string
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: ManagementEndpoint is one realized Redfish manager (any managerType — BMC was too narrow). Cluster-scoped; owned by the operator; verification = assertion vs discovery.
+          properties:
+            apiVersion:
+              description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+              type: string
+            kind:
+              description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: ManagementEndpointSpec is written by the operator when it materializes an Asset — pure infrastructure, no claim (adoption is implied by a HostClaim on the Asset).
+              properties:
+                address:
+                  description: 'Address is the endpoint''s base URL — an access path, never an identity (the multipath discipline: identity lives on Host.status.identity).'
+                  pattern: ^https://
+                  type: string
+                assetRef:
+                  description: AssetRef names the Asset this endpoint materializes and verifies against.
+                  properties:
+                    name:
+                      type: string
+                  required:
+                    - name
+                  type: object
+                credentialsRef:
+                  description: CredentialsRef names the Secret (operator namespace) used to connect, defaulted from the Asset at materialization — the factory credentials, kept as standing break-glass. Once an EndpointProfile rotates the endpoint onto a managed account, every connect prefers the managed Secret and this ref is the repair fallback.
+                  properties:
+                    name:
+                      default: ""
+                      description: 'Name of the referent. This field is effectively required, but due to backwards compatibility is allowed to be empty. Instances of this type with an empty value here are almost certainly wrong. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names'
+                      type: string
+                  type: object
+                  x-kubernetes-map-type: atomic
+                tls:
+                  description: 'TLS pins how the endpoint''s server certificate is verified. The hardware-PoC verdict: both vendors serve internal-ca identities (CN=bmc-<node>.metal.internal), so live endpoints pin that CA; unset falls back to the system trust store.'
+                  properties:
+                    caSecretRef:
+                      description: CASecretRef names a Secret (operator namespace, key ca.crt) whose bundle verifies the endpoint's certificate. Wins over insecureSkipVerify.
+                      properties:
+                        name:
+                          default: ""
+                          description: 'Name of the referent. This field is effectively required, but due to backwards compatibility is allowed to be empty. Instances of this type with an empty value here are almost certainly wrong. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names'
+                          type: string
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    insecureSkipVerify:
+                      description: 'InsecureSkipVerify accepts any certificate — the lab/sim fallback, never the live default (identity is solved: internal-ca on every BMC).'
+                      type: boolean
+                  type: object
+              required:
+                - address
+                - assetRef
+              type: object
+            status:
+              description: ManagementEndpointStatus is discovered truth (assertion lives on the Asset).
+              properties:
+                asset:
+                  description: Asset caches the last-resolved assertion, so an asset-source outage degrades to the snapshot rather than failing resolution.
+                  properties:
+                    bmcMac:
+                      type: string
+                    cid:
+                      type: string
+                    observedGeneration:
+                      description: ObservedGeneration is the Asset generation this snapshot was resolved at.
+                      format: int64
+                      type: integer
+                    serial:
+                      type: string
+                    vlan:
+                      type: integer
+                  type: object
+                blockedOn:
+                  description: BlockedOn is derived — why the endpoint isn't advancing (e.g. SerialMismatch).
+                  type: string
+                boardSerial:
+                  description: BoardSerial is the chassis board serial — the Supermicro identity anchor (its ComputerSystem serves none; Huawei's matches the system serial).
+                  type: string
+                capabilities:
+                  description: EndpointCapabilities is what the endpoint can DO — vendor asymmetries live in data, not types (the HOW-is-data rule). Values mirror internal/bmc, grounded in the hardware PoC.
+                  properties:
+                    dualMedia:
+                      description: 'DualMedia: two virtual media slots hold inserts concurrently (X12 yes, iBMC no) — gates the `secondary` config-delivery strategy.'
+                      type: boolean
+                    identityDialect:
+                      description: 'IdentityDialect is how the manager''s HTTPS certificate is replaced ("csr-native" | "key-upload" | "none"): the iBMC generates its CSR on the manager — the key never leaves it — while the X12 takes a locally-generated leaf and key over an OEM upload.'
+                      type: string
+                    mediaDialects:
+                      additionalProperties:
+                        type: string
+                      description: MediaDialects maps media slot id → insert dialect ("insert-media" | "vmm-control" | "none").
+                      type: object
+                    updateDialect:
+                      description: UpdateDialect is the firmware-update transport the endpoint advertises ("multipart-push" | "simple-update" | "none"). Only multipart-push is proven on our hardware — the convergence reconciler proposes a flash nowhere else.
+                      type: string
+                  type: object
+                conditions:
+                  description: Conditions are the truth — the only thing reconcilers branch on.
+                  items:
+                    description: Condition contains details for one aspect of the current state of this API Resource.
+                    properties:
+                      lastTransitionTime:
+                        description: lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                        format: date-time
+                        type: string
+                      message:
+                        description: message is a human readable message indicating details about the transition. This may be an empty string.
+                        maxLength: 32768
+                        type: string
+                      observedGeneration:
+                        description: observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      reason:
+                        description: reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty.
+                        maxLength: 1024
+                        minLength: 1
+                        pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                        type: string
+                      status:
+                        description: status of the condition, one of True, False, Unknown.
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                        type: string
+                      type:
+                        description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                        maxLength: 316
+                        pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                        type: string
+                    required:
+                      - lastTransitionTime
+                      - message
+                      - reason
+                      - status
+                      - type
+                    type: object
+                  type: array
+                  x-kubernetes-list-map-keys:
+                    - type
+                  x-kubernetes-list-type: map
+                firmware:
+                  description: Firmware lists the UpdateService inventory — the firmware-convergence observable (desired version vs the entries here), small and bounded (~5 members per vendor). Sorted by id.
+                  items:
+                    description: 'FirmwareInventoryItem is one UpdateService SoftwareInventory member as discovered. IDs are vendor-shaped (X12: BMC/Backup_BMC/…, iBMC: ActiveBMC/…) and kept opaque.'
+                    properties:
+                      id:
+                        type: string
+                      updateable:
+                        type: boolean
+                      version:
+                        type: string
+                    required:
+                      - id
+                    type: object
+                  type: array
+                  x-kubernetes-list-type: atomic
+                firmwareVersion:
+                  description: FirmwareVersion is the manager's firmware as served.
+                  type: string
+                identityPushed:
+                  description: IdentityPushed is written by the endpoint convergence reconciler alone; the observing endpoint reconciler leaves it untouched — the two share this status with disjoint fields.
+                  properties:
+                    fingerprint:
+                      description: Fingerprint (sha256, hex) of the pushed leaf certificate.
+                      type: string
+                    planHash:
+                      description: PlanHash of the desired identity the push belonged to.
+                      type: string
+                  required:
+                    - fingerprint
+                    - planHash
+                  type: object
+                managerType:
+                  description: ManagerType is the discovered Redfish Manager type, kept opaque (BMC | EnclosureManager | RackManager | …).
+                  type: string
+                model:
+                  type: string
+                phase:
+                  description: 'Phase summarizes the conditions below for people and for kubectl columns. It is a summary, not the contract: automation should read conditions.'
+                  enum:
+                    - Pending
+                    - Connecting
+                    - Inventorying
+                    - Verifying
+                    - Configuring
+                    - Ready
+                    - Unreachable
+                    - Mismatch
+                  type: string
+                systems:
+                  description: 'Systems lists the ComputerSystems this endpoint fronts (1 today, N-ready) — cached discovery like the rest of status: an unreachable endpoint keeps its last view.'
+                  items:
+                    description: DiscoveredSystem is one ComputerSystem as seen through this endpoint — the projection the HostReconciler joins into identity-keyed Hosts. ID is a path coordinate (an opaque Redfish member id), never an identity; identity is normalized in internal/identity over the serial anchors.
+                    properties:
+                      id:
+                        description: ID is the Redfish ComputerSystem member id behind this endpoint.
+                        type: string
+                      lastResetTime:
+                        description: LastResetTime as served by the ComputerSystem — the baseline-and-advance observable (X12 serves it, iBMC doesn't). Micro precision so back-to-back resets stay distinguishable.
+                        format: date-time
+                        type: string
+                      manufacturer:
+                        description: Manufacturer as served by the ComputerSystem — the machine's vendor, which on an aggregator path differs from the endpoint's vendor.
+                        type: string
+                      model:
+                        type: string
+                      serialNumber:
+                        description: SerialNumber as served by the ComputerSystem — the Huawei anchor; empty on Supermicro X12 (there the chassis board serial anchors).
+                        type: string
+                      uuid:
+                        type: string
+                    required:
+                      - id
+                    type: object
+                  type: array
+                  x-kubernetes-list-type: atomic
+                vendor:
+                  description: Vendor is the discovered manufacturer ("Huawei" | "Supermicro" | …).
+                  type: string
+              type: object
+          required:
+            - spec
+          type: object
+      served: true
+      storage: true
+      subresources:
+        status: {}
