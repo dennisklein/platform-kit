@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -182,6 +183,30 @@ func TestBootOverrideAsksForUEFIOnlyWhereNeeded(t *testing.T) {
 		require.NotNil(t, got)
 		assert.Equal(t, want, got.Mode, "system serves %q", served)
 	}
+}
+
+func TestInstallerImageBelongsToOneCluster(t *testing.T) {
+	cluster := func(name string) *osv1alpha1.TalosCluster {
+		return &osv1alpha1.TalosCluster{
+			ObjectMeta: metav1.ObjectMeta{Name: name, UID: types.UID(name + "-uid")},
+			Spec:       osv1alpha1.TalosClusterSpec{TalosVersion: "v1.14.0"},
+		}
+	}
+	a, b := cluster("alpha"), cluster("beta")
+	node := &osv1alpha1.TalosNode{ObjectMeta: metav1.ObjectMeta{Name: "node"}}
+	r := claimReconcilerFor(t, a, b, node)
+
+	fromA, err := r.ensureInstallerAsset(t.Context(), node, a)
+	require.NoError(t, err)
+	fromB, err := r.ensureInstallerAsset(t.Context(), node, b)
+	require.NoError(t, err)
+	assert.NotEqual(t, fromA.Name, fromB.Name, "the same image, one asset per cluster")
+	assert.True(t, ownedBy(fromA, a) && !ownedBy(fromA, b))
+	assert.True(t, ownedBy(fromB, b) && !ownedBy(fromB, a), "collecting one cluster never takes the other's image")
+
+	again, err := r.ensureInstallerAsset(t.Context(), node, a)
+	require.NoError(t, err)
+	assert.Equal(t, fromA.Name, again.Name, "found again, not duplicated")
 }
 
 func TestDroppedIntentStopsARunningBoot(t *testing.T) {

@@ -452,6 +452,10 @@ const bootConfigKernelArg = "talos.config=metal-iso"
 // and the cluster's Talos version, creating one owned by the cluster when absent.
 // The factory strategy is what registers the schematic and proves the image
 // exists before anyone mounts its URL.
+//
+// Each cluster gets its own: an asset owned by one cluster is collected with
+// it, and a boot of another cluster's node that shared it would lose its
+// image halfway. An asset nobody owns (authored by a person) is shared freely.
 func (r *HostClaimReconciler) ensureInstallerAsset(ctx context.Context, node *osv1alpha1.TalosNode, cluster *osv1alpha1.TalosCluster) (*osv1alpha1.BootAsset, error) {
 	schematic := bootSchematic(node, cluster)
 	assets := &osv1alpha1.BootAssetList{}
@@ -461,13 +465,14 @@ func (r *HostClaimReconciler) ensureInstallerAsset(ctx context.Context, node *os
 	for i := range assets.Items {
 		a := &assets.Items[i]
 		if a.Spec.Strategy == osv1alpha1.StrategyFactory && a.Spec.TalosVersion == cluster.Spec.TalosVersion &&
-			equality.Semantic.DeepEqual(a.Spec.Schematic, schematic) && a.DeletionTimestamp.IsZero() {
+			equality.Semantic.DeepEqual(a.Spec.Schematic, schematic) && a.DeletionTimestamp.IsZero() &&
+			(len(a.OwnerReferences) == 0 || ownedBy(a, cluster)) {
 			return a, nil
 		}
 	}
 	a := &osv1alpha1.BootAsset{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   "installer-" + hash8(planHash([]any{schematic, cluster.Spec.TalosVersion})),
+			Name:   installerName(cluster.Name, hash8(planHash([]any{schematic, cluster.Spec.TalosVersion}))),
 			Labels: map[string]string{labelProvisioning: "true"},
 		},
 		Spec: osv1alpha1.BootAssetSpec{
@@ -480,6 +485,23 @@ func (r *HostClaimReconciler) ensureInstallerAsset(ctx context.Context, node *os
 		return nil, err
 	}
 	return a, r.createOrGet(ctx, a)
+}
+
+// installerName is <cluster>-installer-<hash>, the cluster part cut so the
+// name stays a valid object name.
+func installerName(cluster, hash string) string {
+	const maxPrefix = 253 - len("-installer-") - 8
+	if len(cluster) > maxPrefix {
+		cluster = strings.TrimRight(cluster[:maxPrefix], "-.")
+	}
+	return cluster + "-installer-" + hash
+}
+
+// ownedBy: one of the object's owner references is the owner.
+func ownedBy(obj metav1.Object, owner metav1.Object) bool {
+	return slices.ContainsFunc(obj.GetOwnerReferences(), func(ref metav1.OwnerReference) bool {
+		return ref.UID == owner.GetUID()
+	})
 }
 
 func (r *HostClaimReconciler) createOrGet(ctx context.Context, a *osv1alpha1.BootAsset) error {
