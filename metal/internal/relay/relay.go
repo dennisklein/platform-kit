@@ -45,7 +45,20 @@ func Serve(ctx context.Context, tunnel, front net.Listener, advertise string) er
 	if advertise == "" {
 		advertise = front.Addr().String()
 	}
-	r := &relay{advertise: advertise, pending: map[string]chan net.Conn{}}
+	return newRelay(advertise).serve(ctx, tunnel, front)
+}
+
+func newRelay(advertise string) *relay {
+	return &relay{
+		advertise:         advertise,
+		pending:           map[string]chan net.Conn{},
+		dial:              net.DialTimeout,
+		handshakeTimeout:  handshakeTimeout,
+		rendezvousTimeout: rendezvousTimeout,
+	}
+}
+
+func (r *relay) serve(ctx context.Context, tunnel, front net.Listener) error {
 	stop := context.AfterFunc(ctx, func() {
 		_ = tunnel.Close()
 		_ = front.Close()
@@ -66,6 +79,11 @@ func Serve(ctx context.Context, tunnel, front net.Listener, advertise string) er
 
 type relay struct {
 	advertise string
+	// dial and the two timeouts are fields so that tests can record onward
+	// dials and wait milliseconds, not seconds.
+	dial              func(network, address string, timeout time.Duration) (net.Conn, error)
+	handshakeTimeout  time.Duration
+	rendezvousTimeout time.Duration
 
 	mu      sync.Mutex
 	control net.Conn
@@ -83,7 +101,7 @@ func acceptLoop(ln net.Listener, handle func(net.Conn)) error {
 }
 
 func (r *relay) handleTunnel(c net.Conn) {
-	_ = c.SetReadDeadline(time.Now().Add(handshakeTimeout))
+	_ = c.SetReadDeadline(time.Now().Add(r.handshakeTimeout))
 	line, err := readLine(c)
 	if err != nil {
 		_ = c.Close()
@@ -143,7 +161,7 @@ func (r *relay) accept(c net.Conn, id string) {
 }
 
 func (r *relay) dialOnward(c net.Conn, hostport string) {
-	target, err := net.DialTimeout("tcp", hostport, handshakeTimeout)
+	target, err := r.dial("tcp", hostport, r.handshakeTimeout)
 	if err != nil {
 		_, _ = fmt.Fprintf(c, "ERR %v\n", err)
 		_ = c.Close()
@@ -186,7 +204,7 @@ func (r *relay) handleFront(c net.Conn) {
 	select {
 	case op := <-ch:
 		splice(c, op)
-	case <-time.After(rendezvousTimeout):
+	case <-time.After(r.rendezvousTimeout):
 		if r.forget(id) {
 			_ = c.Close()
 			return
