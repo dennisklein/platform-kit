@@ -25,10 +25,16 @@ GOTOOLCHAIN = "local"
 [tasks.build]
 description = "Build the pk-metal CLI and the manager into metal/bin/"
 dir = "metal"
-run = [
-  "CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o bin/pk-metal ./cmd/pk-metal",
-  "CGO_ENABLED=0 go build -trimpath -ldflags '-s -w' -o bin/manager ./cmd/manager",
-]
+# Stamped with the same tag the image gets, so `pk-metal version` on the workstation
+# and the manager in the cluster can be compared.
+run = '''
+version=$(hack/image.sh tag)
+CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$version" -o bin/ ./cmd/pk-metal ./cmd/manager
+'''
+
+[tasks.image]
+description = "Build the operator image (manager and pk-metal), tagged with the commit it was built from"
+run = "metal/hack/image.sh build"
 
 [tasks.test]
 description = "Unit tests, and vet of the e2e build tag so the harness cannot rot"

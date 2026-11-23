@@ -39,7 +39,8 @@ import (
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
 )
 
-// Stamped by the Makefile: -ldflags "-X main.version=<sha8>".
+// Stamped at build time with -ldflags "-X main.version=<tag>", by `mise run build`
+// and by the image build.
 var version = "dev"
 
 func main() {
