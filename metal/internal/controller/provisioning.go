@@ -151,19 +151,19 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 	if err != nil {
 		return err
 	}
-	slots := shape.bootSlots
-	if len(slots) == 0 {
+	if len(shape.insertable) == 0 {
 		return hold(metalv1alpha1.ReasonNoBootableMedia, fmt.Sprintf("host %s advertises no insertable media slot", hostName))
 	}
-	single := len(slots) < 2
+	bootSlot, configSlot := shape.mediaSlots()
+	single := configSlot == ""
 	// One slot can carry the config but not the installer next to it. That
 	// only boots a machine that already runs Talos from its disk (it answers,
 	// blank, in maintenance mode); a fresh one needs an install image with the
 	// config embedded, which this operator does not build.
 	if single && !meta.IsStatusConditionTrue(node.Status.Conditions, osv1alpha1.ConditionMachineReachable) {
 		return hold(metalv1alpha1.ReasonSingleMediumUnsupported, fmt.Sprintf(
-			"host %s can mount one virtual medium (%s) and has no Talos to boot from disk — an embedded-config install image is not supported",
-			hostName, slots[0]))
+			"host %s cannot mount an installer next to the config (boot slots %v, insertable slots %v) and has no Talos to boot from disk — an embedded-config install image is not supported",
+			hostName, shape.bootSlots, shape.insertable))
 	}
 
 	config, err := r.ensureConfigAsset(ctx, node)
@@ -186,10 +186,10 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 		if err != nil {
 			return hold(metalv1alpha1.ReasonNoBootableMedia, err.Error())
 		}
-		plan.Installer, plan.Slots, plan.Target = installer.Status.URL, slots[:2], target
+		plan.Installer, plan.Slots, plan.Target = installer.Status.URL, []string{bootSlot, configSlot}, target
 		plan.Mode = overrideMode(shape.mode)
 	} else {
-		plan.Slots = slots[:1]
+		plan.Slots = shape.insertable[:1]
 	}
 
 	name := fmt.Sprintf("provision-%s-%s", hostName, hash8(planHash(plan)))
@@ -351,7 +351,8 @@ type endpointView struct {
 	// bootSlots are the insertable slots an ISO boots from: optical ones,
 	// then untyped ones (a slot that advertises nothing may still be one),
 	// in the endpoint's order. A slot typed as something else (a USB stick)
-	// is left out — an installer and its config both need an optical slot.
+	// is left out: the installer boots from one of these, the config medium
+	// may take any other insertable slot.
 	bootSlots []string
 	// targets are the boot override targets the path's system allows.
 	targets []string
@@ -400,6 +401,23 @@ func (r *HostClaimReconciler) endpointShape(ctx context.Context, host *metalv1al
 		return v, nil
 	}
 	return endpointView{}, nil
+}
+
+// mediaSlots picks the slots of a two-medium boot: the installer goes on the
+// best boot slot, the config medium on the next insertable slot. The config
+// medium is only read, never booted: Talos finds it by its volume label on any
+// block device, so a USB-stick slot carries it as well as an optical one. Both
+// are empty when the endpoint cannot hold an installer next to a config.
+func (v endpointView) mediaSlots() (boot, config string) {
+	if len(v.bootSlots) == 0 {
+		return "", ""
+	}
+	for _, id := range v.insertable {
+		if id != v.bootSlots[0] {
+			return v.bootSlots[0], id
+		}
+	}
+	return "", ""
 }
 
 // ensureConfigAsset finds the node's configISO BootAsset, creating one owned

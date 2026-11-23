@@ -166,6 +166,26 @@ func TestBootSlotsFollowMediaTypes(t *testing.T) {
 		"a release empties every insertable slot")
 }
 
+func TestConfigMediumTakesAnyOtherSlot(t *testing.T) {
+	cases := []struct {
+		name         string
+		view         endpointView
+		boot, config string
+	}{
+		{"optical and USB stick", endpointView{insertable: []string{"2", "1"}, bootSlots: []string{"2"}}, "2", "1"},
+		{"two optical", endpointView{insertable: []string{"CD1", "CD2"}, bootSlots: []string{"CD1", "CD2"}}, "CD1", "CD2"},
+		{"one optical only", endpointView{insertable: []string{"CD"}, bootSlots: []string{"CD"}}, "", ""},
+		{"USB sticks only", endpointView{insertable: []string{"U1", "U2"}}, "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			boot, config := c.view.mediaSlots()
+			assert.Equal(t, c.boot, boot)
+			assert.Equal(t, c.config, config)
+		})
+	}
+}
+
 func TestBootOverrideAsksForUEFIOnlyWhereNeeded(t *testing.T) {
 	r := &HostClaimReconciler{OperationsNamespace: "pk-metal"}
 	node := &osv1alpha1.TalosNode{ObjectMeta: metav1.ObjectMeta{Name: "node"}}
