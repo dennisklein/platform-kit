@@ -181,6 +181,41 @@ spec:
                         required:
                           - nodeRef
                         type: object
+                      etcdRecover:
+                        description: 'EtcdRecover restores the etcd of a cluster that lost all of it from an EtcdSnapshot, on one control plane: a person uploads the decrypted snapshot (pk-metal restore upload), then Talos starts etcd from it. See EtcdRecoverAction and docs/metal/disaster-recovery.md.'
+                        properties:
+                          nodeRef:
+                            description: NodeRef names the control-plane TalosNode (os.pk.io) etcd is restored on.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                          sha256:
+                            description: 'SHA256 pins the plaintext snapshot (sha256:<hex>) the approver approved: the EtcdSnapshot''s record must still say so, and the upload must name it.'
+                            pattern: ^sha256:[a-f0-9]{64}$
+                            type: string
+                          snapshotRef:
+                            description: SnapshotRef names the EtcdSnapshot (os.pk.io) to restore.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                          timeoutSeconds:
+                            default: 7200
+                            description: TimeoutSeconds bounds the step, the wait for the upload included, counted from the previous step's end (or the approval).
+                            format: int32
+                            maximum: 86400
+                            minimum: 300
+                            type: integer
+                        required:
+                          - nodeRef
+                          - sha256
+                          - snapshotRef
+                        type: object
                       etcdRemoveMember:
                         description: 'EtcdRemoveMember removes one etcd member by its ID, asked through a healthy control-plane peer: the path for a member whose node can no longer leave by itself (wiped, dead, unreachable).'
                         properties:
