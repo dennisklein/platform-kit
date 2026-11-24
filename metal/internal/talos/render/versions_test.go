@@ -27,6 +27,16 @@ func TestUpgradeableFrom(t *testing.T) {
 	assert.Error(t, render.UpgradeableFrom("v1.10.0", "v1.14.6"), "too far behind for one step")
 }
 
+func TestKubernetesUpgradeable(t *testing.T) {
+	require.NoError(t, render.KubernetesUpgradeable("v1.35.4", "v1.35.5"), "a patch release")
+	require.NoError(t, render.KubernetesUpgradeable("v1.35.4", "v1.36.0"), "the next minor")
+	err := render.KubernetesUpgradeable("v1.34.2", "v1.36.0")
+	require.Error(t, err, "two minors in one step skip the version-skew order")
+	assert.Contains(t, err.Error(), "v1.35 first")
+	assert.Error(t, render.KubernetesUpgradeable("v1.36.0", "v1.35.9"), "a downgrade")
+	assert.Error(t, render.KubernetesUpgradeable("v1.36.0", "v2.0.0"), "another major")
+}
+
 func TestRenderVersion(t *testing.T) {
 	for name, tc := range map[string]struct{ cluster, running, last, want string }{
 		"a new node renders for the cluster":           {"v1.14.6", "", "", "v1.14.6"},

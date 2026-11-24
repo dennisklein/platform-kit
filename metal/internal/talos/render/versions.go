@@ -40,6 +40,30 @@ func UpgradeableFrom(from, to string) error {
 	return target.UpgradeableFrom(host)
 }
 
+// KubernetesUpgradeable checks that a cluster on Kubernetes from can move to
+// Kubernetes to in one rollout: the same minor, or the next one. Kubernetes
+// supports no skipped minor (its version-skew policy), and talosctl
+// upgrade-k8s refuses the same jumps; a downgrade is refused too. It is a
+// few lines, so it is written here instead of taking go-kubernetes for it.
+func KubernetesUpgradeable(from, to string) error {
+	f, err := semver.ParseTolerant(from)
+	if err != nil {
+		return fmt.Errorf("kubernetes version %q: %w", from, err)
+	}
+	t, err := semver.ParseTolerant(to)
+	if err != nil {
+		return fmt.Errorf("kubernetes version %q: %w", to, err)
+	}
+	switch {
+	case t.LT(f):
+		return fmt.Errorf("kubernetes %s is older than %s: a downgrade is not supported", to, from)
+	case t.Major != f.Major || t.Minor > f.Minor+1:
+		return fmt.Errorf("kubernetes %s is more than one minor after %s: upgrade one minor at a time "+
+			"(v%d.%d first)", to, from, f.Major, f.Minor+1)
+	}
+	return nil
+}
+
 // CompareVersions compares two versions (v1.14.6 and 1.14.6 alike): -1, 0 or
 // +1. A version that does not parse sorts first, so that it is never taken
 // for the newer one.

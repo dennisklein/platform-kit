@@ -743,6 +743,14 @@ func (r *TalosRolloutReconciler) plan(ctx context.Context, ro *osv1alpha1.TalosR
 			return nil, fmt.Sprintf("the cluster's spec.kubernetesVersion is %s, this rollout targets %s: "+
 				"the configs it applies are rendered from the spec", cluster.Spec.KubernetesVersion, target.KubernetesVersion), nil
 		}
+		// The spec may have been written without the CLI's check (GitOps,
+		// kubectl): the plan refuses a skipped minor from the version the
+		// API server reports.
+		if from := cluster.Status.KubernetesVersion; from != "" {
+			if err := render.KubernetesUpgradeable(from, target.KubernetesVersion); err != nil {
+				return nil, err.Error(), nil
+			}
+		}
 	}
 
 	var bundle *secrets.Bundle // only for the leader lookup

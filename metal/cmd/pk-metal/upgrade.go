@@ -32,7 +32,8 @@ changes until a person approves that plan with pk-metal rollout approve.
 
 Talos says which Kubernetes versions each Talos release supports and from
 which releases it can be upgraded; upgrade refuses a step Talos does not
-support, before it changes anything.
+support, before it changes anything. Kubernetes moves one minor at a time:
+from v1.35 the next step is v1.36, not v1.37.
 
 examples:
   pk-metal upgrade talos lab v1.14.7
@@ -81,6 +82,17 @@ func upgradeCheck(c *osv1alpha1.TalosCluster, what, version string) error {
 	} else {
 		if render.CompareVersions(version, k8s) < 0 {
 			return fmt.Errorf("cluster %s asks for Kubernetes %s; going back to %s is not supported", c.Name, k8s, version)
+		}
+		// From what the API server reports as well as from the spec: a
+		// cluster still on its way to the spec's version must not be asked
+		// to skip one more minor.
+		for _, from := range []string{k8s, c.Status.KubernetesVersion} {
+			if from == "" {
+				continue
+			}
+			if err := render.KubernetesUpgradeable(from, version); err != nil {
+				return err
+			}
 		}
 		k8s = version
 	}
