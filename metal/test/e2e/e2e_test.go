@@ -6,8 +6,9 @@
 // its machine, and the provisioning ladder runs exactly as it would on metal —
 // claim → power-on operation → blank machine in maintenance mode → bootstrap
 // verb → check-in → Provisioned. The stated fidelity boundary: a container has
-// no media channel, so the config travels --apply-insecure here and rides the
-// BMC's virtual media only from the QEMU tier up.
+// no media channel, so the test itself applies the config over the
+// unauthenticated maintenance API (neither the operator nor the CLI has that
+// path); the config rides the BMC's virtual media only from the QEMU tier up.
 //
 // Needs docker and a kind cluster named pk-metal; it only stores objects there,
 // so kind's default node is enough (CI: `kind create cluster --name pk-metal`).
