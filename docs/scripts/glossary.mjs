@@ -1,6 +1,7 @@
 // Sätteri hast plugin: links the first use of each glossary term in each section.
 //
-// A section starts at each h2. The plugin skips headings, code, links, keyboard keys,
+// A section starts at each h2. A term with `scope: page` (a word that most pages use
+// often, such as operator or node) links only once on each page. The plugin skips headings, code, links, keyboard keys,
 // SVG and every element with the class "no-gl". A term with `abbr` gets an <abbr>, so
 // the expansion is there without JavaScript and for screen readers.
 // src/components/TermCard.astro shows the hover card.
@@ -19,6 +20,7 @@ export default function glossary({ base }) {
   const byForm = new Map(forms.map((f) => [f.form, f.term]));
   const re = new RegExp(`(?<![\\w-])(${forms.map((f) => escape(f.form)).join('|')})(?![\\w-])`, 'g');
   const page = loadPages().some((p) => p.slug === 'reference/glossary/');
+  const scoped = new Set(terms.filter((t) => t.scope === 'page').map((t) => t.id));
 
   const link = (t, text) => {
     const inner = { type: 'text', value: text };
@@ -49,6 +51,8 @@ export default function glossary({ base }) {
     name: 'pk-glossary',
     before(root, ctx) {
       let used = new Set();
+      // Page-scoped terms stay used across sections.
+      const keep = () => new Set([...used].filter((id) => scoped.has(id)));
       const visitText = (node) => {
         const value = node.value;
         const out = [];
@@ -69,7 +73,7 @@ export default function glossary({ base }) {
         for (const c of node.children ?? []) {
           if (c.type === 'text') visitText(c);
           else if (c.type === 'element') {
-            if (c.tagName === 'h2') used = new Set();
+            if (c.tagName === 'h2') used = keep();
             const cls = [].concat(c.properties?.className ?? []);
             if (skipTags.has(c.tagName) || cls.includes('no-gl')) continue;
             walk(c);

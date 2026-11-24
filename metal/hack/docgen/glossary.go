@@ -36,6 +36,7 @@ type glossaryTerm struct {
 	Domain  string            `yaml:"domain"`
 	Forms   []string          `yaml:"forms"`
 	Guards  map[string]string `yaml:"guards"`
+	Scope   string            `yaml:"scope"`
 	See     string            `yaml:"see"`
 	Related []string          `yaml:"related"`
 	Def     string            `yaml:"def"`
@@ -96,6 +97,9 @@ func checkGlossary(path string) error {
 		}
 		if !glossarySee.MatchString(t.See) {
 			bad(t.ID, "see %q is not a category link (kind:, ctrl:, act:, cli:, lab:, concept:, flow:, howto:, rb:, tut:)", t.See)
+		}
+		if t.Scope != "" && t.Scope != "page" {
+			bad(t.ID, "scope %q is not page (leave it out to link once in each section)", t.Scope)
 		}
 		for k, v := range t.Guards {
 			if !slices.Contains(glossaryGuard, k) {

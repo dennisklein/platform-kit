@@ -155,6 +155,7 @@ terms:
     domain: nowhere
     forms: [BMC]
     see: https://example.org
+    scope: site
     def: >-
       One two three four five six seven eight nine ten eleven twelve thirteen
       fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty-one
@@ -164,7 +165,7 @@ terms:
 	require.Error(t, err)
 	for _, want := range []string{
 		"needs its expansion", `related "nope"`, "lower case", `unknown domain "nowhere"`,
-		`form "BMC" is also a form of "bmc"`, "is not a category link", "has 26 words",
+		`form "BMC" is also a form of "bmc"`, "is not a category link", "has 26 words", `scope "site" is not page`,
 	} {
 		assert.Contains(t, err.Error(), want)
 	}

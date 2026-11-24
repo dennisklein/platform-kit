@@ -15,6 +15,8 @@
 #            list means: link it only by hand, with [text](term:<id>).
 #   guards   optional: not_before / not_after (regular expressions on the text
 #            next to the form) stop a link where the form means something else.
+#   scope    optional: `page` links the term once on each page, not once in each
+#            h2 section. For the words that nearly every section uses.
 #   see      the page that explains the term, as a category link.
 #   related  ids of other terms in this file.
 #   def      the definition. ASD-STE100: one to three sentences, present tense,
@@ -303,6 +305,7 @@ terms:
     kind: noun
     domain: k8s
     forms: [operator, pk-metal operator]
+    scope: page
     see: concept:architecture
     related: [manager, controller, reconcile]
     def: >-
@@ -677,6 +680,7 @@ terms:
     kind: api-kind
     domain: k8s
     forms: [Host, Hosts]
+    scope: page
     see: kind:Host
     related: [asset, hostclaim, managementendpoint]
     def: >-
@@ -940,6 +944,7 @@ terms:
     kind: noun
     domain: talos
     forms: [node, nodes]
+    scope: page
     see: kind:TalosNode
     related: [talosnode, host]
     def: >-
@@ -1107,6 +1112,7 @@ terms:
     kind: noun
     domain: talos
     forms: [install, installs]
+    scope: page
     see: howto:install-hosts
     related: [hostclaim, install-disk, hand-off-record]
     def: >-
@@ -1231,6 +1237,7 @@ terms:
     kind: noun
     domain: safety
     forms: [approval, approvals, approve, approves, approved]
+    scope: page
     see: concept:approval
     related: [proposal, approver, hold, plan-hash]
     def: >-
