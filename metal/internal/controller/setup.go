@@ -195,6 +195,7 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 			Client: c, CredentialsNamespace: o.CredentialsNamespace,
 			RegistryClient: o.RegistryClient, Media: o.Media, Store: o.MediaStore,
 			Recorder: recorder(), WaitInterval: o.WaitInterval, Self: self,
+			TalosDial: o.TalosDial,
 		}
 	case LaneConvergence:
 		return "convergence", &ConvergenceReconciler{

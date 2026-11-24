@@ -65,6 +65,8 @@ func (x *exec) step(ctx context.Context, i int) (stepState, error) {
 		return stepDone, x.r.flashFirmware(ctx, cl, a.FlashFirmware)
 	case a.AwaitCheckIn != nil:
 		return x.awaitCheckIn(ctx, a.AwaitCheckIn)
+	case a.EtcdRecover != nil:
+		return x.etcdRecover(ctx, a.EtcdRecover)
 	}
 	return stepState{}, fmt.Errorf("action carries no known key")
 }
@@ -82,7 +84,7 @@ func (x *exec) step(ctx context.Context, i int) (stepState, error) {
 // previous step ended, whether or not anyone looked, so its budget counts
 // from there.
 func (x *exec) waitStart(i int, entered time.Time) time.Time {
-	if x.op.Spec.Actions[i].AwaitCheckIn != nil {
+	if a := x.op.Spec.Actions[i]; a.AwaitCheckIn != nil || a.EtcdRecover != nil {
 		return x.stepStart(i)
 	}
 	key := types.NamespacedName{Namespace: x.op.Namespace, Name: x.op.Name}
@@ -107,6 +109,9 @@ func (x *exec) stepStart(i int) time.Time {
 func (x *exec) stepBudget(i int) time.Duration {
 	if a := x.op.Spec.Actions[i].AwaitCheckIn; a != nil {
 		return checkInTimeout(a)
+	}
+	if a := x.op.Spec.Actions[i].EtcdRecover; a != nil {
+		return etcdRecoverTimeout(a)
 	}
 	if a := x.op.Spec.Actions[i].PowerOff; a != nil {
 		return gracefulWindow(a) + x.r.powerTimeout()

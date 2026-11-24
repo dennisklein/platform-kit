@@ -29,6 +29,7 @@ import (
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	gofishclient "github.com/dennisklein/platform-kit/metal/internal/bmc/gofish"
 	"github.com/dennisklein/platform-kit/metal/internal/phase"
+	"github.com/dennisklein/platform-kit/metal/internal/talos"
 )
 
 // opHostIndex joins operations to the Host they act on.
@@ -123,6 +124,9 @@ type HostOperationReconciler struct {
 	Self *SelfGuard
 	// Workers is how many passes run at once. Zero defaults.
 	Workers int
+	// TalosDial reaches nodes' Talos API, for the steps that act through
+	// it (etcdRecover). Nil fails such a step, saying so.
+	TalosDial talos.Dialer
 
 	// locks keeps two passes off one host and off one BMC. startMu makes a
 	// guarded start (the self guard's verdict through the baseline write)
@@ -132,6 +136,9 @@ type HostOperationReconciler struct {
 	locks   passLocks
 	startMu sync.Mutex
 	clock   stepClocks
+	// recoveries remembers, by operation UID, when Talos accepted an
+	// etcdRecover request, so a pass soon after does not ask again.
+	recoveries sync.Map
 }
 
 // reader is the uncached reader when one is wired, the client otherwise.
@@ -981,6 +988,7 @@ type pathClient struct {
 var implementedActions = map[string]bool{
 	"powerCycle": true, "powerOff": true, "setBootOverride": true, "insertMedia": true,
 	"ejectMedia": true, "applyBios": true, "flashFirmware": true, "awaitCheckIn": true,
+	"etcdRecover": true,
 }
 
 // unimplementedAction returns the index and key of the first action step
