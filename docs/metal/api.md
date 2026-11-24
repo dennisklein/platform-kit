@@ -30,7 +30,7 @@ people and for kubectl's columns. Conditions are the contract — branch on them
 not on the phase string.
 
 
-**Resources:** [Asset](#asset) · [BiosProfile](#biosprofile) · [BiosSchema](#biosschema) · [BiosSettings](#biossettings) · [EndpointProfile](#endpointprofile) · [FirmwareProfile](#firmwareprofile) · [Host](#host) · [HostClaim](#hostclaim) · [HostOperation](#hostoperation) · [ManagementEndpoint](#managementendpoint)
+**Resources:** [Asset](#asset) · [BiosProfile](#biosprofile) · [BiosSchema](#biosschema) · [BiosSettings](#biossettings) · [EndpointProfile](#endpointprofile) · [FirmwareProfile](#firmwareprofile) · [Host](#host) · [HostClaim](#hostclaim) · [HostOperation](#hostoperation) · [MaintenanceWindow](#maintenancewindow) · [ManagementEndpoint](#managementendpoint)
 
 
 
@@ -285,6 +285,35 @@ what failed; kubectl describe shows each step's message.
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[HostOperationSpec](#hostoperationspec)_ |  |  |  |
 | `status` _[HostOperationStatus](#hostoperationstatus)_ |  |  | Optional: \{\} <br /> |
+
+
+### MaintenanceWindow
+
+
+
+MaintenanceWindow says when disruptive work may start on a set of
+machines. An approved HostOperation on a covered machine waits, with
+blockedOn OutsideMaintenanceWindow, until one of the windows that cover
+it opens; then it starts. A machine covered by no window is not held.
+Work already running is never stopped by a window closing: stopping a
+machine half-way through a change leaves it worse off than finishing.
+
+New installs (operations with reason Provisioning) are not held: they
+disturb no running workload. To let one operation start now anyway:
+
+	kubectl annotate hostoperation -n pk-metal <name> metal.pk.io/ignore-window="<why>"
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `metal.pk.io/v1alpha1` | | |
+| `kind` _string_ | `MaintenanceWindow` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[MaintenanceWindowSpec](#maintenancewindowspec)_ |  |  |  |
+| `status` _[MaintenanceWindowStatus](#maintenancewindowstatus)_ |  |  | Optional: \{\} <br /> |
 
 
 ### ManagementEndpoint
@@ -1308,6 +1337,47 @@ _Appears in:_
 
 
 
+#### MaintenanceWindowSpec
+
+
+
+MaintenanceWindowSpec says which machines the window covers and when it is
+open.
+
+
+
+_Appears in:_
+- [MaintenanceWindow](#maintenancewindow)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `hostSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#labelselector-v1-meta)_ | HostSelector selects Hosts by label, the same labels profiles match<br />(metal.pk.io/vendor, metal.pk.io/model, and the claim's own labels).<br />An empty selector (\{\}) selects every Host. |  | Optional: \{\} <br /> |
+| `clusters` _string array_ | Clusters names TalosClusters (os.pk.io): a Host whose node belongs to<br />one of them is covered. A Host is covered when it matches the<br />selector or runs a node of a named cluster. |  | MaxItems: 64 <br />Optional: \{\} <br /> |
+| `timeZone` _string_ | TimeZone is the IANA time zone the weekly windows are read in, such as<br />Europe/Berlin; daylight saving time is followed. Default UTC. | UTC | Optional: \{\} <br /> |
+| `weekly` _[WeeklyWindow](#weeklywindow) array_ | Weekly are windows that recur every week. |  | MaxItems: 32 <br />Optional: \{\} <br /> |
+| `once` _[OnceWindow](#oncewindow) array_ | Once are single windows, for a planned intervention outside the<br />usual schedule. |  | MaxItems: 32 <br />Optional: \{\} <br /> |
+
+
+#### MaintenanceWindowStatus
+
+
+
+MaintenanceWindowStatus is what the operator reads from the spec: whether
+the window is open now and when that changes.
+
+
+
+_Appears in:_
+- [MaintenanceWindow](#maintenancewindow)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `open` _boolean_ | Open is true while one of the windows is open. |  | Optional: \{\} <br /> |
+| `nextChange` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | NextChange is when Open flips next: the close of the window that is<br />open, or the start of the next one. Empty when no window comes again. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions: Valid is False when the time zone or the selector cannot<br />be read. An invalid window still covers what it can name and is never<br />open, so a mistake in it holds work back instead of letting it run. |  | Optional: \{\} <br /> |
+
+
+
 #### ManagementEndpointSpec
 
 
@@ -1392,6 +1462,23 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `servers` _string array_ | Servers, in preference order. At most three — the iBMC carries exactly<br />three server slots. |  | MaxItems: 3 <br />MinItems: 1 <br />items:MinLength: 1 <br /> |
+
+
+#### OnceWindow
+
+
+
+OnceWindow is a single window between two points in time.
+
+
+
+_Appears in:_
+- [MaintenanceWindowSpec](#maintenancewindowspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `start` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | Start is when the window opens (RFC 3339, with its offset). |  |  |
+| `end` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | End is when it closes. |  |  |
 
 
 #### OperationApproval
@@ -1777,6 +1864,38 @@ _Appears in:_
 | `nodeRef` _[Reference](#reference)_ | NodeRef names the TalosNode (os.pk.io) to wait for. |  |  |
 | `version` _string_ | Version, when set, is also waited for: the Talos version the node must<br />report, the proof an upgrade took. |  | Pattern: `^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$` <br />Optional: \{\} <br /> |
 | `timeoutSeconds` _integer_ | TimeoutSeconds bounds the wait, counted from the previous step's end. | 1800 | Maximum: 86400 <br />Minimum: 60 <br />Optional: \{\} <br /> |
+
+
+#### Weekday
+
+_Underlying type:_ _string_
+
+Weekday is a day of the week as a three-letter English abbreviation.
+
+_Validation:_
+- Enum: [Mon Tue Wed Thu Fri Sat Sun]
+
+_Appears in:_
+- [WeeklyWindow](#weeklywindow)
+
+
+
+#### WeeklyWindow
+
+
+
+WeeklyWindow is a window that recurs every week on the given days.
+
+
+
+_Appears in:_
+- [MaintenanceWindowSpec](#maintenancewindowspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `days` _[Weekday](#weekday) array_ | Days are the days the window opens on, in the window's time zone. |  | Enum: [Mon Tue Wed Thu Fri Sat Sun] <br />MaxItems: 7 <br />MinItems: 1 <br /> |
+| `start` _string_ | Start is the local time the window opens, as HH:MM (24-hour clock). |  | Pattern: `^([01][0-9]\|2[0-3]):[0-5][0-9]$` <br /> |
+| `duration` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#duration-v1-meta)_ | Duration is how long the window stays open, such as 4h or 90m: at<br />least a minute, at most a week. A window may run past midnight. |  |  |
 
 
 

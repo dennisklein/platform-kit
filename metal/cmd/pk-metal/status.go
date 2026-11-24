@@ -308,8 +308,11 @@ func buildReport(hosts []metalv1alpha1.Host, eps []metalv1alpha1.ManagementEndpo
 		row := opStatus{Namespace: op.Namespace, Name: op.Name, Host: op.Spec.HostRef.Name,
 			Phase: string(op.Status.Phase), ApprovedBy: op.Spec.Approval.ApprovedBy, BlockedOn: op.Status.BlockedOn}
 		row.Message = explain(op.Status.Conditions, op.Status.BlockedOn, metalv1alpha1.ConditionExecuted)
+		// Queued behind another operation or waiting for its maintenance
+		// window is the plan working, not something a person must do.
 		row.NeedsAttention = op.Status.Phase == metalv1alpha1.OperationFailed ||
-			(op.Status.BlockedOn != "" && op.Status.BlockedOn != metalv1alpha1.ReasonOperationQueued)
+			(op.Status.BlockedOn != "" && op.Status.BlockedOn != metalv1alpha1.ReasonOperationQueued &&
+				op.Status.BlockedOn != metalv1alpha1.ReasonOutsideMaintenanceWindow)
 		rep.Operations = append(rep.Operations, row)
 	}
 

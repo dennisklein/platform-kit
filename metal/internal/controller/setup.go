@@ -38,6 +38,7 @@ const (
 	LaneTalosNode
 	LaneTalosCluster
 	LaneBootAsset
+	LaneMaintenanceWindow
 	laneCount
 )
 
@@ -45,6 +46,7 @@ const (
 var AllLanes = []Lane{
 	LaneAsset, LaneEndpoint, LaneHost, LaneHostClaim, LaneProtection, LaneHostOperation,
 	LaneConvergence, LaneEndpointConvergence, LaneTalosNode, LaneTalosCluster, LaneBootAsset,
+	LaneMaintenanceWindow,
 }
 
 // Options is what the reconcilers are configured with. The manager fills it
@@ -210,6 +212,8 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 			Dial: o.TalosDial, ProbeKubernetes: o.ProbeKubernetes,
 			CheckInterval: o.CheckInterval, ReadyInterval: o.ReadyInterval,
 		}
+	case LaneMaintenanceWindow:
+		return "maintenancewindow", &MaintenanceWindowReconciler{Client: c}
 	default: // LaneBootAsset; SetupAll has checked the range
 		return "bootasset", &BootAssetReconciler{
 			Client: c, Scheme: scheme, Namespace: o.CredentialsNamespace, Factory: o.Factory,

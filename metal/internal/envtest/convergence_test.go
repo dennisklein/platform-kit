@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/assert"
@@ -101,7 +102,7 @@ func TestConvergence(t *testing.T) {
 		PollInterval:         pollInterval,
 		RegistryClient:       registry.Client(),
 	}, controller.LaneAsset, controller.LaneEndpoint, controller.LaneHost, controller.LaneHostClaim,
-		controller.LaneHostOperation, controller.LaneConvergence))
+		controller.LaneHostOperation, controller.LaneConvergence, controller.LaneMaintenanceWindow))
 	runManager(t, ctx, mgr)
 
 	for _, a := range []*metalv1alpha1.Asset{
@@ -620,5 +621,49 @@ func TestConvergence(t *testing.T) {
 		require.Eventually(t, func() bool {
 			return apierrors.IsNotFound(cl.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &metalv1alpha1.HostOperation{}))
 		}, waitFor, tick, "the unapproved proposal is withdrawn")
+	})
+	st.run(t, "an approved operation waits for its maintenance window", func(t *testing.T) {
+		// The window opens a few seconds from now: long enough to see the
+		// operation held, short enough to see it start by itself.
+		opens := time.Now().Add(6 * time.Second).Truncate(time.Second)
+		window := &metalv1alpha1.MaintenanceWindow{
+			ObjectMeta: metav1.ObjectMeta{Name: "huawei-nights"},
+			Spec: metalv1alpha1.MaintenanceWindowSpec{
+				HostSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"metal.pk.io/vendor": "Huawei"}},
+				Once: []metalv1alpha1.OnceWindow{{Start: metav1.NewTime(opens), End: metav1.NewTime(opens.Add(time.Hour))}},
+			},
+		}
+		require.NoError(t, cl.Create(ctx, window))
+		t.Cleanup(func() { _ = cl.Delete(ctx, window) })
+		require.Eventually(t, func() bool {
+			got := metalv1alpha1.MaintenanceWindow{}
+			return cl.Get(ctx, client.ObjectKeyFromObject(window), &got) == nil &&
+				got.Status.NextChange != nil && got.Status.NextChange.Equal(&metav1.Time{Time: opens}) && !got.Status.Open
+		}, waitFor, tick, "the window's status shows when it opens")
+
+		op := &metalv1alpha1.HostOperation{
+			ObjectMeta: metav1.ObjectMeta{Name: "window-cycle", Namespace: "default"},
+			Spec: metalv1alpha1.HostOperationSpec{
+				HostRef:    metalv1alpha1.Reference{Name: huaweiHost},
+				ProposedBy: operator,
+				Actions:    []metalv1alpha1.HostOperationAction{{PowerCycle: &metalv1alpha1.PowerCycleAction{}}},
+			},
+		}
+		require.NoError(t, cl.Create(ctx, op))
+		approve("default/window-cycle")
+		var got metalv1alpha1.HostOperation
+		require.Eventually(t, func() bool {
+			return cl.Get(ctx, client.ObjectKeyFromObject(op), &got) == nil &&
+				got.Status.BlockedOn == metalv1alpha1.ReasonOutsideMaintenanceWindow
+		}, waitFor, tick, "approved, but held outside the window")
+		require.True(t, time.Now().Before(opens), "the hold must be seen before the window opens for this test to mean anything")
+		assert.Nil(t, got.Status.Baseline, "nothing was done to the machine")
+		assert.Contains(t, meta.FindStatusCondition(got.Status.Conditions, metalv1alpha1.ConditionExecuted).Message,
+			"huawei-nights")
+
+		waitOpSucceeded("default/window-cycle")
+		require.NoError(t, cl.Get(ctx, client.ObjectKeyFromObject(op), &got))
+		require.NotNil(t, got.Status.Baseline)
+		assert.False(t, got.Status.Baseline.CapturedAt.Time.Before(opens), "it started only once the window was open")
 	})
 }

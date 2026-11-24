@@ -24,6 +24,7 @@ rules:
   - biosprofiles
   - endpointprofiles
   - firmwareprofiles
+  - maintenancewindows
   verbs:
   - get
   - list
@@ -36,6 +37,7 @@ rules:
   - biossettings/status
   - hostclaims/status
   - hostoperations/status
+  - maintenancewindows/status
   - managementendpoints/finalizers
   verbs:
   - update

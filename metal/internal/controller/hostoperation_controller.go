@@ -299,6 +299,11 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 				return ctrl.Result{RequeueAfter: selfRecheck}, client.IgnoreNotFound(flush())
 			}
 		}
+		// Work on a machine a maintenance window covers starts only while
+		// one of its windows is open (window.go).
+		if res, held, err := r.holdForWindow(ctx, op, host, setCond, flush); held {
+			return res, err
+		}
 	}
 
 	// One context bounds the whole BMC pass (dial + steps + closing observation):
