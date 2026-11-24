@@ -64,6 +64,12 @@ var version = "dev"
 // imager Jobs run a copy of this binary (see imager.go).
 //
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get,namespace=pk-metal
+//
+// The metrics endpoint asks the API server who a scraper is and whether it may
+// read /metrics (--metrics-secure).
+//
+// +kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews,verbs=create
+// +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
 
 func main() {
 	if code, ok := runSubcommand(os.Args[1:], os.Stderr); ok {
@@ -172,7 +178,7 @@ func main() {
 	mgr, err := ctrl.NewManager(restCfg, ctrl.Options{
 		Scheme:                 scheme,
 		Cache:                  cacheOptions(c.credsNS),
-		Metrics:                metricsserver.Options{BindAddress: c.metricsAddr},
+		Metrics:                c.metricsOptions(),
 		HealthProbeBindAddress: c.probeAddr,
 		LeaderElection:         c.leaderElect,
 		LeaderElectionID:       "pk-metal.metal.pk.io",
@@ -332,32 +338,47 @@ func secretKeyPair(cl client.Reader, key types.NamespacedName) func(context.Cont
 	}
 }
 
+// metricsOptions serves /metrics over HTTPS to a caller whose token the API
+// server accepts and who may get the non-resource URL /metrics, unless
+// --metrics-secure=false. The certificate is a self-signed one the process
+// makes at start; the token, not the certificate, is what keeps the domain
+// series (host names, cluster names, what waits for whom) inside the cluster.
+func (c *config) metricsOptions() metricsserver.Options {
+	o := metricsserver.Options{BindAddress: c.metricsAddr}
+	if c.metricsSecure {
+		o.SecureServing = true
+		o.FilterProvider = metricsAuthFilter
+	}
+	return o
+}
+
 // config is what the command line sets.
 type config struct {
-	ledgerPath   string
-	credsNS      string
-	caSecret     string
-	bmcInsecure  bool
-	poll         time.Duration
-	imageFactory string
-	registryCA   string
-	metricsAddr  string
-	probeAddr    string
-	leaderElect  bool
-	mediaListen  string
-	mediaURL     string
-	mediaCert    string
-	mediaStore   string
-	storeClaim   string
-	backupDir    string
-	backupClaim  string
-	imagerRepo   string
-	imagerPins   imagerDigests
-	imagerHelper string
-	checkIn      time.Duration
-	shutdown     time.Duration
-	nodeName     string
-	showVersion  bool
+	ledgerPath    string
+	credsNS       string
+	caSecret      string
+	bmcInsecure   bool
+	poll          time.Duration
+	imageFactory  string
+	registryCA    string
+	metricsAddr   string
+	metricsSecure bool
+	probeAddr     string
+	leaderElect   bool
+	mediaListen   string
+	mediaURL      string
+	mediaCert     string
+	mediaStore    string
+	storeClaim    string
+	backupDir     string
+	backupClaim   string
+	imagerRepo    string
+	imagerPins    imagerDigests
+	imagerHelper  string
+	checkIn       time.Duration
+	shutdown      time.Duration
+	nodeName      string
+	showVersion   bool
 }
 
 // parseFlags reads the command line. It returns flag.ErrHelp after printing
@@ -381,6 +402,8 @@ func parseFlags(args []string, output io.Writer) (*config, error) {
 		"accept any BMC certificate without checking it; for simulated BMCs in a lab only")
 	fs.DurationVar(&c.poll, "poll-interval", 5*time.Minute, "how often each BMC is asked again what it reports")
 	fs.StringVar(&c.metricsAddr, "metrics-bind-address", "0", "metrics address ('0' disables)")
+	fs.BoolVar(&c.metricsSecure, "metrics-secure", true,
+		"serve metrics over HTTPS, only to a caller whose Kubernetes token may get the non-resource URL /metrics; false serves plain HTTP to anyone who reaches the port")
 	fs.StringVar(&c.probeAddr, "health-probe-bind-address", "0", "health probe address ('0' disables)")
 	fs.BoolVar(&c.leaderElect, "leader-elect", false, "enable leader election")
 	fs.StringVar(&c.mediaListen, "media-listen", ":8443",

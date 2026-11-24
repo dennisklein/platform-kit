@@ -22,8 +22,10 @@ spec:
       targetPort: media
       nodePort: 30443
 ---
-# Prometheus metrics of the controller-runtime manager, plain HTTP inside the
-# cluster network.
+# Prometheus metrics of the controller-runtime manager and the pk_metal_*
+# domain series. HTTPS with a self-signed certificate; the manager answers only
+# a caller whose Kubernetes token may get /metrics (--metrics-secure).
+# config/prometheus/servicemonitor.yaml scrapes it through this Service.
 apiVersion: v1
 kind: Service
 metadata:
