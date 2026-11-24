@@ -26,6 +26,8 @@ HELP="usage: $SCRIPT <verb>
   release <namespace/name>
                delete a claim, approve the shutdown it proposes, and wait until its
                Host is Available again
+  day2 scale   on a converged lab at PK_LAB_NODES=3cp+2w: control planes 3 -> 1 -> 3,
+               remove a worker, replace a control plane, back to 1; approves as wait does
   pivot        move the operator from kind onto the first Talos cluster (pk-metal
                pivot), delete kind, and install the second cluster from there;
                needs a workload section (PK_LAB_WORKLOAD) and a converged lab
@@ -997,6 +999,172 @@ release() {
   done
 }
 
+# ---------------------------------------------------------------- day 2: scale
+
+# The etcd members of the lab cluster as node-1 sees them, one line each:
+# "<hostname> <learner true|false>". node-1 stays in the cluster through the
+# whole scale round, so it is always there to ask.
+etcd_members() {
+  local lab_dir=$1
+  talosctl --talosconfig "$lab_dir/talosconfig" --nodes 10.77.0.11 etcd members 2>/dev/null \
+    | awk 'NR > 1 { print $3, $NF }'
+}
+
+# Prints the number of nodes in the workload cluster: every one, and Ready.
+workload_nodes() {
+  local lab_dir=$1
+  kubectl --kubeconfig "$lab_dir/workload.kubeconfig" --request-timeout=5s get nodes --output json 2>/dev/null | jq -r '
+    "\(.items | length) \([.items[] | select(any(.status.conditions[]?; .type == "Ready" and .status == "True"))] | length)"'
+}
+
+# Approves what the operator proposes until the cluster has the etcd voters,
+# nodes and Available hosts asked for, checking the etcd rules on every turn:
+# never more than one learner (control planes join one at a time) and never
+# fewer than min_voters voting members. A failed operation ends the wait.
+day2_until() {
+  local root=$1 lab_dir=$2 timeout=$3 voters=$4 nodes=$5 min_voters=$6 what=$7
+  local members learners have total ready failed line last="" deadline=$((SECONDS + timeout))
+  step "$what: waiting up to ${timeout}s for $voters etcd voter(s) and $nodes Ready node(s)"
+  while true; do
+    approve_pending "$root" >/dev/null || true
+    members=$(etcd_members "$lab_dir") || members=""
+    if [[ -n $members ]]; then
+      learners=$(awk '$2 == "true"' <<<"$members" | wc -l)
+      have=$(awk '$2 != "true"' <<<"$members" | wc -l)
+      (( learners <= 1 )) || die "$what: etcd has $learners learners at once; control planes must join one at a time:
+$members"
+      (( have >= min_voters )) || die "$what: etcd fell to $have voting member(s), below $min_voters:
+$members"
+    else
+      learners=-1 have=-1
+    fi
+    read -r total ready < <(workload_nodes "$lab_dir" || echo "-1 -1")
+    if (( learners == 0 && have == voters && total == nodes && ready == nodes )) && [[ -z $(pending_operations) ]]; then
+      echo "  done after $((SECONDS - (deadline - timeout)))s: $have etcd voter(s), $ready Ready node(s)" >&2
+      return 0
+    fi
+    line="etcd: $have voter(s), $learners learner(s); nodes: $ready of $total Ready; $(progress "$lab_dir" 2>/dev/null || echo "the lab cluster does not answer")"
+    if [[ $line != "$last" ]]; then
+      echo "  [$(date '+%F %T %Z')] $line" >&2
+      last=$line
+    fi
+    failed=$(failed_operations 2>/dev/null || true)
+    [[ -z $failed ]] || die "$what: something failed and waits for a person:
+$failed
+  Look at it: mise run lab:status; collect the evidence: mise run lab:collect"
+    (( SECONDS < deadline )) || die "$what did not finish within ${timeout}s. Last state: $line
+  Look at it: mise run lab:status; collect the evidence: mise run lab:collect"
+    sleep 15
+  done
+}
+
+# Fails unless every listed Host is Available, unclaimed and not marked as
+# holding an old node: a removal returns its machine reset, not just off.
+hosts_returned() {
+  local what=$1
+  shift
+  local host phase mark
+  for host in "$@"; do
+    phase=$(host_phase "$host") || phase=""
+    mark=$(kubectl get host "$host" --output json | jq -r '.metadata.annotations["metal.pk.io/disk-not-wiped"] // empty')
+    [[ $phase == Available && -z $mark ]] || die "$what: Host $host is ${phase:-unknown}${mark:+ and marked not wiped ($mark)}; a removed node's machine should come back reset.
+  Look at it: mise run lab:status"
+  done
+}
+
+# Approves the operations of one Host until it is Available again: the
+# release of a machine whose claim moved elsewhere.
+release_host() {
+  local root=$1 host=$2 timeout=$3 what=$4
+  local namespace name deadline=$((SECONDS + timeout))
+  step "$what: releasing Host $host"
+  until [[ $(host_phase "$host" || true) == Available ]]; do
+    while read -r namespace name; do
+      [[ -n $name ]] || continue
+      "$root/metal/bin/pk-metal" approve --yes -n "$namespace" "$name" >&2 || true
+    done < <(kubectl get hostoperations --all-namespaces --output json | jq -r --arg host "$host" '
+      .items[]
+      | select(.spec.hostRef.name == $host and .spec.approval.required != false)
+      | select((.spec.approval.approvedBy // "") == "")
+      | select((.status.phase // "") != "Succeeded" and (.status.phase // "") != "Failed")
+      | "\(.metadata.namespace) \(.metadata.name)"')
+    (( SECONDS < deadline )) || die "$what: Host $host was not released within ${timeout}s.
+  Look at it: mise run lab:status; collect the evidence: mise run lab:collect"
+    sleep 10
+  done
+}
+
+# The scale round, on a converged lab of three control planes and two
+# workers (PK_LAB_NODES=3cp+2w): control planes 3 -> 1 -> 3, one worker
+# removed, a control plane replaced on the freed worker machine, and back to
+# one control plane. Like wait, it stands in for the person who approves.
+day2_scale() {
+  local root=$1 lab_dir=$2 gen=$3 timeout=$4
+  local cluster cli size h2 h3 h5
+  require_cluster "$lab_dir"
+  cluster=$(lab_value "$gen" TALOS_CLUSTER)
+  cli=$root/metal/bin/pk-metal
+  size="$(lab_value "$gen" CONTROL_PLANES)cp+$(lab_value "$gen" WORKERS)w"
+  [[ $size == 3cp+2w ]] \
+    || die "the scale round needs the lab at three control planes and two workers.
+  Bring it up so: mise run lab:down && mise run lab:reset && PK_LAB_NODES=3cp+2w mise run lab:up && mise run lab:wait"
+  kubeconfig_fetch "$cluster" "$lab_dir/workload.kubeconfig" "$lab_dir/talosconfig" \
+    || die "TalosCluster $cluster has published no kubeconfig yet. Install it first: mise run lab:wait"
+  h2=$(claim_host default node-2)
+  h3=$(claim_host default node-3)
+  h5=$(claim_host default node-5)
+  [[ -n $h2 && -n $h3 && -n $h5 ]] || die "the claims node-2, node-3 and node-5 should each hold a Host. Install the lab first: mise run lab:wait"
+
+  # Two of three control planes leave: on the way etcd has two members, an
+  # even count the operator refuses without the acknowledgement.
+  step "scale $cluster to 1 control plane"
+  "$cli" scale "$cluster" --control-planes 1 --workers 2 --apply --ack-etcd-risk "lab scale round" >&2
+  day2_until "$root" "$lab_dir" "$timeout" 1 3 1 "scale to 1 control plane"
+  hosts_returned "scale to 1 control plane" "$h2" "$h3"
+
+  # The same TalosNodes come back on their own machines (scale pairs a node
+  # with the host of the asset of its name), one control plane at a time.
+  step "scale $cluster to 3 control planes"
+  "$cli" scale "$cluster" --control-planes 3 --workers 2 --apply >&2
+  day2_until "$root" "$lab_dir" "$timeout" 3 5 1 "scale to 3 control planes"
+
+  step "remove worker node-5"
+  "$cli" scale "$cluster" --control-planes 3 --workers 1 --apply >&2
+  day2_until "$root" "$lab_dir" "$timeout" 3 4 3 "remove a worker"
+  hosts_returned "remove a worker" "$h5"
+
+  # node-2 moves to the machine node-5 had. Its etcd member goes before it
+  # joins again under the same name, so etcd is at two voters in between,
+  # never fewer. Its TalosNode names its disk and link by the old machine's
+  # serial and MAC: once the old machine is released they are edited to the
+  # new one's, as a person replacing failed hardware would. A boot proposed
+  # before the edit is withdrawn by the operator and proposed again.
+  step "replace control plane node-2 onto Host $h5"
+  "$cli" replace node-2 --host "$h5" --ack-etcd-risk "lab scale round" >&2
+  release_host "$root" "$h2" "$timeout" "replace a control plane"
+  kubectl patch talosnode node-2 --type json --patch '[
+    {"op": "replace", "path": "/spec/installDiskSelector/serial", "value": "pklab-disk-5"},
+    {"op": "replace", "path": "/spec/network/links/0/hardwareAddr", "value": "52:54:00:77:00:15"}]' >&2
+  day2_until "$root" "$lab_dir" "$timeout" 3 4 2 "replace a control plane"
+  [[ $(claim_host default node-2) == "$h5" ]] || die "replace: claim node-2 should hold Host $h5 now, it holds $(claim_host default node-2)"
+  hosts_returned "replace a control plane" "$h2"
+
+  step "scale $cluster back to 1 control plane"
+  "$cli" scale "$cluster" --control-planes 1 --workers 1 --apply --ack-etcd-risk "lab scale round" >&2
+  day2_until "$root" "$lab_dir" "$timeout" 1 2 1 "scale back to 1 control plane"
+  hosts_returned "scale back to 1 control plane" "$h3" "$h5"
+  echo "the scale round finished: $cluster has 1 control plane and 1 worker" >&2
+}
+
+# The day-2 rounds, each on a converged lab.
+day2() {
+  local root=$1 lab_dir=$2 gen=$3 timeout=$4 round=${5:-}
+  case "$round" in
+    scale) day2_scale "$root" "$lab_dir" "$gen" "$timeout" ;;
+    *) die "name a day-2 round, e.g.: lab/lab.sh day2 scale" ;;
+  esac
+}
+
 # ---------------------------------------------------------------- pivot
 
 # After lab:pivot the lab kubeconfig names the first Talos cluster, and kind is
@@ -1277,6 +1445,10 @@ main() {
     release)
       (( $# == 2 )) || die "name one claim, e.g.: mise run lab:release default/node-3"
       release "$ROOT" "$LAB_DIR" "$2" "$RELEASE_TIMEOUT"
+      ;;
+    day2)
+      require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
+      day2 "$ROOT" "$LAB_DIR" "$GEN" "$WAIT_TIMEOUT" "${2:-}"
       ;;
     pivot)
       require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
