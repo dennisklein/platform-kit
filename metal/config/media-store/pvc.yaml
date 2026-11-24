@@ -1,0 +1,16 @@
+# One installer is about 400 MiB. The store keeps one per machine that needs
+# one, plus a build in progress, so 10 GiB covers about twenty such machines.
+# ReadWriteOnce is enough: the imager Jobs are scheduled onto the manager's node.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pk-metal-media-store
+  namespace: pk-metal
+  labels:
+    app.kubernetes.io/name: pk-metal
+    app.kubernetes.io/component: media-store
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi

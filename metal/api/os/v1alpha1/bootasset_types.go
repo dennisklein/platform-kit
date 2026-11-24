@@ -5,7 +5,7 @@ import (
 )
 
 // BootAssetStrategy selects how the artifact is produced.
-// +kubebuilder:validation:Enum=configISO;factory
+// +kubebuilder:validation:Enum=configISO;factory;embeddedInstaller
 type BootAssetStrategy string
 
 const (
@@ -20,29 +20,36 @@ const (
 	// factory — content-addressed by schematic, shared across nodes, fetched
 	// without a grant.
 	StrategyFactory BootAssetStrategy = "factory"
+
+	// StrategyEmbeddedInstaller builds a per-node install ISO with the node's
+	// rendered config built in (Talos reads it from the image, no kernel
+	// argument and no second medium needed). It is how a machine whose BMC
+	// holds one virtual medium gets its config out of band. The Talos imager
+	// builds it in a Job in the operator's namespace; the ISO rests in the
+	// operator's media store. Secret-bearing: served only under a grant.
+	StrategyEmbeddedInstaller BootAssetStrategy = "embeddedInstaller"
 )
 
 // BootAssetSpec declares one boot artifact. The strategy decides which of the
 // remaining fields apply; the CEL rules on the kind enforce the pairing.
 type BootAssetSpec struct {
-	// Strategy selects how the artifact is produced. The per-node embedded
-	// install image (imager-built, config baked in — the single-medium fallback
-	// for BMCs that cannot mount two media) joins the enum with OS provisioning
-	// on real hardware.
+	// Strategy selects how the artifact is produced.
 	Strategy BootAssetStrategy `json:"strategy"`
 
 	// NodeRef names the TalosNode whose rendered config the artifact carries.
-	// configISO only.
+	// configISO and embeddedInstaller.
 	// +optional
 	NodeRef *Reference `json:"nodeRef,omitempty"`
 
-	// TalosVersion pins the release of the generic install image. factory only.
+	// TalosVersion pins the release of the install image. factory and
+	// embeddedInstaller.
 	// +kubebuilder:validation:Pattern=`^v[0-9]+\.[0-9]+\.[0-9]+$`
 	// +optional
 	TalosVersion string `json:"talosVersion,omitempty"`
 
-	// Schematic customizes the install image (system extensions). factory only;
-	// omitted means the vanilla image.
+	// Schematic customizes the install image (system extensions, kernel
+	// arguments). factory and embeddedInstaller; omitted means the vanilla
+	// image.
 	// +optional
 	Schematic *Schematic `json:"schematic,omitempty"`
 }
@@ -59,13 +66,32 @@ type BootAssetStatus struct {
 	// +optional
 	URL string `json:"url,omitempty"`
 
-	// Digest is sha256:<hex> of the artifact bytes. configISO only.
+	// Digest is sha256:<hex> of the artifact bytes. configISO and
+	// embeddedInstaller.
 	// +optional
 	Digest string `json:"digest,omitempty"`
 
-	// Size is the artifact size in bytes. configISO only.
+	// Size is the artifact size in bytes. configISO and embeddedInstaller.
 	// +optional
 	Size int64 `json:"size,omitempty"`
+
+	// ConfigDigest is the rendered config (the TalosNode's
+	// status.configDigest) the stored artifact carries. embeddedInstaller
+	// only.
+	// +optional
+	ConfigDigest string `json:"configDigest,omitempty"`
+
+	// BuildKey names the inputs of the stored artifact: config, Talos
+	// version, schematic and imager image. A change of any input is a new
+	// key and a new build. embeddedInstaller only.
+	// +optional
+	BuildKey string `json:"buildKey,omitempty"`
+
+	// BuildJob is the imager Job of the latest build, in the operator's
+	// namespace. A failed Job is kept so its log can be read.
+	// embeddedInstaller only.
+	// +optional
+	BuildJob string `json:"buildJob,omitempty"`
 
 	// ArtifactSecretRef is where the built artifact rests (key asset.iso), owned
 	// by this BootAsset and GC'd with it. configISO only.
@@ -78,6 +104,7 @@ type BootAssetStatus struct {
 // +kubebuilder:resource:scope=Cluster,categories=metal;os
 // +kubebuilder:validation:XValidation:rule="self.spec.strategy != 'configISO' || (has(self.spec.nodeRef) && !has(self.spec.talosVersion) && !has(self.spec.schematic))",message="configISO takes nodeRef and nothing else"
 // +kubebuilder:validation:XValidation:rule="self.spec.strategy != 'factory' || (!has(self.spec.nodeRef) && has(self.spec.talosVersion))",message="factory takes talosVersion (and optionally schematic), never nodeRef"
+// +kubebuilder:validation:XValidation:rule="self.spec.strategy != 'embeddedInstaller' || (has(self.spec.nodeRef) && has(self.spec.talosVersion))",message="embeddedInstaller takes nodeRef and talosVersion (and optionally schematic)"
 // +kubebuilder:printcolumn:name="Strategy",type=string,JSONPath=`.spec.strategy`
 // +kubebuilder:printcolumn:name="Node",type=string,JSONPath=`.spec.nodeRef.name`
 // +kubebuilder:printcolumn:name="Size",type=integer,JSONPath=`.status.size`

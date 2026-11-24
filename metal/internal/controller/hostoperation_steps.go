@@ -282,7 +282,7 @@ func (x *exec) insertMedia(ctx context.Context, i int, a *metalv1alpha1.InsertMe
 	if !meta.IsStatusConditionTrue(ba.Status.Conditions, osv1alpha1.ConditionReady) {
 		return fmt.Errorf("boot asset %s is not Ready", ba.Name)
 	}
-	if ba.Spec.Strategy != osv1alpha1.StrategyConfigISO {
+	if !secretBearing(ba) {
 		// Secret-free: the stable URL, no grant, no credentials. No digest
 		// pin either: the URL is read when the step runs, not when the
 		// operation was approved. It is derived from the schematic id and
@@ -304,10 +304,6 @@ func (x *exec) insertMedia(ctx context.Context, i int, a *metalv1alpha1.InsertMe
 	if media == nil {
 		return fmt.Errorf("boot asset %s is secret-bearing and this operator runs no media service (--media-url)", ba.Name)
 	}
-	iso, err := x.artifact(ctx, ba, a.Digest)
-	if err != nil {
-		return err
-	}
 	handle := grantHandle(types.NamespacedName{Namespace: x.op.Namespace, Name: x.op.Name})
 	filename := ba.Name + ".iso"
 	if g, ok := media.Grants.Live(handle, filename); ok {
@@ -325,7 +321,7 @@ func (x *exec) insertMedia(ctx context.Context, i int, a *metalv1alpha1.InsertMe
 	if err != nil {
 		return err
 	}
-	g, err := media.Grants.Issue(handle, filename, iso, x.grantTTL(i), creds)
+	g, err := x.grant(ctx, ba, a.Digest, handle, filename, x.grantTTL(i), creds)
 	if err != nil {
 		return err
 	}
@@ -369,7 +365,7 @@ func (x *exec) remountGrants(ctx context.Context, recorded int) error {
 		if err := x.r.Get(ctx, client.ObjectKey{Name: in.BootAssetRef.Name}, ba); err != nil {
 			return fmt.Errorf("boot asset %s: %w", in.BootAssetRef.Name, err)
 		}
-		if ba.Spec.Strategy != osv1alpha1.StrategyConfigISO {
+		if !secretBearing(ba) {
 			continue // a stable URL, nothing granted
 		}
 		logf.FromContext(ctx).Info("re-mounting a medium whose grant this process no longer holds",
@@ -390,6 +386,39 @@ func slotReusedLater(actions []metalv1alpha1.HostOperationAction, slot string) b
 		return (a.EjectMedia != nil && a.EjectMedia.MediaID == slot) ||
 			(a.InsertMedia != nil && a.InsertMedia.MediaID == slot)
 	})
+}
+
+// secretBearing: the asset carries a node's config and is only ever served
+// under a grant.
+func secretBearing(ba *osv1alpha1.BootAsset) bool {
+	return ba.Spec.Strategy == osv1alpha1.StrategyConfigISO || ba.Spec.Strategy == osv1alpha1.StrategyEmbeddedInstaller
+}
+
+// grant mints the grant for a secret-bearing asset's artifact, checked
+// against the digest the operation was approved with: a config medium from
+// its Secret, an embedded installer from the media store, served from the
+// file it opened and checked.
+func (x *exec) grant(ctx context.Context, ba *osv1alpha1.BootAsset, pinned, handle, filename string,
+	ttl time.Duration, creds *asset.Credentials) (*asset.Grant, error) {
+	media := x.r.Media
+	if ba.Spec.Strategy == osv1alpha1.StrategyEmbeddedInstaller {
+		if x.r.Store == nil {
+			return nil, fmt.Errorf("boot asset %s rests in the media store and this operator runs none (--media-store)", ba.Name)
+		}
+		if ba.Status.BuildKey == "" {
+			return nil, fmt.Errorf("boot asset %s has no artifact yet", ba.Name)
+		}
+		f, err := x.r.Store.Open(ba.Name, ba.Status.BuildKey, pinned)
+		if err != nil {
+			return nil, fmt.Errorf("boot asset %s was rebuilt since approval or is unreadable: %w", ba.Name, err)
+		}
+		return media.Grants.IssueFile(handle, filename, f, ttl, creds)
+	}
+	iso, err := x.artifact(ctx, ba, pinned)
+	if err != nil {
+		return nil, err
+	}
+	return media.Grants.Issue(handle, filename, iso, ttl, creds)
 }
 
 // artifact loads a configISO BootAsset's built bytes and checks them against

@@ -72,6 +72,15 @@ const (
 	// ReasonBuildFailed on Ready=False: packing the artifact failed (the message
 	// carries the builder's error).
 	ReasonBuildFailed = "BuildFailed"
+	// ReasonBuilding on Ready=False (embeddedInstaller): the imager Job is
+	// building the artifact for the current inputs. A stored artifact of
+	// earlier inputs stays in status until the new one replaces it.
+	ReasonBuilding = "Building"
+	// ReasonBuilderUnavailable on Ready=False (embeddedInstaller): this
+	// operator cannot build the artifact: no media store, no imager image
+	// pinned for the Talos version, or a Talos version without embedded
+	// config support. The message names the flag or field to set.
+	ReasonBuilderUnavailable = "BuilderUnavailable"
 )
 
 // Reasons on the node's MachineReachable / Ready check-in conditions.

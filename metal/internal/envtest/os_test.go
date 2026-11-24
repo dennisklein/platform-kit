@@ -146,13 +146,18 @@ func TestOSLane(t *testing.T) {
 
 	mgr := st.newManager(t)
 	factory, posted := stubFactory(t)
+	store, err := asset.NewStore(t.TempDir())
+	require.NoError(t, err)
 	require.NoError(t, controller.SetupAll(mgr, controller.Options{
 		CredentialsNamespace: "default",
 		Factory:              factory,
-		TalosDial:            fleet.Dialer(),
-		ProbeKubernetes:      probe,
-		CheckInterval:        100 * time.Millisecond,
-		ReadyInterval:        200 * time.Millisecond,
+		MediaStore:           store,
+		Imager: &controller.Imager{Repository: controller.DefaultImagerRepository,
+			Digests: controller.DefaultImagerDigests(), StoreClaim: "pk-metal-media-store"},
+		TalosDial:       fleet.Dialer(),
+		ProbeKubernetes: probe,
+		CheckInterval:   100 * time.Millisecond,
+		ReadyInterval:   200 * time.Millisecond,
 	}, controller.LaneTalosNode, controller.LaneTalosCluster, controller.LaneBootAsset))
 	runManager(t, ctx, mgr)
 
@@ -284,6 +289,55 @@ func TestOSLane(t *testing.T) {
 
 		require.Len(t, sec.OwnerReferences, 1, "artifact Secret must die with its BootAsset")
 		assert.Equal(t, "BootAsset", sec.OwnerReferences[0].Kind)
+	})
+
+	st.run(t, "embeddedInstaller BootAsset is built by an imager Job", func(t *testing.T) {
+		require.NoError(t, cl.Create(ctx, &osv1alpha1.BootAsset{
+			ObjectMeta: metav1.ObjectMeta{Name: "node-1-installer"},
+			Spec: osv1alpha1.BootAssetSpec{
+				Strategy:     osv1alpha1.StrategyEmbeddedInstaller,
+				NodeRef:      &osv1alpha1.Reference{Name: "node-1"},
+				TalosVersion: labTalos,
+				Schematic: &osv1alpha1.Schematic{Customization: osv1alpha1.SchematicCustomization{
+					ExtraKernelArgs: []string{"console=ttyS0"},
+				}},
+			},
+		}))
+		job := waitImagerJob(t, ctx, cl, "default")
+		_, c := assetCondition("node-1-installer")
+		require.NotNil(t, c)
+		assert.Equal(t, osv1alpha1.ReasonBuilding, c.Reason)
+
+		// The config reaches the imager as the node's config Secret, mounted;
+		// nothing in the Job object carries it.
+		n, _ := nodeCondition("node-1", osv1alpha1.ConditionRendered)
+		config := secretData(n.Status.ConfigSecretRef, asset.ConfigFilename)
+		raw, err := json.Marshal(job)
+		require.NoError(t, err)
+		assert.NotContains(t, string(raw), string(config[:64]))
+		mounted := false
+		for _, v := range job.Spec.Template.Spec.Volumes {
+			if v.Secret != nil && v.Secret.SecretName == n.Status.ConfigSecretRef.Name {
+				mounted = true
+			}
+		}
+		assert.True(t, mounted, "the config Secret is a volume of the build")
+		require.Len(t, job.OwnerReferences, 1)
+		assert.Equal(t, "node-1-installer", job.OwnerReferences[0].Name)
+
+		playImager(t, ctx, cl, store, job, []byte("an installer for node-1"))
+		require.Eventually(t, func() bool {
+			_, c := assetCondition("node-1-installer")
+			return c != nil && c.Status == metav1.ConditionTrue
+		}, waitFor, tick, "Ready never went True")
+		ba, _ := assetCondition("node-1-installer")
+		assert.Equal(t, digest.FromString("an installer for node-1").String(), ba.Status.Digest)
+		assert.Equal(t, n.Status.ConfigDigest, ba.Status.ConfigDigest)
+		assert.True(t, store.Has(ba.Name, ba.Status.BuildKey))
+
+		// Deleting the asset takes its installer off the disk.
+		require.NoError(t, cl.Delete(ctx, &ba))
+		require.Eventually(t, func() bool { return !store.Has(ba.Name, ba.Status.BuildKey) }, waitFor, tick)
 	})
 
 	st.run(t, "factory BootAsset computes the content address", func(t *testing.T) {

@@ -5,7 +5,9 @@ import (
 	"fmt"
 
 	"github.com/opencontainers/go-digest"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -40,8 +42,13 @@ type BootAssetReconciler struct {
 	// Namespace receives the artifact Secrets (the operator's namespace).
 	Namespace string
 	// Factory serves the images the factory strategy addresses, and is told
-	// about the schematics addressing them.
+	// about the schematics addressing them. The embeddedInstaller strategy
+	// asks it which images the official extensions are.
 	Factory *render.Factory
+	// Store and Imager build and keep the embeddedInstaller artifacts. Nil
+	// holds those assets with a message naming the flags.
+	Store  *asset.Store
+	Imager *Imager
 }
 
 // +kubebuilder:rbac:groups=os.pk.io,resources=bootassets,verbs=get;list;watch
@@ -49,16 +56,22 @@ type BootAssetReconciler struct {
 // +kubebuilder:rbac:groups=os.pk.io,resources=bootassets/finalizers,verbs=update
 // +kubebuilder:rbac:groups=os.pk.io,resources=talosnodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update,namespace=pk-metal
+// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;delete,namespace=pk-metal
 
 // Reconcile builds the boot artifact a BootAsset describes and stores it in a
 // Secret next to the rendered configuration.
 func (r *BootAssetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	ba := &osv1alpha1.BootAsset{}
 	if err := r.Get(ctx, req.NamespacedName, ba); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		if apierrors.IsNotFound(err) {
+			// A stored installer has no owner reference to die with: its
+			// file goes here.
+			return ctrl.Result{}, r.sweepStore(ctx)
+		}
+		return ctrl.Result{}, err
 	}
-	// The artifact Secret dies with its owner; grants are revoked by the boot
-	// lane on eject/check-in.
+	// The artifact Secret and the build Jobs die with their owner; grants
+	// are revoked by the boot lane on eject/check-in.
 	if !ba.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, nil
 	}
@@ -70,6 +83,8 @@ func (r *BootAssetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		r.addressImage(ctx, ba)
 	case osv1alpha1.StrategyConfigISO:
 		err = r.build(ctx, ba)
+	case osv1alpha1.StrategyEmbeddedInstaller:
+		err = r.embed(ctx, ba)
 	default:
 		// The CRD enum refuses anything else; a new strategy landing in the API
 		// before its builder would park here visibly.
@@ -111,39 +126,49 @@ func (r *BootAssetReconciler) addressImage(ctx context.Context, ba *osv1alpha1.B
 	setCondition(&ba.Status.Conditions, ba.Generation, osv1alpha1.ConditionReady, metav1.ConditionTrue, osv1alpha1.ReasonURLComputed, "")
 }
 
-// build is the configISO strategy: rendered config Secret in, artifact Secret
-// out. The pack is skipped when the existing artifact was built from the same
-// config digest.
-func (r *BootAssetReconciler) build(ctx context.Context, ba *osv1alpha1.BootAsset) error {
+// nodeConfig loads the rendered config of the asset's node. A missing
+// piece holds the asset and returns nil without an error.
+func (r *BootAssetReconciler) nodeConfig(ctx context.Context, ba *osv1alpha1.BootAsset) (*osv1alpha1.TalosNode, []byte, error) {
 	node := &osv1alpha1.TalosNode{}
 	if err := r.Get(ctx, types.NamespacedName{Name: ba.Spec.NodeRef.Name}, node); err != nil {
 		if client.IgnoreNotFound(err) != nil {
-			return err
+			return nil, nil, err
 		}
 		r.hold(ba, osv1alpha1.ReasonNodeNotFound,
 			fmt.Sprintf("nodeRef names no TalosNode %q", ba.Spec.NodeRef.Name))
-		return nil
+		return nil, nil, nil
 	}
 	ref := node.Status.ConfigSecretRef
 	if ref == nil {
 		r.hold(ba, osv1alpha1.ReasonConfigNotRendered,
 			fmt.Sprintf("TalosNode %s has no rendered config yet", node.Name))
-		return nil
+		return nil, nil, nil
 	}
 	configSecret := &corev1.Secret{}
 	if err := r.Get(ctx, types.NamespacedName{Namespace: ref.Namespace, Name: ref.Name}, configSecret); err != nil {
 		if client.IgnoreNotFound(err) != nil {
-			return err
+			return nil, nil, err
 		}
 		r.hold(ba, osv1alpha1.ReasonConfigNotRendered,
 			fmt.Sprintf("config Secret %s/%s not found", ref.Namespace, ref.Name))
-		return nil
+		return nil, nil, nil
 	}
 	machineConfig := configSecret.Data[asset.ConfigFilename]
 	if len(machineConfig) == 0 {
 		r.hold(ba, osv1alpha1.ReasonConfigNotRendered,
 			fmt.Sprintf("config Secret %s/%s carries no %s", ref.Namespace, ref.Name, asset.ConfigFilename))
-		return nil
+		return nil, nil, nil
+	}
+	return node, machineConfig, nil
+}
+
+// build is the configISO strategy: rendered config Secret in, artifact Secret
+// out. The pack is skipped when the existing artifact was built from the same
+// config digest.
+func (r *BootAssetReconciler) build(ctx context.Context, ba *osv1alpha1.BootAsset) error {
+	node, machineConfig, err := r.nodeConfig(ctx, ba)
+	if node == nil {
+		return err
 	}
 	configDigest := digest.FromBytes(machineConfig).String()
 
@@ -191,6 +216,7 @@ func (r *BootAssetReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&osv1alpha1.BootAsset{}).
 		Owns(&corev1.Secret{}).
+		Owns(&batchv1.Job{}).
 		Watches(&osv1alpha1.TalosNode{}, handler.EnqueueRequestsFromMapFunc(r.assetsForNode)).
 		Named("bootasset").
 		Complete(r)

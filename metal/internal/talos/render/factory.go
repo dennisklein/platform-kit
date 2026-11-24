@@ -34,6 +34,9 @@ type Factory struct {
 	// idempotent, but a reconciler that re-renders on every event should not
 	// re-post on every event. Failures are not remembered, so they retry.
 	registered sync.Map
+	// extensions caches the official extension catalog per Talos version;
+	// a release's catalog does not change.
+	extensions sync.Map
 }
 
 // NewFactory addresses an image factory, or the public one when url is empty.
@@ -121,6 +124,58 @@ func (f *Factory) Register(ctx context.Context, s *osv1alpha1.Schematic) (string
 
 	f.registered.Store(want, struct{}{})
 	return want, nil
+}
+
+// ExtensionImages resolves official extension names (siderolabs/drbd) to the
+// digest-pinned image references the factory builds the given Talos release
+// with, in the order asked. The imager takes images, not names; asking the
+// factory keeps an image built by the operator equal in content to the one
+// the factory would serve for the same schematic.
+func (f *Factory) ExtensionImages(ctx context.Context, talosVersion string, names []string) ([]string, error) {
+	if len(names) == 0 {
+		return nil, nil
+	}
+	if f == nil {
+		return nil, fmt.Errorf("no image factory configured to resolve extensions %v", names)
+	}
+	catalog, err := f.extensionCatalog(ctx, talosVersion)
+	if err != nil {
+		return nil, err
+	}
+	refs := make([]string, 0, len(names))
+	for _, n := range names {
+		ref, ok := catalog[n]
+		if !ok {
+			return nil, fmt.Errorf("extension %q is not an official extension of Talos %s at %s", n, talosVersion, f.host())
+		}
+		refs = append(refs, ref)
+	}
+	return refs, nil
+}
+
+func (f *Factory) extensionCatalog(ctx context.Context, talosVersion string) (map[string]string, error) {
+	if c, ok := f.extensions.Load(talosVersion); ok {
+		return c.(map[string]string), nil
+	}
+	base := f.baseURL()
+	fc, err := factoryclient.New(base, factoryclient.WithClient(*f.httpClient()))
+	if err != nil {
+		return nil, fmt.Errorf("image factory %s: %w", base, err)
+	}
+	infos, err := fc.ExtensionsVersions(ctx, talosVersion)
+	if err != nil {
+		return nil, fmt.Errorf("list extensions of Talos %s at %s: %w", talosVersion, base, err)
+	}
+	catalog := make(map[string]string, len(infos))
+	for _, i := range infos {
+		ref := i.Ref
+		if i.Digest != "" {
+			ref += "@" + i.Digest
+		}
+		catalog[i.Name] = ref
+	}
+	f.extensions.Store(talosVersion, catalog)
+	return catalog, nil
 }
 
 // host is the factory's host[:port], PublicFactory when unset.

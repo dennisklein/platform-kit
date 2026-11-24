@@ -15,8 +15,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"os"
+	"slices"
+	"strings"
 	"time"
 
 	authenticationv1 "k8s.io/api/authentication/v1"
@@ -133,6 +136,14 @@ func main() {
 		}
 		log.Info("media service", "listen", c.mediaListen, "url", c.mediaURL, "certSecret", c.mediaCert)
 	}
+	var store *asset.Store
+	if c.mediaStore != "" {
+		if store, err = asset.NewStore(c.mediaStore); err != nil {
+			log.Error(err, "media store")
+			os.Exit(1)
+		}
+		log.Info("media store", "dir", c.mediaStore, "claim", c.storeClaim, "imager", c.imagerRepo, "pinned", c.imagerPins.String())
+	}
 
 	mgr, err := ctrl.NewManager(restCfg, ctrl.Options{
 		Scheme:                 scheme,
@@ -168,6 +179,8 @@ func main() {
 		ReleaseShutdownTimeout: c.shutdown,
 		RegistryClient:         registryClient,
 		Media:                  media,
+		MediaStore:             store,
+		Imager:                 &controller.Imager{Repository: c.imagerRepo, Digests: c.imagerPins, StoreClaim: c.storeClaim},
 		Factory:                factory,
 		TalosDial:              machineapi.Dial,
 		NodeName:               c.nodeName,
@@ -239,6 +252,10 @@ type config struct {
 	mediaListen  string
 	mediaURL     string
 	mediaCert    string
+	mediaStore   string
+	storeClaim   string
+	imagerRepo   string
+	imagerPins   imagerDigests
 	checkIn      time.Duration
 	shutdown     time.Duration
 	nodeName     string
@@ -274,6 +291,15 @@ func parseFlags(args []string, output io.Writer) (*config, error) {
 		"https://host[:port] at which BMCs reach the media service (a NodePort or a load balancer); empty turns the media service off, and with it installing machines")
 	fs.StringVar(&c.mediaCert, "media-cert-secret", "",
 		"Secret (keys tls.crt, tls.key) with the media service's certificate; empty uses a self-signed one made at start-up (BMCs do not check it)")
+	fs.StringVar(&c.mediaStore, "media-store", "",
+		"directory of the media store, where installers with a node's config built in rest (for BMCs that hold one virtual medium); empty: such machines are not installed")
+	fs.StringVar(&c.storeClaim, "media-store-claim", "",
+		"PersistentVolumeClaim mounted at --media-store; the imager Jobs mount it to write the installers they build")
+	fs.StringVar(&c.imagerRepo, "imager-repository", controller.DefaultImagerRepository,
+		"where the Talos imager image is pulled from; a mirror must carry the same digests")
+	c.imagerPins = imagerDigests(controller.DefaultImagerDigests())
+	fs.Var(&c.imagerPins, "imager-digest",
+		"pin the imager image of a Talos release as <version>=sha256:<digest> (repeatable); the manager knows the digest of the release it renders for")
 	fs.DurationVar(&c.checkIn, "checkin-timeout", 30*time.Minute,
 		"how long an install waits for the machine to come up and answer before it fails")
 	fs.DurationVar(&c.shutdown, "release-shutdown-timeout", 5*time.Minute,
@@ -304,7 +330,30 @@ func parseFlags(args []string, output io.Writer) (*config, error) {
 	if c.checkIn <= 0 {
 		return nil, fmt.Errorf("--checkin-timeout must be positive, got %s", c.checkIn)
 	}
+	if (c.mediaStore == "") != (c.storeClaim == "") {
+		return nil, errors.New("--media-store and --media-store-claim go together: the directory the manager mounts the claim at, and the claim the imager Jobs mount")
+	}
 	return c, nil
+}
+
+// imagerDigests is the --imager-digest flag: Talos release -> image digest.
+type imagerDigests map[string]string
+
+func (d imagerDigests) String() string {
+	var out []string
+	for _, v := range slices.Sorted(maps.Keys(d)) {
+		out = append(out, v+"="+d[v])
+	}
+	return strings.Join(out, ",")
+}
+
+func (d imagerDigests) Set(s string) error {
+	v, dg, ok := strings.Cut(s, "=")
+	if !ok || !strings.HasPrefix(v, "v") || !strings.HasPrefix(dg, "sha256:") || len(dg) != len("sha256:")+64 {
+		return fmt.Errorf("want <talos version>=sha256:<64 hex digits>, e.g. v1.14.6=sha256:%s", strings.Repeat("0", 64))
+	}
+	d[v] = dg
+	return nil
 }
 
 // endpointTLS is the TLS default for BMCs whose endpoint names none: a CA
@@ -327,10 +376,5 @@ func (c *config) endpointTLS() *metalv1alpha1.EndpointTLS {
 // needs a ClusterRole to do it, which for Secrets means reading every Secret
 // in the cluster.
 func cacheOptions(namespace string) cache.Options {
-	return cache.Options{
-		ByObject: map[client.Object]cache.ByObject{
-			&corev1.Secret{}:    {Namespaces: map[string]cache.Config{namespace: {}}},
-			&corev1.ConfigMap{}: {Namespaces: map[string]cache.Config{namespace: {}}},
-		},
-	}
+	return cache.Options{ByObject: controller.CacheByObject(namespace)}
 }

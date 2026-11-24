@@ -6,15 +6,18 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/yaml"
 
+	"github.com/dennisklein/platform-kit/metal/internal/controller"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
 )
 
@@ -35,6 +38,17 @@ func TestParseFlagsDefaults(t *testing.T) {
 	assert.Equal(t, "0", c.probeAddr)
 	assert.False(t, c.leaderElect)
 	assert.Nil(t, c.endpointTLS(), "BMCs are checked against the system CAs by default")
+	assert.Empty(t, c.mediaStore, "no media store unless one is mounted")
+	assert.Equal(t, controller.DefaultImagerRepository, c.imagerRepo)
+	assert.Contains(t, c.imagerPins, "v1.14.6", "the release the operator renders for is pinned")
+}
+
+func TestImagerDigestFlagAddsAPin(t *testing.T) {
+	d := "sha256:" + strings.Repeat("b", 64)
+	c, err := parseFlags([]string{"--ledger=l", "--imager-digest=v1.14.7=" + d}, &bytes.Buffer{})
+	require.NoError(t, err)
+	assert.Equal(t, d, c.imagerPins["v1.14.7"])
+	assert.Contains(t, c.imagerPins, "v1.14.6", "the built-in pin stays")
 }
 
 func TestParseFlagsRefuses(t *testing.T) {
@@ -51,6 +65,10 @@ func TestParseFlagsRefuses(t *testing.T) {
 		{"stray argument", []string{"--ledger=l", "ledger.yaml"}, "every setting is a flag"},
 		{"unknown flag", []string{"--ledger=l", "--bmc-insecur"}, "flag provided but not defined"},
 		{"not a duration", []string{"--ledger=l", "--poll-interval=5"}, "invalid value"},
+		{"store without claim", []string{"--ledger=l", "--media-store=/var/lib/pk-metal/media"}, "go together"},
+		{"claim without store", []string{"--ledger=l", "--media-store-claim=c"}, "go together"},
+		{"imager digest without version", []string{"--ledger=l", "--imager-digest=sha256:" + strings.Repeat("a", 64)}, "want <talos version>="},
+		{"imager digest not a digest", []string{"--ledger=l", "--imager-digest=v1.14.7=latest"}, "want <talos version>="},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var out bytes.Buffer
@@ -115,14 +133,36 @@ func TestCommittedArgsParse(t *testing.T) {
 	require.NoError(t, err, "with config/lab/manager_args.yaml: %v", args)
 	assert.NotEmpty(t, c.mediaURL)
 	assert.True(t, c.bmcInsecure)
+
+	// The media-store component adds its flags with the volume they name.
+	raw, err = os.ReadFile(filepath.Join("..", "..", "config", "media-store", "manager.yaml"))
+	require.NoError(t, err)
+	var storeOps []struct {
+		Path  string `json:"path"`
+		Value any    `json:"value"`
+	}
+	require.NoError(t, yaml.Unmarshal(raw, &storeOps))
+	var mountPath string
+	for _, op := range storeOps {
+		switch op.Path {
+		case "/spec/template/spec/containers/0/args/-":
+			args = append(args, op.Value.(string))
+		case "/spec/template/spec/containers/0/volumeMounts/-":
+			mountPath = op.Value.(map[string]any)["mountPath"].(string)
+		}
+	}
+	c, err = parseFlags(args, &bytes.Buffer{})
+	require.NoError(t, err, "with config/media-store/manager.yaml: %v", args)
+	assert.Equal(t, mountPath, c.mediaStore, "the store is where the claim is mounted")
+	assert.Equal(t, "pk-metal-media-store", c.storeClaim)
 }
 
 func TestCacheOptionsConfineSecretsAndConfigMaps(t *testing.T) {
 	opts := cacheOptions("pk-metal")
-	require.Len(t, opts.ByObject, 2)
+	require.Len(t, opts.ByObject, 3)
 	for obj, by := range opts.ByObject {
 		switch obj.(type) {
-		case *corev1.Secret, *corev1.ConfigMap:
+		case *corev1.Secret, *corev1.ConfigMap, *batchv1.Job:
 		default:
 			t.Fatalf("unexpected confined kind %T", obj)
 		}

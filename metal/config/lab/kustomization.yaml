@@ -8,6 +8,10 @@ kind: Kustomization
 resources:
   - ../default
   - admins.yaml
+# The lab can install a machine behind a one-slot BMC, which needs the media
+# store (lab/README.md).
+components:
+  - ../media-store
 patches:
   - path: manager_args.yaml
     target:

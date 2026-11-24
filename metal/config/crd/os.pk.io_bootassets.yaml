@@ -44,7 +44,7 @@ spec:
               description: BootAssetSpec declares one boot artifact. The strategy decides which of the remaining fields apply; the CEL rules on the kind enforce the pairing.
               properties:
                 nodeRef:
-                  description: NodeRef names the TalosNode whose rendered config the artifact carries. configISO only.
+                  description: NodeRef names the TalosNode whose rendered config the artifact carries. configISO and embeddedInstaller.
                   properties:
                     name:
                       type: string
@@ -52,7 +52,7 @@ spec:
                     - name
                   type: object
                 schematic:
-                  description: Schematic customizes the install image (system extensions). factory only; omitted means the vanilla image.
+                  description: Schematic customizes the install image (system extensions, kernel arguments). factory and embeddedInstaller; omitted means the vanilla image.
                   properties:
                     customization:
                       description: SchematicCustomization holds the image customization knobs.
@@ -74,13 +74,14 @@ spec:
                       type: object
                   type: object
                 strategy:
-                  description: Strategy selects how the artifact is produced. The per-node embedded install image (imager-built, config baked in — the single-medium fallback for BMCs that cannot mount two media) joins the enum with OS provisioning on real hardware.
+                  description: Strategy selects how the artifact is produced.
                   enum:
                     - configISO
                     - factory
+                    - embeddedInstaller
                   type: string
                 talosVersion:
-                  description: TalosVersion pins the release of the generic install image. factory only.
+                  description: TalosVersion pins the release of the install image. factory and embeddedInstaller.
                   pattern: ^v[0-9]+\.[0-9]+\.[0-9]+$
                   type: string
               required:
@@ -100,6 +101,12 @@ spec:
                     - name
                     - namespace
                   type: object
+                buildJob:
+                  description: BuildJob is the imager Job of the latest build, in the operator's namespace. A failed Job is kept so its log can be read. embeddedInstaller only.
+                  type: string
+                buildKey:
+                  description: 'BuildKey names the inputs of the stored artifact: config, Talos version, schematic and imager image. A change of any input is a new key and a new build. embeddedInstaller only.'
+                  type: string
                 conditions:
                   description: 'Conditions: Ready.'
                   items:
@@ -144,11 +151,14 @@ spec:
                       - type
                     type: object
                   type: array
+                configDigest:
+                  description: ConfigDigest is the rendered config (the TalosNode's status.configDigest) the stored artifact carries. embeddedInstaller only.
+                  type: string
                 digest:
-                  description: Digest is sha256:<hex> of the artifact bytes. configISO only.
+                  description: Digest is sha256:<hex> of the artifact bytes. configISO and embeddedInstaller.
                   type: string
                 size:
-                  description: Size is the artifact size in bytes. configISO only.
+                  description: Size is the artifact size in bytes. configISO and embeddedInstaller.
                   format: int64
                   type: integer
                 url:
@@ -163,6 +173,8 @@ spec:
               rule: self.spec.strategy != 'configISO' || (has(self.spec.nodeRef) && !has(self.spec.talosVersion) && !has(self.spec.schematic))
             - message: factory takes talosVersion (and optionally schematic), never nodeRef
               rule: self.spec.strategy != 'factory' || (!has(self.spec.nodeRef) && has(self.spec.talosVersion))
+            - message: embeddedInstaller takes nodeRef and talosVersion (and optionally schematic)
+              rule: self.spec.strategy != 'embeddedInstaller' || (has(self.spec.nodeRef) && has(self.spec.talosVersion))
       served: true
       storage: true
       subresources:

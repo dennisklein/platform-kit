@@ -1613,10 +1613,10 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `strategy` _[BootAssetStrategy](#bootassetstrategy)_ | Strategy selects how the artifact is produced. The per-node embedded<br />install image (imager-built, config baked in — the single-medium fallback<br />for BMCs that cannot mount two media) joins the enum with OS provisioning<br />on real hardware. |  | Enum: [configISO factory] <br /> |
-| `nodeRef` _[Reference](#reference)_ | NodeRef names the TalosNode whose rendered config the artifact carries.<br />configISO only. |  | Optional: \{\} <br /> |
-| `talosVersion` _string_ | TalosVersion pins the release of the generic install image. factory only. |  | Pattern: `^v[0-9]+\.[0-9]+\.[0-9]+$` <br />Optional: \{\} <br /> |
-| `schematic` _[Schematic](#schematic)_ | Schematic customizes the install image (system extensions). factory only;<br />omitted means the vanilla image. |  | Optional: \{\} <br /> |
+| `strategy` _[BootAssetStrategy](#bootassetstrategy)_ | Strategy selects how the artifact is produced. |  | Enum: [configISO factory embeddedInstaller] <br /> |
+| `nodeRef` _[Reference](#reference)_ | NodeRef names the TalosNode whose rendered config the artifact carries.<br />configISO and embeddedInstaller. |  | Optional: \{\} <br /> |
+| `talosVersion` _string_ | TalosVersion pins the release of the install image. factory and<br />embeddedInstaller. |  | Pattern: `^v[0-9]+\.[0-9]+\.[0-9]+$` <br />Optional: \{\} <br /> |
+| `schematic` _[Schematic](#schematic)_ | Schematic customizes the install image (system extensions, kernel<br />arguments). factory and embeddedInstaller; omitted means the vanilla<br />image. |  | Optional: \{\} <br /> |
 
 
 #### BootAssetStatus
@@ -1636,8 +1636,11 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions: Ready. |  | Optional: \{\} <br /> |
 | `url` _string_ | URL is where the artifact is fetched without a grant. factory only. |  | Optional: \{\} <br /> |
-| `digest` _string_ | Digest is sha256:<hex> of the artifact bytes. configISO only. |  | Optional: \{\} <br /> |
-| `size` _integer_ | Size is the artifact size in bytes. configISO only. |  | Optional: \{\} <br /> |
+| `digest` _string_ | Digest is sha256:<hex> of the artifact bytes. configISO and<br />embeddedInstaller. |  | Optional: \{\} <br /> |
+| `size` _integer_ | Size is the artifact size in bytes. configISO and embeddedInstaller. |  | Optional: \{\} <br /> |
+| `configDigest` _string_ | ConfigDigest is the rendered config (the TalosNode's<br />status.configDigest) the stored artifact carries. embeddedInstaller<br />only. |  | Optional: \{\} <br /> |
+| `buildKey` _string_ | BuildKey names the inputs of the stored artifact: config, Talos<br />version, schematic and imager image. A change of any input is a new<br />key and a new build. embeddedInstaller only. |  | Optional: \{\} <br /> |
+| `buildJob` _string_ | BuildJob is the imager Job of the latest build, in the operator's<br />namespace. A failed Job is kept so its log can be read.<br />embeddedInstaller only. |  | Optional: \{\} <br /> |
 | `artifactSecretRef` _[SecretReference](#secretreference)_ | ArtifactSecretRef is where the built artifact rests (key asset.iso), owned<br />by this BootAsset and GC'd with it. configISO only. |  | Optional: \{\} <br /> |
 
 
@@ -1648,7 +1651,7 @@ _Underlying type:_ _string_
 BootAssetStrategy selects how the artifact is produced.
 
 _Validation:_
-- Enum: [configISO factory]
+- Enum: [configISO factory embeddedInstaller]
 
 _Appears in:_
 - [BootAssetSpec](#bootassetspec)
@@ -1657,6 +1660,7 @@ _Appears in:_
 | --- | --- |
 | `configISO` | StrategyConfigISO builds the ~10 KB per-node config medium Talos reads when<br />booted with talos.config=metal-iso: an ISO9660 volume labeled metal-iso<br />holding one config.yaml. Mounted as the second virtual medium beside a<br />generic install image — the `secondary` delivery path. Secret-bearing:<br />served only under a grant.<br /> |
 | `factory` | StrategyFactory points at the generic secret-free install ISO on the image<br />factory — content-addressed by schematic, shared across nodes, fetched<br />without a grant.<br /> |
+| `embeddedInstaller` | StrategyEmbeddedInstaller builds a per-node install ISO with the node's<br />rendered config built in (Talos reads it from the image, no kernel<br />argument and no second medium needed). It is how a machine whose BMC<br />holds one virtual medium gets its config out of band. The Talos imager<br />builds it in a Job in the operator's namespace; the ISO rests in the<br />operator's media store. Secret-bearing: served only under a grant.<br /> |
 
 
 #### CNI

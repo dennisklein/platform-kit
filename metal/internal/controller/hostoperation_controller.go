@@ -90,7 +90,10 @@ type HostOperationReconciler struct {
 	RegistryClient *http.Client
 	// Media serves granted boot media. Nil leaves the executor unable to mount
 	// a secret-bearing BootAsset (the step fails saying so).
-	Media    *asset.Service
+	Media *asset.Service
+	// Store holds the embeddedInstaller artifacts the executor serves under
+	// grants. Nil fails the mount of one, saying so.
+	Store    *asset.Store
 	Recorder events.EventRecorder
 
 	// Connect opens a write-capable session to the host's machine; nil dials

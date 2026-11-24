@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/controller"
 )
 
 const (
@@ -149,14 +150,9 @@ func (s *suite) approverClient(t *testing.T, ctx context.Context, name string) c
 func (s *suite) newManagerAs(t *testing.T, cfg *rest.Config, credentialsNamespace string) ctrl.Manager {
 	t.Helper()
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme:    s.scheme,
-		NewClient: s.reads.newClient,
-		Cache: cache.Options{
-			ByObject: map[client.Object]cache.ByObject{
-				&corev1.Secret{}:    {Namespaces: map[string]cache.Config{credentialsNamespace: {}}},
-				&corev1.ConfigMap{}: {Namespaces: map[string]cache.Config{credentialsNamespace: {}}},
-			},
-		},
+		Scheme:     s.scheme,
+		NewClient:  s.reads.newClient,
+		Cache:      cache.Options{ByObject: controller.CacheByObject(credentialsNamespace)},
 		Metrics:    metricsserver.Options{BindAddress: "0"},
 		Controller: config.Controller{SkipNameValidation: ptr.To(true)},
 	})

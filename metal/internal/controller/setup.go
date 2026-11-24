@@ -6,8 +6,12 @@ import (
 	"net/http"
 	"time"
 
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/asset"
@@ -79,6 +83,12 @@ type Options struct {
 	Media          *asset.Service
 	WaitInterval   time.Duration
 
+	// MediaStore holds the artifacts too large for a Secret; the BootAsset
+	// lane writes them, the HostOperation lane serves them under grants.
+	// Imager builds them. Either nil leaves embeddedInstaller assets held.
+	MediaStore *asset.Store
+	Imager     *Imager
+
 	// Factory, TalosDial, ProbeKubernetes, CheckInterval and ReadyInterval
 	// configure the OS lanes.
 	Factory         *render.Factory
@@ -91,6 +101,19 @@ type Options struct {
 	// the claim, operation and convergence lanes refuse to reboot the
 	// machines the operator itself runs on (SelfGuard).
 	NodeName string
+}
+
+// CacheByObject confines the manager's cache to the operator's namespace for
+// the kinds whose permissions are a Role there and nowhere else: Secrets,
+// ConfigMaps and the imager Jobs. A cluster-wide informer for them would be
+// refused.
+func CacheByObject(namespace string) map[client.Object]cache.ByObject {
+	ns := map[string]cache.Config{namespace: {}}
+	return map[client.Object]cache.ByObject{
+		&corev1.Secret{}:    {Namespaces: ns},
+		&corev1.ConfigMap{}: {Namespaces: ns},
+		&batchv1.Job{}:      {Namespaces: ns},
+	}
 }
 
 // reconciler is what every lane's reconciler offers SetupAll.
@@ -162,7 +185,7 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 	case LaneHostOperation:
 		return "hostoperation", &HostOperationReconciler{
 			Client: c, CredentialsNamespace: o.CredentialsNamespace,
-			RegistryClient: o.RegistryClient, Media: o.Media,
+			RegistryClient: o.RegistryClient, Media: o.Media, Store: o.MediaStore,
 			Recorder: recorder(), WaitInterval: o.WaitInterval, Self: self,
 		}
 	case LaneConvergence:
@@ -190,6 +213,7 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 	default: // LaneBootAsset; SetupAll has checked the range
 		return "bootasset", &BootAssetReconciler{
 			Client: c, Scheme: scheme, Namespace: o.CredentialsNamespace, Factory: o.Factory,
+			Store: o.MediaStore, Imager: o.Imager,
 		}
 	}
 }
