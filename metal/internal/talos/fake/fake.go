@@ -31,6 +31,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/dennisklein/platform-kit/metal/internal/talos"
 )
@@ -66,7 +67,17 @@ type Machine struct {
 	upgrades    []talos.UpgradeOptions
 	removedByID []uint64
 	failures    map[string]error
+
+	// boots counts the restarts since the machine was created; BootTime
+	// derives from it. staged is the version a staged upgrade installs at
+	// the next boot.
+	boots  int
+	staged string
 }
+
+// bootEpoch is the first boot of every fake machine. Each restart moves the
+// boot time a minute on, so a test can compare two readings exactly.
+var bootEpoch = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // SetEtcdStartsLate makes a successful Bootstrap write etcd data without
 // starting etcd: it stays not-running until SetEtcdRunning(true), the window
@@ -203,6 +214,29 @@ func (m *Machine) Recovered() []byte {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return slices.Clone(m.recovered)
+}
+
+// Boot scripts a restart the machine did not ask Talos for (a BMC power
+// cycle, a crash): the boot time moves on, and a staged upgrade takes. The
+// Talos reboot, upgrade and reset calls boot the machine themselves.
+func (m *Machine) Boot() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.bootLocked()
+}
+
+// Boots counts the restarts since the machine was created.
+func (m *Machine) Boots() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.boots
+}
+
+func (m *Machine) bootLocked() {
+	m.boots++
+	if m.staged != "" {
+		m.version, m.staged = m.staged, ""
+	}
 }
 
 // Version returns the version the machine reports now.
@@ -670,6 +704,7 @@ func (c *conn) Reboot(_ context.Context, opts talos.RebootOptions) error {
 	// The machine stays reachable: tests script the stages a reboot passes
 	// through (SetStage) where they matter.
 	c.m.reboots = append(c.m.reboots, opts)
+	c.m.bootLocked()
 	return nil
 }
 
@@ -715,6 +750,8 @@ func (c *conn) Reset(_ context.Context, opts talos.ResetOptions) error {
 	if !opts.Reboot {
 		// Without a reboot a reset ends powered off.
 		c.m.unreachable = true
+	} else {
+		c.m.bootLocked()
 	}
 	return nil
 }
@@ -729,12 +766,11 @@ func (c *conn) Upgrade(_ context.Context, opts talos.UpgradeOptions) (string, er
 		return "", errors.New("fake: upgrade: no image")
 	}
 	c.m.upgrades = append(c.m.upgrades, opts)
+	// The reboot into the new image is instant here; a staged upgrade
+	// waits for a reboot the test scripts (Boot).
+	c.m.staged = imageTag(opts.Image)
 	if !opts.Stage {
-		// The reboot into the new image is instant here; a staged upgrade
-		// waits for a reboot the test scripts.
-		if tag := imageTag(opts.Image); tag != "" {
-			c.m.version = tag
-		}
+		c.m.bootLocked()
 	}
 	return "Upgrade request received", nil
 }
@@ -780,6 +816,15 @@ func (c *conn) Version(context.Context) (string, error) {
 		return "", err
 	}
 	return c.m.version, nil
+}
+
+func (c *conn) BootTime(context.Context) (time.Time, error) {
+	c.m.mu.Lock()
+	defer c.m.mu.Unlock()
+	if err := c.m.failure("BootTime"); err != nil {
+		return time.Time{}, err
+	}
+	return bootEpoch.Add(time.Duration(c.m.boots) * time.Minute), nil
 }
 
 func (c *conn) Status(context.Context) (talos.Status, error) {

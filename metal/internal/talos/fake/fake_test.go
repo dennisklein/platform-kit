@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -273,6 +274,36 @@ func TestUpgradeRebootShutdown(t *testing.T) {
 	require.NoError(t, c.Shutdown(ctx, talos.ShutdownOptions{}))
 	_, err = m.Dialer()(ctx, talos.Target{Endpoint: "n1", Talosconfig: []byte("tc")})
 	require.Error(t, err)
+}
+
+// The boot time is how the executor proves a restart: every path that
+// restarts the machine moves it on, and nothing else does.
+func TestBootTimeMovesOnEveryRestart(t *testing.T) {
+	ctx := context.Background()
+	m := NewMachine("v1.14.6")
+	m.Configure([]byte("cfg"))
+	c, err := m.Dialer()(ctx, talos.Target{Endpoint: "n1", Talosconfig: []byte("tc")})
+	require.NoError(t, err)
+	at := func() time.Time {
+		t.Helper()
+		bt, err := c.BootTime(ctx)
+		require.NoError(t, err)
+		return bt
+	}
+
+	first := at()
+	assert.Equal(t, first, at(), "reading it changes nothing")
+	require.NoError(t, c.Reboot(ctx, talos.RebootOptions{}))
+	afterReboot := at()
+	assert.True(t, afterReboot.After(first))
+
+	_, err = c.Upgrade(ctx, talos.UpgradeOptions{Image: "installer:v1.14.7", Stage: true})
+	require.NoError(t, err)
+	assert.Equal(t, afterReboot, at(), "a staged upgrade waits for the next boot")
+	m.Boot()
+	assert.True(t, at().After(afterReboot))
+	assert.Equal(t, "v1.14.7", m.Version(), "the staged image took at the boot")
+	assert.Equal(t, 2, m.Boots())
 }
 
 func TestSetFailure(t *testing.T) {

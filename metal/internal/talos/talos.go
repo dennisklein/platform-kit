@@ -77,6 +77,12 @@ type Client interface {
 	// Upgrade installs another Talos image on the node and, unless Stage
 	// is set, reboots into it. It returns the node's acknowledgement.
 	Upgrade(ctx context.Context, opts UpgradeOptions) (string, error)
+	// BootTime is when the node's kernel last booted. It moves forward
+	// exactly when the machine restarted, whatever the path (kexec, warm
+	// reboot, power cycle) and however short the outage: the proof a reboot
+	// or an upgrade step waits for, where catching the node down would
+	// depend on looking at the right moment.
+	BootTime(ctx context.Context) (time.Time, error)
 	// Version reports the server's version tag. It is served in maintenance
 	// mode too, the cheapest liveness probe for a blank machine.
 	Version(ctx context.Context) (string, error)

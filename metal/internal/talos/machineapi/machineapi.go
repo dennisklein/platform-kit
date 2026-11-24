@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/dennisklein/platform-kit/metal/internal/talos"
 )
@@ -396,6 +397,23 @@ func (m *conn) Upgrade(ctx context.Context, opts talos.UpgradeOptions) (string, 
 	}
 
 	return resp.GetMessages()[0].GetAck(), nil
+}
+
+func (m *conn) BootTime(ctx context.Context) (time.Time, error) {
+	ctx, cancel := bounded(ctx)
+	defer cancel()
+
+	resp, err := m.c.MachineClient.SystemStat(ctx, &emptypb.Empty{})
+	if err != nil {
+		return time.Time{}, fmt.Errorf("system stat: %w", err)
+	}
+
+	msgs := resp.GetMessages()
+	if len(msgs) == 0 || msgs[0].GetBootTime() == 0 {
+		return time.Time{}, errors.New("system stat: no boot time in the answer")
+	}
+
+	return time.Unix(int64(msgs[0].GetBootTime()), 0), nil //nolint:gosec // seconds since the epoch fit an int64
 }
 
 func (m *conn) Version(ctx context.Context) (string, error) {
