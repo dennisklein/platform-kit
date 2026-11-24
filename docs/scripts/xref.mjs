@@ -12,6 +12,12 @@ import { canonicalText, loadRegistry } from './registry.mjs';
 
 const schemeRe = /^([a-z]+):([^#]+)(?:#(.*))?$/;
 
+/** The text of a hast node and its children. */
+function textOf(node) {
+  if (node.type === 'text') return node.value;
+  return (node.children ?? []).map(textOf).join('');
+}
+
 function where(ctx) {
   return ctx.fileURL ? fileURLToPath(ctx.fileURL) : 'a page';
 }
@@ -60,6 +66,12 @@ export default function xref({ base }) {
           const part = frag && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(frag) ? frag.replace(/-/g, ' ').replace(/^./, (x) => x.toUpperCase()) : frag;
           const text = frag && c.id !== 'term' ? `${canonicalText(entry)} › ${part}` : canonicalText(entry);
           ctx.appendChild(node, { type: 'text', value: text });
+        }
+        // The color and icon of the category reach only sighted readers. Name the
+        // category for screen readers too, unless the link text names it already
+        // ("pk-metal approve" is a command, "mise run lab:up" a lab task).
+        if (c.id !== 'term' && !c.prefix && !textOf(node).toLowerCase().includes(c.label.toLowerCase())) {
+          ctx.setProperty(node, 'ariaDescription', c.label);
         }
       },
     },

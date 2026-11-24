@@ -15,8 +15,12 @@ const url = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/xref.json`;
   const load = () => (data ??= fetch(card.dataset.src!).then((r) => r.json()));
   const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
 
+  // The link that the card describes gets aria-describedby while the card shows.
+  const release = () => owner?.removeAttribute('aria-describedby');
+
   async function show(a: HTMLElement) {
     window.clearTimeout(hideTimer);
+    if (owner !== a) release();
     owner = a;
     const d = await load();
     if (owner !== a) return;
@@ -38,6 +42,7 @@ const url = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/xref.json`;
     }
     card.innerHTML = html;
     card.hidden = false;
+    a.setAttribute('aria-describedby', 'pk-card');
     place(a);
   }
 
@@ -54,6 +59,7 @@ const url = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/xref.json`;
   function hide() {
     hideTimer = window.setTimeout(() => {
       card.hidden = true;
+      release();
       owner = undefined;
     }, 120);
   }
@@ -77,6 +83,9 @@ const url = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/xref.json`;
   card.addEventListener('pointerenter', () => window.clearTimeout(hideTimer));
   card.addEventListener('pointerleave', hide);
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') card.hidden = true;
+    if (e.key === 'Escape') {
+      card.hidden = true;
+      release();
+    }
   });
 </script>

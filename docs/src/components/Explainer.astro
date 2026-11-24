@@ -5,7 +5,9 @@
 // States: active, done, flow (a moving dash on an edge), ok, warn, err. Parts that a
 // step does not name go back to rest. `text` sets the second line of a Box by its
 // `text` name. Arrow keys step when the explainer has focus. With reduced motion,
-// play is off and edges do not move; the steps still work.
+// play is off and edges do not move; the steps still work, and the play button is
+// "Next step". Without JavaScript and in print, the explainer shows all steps as a
+// list instead of the stepper.
 import { dropSharedDefs, linkRole } from '../lib/svg';
 
 interface Step {
@@ -59,6 +61,14 @@ const stage = linkRole(dropSharedDefs(await Astro.slots.render('default')));
       ))}
     </ol>
   </div>
+  <ol class="pk-ex-all">
+    {steps.map((s) => (
+      <li>
+        <p><strong>{s.title}.</strong> {s.caption}</p>
+        {s.code && <code>{s.code}</code>}
+      </li>
+    ))}
+  </ol>
 </section>
 
 <script>
@@ -97,11 +107,13 @@ const stage = linkRole(dropSharedDefs(await Astro.slots.render('default')));
       });
     };
 
+    // With reduced motion, play does not run: the button shows the next step.
+    const rest = () => q('play').setAttribute('aria-label', reduced.matches ? 'Next step' : 'Play');
     const stop = () => {
       window.clearInterval(timer);
       timer = undefined;
       ex.classList.remove('playing');
-      q('play').setAttribute('aria-label', 'Play');
+      rest();
     };
     const play = () => {
       if (reduced.matches) return go(cur + 1);
@@ -120,6 +132,9 @@ const stage = linkRole(dropSharedDefs(await Astro.slots.render('default')));
       if (e.key === 'ArrowRight') (stop(), go(cur + 1), e.preventDefault());
       if (e.key === 'ArrowLeft') (stop(), go(cur - 1), e.preventDefault());
     });
+    reduced.addEventListener('change', () => (stop(), rest()));
+    ex.classList.add('is-live');
+    rest();
     go(cur);
   }
 </script>

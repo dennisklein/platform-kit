@@ -61,6 +61,36 @@ a.x code {
   }
 }
 
+/* All steps of an explainer as a list: shown without JavaScript and in print, where
+   the stepper cannot show the other steps. Explainer.astro adds .is-live. */
+.pk-ex-all {
+  margin: 0;
+  padding: 0.75rem 1rem 0.75rem 2.25rem;
+  border-top: 1px solid var(--pk-ex-rule);
+}
+.pk-ex-all li + li {
+  margin-top: 0.5rem;
+}
+.pk-ex-all p {
+  margin: 0;
+}
+.pk-ex.is-live .pk-ex-all {
+  display: none;
+}
+.pk-ex:not(.is-live) .pk-ex-text,
+.pk-ex:not(.is-live) .pk-ex-controls {
+  display: none;
+}
+@media print {
+  .pk-ex.is-live .pk-ex-all {
+    display: block;
+  }
+  .pk-ex .pk-ex-text,
+  .pk-ex .pk-ex-controls {
+    display: none;
+  }
+}
+
 /* ---------- Glossary terms ---------- */
 
 .sl-markdown-content a.gl,
@@ -696,7 +726,7 @@ a.box-g:hover .box {
 .pk-ex .box-g.is-warn .t-small {
   fill: var(--pk-ex-ink);
 }
-.pk-ex .box-g.is-active {
+.pk-ex.playing .box-g.is-active {
   animation: pk-pulse 2.2s ease-in-out infinite;
 }
 @keyframes pk-pulse {
@@ -706,7 +736,8 @@ a.box-g:hover .box {
 }
 @media (prefers-reduced-motion: reduce) {
   .pk-ex .edge-g.is-flow .edge,
-  .pk-ex .box-g.is-active {
+  .pk-ex .box-g.is-active,
+  .pk-term .cur {
     animation: none;
   }
   .pk-ex * {
