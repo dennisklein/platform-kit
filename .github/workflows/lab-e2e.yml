@@ -1,0 +1,504 @@
+# The virtual lab, end to end, on a hosted runner: a kind cluster with the
+# operator in it, three simulated BMCs each driving a QEMU machine, and the
+# whole provisioning path from an Asset to a Ready Kubernetes node. Nothing is
+# mocked between the operator and the machines except the hardware itself.
+#
+# The run stands in for the one human step by approving what the operator
+# proposes (lab/lab.sh wait), through the same `pk-metal approve` a person uses,
+# so the approval gate is exercised and not bypassed. After the install it
+# releases one claim and waits until that machine is back, so the release path
+# (a gated shutdown of a running node) runs against a real machine too. The
+# fleet mixes BMC dialects: node-3 is a simulated Supermicro X12.
+#
+# The pivot round runs on request only (workflow_dispatch with pivot set), in
+# its own job: the operator installs a one-machine Talos cluster from kind,
+# moves onto it with pk-metal pivot, kind is deleted, and from its new place
+# the operator installs a second one-machine cluster.
+#
+# The etcd disaster-recovery round runs on request only (workflow_dispatch
+# with backup_restore set), in its own job: the operator installs a
+# one-machine Talos cluster from kind and backs its etcd up to the backup
+# volume; the run wipes etcd on the control plane and restores it through
+# pk-metal restore, an approval by a second identity, and the upload
+# (docs site: workflows/disaster-recovery).
+#
+# The scale round also runs on request only (workflow_dispatch with scale
+# set), in its own job on five machines: control planes leave and join one at
+# a time, a worker is removed, a control plane moves to another machine, and
+# every removed machine must come back reset. It checks etcd on every turn:
+# never two learners at once, never fewer voters than the step allows.
+#
+# A run started by hand can give node-2 a Huawei iBMC, which holds one
+# virtual medium only. Its machine then boots an installer the operator builds
+# for it, with its machine config inside (the imager runs as a Job in kind).
+# That run pulls the imager image (about 270 MB) and builds an ISO of about
+# 370 MB on top of the default run, so it is not the default.
+#
+# The day-2 rounds run on request only, each behind its own input, all
+# default false (the docs site lists them under reference/lab/tasks):
+#
+# - day2, in this lab job before the release, while every machine still runs
+#   its node (lab/lab.sh day2): a worker and then a control plane are
+#   rebooted the way a person would (pk-metal reboot proposes, a second user
+#   approves; the run checks each node booted again and is Ready and
+#   schedulable), then a node label reaches every machine through an approved
+#   Config rollout, and no machine may reboot for it.
+# - observe, in this lab job too: the status tables, the operator's metrics
+#   and a maintenance window that holds an approved operation until it opens.
+# - upgrade, in its own job: a lab brought up one Talos release behind is
+#   upgraded through an approved rollout.
+# - backup_restore and scale, in their own jobs, above.
+name: lab-e2e
+
+on:
+  workflow_dispatch:
+    inputs:
+      pivot:
+        description: "Also run the pivot round: move the operator from kind onto the cluster it built, then install a second cluster from there"
+        type: boolean
+        default: false
+      huawei:
+        description: Give node-2 a one-slot Huawei iBMC (builds an installer with its config inside)
+        type: boolean
+        default: false
+      day2:
+        description: "Day 2 in the main job: reboot a worker and a control plane with pk-metal reboot, then roll a node label (no reboot) through an approved Config rollout"
+        type: boolean
+        default: false
+      upgrade:
+        description: "Day 2 in its own job: bring a lab up on an older Talos release and upgrade it through an approved rollout"
+        type: boolean
+        default: false
+      backup_restore:
+        description: "Day 2 in its own job, the etcd disaster-recovery round: back up a one-machine cluster, wipe its etcd, restore it with pk-metal restore"
+        type: boolean
+        default: false
+      scale:
+        description: "Day 2 in its own job, the scale round on five machines: control planes 3 -> 1 -> 3, remove a worker, replace a control plane, back to 1"
+        type: boolean
+        default: false
+      observe:
+        description: "Day 2 in the main job, after the install: check the views: status cluster and node tables, operator metrics, a maintenance window holding an operation"
+        type: boolean
+        default: false
+  push:
+    branches:
+      - "claude/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lab-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lab:
+    name: provision the virtual lab
+    runs-on: ubuntu-latest
+    # Doctor and up take about ten minutes on a cold runner, the wait is capped
+    # at forty, and a failed run still needs time to collect its evidence. The
+    # day-2 round adds two reboots of at most twenty minutes each and a
+    # config rollout without reboots; observe adds about three minutes.
+    timeout-minutes: ${{ inputs.day2 && 135 || inputs.observe && 85 || 75 }}
+    env:
+      # A hosted runner promises 14 GB of free disk. The lab's sparse disks, the
+      # installer image and the container images stay well below that.
+      PK_LAB_MIN_FREE_GIB: "10"
+      PK_LAB_WAIT_TIMEOUT: "2400"
+      # A graceful Talos shutdown takes well under a minute; the manager forces
+      # the machine off after five. Ten minutes covers both.
+      PK_LAB_RELEASE_TIMEOUT: "600"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The runner has /dev/kvm, but only root may open it. This is the udev
+      # rule GitHub documents for hardware-accelerated virtual machines on
+      # hosted Linux runners.
+      - name: Enable KVM for the runner user
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install QEMU and the UEFI firmware
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends qemu-system-x86 qemu-utils ovmf
+
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
+
+      - name: Locate the Go caches
+        id: go
+        run: |
+          echo "modcache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "buildcache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go.outputs.modcache }}
+            ${{ steps.go.outputs.buildcache }}
+          key: go-lab-${{ runner.os }}-${{ hashFiles('metal/go.sum') }}
+          restore-keys: go-lab-${{ runner.os }}-
+
+      # The spec is changed in a copy: the default lab stays as committed.
+      - name: Give node-2 a one-slot Huawei iBMC
+        if: inputs.huawei
+        run: |
+          yq '.nodes."node-2" = {"personality": "huawei-2288h-v5"}' lab/lab.yaml >"$RUNNER_TEMP/lab.yaml"
+          yq '.nodes' "$RUNNER_TEMP/lab.yaml"
+          echo "PK_LAB_SPEC=$RUNNER_TEMP/lab.yaml" >>"$GITHUB_ENV"
+
+      - name: What the runner has
+        run: |
+          nproc
+          free --giga
+          df --human-readable / /mnt || true
+
+      - name: Check the prerequisites
+        run: mise run lab:doctor
+
+      - name: Bring the lab up
+        run: mise run lab:up
+
+      - name: Approve and wait for three provisioned hosts and three Ready nodes
+        run: mise run lab:wait
+
+      - name: The result
+        run: |
+          mise run lab:status
+          mise run lab:kubeconfig
+          kubectl --kubeconfig .lab/workload.kubeconfig get nodes --output wide
+
+      # Reboots through pk-metal reboot, then a change that needs no reboot
+      # through a Config rollout: the operator sees the drift in its dry run,
+      # proposes, and the run approves and resumes it as a person would.
+      - name: "Day 2: reboot a worker and a control plane, then a config change without a reboot"
+        if: github.event_name == 'workflow_dispatch' && inputs.day2
+        run: |
+          mise run lab:day2
+          mise run lab:status
+          metal/bin/pk-metal --kubeconfig .lab/kubeconfig rollout list
+
+      # About three minutes: the window it creates opens two minutes later.
+      - name: Check the day-2 views (status tables, metrics, maintenance window)
+        if: github.event_name == 'workflow_dispatch' && inputs.observe
+        run: mise run lab:observe
+
+      # Deleting the claim of a running node proposes a shutdown that waits
+      # for a person. lab:release approves it, as lab:wait does, and checks the
+      # outcome: the claim is gone and the Host is Available again.
+      - name: Release one claim and get its machine back
+        run: |
+          mise run lab:release default/node-3
+          mise run lab:status
+
+      # The diagnostics directory holds object dumps without Secret contents,
+      # the operator's and the fleet's logs and the machines' consoles. The
+      # secrets bundle, the kubeconfigs and the disks are not in it.
+      - name: Collect diagnostics
+        if: failure() || cancelled()
+        run: mise run lab:collect
+
+      - name: Upload diagnostics
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lab-diagnostics
+          path: .lab/diagnostics
+          if-no-files-found: warn
+          retention-days: 7
+
+  pivot:
+    name: move the operator onto the cluster it built
+    if: github.event_name == 'workflow_dispatch' && inputs.pivot
+    # A hosted runner has 16 GiB. Two machines of 4 GiB and the kind node fit;
+    # kind goes away after the move.
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      PK_LAB_MIN_FREE_GIB: "10"
+      PK_LAB_WAIT_TIMEOUT: "2400"
+      PK_LAB_NODES: "1cp+0w"
+      PK_LAB_WORKLOAD: "1cp+0w"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Enable KVM for the runner user
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install QEMU and the UEFI firmware
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends qemu-system-x86 qemu-utils ovmf
+
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
+
+      - name: Locate the Go caches
+        id: go
+        run: |
+          echo "modcache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "buildcache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go.outputs.modcache }}
+            ${{ steps.go.outputs.buildcache }}
+          key: go-lab-${{ runner.os }}-${{ hashFiles('metal/go.sum') }}
+          restore-keys: go-lab-${{ runner.os }}-
+
+      - name: Check the prerequisites
+        run: mise run lab:doctor
+
+      - name: Bring the lab up
+        run: mise run lab:up
+
+      - name: Install the first cluster from kind
+        run: mise run lab:wait
+
+      # pk-metal pivot fails when the operator proposes anything after the
+      # move; the machine it installed must not be installed again.
+      - name: Move the operator onto it and install the second cluster from there
+        run: |
+          mise run lab:pivot
+          mise run lab:status
+          kubectl --kubeconfig .lab/second.kubeconfig get nodes --output wide
+
+      - name: Collect diagnostics
+        if: failure() || cancelled()
+        run: mise run lab:collect
+
+      - name: Upload diagnostics
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lab-pivot-diagnostics
+          path: .lab/diagnostics
+          if-no-files-found: warn
+          retention-days: 7
+
+  backup-restore:
+    name: back up etcd, lose it, restore it
+    if: github.event_name == 'workflow_dispatch' && inputs.backup_restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      PK_LAB_MIN_FREE_GIB: "10"
+      PK_LAB_WAIT_TIMEOUT: "2400"
+      PK_LAB_NODES: "1cp+0w"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Enable KVM for the runner user
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install QEMU and the UEFI firmware
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends qemu-system-x86 qemu-utils ovmf
+
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
+
+      - name: Locate the Go caches
+        id: go
+        run: |
+          echo "modcache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "buildcache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go.outputs.modcache }}
+            ${{ steps.go.outputs.buildcache }}
+          key: go-lab-${{ runner.os }}-${{ hashFiles('metal/go.sum') }}
+          restore-keys: go-lab-${{ runner.os }}-
+
+      - name: Check the prerequisites
+        run: mise run lab:doctor
+
+      - name: Bring the lab up
+        run: mise run lab:up
+
+      - name: Install the cluster
+        run: mise run lab:wait
+
+      # The round checks the outcome: the TalosCluster is Bootstrapped again,
+      # a ConfigMap written before the snapshot is back and one written after
+      # it is not.
+      - name: Back up, lose and restore etcd
+        run: |
+          mise run lab:backup-restore
+          mise run lab:status
+
+      - name: Collect diagnostics
+        if: failure() || cancelled()
+        run: mise run lab:collect
+
+      - name: Upload diagnostics
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lab-backup-restore-diagnostics
+          path: .lab/diagnostics
+          if-no-files-found: warn
+          retention-days: 7
+
+  scale:
+    name: add, remove and replace nodes
+    if: github.event_name == 'workflow_dispatch' && inputs.scale
+    runs-on: ubuntu-latest
+    # Install, then five rounds of joins and removals of about ten minutes
+    # each.
+    timeout-minutes: 150
+    env:
+      PK_LAB_MIN_FREE_GIB: "10"
+      PK_LAB_WAIT_TIMEOUT: "2400"
+      PK_LAB_NODES: "3cp+2w"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Enable KVM for the runner user
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install QEMU and the UEFI firmware
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends qemu-system-x86 qemu-utils ovmf
+
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
+
+      - name: Locate the Go caches
+        id: go
+        run: |
+          echo "modcache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "buildcache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go.outputs.modcache }}
+            ${{ steps.go.outputs.buildcache }}
+          key: go-lab-${{ runner.os }}-${{ hashFiles('metal/go.sum') }}
+          restore-keys: go-lab-${{ runner.os }}-
+
+      # A hosted runner has 16 GiB, of which a little under 15 are available
+      # once the caches are restored. Three control planes at the default
+      # 4 GiB and two workers do not fit beside the kind node. 2.5 GiB is
+      # above Talos' minimum for a control plane and 1.5 GiB above a
+      # worker's; together with the 3 GiB lab:doctor keeps for the kind node
+      # and the fleet that is 13.5 GiB. With 2 GiB workers it was 14.5 GiB,
+      # which a runner did not always have. The spec is changed in a copy.
+      - name: Make five machines fit the runner
+        run: |
+          yq '.controlPlane.memoryMiB = 2560 | .worker.memoryMiB = 1536' lab/lab.yaml >"$RUNNER_TEMP/lab.yaml"
+          echo "PK_LAB_SPEC=$RUNNER_TEMP/lab.yaml" >>"$GITHUB_ENV"
+          free -m
+
+      - name: Check the prerequisites
+        run: mise run lab:doctor
+
+      - name: Bring the lab up
+        run: mise run lab:up
+
+      - name: Install three control planes and two workers
+        run: mise run lab:wait
+
+      - name: Scale down, up, remove a worker, replace a control plane, scale down
+        run: |
+          mise run lab:scale
+          mise run lab:status
+
+      - name: Collect diagnostics
+        if: failure() || cancelled()
+        run: mise run lab:collect
+
+      - name: Upload diagnostics
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lab-scale-diagnostics
+          path: .lab/diagnostics
+          if-no-files-found: warn
+          retention-days: 7
+
+  upgrade:
+    name: "day 2: upgrade Talos through a rollout"
+    if: github.event_name == 'workflow_dispatch' && inputs.upgrade
+    runs-on: ubuntu-latest
+    # Install, then a drain, an upgrade and a reboot per machine.
+    timeout-minutes: 120
+    env:
+      PK_LAB_MIN_FREE_GIB: "10"
+      PK_LAB_WAIT_TIMEOUT: "2400"
+      PK_LAB_ROLLOUT_TIMEOUT: "3000"
+      # The lab comes up one patch release behind the spec; lab:upgrade
+      # upgrades it to the spec's release.
+      PK_LAB_TALOS: "v1.14.5"
+      PK_LAB_NODES: "1cp+1w"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Enable KVM for the runner user
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install QEMU and the UEFI firmware
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends qemu-system-x86 qemu-utils ovmf
+
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
+
+      - name: Locate the Go caches
+        id: go
+        run: |
+          echo "modcache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "buildcache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go.outputs.modcache }}
+            ${{ steps.go.outputs.buildcache }}
+          key: go-lab-${{ runner.os }}-${{ hashFiles('metal/go.sum') }}
+          restore-keys: go-lab-${{ runner.os }}-
+
+      - name: Check the prerequisites
+        run: mise run lab:doctor
+
+      - name: Bring the lab up on the older release
+        run: mise run lab:up
+
+      - name: Install it
+        run: mise run lab:wait
+
+      - name: Upgrade it through an approved rollout
+        run: |
+          mise run lab:upgrade
+          mise run lab:status
+
+      - name: Collect diagnostics
+        if: failure() || cancelled()
+        run: mise run lab:collect
+
+      - name: Upload diagnostics
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lab-upgrade-diagnostics
+          path: .lab/diagnostics
+          if-no-files-found: warn
+          retention-days: 7
