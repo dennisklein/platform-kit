@@ -131,6 +131,8 @@ func TestRestorePlanReplacesOneLostMember(t *testing.T) {
 	require.NoError(t, cl.Get(t.Context(), client.ObjectKey{Namespace: operatorNamespace, Name: op.Name}, got))
 	assert.Equal(t, "alice", got.Spec.ProposedBy)
 	assert.Empty(t, got.Spec.Approval.ApprovedBy, "proposed, never approved")
+	assert.Contains(t, got.Annotations[metalv1alpha1.AnnotationOverrideClusterGuard], "pk-metal restore",
+		"a repair of a broken etcd would otherwise wait for the health it restores")
 	assert.Contains(t, out.String(), "pk-metal approve")
 }
 
@@ -155,6 +157,9 @@ func TestRestorePlanRecoversALostCluster(t *testing.T) {
 	assert.Equal(t, "host-1", rec.Spec.HostRef.Name)
 	assert.Equal(t, "dr-daily-new", rec.Spec.Actions[0].EtcdRecover.SnapshotRef.Name, "the newest verified snapshot")
 	assert.Equal(t, newest.Status.SHA256, rec.Spec.Actions[0].EtcdRecover.SHA256)
+	for _, op := range p.Ops {
+		assert.NotEmpty(t, op.Annotations[metalv1alpha1.AnnotationOverrideClusterGuard], "%s overrides the cluster guard", op.Name)
+	}
 	text := p.render()
 	assert.Contains(t, text, "RESTORE etcd")
 	assert.Contains(t, text, "pk-metal restore upload pk-metal/dr-etcd-recover-cp-1")

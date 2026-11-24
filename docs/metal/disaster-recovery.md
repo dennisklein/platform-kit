@@ -239,7 +239,12 @@ pk-metal restore plan lab
 
 It asks every control plane about its etcd, with the cluster's talosconfig,
 and prints what it found and what it would do. It changes nothing. Without
-`--propose` it creates nothing either. It sorts the cluster into one of
+`--propose` it creates nothing either. Every operation it proposes carries
+the cluster-guard override (`metal.pk.io/override-cluster-guard`, see
+[Day-2 steps](day2-actions.md#one-control-plane-at-a-time)): the guard holds a control
+plane while etcd is unhealthy, and a repair starts from exactly that. The
+override does not lift the one-control-plane-at-a-time rule, so approve the
+operations one after another. It sorts the cluster into one of
 these cases:
 
 | What `plan` sees | Case | What it proposes |
