@@ -81,6 +81,38 @@ type topModel struct {
 	// now is the clock the approval window is measured with; nil is
 	// time.Now.
 	now func() time.Time
+	// actTimeout bounds one key's call to the cluster; zero is
+	// topActionTimeout. Tests shorten it.
+	actTimeout time.Duration
+}
+
+// topActionTimeout is how long a key's call (plan, approve, hold, retry) may
+// take. Without a bound a hung API server would leave the screen busy for
+// good, and every other key with it.
+const topActionTimeout = 30 * time.Second
+
+// bounded runs a key's call with a deadline. A call that runs out says so, and
+// that its outcome is not known: an approval may have reached the cluster
+// just before the answer was lost.
+func (m topModel) bounded(call func(ctx context.Context) tea.Msg) tea.Cmd {
+	limit := m.actTimeout
+	if limit == 0 {
+		limit = topActionTimeout
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), limit)
+		defer cancel()
+		msg := call(ctx)
+		if ctx.Err() == nil {
+			return msg
+		}
+		err := fmt.Errorf("the cluster did not answer within %s; the outcome is not known, look again before you act", shortDuration(limit))
+		if p, ok := msg.(topPlanMsg); ok {
+			p.err = err
+			return p
+		}
+		return topDoneMsg{err: err}
+	}
 }
 
 // shownPlan is an approval plan as a person sees it: the text, who would
@@ -211,10 +243,10 @@ func (m topModel) key(k string) (tea.Model, tea.Cmd) {
 		m.busy = true
 		m.setStatus("approving "+ns+"/"+name+" …", false)
 		act := m.act
-		return m, func() tea.Msg {
-			text, err := act.Approve(context.Background(), ns, name, plan)
+		return m, m.bounded(func(ctx context.Context) tea.Msg {
+			text, err := act.Approve(ctx, ns, name, plan)
 			return topDoneMsg{text, err}
-		}
+		})
 	}
 	n := len(m.data.Tiles)
 	switch k {
@@ -248,10 +280,10 @@ func (m topModel) key(k string) (tea.Model, tea.Cmd) {
 		ns, name := t.Op.Namespace, t.Op.Name
 		m.busy = true
 		m.setStatus("reading the plan of "+ns+"/"+name+" …", false)
-		return m, func() tea.Msg {
-			plan, err := act.Plan(context.Background(), ns, name)
+		return m, m.bounded(func(ctx context.Context) tea.Msg {
+			plan, err := act.Plan(ctx, ns, name)
 			return topPlanMsg{namespace: ns, name: name, plan: plan, err: err}
-		}
+		})
 	case "h":
 		if t.ClaimName == "" {
 			m.setStatus(t.Title+": no claim to hold", false)
@@ -259,10 +291,10 @@ func (m topModel) key(k string) (tea.Model, tea.Cmd) {
 		}
 		ns, name, on := t.ClaimNS, t.ClaimName, !t.OnHold
 		m.busy = true
-		return m, func() tea.Msg {
-			text, err := act.Hold(context.Background(), ns, name, on)
+		return m, m.bounded(func(ctx context.Context) tea.Msg {
+			text, err := act.Hold(ctx, ns, name, on)
 			return topDoneMsg{text, err}
-		}
+		})
 	case "r":
 		if t.Op == nil || !t.Op.Failed {
 			m.setStatus(t.Title+": no failed operation to retry", false)
@@ -270,10 +302,10 @@ func (m topModel) key(k string) (tea.Model, tea.Cmd) {
 		}
 		ns, name := t.Op.Namespace, t.Op.Name
 		m.busy = true
-		return m, func() tea.Msg {
-			text, err := act.Retry(context.Background(), ns, name)
+		return m, m.bounded(func(ctx context.Context) tea.Msg {
+			text, err := act.Retry(ctx, ns, name)
 			return topDoneMsg{text, err}
-		}
+		})
 	}
 	return m, nil
 }
@@ -362,6 +394,14 @@ func (m topModel) header(width int) string {
 		lines = append(lines, fmt.Sprintf("cluster %s: %s  %s  control planes %d/%d, workers %d/%d",
 			c.Name, marked(c.Bootstrapped, "Bootstrapped"), avail,
 			c.CPReady, c.ControlPlanes, c.WorkersReady, c.Workers))
+	}
+	for _, r := range m.data.Rollouts {
+		st := stWait
+		if r.NeedsAttention {
+			st = stBad
+		}
+		lines = append(lines, fmt.Sprintf("rollout %s (%s, cluster %s): %s  nodes %d/%d",
+			r.Name, r.Kind, r.Cluster, marked(st, r.State), r.NodesDone, r.NodesTotal))
 	}
 	if m.data.FleetLine != "" {
 		lines = append(lines, styleDim.Render(m.data.FleetLine))

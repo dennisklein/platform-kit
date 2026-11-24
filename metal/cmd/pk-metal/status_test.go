@@ -193,7 +193,7 @@ func TestStatusJSONShape(t *testing.T) {
 	first := func(list string) map[string]any { return doc[list].([]any)[0].(map[string]any) }
 
 	assert.ElementsMatch(t, []string{"version", "needsAttention", "hosts", "operations", "endpoints", "claims",
-		"clusters", "nodes"}, keys(doc))
+		"clusters", "nodes", "rollouts"}, keys(doc))
 	assert.EqualValues(t, 1, doc["version"])
 	assert.Equal(t, true, doc["needsAttention"])
 	assert.ElementsMatch(t, []string{"name", "asset", "vendor", "phase", "claim", "node", "pathsUp", "pathsTotal",
@@ -215,7 +215,7 @@ func TestStatusJSONShape(t *testing.T) {
 	// An empty cluster still has every list, as [] and not null.
 	b, err = json.Marshal(buildReport(nil, nil, nil, nil, nil))
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"version":1,"needsAttention":false,"hosts":[],"operations":[],"endpoints":[],"claims":[],"clusters":[],"nodes":[]}`, string(b))
+	assert.JSONEq(t, `{"version":1,"needsAttention":false,"hosts":[],"operations":[],"endpoints":[],"claims":[],"clusters":[],"nodes":[],"rollouts":[]}`, string(b))
 }
 
 func TestStatusExitCodes(t *testing.T) {

@@ -27,6 +27,7 @@ type topInput struct {
 	Ops       []metalv1alpha1.HostOperation
 	Nodes     []osv1alpha1.TalosNode
 	Clusters  []osv1alpha1.TalosCluster
+	Rollouts  []osv1alpha1.TalosRollout
 	// K8sNodes are the workload cluster's Nodes; nil when that cluster is not
 	// watched or not read yet.
 	K8sNodes []corev1.Node
@@ -75,6 +76,7 @@ type stage struct {
 
 type topData struct {
 	Clusters  []clusterLine
+	Rollouts  []rolloutStatus // the ones that have not succeeded
 	NodeLine  string
 	Attention int
 	FleetLine string
@@ -178,6 +180,19 @@ func buildTop(in topInput) topData {
 		}
 	}
 	d.NodeLine = fmt.Sprintf("TalosNodes Ready %d/%d", ready, len(in.Nodes))
+
+	// Rollouts, read as pk-metal status reads them.
+	var ros statusReport
+	addRollouts(&ros, in.Rollouts)
+	for _, r := range ros.Rollouts {
+		if r.State == osv1alpha1.ReasonRolloutSucceeded || r.State == osv1alpha1.ReasonNothingToDo {
+			continue
+		}
+		d.Rollouts = append(d.Rollouts, r)
+		if r.NeedsAttention {
+			d.Attention++
+		}
+	}
 	if in.K8sNodes != nil {
 		k := 0
 		for _, r := range k8sReady {

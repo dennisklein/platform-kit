@@ -36,7 +36,8 @@ A live view of every machine, updated as the cluster changes. One tile per
 machine shows its BMC, the Host phase and what blocks it, the claim, the
 operation that runs (for example "5/9 setBootOverride") and whether it waits
 for approval, and the TalosNode. The header shows each TalosCluster and how
-many nodes are Ready.
+many nodes are Ready, and each TalosRollout that has not succeeded: its nodes
+done and where it stands (approve and resume it with pk-metal rollout).
 
 With --fleet (the simulator's state endpoint, as in the virtual lab) each
 tile also shows what the simulated BMC holds (power, media, boot override,
@@ -137,6 +138,7 @@ var topKinds = []struct {
 	{"HostOperation", &metalv1alpha1.HostOperation{}},
 	{"TalosNode", &osv1alpha1.TalosNode{}},
 	{"TalosCluster", &osv1alpha1.TalosCluster{}},
+	{"TalosRollout", &osv1alpha1.TalosRollout{}},
 }
 
 func newWatchSource(ctx context.Context, cfg *rest.Config, workloadKubeconfig, fleetURL string,
@@ -209,6 +211,7 @@ func (s *watchSource) Read(ctx context.Context) topInput {
 		"HostOperation":      &metalv1alpha1.HostOperationList{},
 		"TalosNode":          &osv1alpha1.TalosNodeList{},
 		"TalosCluster":       &osv1alpha1.TalosClusterList{},
+		"TalosRollout":       &osv1alpha1.TalosRolloutList{},
 	}
 	for _, k := range topKinds {
 		inf, ok := s.informers[k.name]
@@ -229,6 +232,7 @@ func (s *watchSource) Read(ctx context.Context) topInput {
 	in.Ops = lists["HostOperation"].(*metalv1alpha1.HostOperationList).Items
 	in.Nodes = lists["TalosNode"].(*osv1alpha1.TalosNodeList).Items
 	in.Clusters = lists["TalosCluster"].(*osv1alpha1.TalosClusterList).Items
+	in.Rollouts = lists["TalosRollout"].(*osv1alpha1.TalosRolloutList).Items
 
 	if s.nodes != nil {
 		nodes := &corev1.NodeList{}

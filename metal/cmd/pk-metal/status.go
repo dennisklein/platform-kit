@@ -42,6 +42,9 @@ Tables:
              Kubernetes API is available
   NODE       one row per TalosNode: its cluster, role, the host it runs on,
              address, Talos version, boot stage and readiness
+  ROLLOUT    each TalosRollout that has not succeeded: its cluster, kind,
+             nodes done of the plan, where it stands (the reason it waits)
+             and who approved it
 Under each table, every blocked or failed row gets a line that says why, in
 the operator's own words, and what to run next when there is a command for it.
 
@@ -62,9 +65,12 @@ the operator's own words, and what to run next when there is a command for it.
                    "readyWorkers", "available", "etcd", "bootstrappedAt",
                    "backup", "backupMessage", "message", "needsAttention"}],
    "nodes":      [{"name", "cluster", "role", "host", "address", "version",
-                   "stage", "ready", "message", "needsAttention"}]}
+                   "stage", "ready", "message", "needsAttention"}],
+   "rollouts":   [{"name", "cluster", "kind", "nodesDone", "nodesTotal",
+                   "state", "approvedBy", "message", "needsAttention"}]}
   Every key is always present; a missing value is "" (or null for node).
-  "operations" and "claims" list all of them, also succeeded and bound ones.
+  "operations", "claims" and "rollouts" list all of them, also succeeded and
+  bound ones.
   New keys may be added; existing keys keep their meaning while version is 1.
 
 exit status:
@@ -72,8 +78,9 @@ exit status:
   1  error: the cluster could not be read
   2  something is blocked or failed (a row has needsAttention), including
      operations that wait for approval, a bootstrapped cluster whose etcd or
-     Kubernetes API is unhealthy or whose backup is stale, and a node of a
-     running cluster that is not Ready
+     Kubernetes API is unhealthy or whose backup is stale, a node of a
+     running cluster that is not Ready, and a rollout that waits for
+     approval, cannot plan, pauses after its first node, or failed
 
 examples:
   pk-metal status
@@ -131,8 +138,13 @@ func runStatus(ctx context.Context, cl client.Client, format string, w io.Writer
 	if err := cl.List(ctx, policies); err != nil && !meta.IsNoMatchError(err) && !apierrors.IsForbidden(err) {
 		return exitError, fmt.Errorf("read the cluster: %w", err)
 	}
+	rollouts := &osv1alpha1.TalosRolloutList{}
+	if err := cl.List(ctx, rollouts); err != nil && !meta.IsNoMatchError(err) && !apierrors.IsForbidden(err) {
+		return exitError, fmt.Errorf("read the cluster: %w", err)
+	}
 	rep := buildReport(hosts.Items, eps.Items, claims.Items, ops.Items, nodes.Items)
 	addClusters(&rep, clusters.Items, nodes.Items, hosts.Items, policies.Items)
+	addRollouts(&rep, rollouts.Items)
 	switch format {
 	case "json":
 		enc := json.NewEncoder(w)
@@ -158,9 +170,10 @@ type statusReport struct {
 	Operations     []opStatus    `json:"operations"`
 	Endpoints      []epStatus    `json:"endpoints"`
 	Claims         []claimStatus `json:"claims"`
-	// Clusters and Nodes came later (still version 1: new keys only).
+	// Clusters, Nodes and Rollouts came later (still version 1: new keys only).
 	Clusters []clusterStatus   `json:"clusters"`
 	Nodes    []talosNodeStatus `json:"nodes"`
+	Rollouts []rolloutStatus   `json:"rollouts"`
 }
 
 type nodeStatus struct {
@@ -247,7 +260,7 @@ func nsName(namespace, name string) string { return namespace + "/" + name }
 func buildReport(hosts []metalv1alpha1.Host, eps []metalv1alpha1.ManagementEndpoint, claims []metalv1alpha1.HostClaim,
 	ops []metalv1alpha1.HostOperation, nodes []osv1alpha1.TalosNode) statusReport {
 	rep := statusReport{Version: 1, Hosts: []hostStatus{}, Operations: []opStatus{}, Endpoints: []epStatus{}, Claims: []claimStatus{},
-		Clusters: []clusterStatus{}, Nodes: []talosNodeStatus{}}
+		Clusters: []clusterStatus{}, Nodes: []talosNodeStatus{}, Rollouts: []rolloutStatus{}}
 
 	epByName := map[string]*metalv1alpha1.ManagementEndpoint{}
 	for i := range eps {
@@ -461,6 +474,7 @@ func renderReport(rep statusReport) string {
 		section("CLAIM\tASSET\tPHASE\tBLOCKED", rows, notes)
 	}
 	renderClusters(rep, section)
+	renderRollouts(rep, section)
 	return sb.String()
 }
 
