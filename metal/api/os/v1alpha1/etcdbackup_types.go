@@ -97,13 +97,20 @@ type EtcdBackupSink struct {
 }
 
 // S3Sink is one bucket of an S3-compatible store.
+// +kubebuilder:validation:XValidation:rule="self.endpoint.startsWith('https://') || (has(self.allowPlainHTTP) && self.allowPlainHTTP)",message="endpoint must be https://; set allowPlainHTTP: true only for a lab store, because http:// sends the store's credentials in the clear"
 type S3Sink struct {
 	// Endpoint is the store's URL, https://host[:port]
 	// (https://s3.eu-central-1.amazonaws.com, https://minio.example:9000).
-	// http:// works for a store on a trusted network; the snapshots are
-	// encrypted either way, the store's credentials are not.
+	// http:// needs allowPlainHTTP.
 	// +kubebuilder:validation:Pattern=`^https?://[^/]+/?$`
 	Endpoint string `json:"endpoint"`
+
+	// AllowPlainHTTP lets endpoint be http://, for a store in a lab. The
+	// snapshots are encrypted either way, but the store's credentials and
+	// the snapshot keys are not, and anyone on the path can delete or
+	// replace the ciphertext. Never set it in production.
+	// +optional
+	AllowPlainHTTP bool `json:"allowPlainHTTP,omitempty"`
 
 	// Bucket must exist; the operator does not create it.
 	// +kubebuilder:validation:MinLength=3

@@ -107,6 +107,9 @@ spec:
                     s3:
                       description: 'S3 stores snapshots in a bucket of an S3-compatible object store, off the cluster: the sink for production.'
                       properties:
+                        allowPlainHTTP:
+                          description: AllowPlainHTTP lets endpoint be http://, for a store in a lab. The snapshots are encrypted either way, but the store's credentials and the snapshot keys are not, and anyone on the path can delete or replace the ciphertext. Never set it in production.
+                          type: boolean
                         bucket:
                           description: Bucket must exist; the operator does not create it.
                           maxLength: 63
@@ -129,7 +132,7 @@ spec:
                             - name
                           type: object
                         endpoint:
-                          description: Endpoint is the store's URL, https://host[:port] (https://s3.eu-central-1.amazonaws.com, https://minio.example:9000). http:// works for a store on a trusted network; the snapshots are encrypted either way, the store's credentials are not.
+                          description: Endpoint is the store's URL, https://host[:port] (https://s3.eu-central-1.amazonaws.com, https://minio.example:9000). http:// needs allowPlainHTTP.
                           pattern: ^https?://[^/]+/?$
                           type: string
                         pathStyle:
@@ -147,6 +150,9 @@ spec:
                         - credentialsSecretRef
                         - endpoint
                       type: object
+                      x-kubernetes-validations:
+                        - message: 'endpoint must be https://; set allowPlainHTTP: true only for a lab store, because http:// sends the store''s credentials in the clear'
+                          rule: self.endpoint.startsWith('https://') || (has(self.allowPlainHTTP) && self.allowPlainHTTP)
                   type: object
                   x-kubernetes-validations:
                     - message: set exactly one of s3 or pvc

@@ -4,3 +4,5 @@ resources:
   - hostoperation-approval.yaml
   - hostclaim-provisioning.yaml
   - talosrollout-approval.yaml
+  - etcdbackuppolicy-guard.yaml
+  - endpointprofile-guard.yaml
