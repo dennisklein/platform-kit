@@ -103,7 +103,7 @@
       "value": "DeletionHeld",
       "group": "metal.pk.io",
       "source": "metal/api/v1alpha1/conditions.go",
-      "description": "on a Host or ManagementEndpoint — deletion was requested but a claim still holds the machine, so the object stays (finalizer metal.pk.io/claim-protection) until the claim is released."
+      "description": "on a Host or ManagementEndpoint. A person deleted it, but a claim still holds the machine. The object stays (finalizer metal.pk.io/claim-protection) until the claim releases the machine."
     },
     {
       "name": "ConditionConverged",
@@ -229,7 +229,7 @@
       "value": "SecretsBundleHeld",
       "group": "os.pk.io",
       "source": "metal/api/os/v1alpha1/conditions_rollout.go",
-      "description": "True while the secrets bundle the spec names differs from the one the machines run, and the operator keeps using the one they run (reason BundleChanged)."
+      "description": "True while the secrets bundle of the spec is not the bundle that the machines run. The operator then continues to use the bundle that they run (reason BundleChanged)."
     },
     {
       "name": "ConditionPlanned",
@@ -399,7 +399,7 @@
       "value": "HostNotClaimed",
       "group": "metal.pk.io",
       "source": "metal/api/v1alpha1/conditions.go",
-      "description": "a boot of a claim was about to start, but the claim is being deleted or no longer holds the host; it never touched the machine.",
+      "description": "the boot of a claim was about to start, but the claim is in deletion or no longer holds the host. The operation did not touch the machine.",
       "on": [
         {
           "condition": "Executed",
@@ -427,7 +427,7 @@
       "value": "ClusterDisruption",
       "group": "metal.pk.io",
       "source": "metal/api/v1alpha1/conditions.go",
-      "description": "the operation would take down a control plane of a Talos cluster while another control plane of that cluster is being taken down, or while its etcd is not fully healthy without this member. It starts once that is over.",
+      "description": "the operation would take down a control plane of a Talos cluster. But another control plane of that cluster is going down, or etcd is not fully healthy without this member. The operation starts when that is over.",
       "on": [
         {
           "condition": "Executed",
@@ -490,7 +490,7 @@
           "status": "True"
         }
       ],
-      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). All the holds are alert-and-hold: the condition blocks, nothing destructive follows, and an unchanged planHash never spawns a second operation — a human unsticks by changing the desired state (a profile edit), which changes the hash."
+      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). Each hold alerts and holds: the condition blocks, and nothing destructive follows. An unchanged planHash never makes a second operation. To continue, a person changes the desired state (a profile edit), which changes the hash."
     },
     {
       "name": "ReasonAwaitingOperation",
@@ -504,7 +504,7 @@
           "status": "False"
         }
       ],
-      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). All the holds are alert-and-hold: the condition blocks, nothing destructive follows, and an unchanged planHash never spawns a second operation — a human unsticks by changing the desired state (a profile edit), which changes the hash."
+      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). Each hold alerts and holds: the condition blocks, and nothing destructive follows. An unchanged planHash never makes a second operation. To continue, a person changes the desired state (a profile edit), which changes the hash."
     },
     {
       "name": "ReasonOperationFailed",
@@ -518,7 +518,7 @@
           "status": "False"
         }
       ],
-      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). All the holds are alert-and-hold: the condition blocks, nothing destructive follows, and an unchanged planHash never spawns a second operation — a human unsticks by changing the desired state (a profile edit), which changes the hash."
+      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). Each hold alerts and holds: the condition blocks, and nothing destructive follows. An unchanged planHash never makes a second operation. To continue, a person changes the desired state (a profile edit), which changes the hash."
     },
     {
       "name": "ReasonOperationGone",
@@ -532,21 +532,21 @@
           "status": "False"
         }
       ],
-      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). All the holds are alert-and-hold: the condition blocks, nothing destructive follows, and an unchanged planHash never spawns a second operation — a human unsticks by changing the desired state (a profile edit), which changes the hash."
+      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). Each hold alerts and holds: the condition blocks, and nothing destructive follows. An unchanged planHash never makes a second operation. To continue, a person changes the desired state (a profile edit), which changes the hash."
     },
     {
       "name": "ReasonConvergenceFailed",
       "value": "ConvergenceFailed",
       "group": "metal.pk.io",
       "source": "metal/api/v1alpha1/conditions.go",
-      "description": "the operation succeeded but the world did not converge — the lying-oracle shape (a flash answered success with no effect, a BIOS apply dropped the value).",
+      "description": "the operation succeeded, but the machine does not show the desired state. For example, a flash reported success but changed nothing, or a BIOS apply lost the value.",
       "on": [
         {
           "condition": "Converged",
           "status": "False"
         }
       ],
-      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). All the holds are alert-and-hold: the condition blocks, nothing destructive follows, and an unchanged planHash never spawns a second operation — a human unsticks by changing the desired state (a profile edit), which changes the hash."
+      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). Each hold alerts and holds: the condition blocks, and nothing destructive follows. An unchanged planHash never makes a second operation. To continue, a person changes the desired state (a profile edit), which changes the hash."
     },
     {
       "name": "ReasonProfileConflict",
@@ -560,21 +560,21 @@
           "status": "False"
         }
       ],
-      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). All the holds are alert-and-hold: the condition blocks, nothing destructive follows, and an unchanged planHash never spawns a second operation — a human unsticks by changing the desired state (a profile edit), which changes the hash."
+      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). Each hold alerts and holds: the condition blocks, and nothing destructive follows. An unchanged planHash never makes a second operation. To continue, a person changes the desired state (a profile edit), which changes the hash."
     },
     {
       "name": "ReasonSchemaViolation",
       "value": "SchemaViolation",
       "group": "metal.pk.io",
       "source": "metal/api/v1alpha1/conditions.go",
-      "description": "a desired value is not in the discovered attribute registry (unknown attribute, out-of-enum value) — the machine would reject or silently drop it, so nothing is proposed.",
+      "description": "a desired value is not in the discovered attribute registry (an unknown attribute, or a value out of the enum). The machine would refuse or ignore it, so the operator proposes nothing.",
       "on": [
         {
           "condition": "Converged",
           "status": "False"
         }
       ],
-      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). All the holds are alert-and-hold: the condition blocks, nothing destructive follows, and an unchanged planHash never spawns a second operation — a human unsticks by changing the desired state (a profile edit), which changes the hash."
+      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). Each hold alerts and holds: the condition blocks, and nothing destructive follows. An unchanged planHash never makes a second operation. To continue, a person changes the desired state (a profile edit), which changes the hash."
     },
     {
       "name": "ReasonAwaitingFirmware",
@@ -588,7 +588,7 @@
           "status": "False"
         }
       ],
-      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). All the holds are alert-and-hold: the condition blocks, nothing destructive follows, and an unchanged planHash never spawns a second operation — a human unsticks by changing the desired state (a profile edit), which changes the hash."
+      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). Each hold alerts and holds: the condition blocks, and nothing destructive follows. An unchanged planHash never makes a second operation. To continue, a person changes the desired state (a profile edit), which changes the hash."
     },
     {
       "name": "ReasonNoUpdateTransport",
@@ -602,7 +602,7 @@
           "status": "False"
         }
       ],
-      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). All the holds are alert-and-hold: the condition blocks, nothing destructive follows, and an unchanged planHash never spawns a second operation — a human unsticks by changing the desired state (a profile edit), which changes the hash."
+      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). Each hold alerts and holds: the condition blocks, and nothing destructive follows. An unchanged planHash never makes a second operation. To continue, a person changes the desired state (a profile edit), which changes the hash."
     },
     {
       "name": "ReasonAwaitingVerification",
@@ -623,7 +623,7 @@
       "value": "RotationFailed",
       "group": "metal.pk.io",
       "source": "metal/api/v1alpha1/conditions.go",
-      "description": "the managed account could not be brought to the managed Secret's password, or a new password was not accepted: neither the managed nor the factory session set one that logs in. The working password stays in the Secret.",
+      "description": "the operator could not set the password of the managed Secret on the managed account, or the BMC did not accept a new password. Neither the managed nor the factory session set a password that logs in. The working password stays in the Secret.",
       "on": [
         {
           "condition": "Configured",
@@ -781,7 +781,7 @@
       "value": "SingleMediumUnsupported",
       "group": "metal.pk.io",
       "source": "metal/api/v1alpha1/conditions.go",
-      "description": "the endpoint can hold one virtual medium only, the machine has no Talos to boot from disk, and an installer with the config built in cannot help: the cluster's Talos release cannot read one (before 1.12), or the one slot does not boot an ISO.",
+      "description": "the endpoint can hold one virtual medium only, and the machine has no Talos to boot from disk. An installer with the config inside cannot help either. The Talos release of the cluster cannot read one (before 1.12), or the one slot does not boot an ISO.",
       "on": [],
       "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing) or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
     },
@@ -826,7 +826,7 @@
       "value": "HostInMaintenance",
       "group": "metal.pk.io",
       "source": "metal/api/v1alpha1/conditions.go",
-      "description": "the bound host carries the metal.pk.io/maintenance annotation — nothing is proposed for it. Also the reason on Maintenance=True, on the blockedOn of a host in maintenance, and on Executed=Unknown of an operation that waits for the host to come out of maintenance.",
+      "description": "the bound host carries the metal.pk.io/maintenance annotation, so the operator proposes nothing for it. It is also the reason on Maintenance=True and on the blockedOn of a host in maintenance. An operation that waits for the end of the maintenance has it on Executed=Unknown.",
       "on": [
         {
           "condition": "Maintenance",
@@ -844,19 +844,19 @@
       "value": "SelfDisruption",
       "group": "metal.pk.io",
       "source": "metal/api/v1alpha1/conditions.go",
-      "description": "the step would reboot or power off a machine that the operator itself depends on: the node its own pod runs on, or a control plane of the cluster it runs in. Nothing is proposed or started for it unless the Host carries the metal.pk.io/allow-self-disruption annotation, and a control plane is taken down only one at a time and only while etcd keeps a majority. The reason on Provisioned=False of a claim, on Executed=Unknown of an operation that waits, and on BiosConverged=False of a host.",
+      "description": "the step would reboot or power off a machine that the operator needs. This is the node of its pod, or a control plane of the cluster that it runs in. The operator proposes and starts nothing for it, unless the Host has the metal.pk.io/allow-self-disruption annotation. Even then, it takes down only one control plane at a time, and only while etcd keeps a majority. It is the reason on Provisioned=False of a claim, on BiosConverged=False of a host, and on Executed=Unknown of an operation that waits.",
       "on": [
         {
           "condition": "Provisioned",
           "status": "False"
         },
         {
-          "condition": "Executed",
-          "status": "Unknown"
-        },
-        {
           "condition": "BiosConverged",
           "status": "False"
+        },
+        {
+          "condition": "Executed",
+          "status": "Unknown"
         }
       ],
       "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing) or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
@@ -1065,7 +1065,7 @@
       "value": "IdentityDiverged",
       "group": "metal.pk.io",
       "source": "metal/api/v1alpha1/conditions.go",
-      "description": "two paths to the same serial anchor normalize to different identities — the anchor resolves to different machine facts, so no coherent Host identity exists (alert-and-hold).",
+      "description": "two paths to the same serial anchor give different identities. The anchor leads to different machine facts, so no single Host identity exists. The operator alerts and holds.",
       "on": [
         {
           "condition": "Inspected",
@@ -1125,7 +1125,7 @@
       "value": "RolloutRefused",
       "group": "metal.pk.io",
       "source": "metal/api/v1alpha1/hostoperation_rollout.go",
-      "description": "the operation names a TalosRollout (spec.rolloutRef) whose approval does not cover it: the rollout is gone, not approved, aborted, approved for another planHash, or its plan gives this node other actions. Nothing was done to the machine.",
+      "description": "the operation names a TalosRollout (spec.rolloutRef), but the approval of the rollout does not cover it. The rollout is gone, not approved, aborted or approved for another planHash, or its plan gives this node other actions. The machine did not change.",
       "on": [
         {
           "condition": "Executed",
@@ -1167,7 +1167,7 @@
       "value": "EtcdJoinWaiting",
       "group": "metal.pk.io",
       "source": "metal/api/v1alpha1/lifecycle_types.go",
-      "description": "the claim's node is a control plane of a running cluster, and its install waits until every etcd member is healthy and voting and no other control plane is joining. Control planes join one at a time.",
+      "description": "the claim's node is a control plane of a running cluster. Its install waits until each etcd member is healthy and votes, and no other control plane joins. Control planes join one at a time.",
       "on": [
         {
           "condition": "Provisioned",
@@ -1181,7 +1181,7 @@
       "value": "EtcdRiskRefused",
       "group": "metal.pk.io",
       "source": "metal/api/v1alpha1/lifecycle_types.go",
-      "description": "removing or reinstalling the claim's control plane would leave etcd with an even member count, without a healthy majority or empty, and nobody acknowledged that (AnnotationAckEtcdRisk).",
+      "description": "the removal or reinstall of the claim's control plane would leave etcd with an even member count, without a healthy majority, or empty. Nobody accepted that risk (AnnotationAckEtcdRisk).",
       "on": [
         {
           "condition": "Provisioned",
@@ -1195,7 +1195,7 @@
       "value": "RemovalWaiting",
       "group": "metal.pk.io",
       "source": "metal/api/v1alpha1/lifecycle_types.go",
-      "description": "the removal of a control plane waits for its turn: another control plane is being removed, a member is still a learner, or this one is the etcd leader and others are leaving too (the leader goes last).",
+      "description": "the removal of a control plane waits for its turn. Another control plane is in removal, a member is still a learner, or this one is the etcd leader and others leave too. The leader goes last.",
       "on": [
         {
           "condition": "Provisioned",
@@ -1679,7 +1679,7 @@
       "value": "AwaitingControlPlane",
       "group": "os.pk.io",
       "source": "metal/api/os/v1alpha1/conditions.go",
-      "description": "not every control-plane member answers its authenticated API yet. Bootstrap waits for all of them, so that a member that was already bootstrapped but is down cannot be mistaken for a cluster that never was.",
+      "description": "not every control-plane member answers its authenticated API yet. Bootstrap waits for all of them. Thus a member that has bootstrapped already but is down does not look like a new cluster.",
       "on": [
         {
           "condition": "Bootstrapped",

@@ -29,7 +29,7 @@ spec:
       name: v1alpha1
       schema:
         openAPIV3Schema:
-          description: 'FirmwareProfile is the firmware some group of machines should be running — authored in git, applying to whichever Hosts match its selector. Like BiosProfile it states intent and is never reconciled directly: a machine that drifts from it gets a HostOperation proposed against it, and flashing firmware is disruptive enough that the operation waits for approval.'
+          description: FirmwareProfile is the firmware that a group of machines should run. You keep it in git, and it applies to the Hosts that match its selector. As a BiosProfile, it states intent, and no controller reconciles it directly. For a machine that drifts from it, the operator proposes a HostOperation. A flash can stop the machine, so the operation waits for approval.
           properties:
             apiVersion:
               description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
@@ -40,7 +40,7 @@ spec:
             metadata:
               type: object
             spec:
-              description: FirmwareProfileSpec is one layer of desired firmware for the Hosts it matches. Like BiosProfile it is controller-less data; the convergence reconciler compares the desired version against what the fronting endpoints serve and proposes a flash operation on drift. Firmware converges before BIOS — the BIOS schema depends on firmware.
+              description: FirmwareProfileSpec is one layer of desired firmware for the Hosts it matches. As a BiosProfile, it is data without a controller. The convergence reconciler compares the desired version with the version that the endpoints report, and proposes a flash operation on drift. Firmware converges before BIOS, because the BIOS schema depends on the firmware.
               properties:
                 layer:
                   default: 0
@@ -96,7 +96,7 @@ spec:
                   type: object
                   x-kubernetes-map-type: atomic
                 system:
-                  description: 'System is the desired system firmware: BIOS/UEFI, network cards, RAID controllers, whatever the machine''s UpdateService lists in its FirmwareInventory. Each image is staged to apply at the next reset of the machine, so on a machine that runs a node the change is proposed with a drain before and a wait for the node after. System firmware converges after the manager''s and before BIOS settings (a BIOS update can change the settings it offers).'
+                  description: 'System is the desired system firmware: BIOS/UEFI, network cards, RAID controllers, whatever the machine''s UpdateService lists in its FirmwareInventory. Each image applies at the next reset of the machine. Thus, on a machine that runs a node, the operation drains the node first and waits for the node after the reset. System firmware converges after the manager''s and before BIOS settings (a BIOS update can change the settings it offers).'
                   items:
                     description: SystemFirmwareTarget is the desired version of one system component.
                     properties:

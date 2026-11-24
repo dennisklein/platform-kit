@@ -27,13 +27,14 @@ const (
 // the machine by its Asset, because you know the Asset name before the
 // operator has found the machine and named its Host.
 //
-// Pointing a claim at another machine (pk-metal replace) moves it: the
-// operator first releases the machine the claim holds, the way deleting the
-// claim would (its node leaves the cluster, the machine is reset or marked
-// not wiped, with approval where that turns a node off), and only then binds
-// the new one, so two machines never run the same node. Only an admin may do
-// it (config/policy/hostclaim-provisioning.yaml): it moves a node's config,
-// with the cluster's keys on a control plane, to another machine.
+// A claim that you point at another machine (pk-metal replace) moves. The
+// operator first releases the machine that the claim holds, as a deletion of
+// the claim does: the node leaves the cluster, and the machine is reset or
+// marked as not wiped. This needs approval where it turns a node off. Only
+// then does the operator bind the new machine, so two machines never run the
+// same node. Only an admin can do this
+// (config/policy/hostclaim-provisioning.yaml). It moves the config of a node
+// to another machine, and on a control plane also the keys of the cluster.
 type HostClaimSpec struct {
 	// AssetRef names the Asset whose machine this claim binds.
 	AssetRef Reference `json:"assetRef"`
@@ -135,10 +136,11 @@ type HostClaimStatus struct {
 	HostRef *Reference `json:"hostRef,omitempty"`
 
 	// HandOff records that the machine was installed: which host runs which
-	// TalosNode, from which config, since when. It is written once, when the
-	// boot finishes, and is the record the operator reads to know the work is
-	// done — a node that is down later is not installed again, and deleting
-	// old HostOperations changes nothing. It goes away with the claim.
+	// TalosNode, from which config, since when. The operator writes it one
+	// time, when the boot finishes. This record tells the operator that the
+	// work is done. A node that is down later is not installed again. A
+	// deletion of old HostOperations changes nothing. It goes away with the
+	// claim.
 	// +optional
 	HandOff *ClaimHandOff `json:"handOff,omitempty"`
 
@@ -153,11 +155,11 @@ type HostClaimStatus struct {
 	// +optional
 	Phase ClaimPhase `json:"phase,omitempty"`
 
-	// BlockedOn says why the claim is not moving on: why it cannot bind
-	// (AssetNotFound, AssetNotMaterialized, HostAlreadyClaimed) or, once
-	// bound, why the install waits (Approval(Provisioning), HeldByUser,
-	// HostInMaintenance, OperationFailed). kubectl describe shows the message
-	// with the command to run.
+	// BlockedOn says why the claim does not continue. Before the bind, it
+	// tells why the claim cannot bind (AssetNotFound, AssetNotMaterialized,
+	// HostAlreadyClaimed). After the bind, it tells why the install waits
+	// (Approval(Provisioning), HeldByUser, HostInMaintenance, OperationFailed).
+	// kubectl describe shows the message with the command to run.
 	// +optional
 	BlockedOn string `json:"blockedOn,omitempty"`
 }

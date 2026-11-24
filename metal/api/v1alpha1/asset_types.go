@@ -48,18 +48,18 @@ type AssetSpec struct {
 // CMDB or inventory export. It is the entry point: the operator does nothing
 // with a machine until an Asset names it.
 //
-// From the bmcMac the operator finds the BMC's address in the ledger and
-// creates a ManagementEndpoint; through that BMC it finds the machine and
-// creates a Host. It checks that the serial and MAC it finds are the ones
-// written here, so a cabling or ledger mistake stops work instead of touching
-// the wrong machine.
+// The operator finds the address of the BMC in the ledger from the bmcMac, and
+// creates a ManagementEndpoint. Through that BMC it finds the machine and
+// creates a Host. It checks that the serial and the MAC that it finds agree
+// with this spec. Thus a cabling or ledger mistake stops the work, and the
+// operator does not touch the wrong machine.
 //
-// Its status says one thing only: whether the operator could turn it into a
-// ManagementEndpoint (condition Materialized), and if not, why — most often a
-// bmcMac that is not in the ledger. Everything the cluster learns by looking at
-// the machine lands on the ManagementEndpoint and Host. Those kinds keep a copy
-// of the Asset spec they last resolved, so an outage of whatever authors Assets
-// degrades to the last known values instead of stopping work.
+// The status tells one thing only: whether the operator could make a
+// ManagementEndpoint from the Asset (condition Materialized). If not, it tells
+// why. Usually the bmcMac is not in the ledger. All that the cluster learns
+// from the machine goes on the ManagementEndpoint and the Host. These kinds
+// keep a copy of the Asset spec that they last read. If the source of the
+// Assets is not available, they use the last known values and the work goes on.
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status

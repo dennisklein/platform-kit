@@ -10,17 +10,17 @@ import (
 // the convergence reconciler materializes the merged result per host into a
 // BiosSettings object.
 type BiosProfileSpec struct {
-	// Match selects Hosts by label. Two label axes exist by construction: intent
-	// labels stamped from the bound claim (role: worker — absent on unclaimed
-	// machines) and discovered facts (metal.pk.io/vendor, …/model —
-	// present regardless of claim state, the axis for hardware baselines).
+	// Match selects Hosts by label. There are two types of labels. Intent labels
+	// come from the bound claim (role: worker); a machine without a claim has
+	// none. Fact labels come from discovery (metal.pk.io/vendor, …/model); every
+	// machine has them, so use them for hardware baselines.
 	Match metav1.LabelSelector `json:"match"`
 
-	// Layer orders overlapping profiles: materialization merges matched profiles
-	// by (layer, name) and a later layer deliberately overrides an earlier one —
-	// a role profile (layer 10) over a hardware baseline (layer 0). Two profiles
-	// on the SAME layer setting the same attribute to different values are a
-	// conflict, and conflict holds the whole materialization.
+	// Layer orders profiles that overlap. The merge sorts the matched profiles
+	// by layer and name, and a higher layer overrides a lower one. For example,
+	// a role profile (layer 10) overrides a hardware baseline (layer 0). Two
+	// profiles on the SAME layer that set one attribute to different values
+	// conflict. A conflict holds the whole merge.
 	// +kubebuilder:default=0
 	// +optional
 	Layer int32 `json:"layer,omitempty"`
@@ -33,10 +33,10 @@ type BiosProfileSpec struct {
 	Attributes map[string]apiextensionsv1.JSON `json:"attributes"`
 }
 
-// BiosProfile is a set of BIOS settings that some group of machines should share
-// — authored in git, applying to whichever Hosts match its selector. Several may
-// match one machine; they are layered, and the result of that layering is the
-// machine's BiosSettings, which records which profile each value came from.
+// BiosProfile is a set of BIOS settings for a group of machines. You keep it in
+// git, and it applies to the Hosts that match its selector. Several profiles can
+// match one machine. The operator merges them by layer into the BiosSettings of
+// the machine, which records the profile of each value.
 //
 // Nothing reconciles a BiosProfile directly. It states intent; the settings it
 // produces are what a machine is held against.

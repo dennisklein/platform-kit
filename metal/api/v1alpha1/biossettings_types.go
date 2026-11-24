@@ -9,10 +9,10 @@ import (
 // of every matched BiosProfile, written by the convergence reconciler (its sole
 // author). Named after its Host and owned by it.
 type BiosSettingsSpec struct {
-	// Attributes is the merged desired attribute map. Under a profile conflict
-	// the previous merge is retained unchanged (alert-and-hold — a conflicted
-	// desired state is never partially applied); which profile won each key is
-	// status.provenance.
+	// Attributes is the merged desired attribute map. When two profiles
+	// conflict, the previous merge stays as it is: the operator alerts and holds,
+	// and never applies part of a conflicted state. status.provenance names the
+	// profile of each key.
 	// +optional
 	Attributes map[string]apiextensionsv1.JSON `json:"attributes,omitempty"`
 }
@@ -42,9 +42,8 @@ type BiosSettingsStatus struct {
 	// +optional
 	Pending map[string]apiextensionsv1.JSON `json:"pending,omitempty"`
 
-	// Provenance names the profile that won each attribute — the rendered
-	// merge's derivation, so the object answers "what does this host get and
-	// why" without re-running the layering in your head.
+	// Provenance names the profile that gave each attribute. Thus the object
+	// tells what the host gets and why, and you need not do the merge yourself.
 	// +optional
 	Provenance map[string]string `json:"provenance,omitempty"`
 
@@ -60,9 +59,8 @@ type BiosSettingsStatus struct {
 }
 
 // BiosSettings is one machine's BIOS state: what is wanted, what is actually set,
-// and where each wanted value came from. It is the rendered result of the
-// BiosProfiles that match the Host — read it to see what will change and why,
-// before anything is applied.
+// and where each wanted value came from. It is the merge of the BiosProfiles
+// that match the Host. Read it before an apply, to see what changes and why.
 //
 // Cluster-scoped like its Host, named after it, and owned by it: deleting the
 // machine takes its settings with it.

@@ -6,9 +6,9 @@ import (
 )
 
 // AnnotationIgnoreWindow on a HostOperation lets it start outside every
-// maintenance window. It is for the urgent case a person decides on (a
-// security fix, a machine that is down anyway); the value is free text, the
-// reason, and shows in the operation's record.
+// maintenance window. It is for an urgent case that a person decides on: a
+// security fix, or a machine that is down already. The value is free text,
+// the reason. It shows in the record of the operation.
 const AnnotationIgnoreWindow = "metal.pk.io/ignore-window"
 
 // Weekday is a day of the week as a three-letter English abbreviation.
@@ -95,8 +95,9 @@ type MaintenanceWindowStatus struct {
 	NextChange *metav1.Time `json:"nextChange,omitempty"`
 
 	// Conditions: Valid is False when the time zone or the selector cannot
-	// be read. An invalid window still covers what it can name and is never
-	// open, so a mistake in it holds work back instead of letting it run.
+	// be read. An invalid window still covers the hosts that it can name, and
+	// it is never open. Thus a mistake in a window stops work and does not let
+	// it run.
 	// +listType=map
 	// +listMapKey=type
 	// +optional

@@ -24,8 +24,8 @@ const (
 	ConditionVersionsCurrent = "VersionsCurrent"
 
 	// ConditionSecretsBundleHeld on a TalosCluster: True while the secrets
-	// bundle the spec names differs from the one the machines run, and the
-	// operator keeps using the one they run (reason BundleChanged).
+	// bundle of the spec is not the bundle that the machines run. The operator
+	// then continues to use the bundle that they run (reason BundleChanged).
 	ConditionSecretsBundleHeld = "SecretsBundleHeld"
 
 	// ConditionPlanned, ConditionApproved, ConditionProgressing,

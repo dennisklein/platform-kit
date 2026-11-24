@@ -140,8 +140,8 @@ const (
 	ReasonBootstrapRequested = "BootstrapRequested"
 	// ReasonAwaitingControlPlane on Bootstrapped=False: not every control-plane
 	// member answers its authenticated API yet. Bootstrap waits for all of
-	// them, so that a member that was already bootstrapped but is down cannot
-	// be mistaken for a cluster that never was.
+	// them. Thus a member that has bootstrapped already but is down does not
+	// look like a new cluster.
 	ReasonAwaitingControlPlane = "AwaitingControlPlane"
 	// ReasonNoControlPlane on Bootstrapped=False: no TalosNode with role
 	// controlplane names this cluster.

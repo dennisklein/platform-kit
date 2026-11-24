@@ -6,20 +6,20 @@ import (
 
 // BiosSchemaSpec is the discovered attribute registry of one host's BIOS. Like
 // Asset it is spec-only — the object IS the data; nothing about it is derived
-// further. Written by the convergence reconciler from the registry the Bios
-// resource advertises (registry names are normalized on the client: the spelled
-// identity differs between the Bios resource, the Registries member, and the
-// file on both vendors).
+// further. The convergence reconciler writes it from the registry that the Bios
+// resource names. The client normalizes the registry name, because the Bios
+// resource, the Registries member and the file spell it differently on both
+// vendors.
 type BiosSchemaSpec struct {
 	// Registry is the registry identity as the Bios resource advertises it,
 	// kept verbatim (e.g. BiosAttributeRegistry.v1_0_0).
 	// +optional
 	Registry string `json:"registry,omitempty"`
 
-	// Attributes lists the registry's entries, sorted by name. Desired values
-	// in a materialized BiosSettings are validated against this before any
-	// operation is proposed — the machine would otherwise reject an unknown
-	// attribute at PATCH and silently drop an out-of-range value at apply.
+	// Attributes lists the registry's entries, sorted by name. The operator
+	// checks the desired values of a BiosSettings against this list before it
+	// proposes an operation. Without the check, the machine would refuse an
+	// unknown attribute, and it would ignore a value out of range.
 	// +listType=atomic
 	Attributes []BiosSchemaAttribute `json:"attributes"`
 }

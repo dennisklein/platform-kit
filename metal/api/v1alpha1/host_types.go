@@ -5,10 +5,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-// AnnotationMaintenance on a Host takes the machine out of the operator's
-// hands, like setting a node offline in a cluster manager: the operator
-// proposes nothing for it (no install, no release, no BIOS or firmware
-// change) and starts no operation on it that has not started yet. An
+// AnnotationMaintenance on a Host takes the machine away from the operator,
+// as an offline node in a cluster manager. The operator proposes nothing for
+// it: no install, no release, no BIOS or firmware change. It starts no
+// operation on it that has not started yet. An
 // operation already running finishes. The value is the reason, shown in the
 // Host's Maintenance condition and in the messages of claims on it. Remove
 // the annotation to give the machine back:
@@ -18,13 +18,14 @@ import (
 const AnnotationMaintenance = "metal.pk.io/maintenance"
 
 // AnnotationAllowSelfDisruption on a Host lets the operator reboot or power
-// off the machine even though the operator runs on it, or the machine runs a
-// control plane of the cluster the operator runs in. Without it the operator
-// proposes no install, release or BIOS change for such a machine and starts
-// no power action on it: the operator would take itself down halfway. With it,
-// a control plane is still taken down only one at a time, and only while the
-// other control planes keep etcd's majority. Any value counts; remove the
-// annotation when the work is done:
+// off a machine that it needs itself. This is the machine that it runs on, or
+// a control plane of the cluster that it runs in. Without it, the operator
+// proposes no install, release or BIOS change for such a machine. It also
+// starts no power action on it, because the operator would stop itself in
+// the middle of the work. With the annotation, the operator still takes down
+// only one control plane at a time. It does so only while the other control
+// planes keep the etcd majority. Any value is correct. Remove the annotation
+// when the work is done:
 //
 //	kubectl annotate host <host> metal.pk.io/allow-self-disruption=true
 //	kubectl annotate host <host> metal.pk.io/allow-self-disruption-
@@ -129,9 +130,10 @@ type HostStatus struct {
 	// +optional
 	ManagedBy []ManagementPath `json:"managedBy,omitempty"`
 
-	// LastResetTime is when the BMC last saw the machine reset. When it moves
-	// and no operation explains it, the Drifted condition says somebody reset
-	// the machine another way (ipmitool, the BMC web page, the power button).
+	// LastResetTime is when the BMC last saw the machine reset. If it changes
+	// and no operation explains it, the Drifted condition shows it. Then a
+	// person reset the machine in a different way (ipmitool, the BMC web page,
+	// the power button).
 	// Not every BMC reports it (Huawei iBMC does not); drift is then not
 	// detected.
 	// +optional
@@ -168,10 +170,9 @@ type HostStatus struct {
 
 // Host is one physical machine as the operator found it through its BMC. The
 // operator creates it and names it after the machine's serial number, in lower
-// case; the label metal.pk.io/asset names the Asset it was found by. You read
-// it to see the state of the machine: kubectl get hosts shows the asset,
-// serial, vendor and phase, and kubectl describe host <name> shows why it
-// waits.
+// case; the label metal.pk.io/asset names the Asset it was found by. Read it
+// to see the state of the machine. kubectl get hosts shows the asset, serial,
+// vendor and phase. kubectl describe host <name> shows why it waits.
 //
 // A HostClaim binds a Host for use. To take a machine out of the operator's
 // hands for hardware work, set the metal.pk.io/maintenance annotation on it.

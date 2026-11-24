@@ -6,38 +6,39 @@ package v1alpha1
 // asks for these; the operator proposes the operation, and a person approves
 // it like any other.
 
-// AnnotationDiskNotWiped on a Host says that the machine may still hold an
-// installed Talos node, with that cluster's credentials and, on a control
-// plane, its etcd data. The operator writes it when it releases a machine
-// it could not reset through Talos (the node did not answer, or the
-// operator's executor could not run a reset), and only an approved wipe
-// clears it. While it is set the operator proposes no install of another
-// node on the machine and no BIOS or firmware change that would power it on.
-// The value is <cluster>/<node>, the node that may still be on the disk.
+// AnnotationDiskNotWiped on a Host says that the machine can still hold an
+// installed Talos node, with the credentials of its cluster. On a control
+// plane, the disk can also hold etcd data. The operator writes it when it
+// releases a machine that it could not reset through Talos. The node did not
+// answer, or the executor could not run a reset. Only an approved wipe
+// removes it. While it is set, the operator proposes no install of another
+// node on the machine. It also proposes no BIOS or firmware change that
+// would power the machine on. The value is <cluster>/<node>, the node that
+// can still be on the disk.
 //
 //	pk-metal wipe <host>
 const AnnotationDiskNotWiped = "metal.pk.io/disk-not-wiped"
 
 // AnnotationWipe on a Host asks the operator to propose a wipe of a machine
-// that carries AnnotationDiskNotWiped: boot an image that erases the system
-// disk, and stop there. The value is the Talos version of the image to boot
-// (the version the node on the disk ran is fine). pk-metal wipe sets it; the
-// operator removes it, together with AnnotationDiskNotWiped, when the wipe
-// succeeded.
+// that has AnnotationDiskNotWiped. The wipe boots an image that erases the
+// system disk, and stops there. The value is the Talos version of the image
+// to boot. The version of the node on the disk is correct. pk-metal wipe sets
+// it. The operator removes it and AnnotationDiskNotWiped when the wipe
+// succeeds.
 const AnnotationWipe = "metal.pk.io/wipe"
 
 // AnnotationReinstall on a HostClaim asks the operator to wipe and reinstall
-// the node the claim runs, on the same machine: for a corrupted install or a
-// replaced disk. The value is the claim's status.handOff.at (RFC 3339), so
-// that it means the install that was there when a person asked, and once:
-// the reinstall writes a new hand-off record, and the annotation, now naming
-// an install that is gone, asks for nothing. pk-metal reinstall sets it.
+// the node of the claim on the same machine. Use it for a damaged install or
+// a replaced disk. The value is the claim's status.handOff.at (RFC 3339). Thus
+// it names the install that was there when a person asked, and it works one
+// time. The reinstall writes a new hand-off record. The annotation then names
+// an install that is gone, and asks for nothing. pk-metal reinstall sets it.
 const AnnotationReinstall = "metal.pk.io/reinstall"
 
 // AnnotationAckEtcdRisk on a HostClaim or a TalosNode lets the removal or
-// reinstall of a control plane go ahead although it leaves etcd with an even
-// number of voting members, without a healthy majority, or with no member at
-// all. Without it the operator refuses such a removal and says why. The value
+// reinstall of a control plane continue, although etcd then has an even
+// number of voting members, no healthy majority, or no member. Without it,
+// the operator refuses such a removal and says why. The value
 // is the person's reason. pk-metal scale sets it on the removals of a plan
 // that passes through an even count.
 const AnnotationAckEtcdRisk = "metal.pk.io/ack-etcd-risk"
@@ -58,19 +59,19 @@ const (
 	// until it is wiped.
 	ReasonDiskNotWiped = "DiskNotWiped"
 	// ReasonEtcdJoinWaiting on a claim's Provisioned=False: the claim's node
-	// is a control plane of a running cluster, and its install waits until
-	// every etcd member is healthy and voting and no other control plane is
-	// joining. Control planes join one at a time.
+	// is a control plane of a running cluster. Its install waits until each
+	// etcd member is healthy and votes, and no other control plane joins.
+	// Control planes join one at a time.
 	ReasonEtcdJoinWaiting = "EtcdJoinWaiting"
-	// ReasonEtcdRiskRefused on a claim's Provisioned=False: removing or
-	// reinstalling the claim's control plane would leave etcd with an even
-	// member count, without a healthy majority or empty, and nobody
-	// acknowledged that (AnnotationAckEtcdRisk).
+	// ReasonEtcdRiskRefused on a claim's Provisioned=False: the removal or
+	// reinstall of the claim's control plane would leave etcd with an even
+	// member count, without a healthy majority, or empty. Nobody accepted that
+	// risk (AnnotationAckEtcdRisk).
 	ReasonEtcdRiskRefused = "EtcdRiskRefused"
 	// ReasonRemovalWaiting on a claim's Provisioned=False: the removal of a
-	// control plane waits for its turn: another control plane is being
-	// removed, a member is still a learner, or this one is the etcd leader
-	// and others are leaving too (the leader goes last).
+	// control plane waits for its turn. Another control plane is in removal, a
+	// member is still a learner, or this one is the etcd leader and others
+	// leave too. The leader goes last.
 	ReasonRemovalWaiting = "RemovalWaiting"
 	// ReasonRemovingNode on a claim's Provisioned=False: the claim's
 	// TalosNode is being deleted; the removal operation (drain, etcd leave,

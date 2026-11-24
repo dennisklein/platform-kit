@@ -68,9 +68,9 @@ type EndpointTLS struct {
 // EndpointCapabilities is what this BMC can do, as discovered. Vendors differ
 // here, and the operator records the difference instead of assuming it.
 type EndpointCapabilities struct {
-	// DualMedia: two virtual media slots can hold an image at the same time
-	// (Supermicro X12 yes, Huawei iBMC no) — needed to mount the installer
-	// and the node's config together.
+	// DualMedia is true when two virtual media slots can hold an image at the
+	// same time (Supermicro X12 yes, Huawei iBMC no). The install needs this to
+	// mount the installer and the config of the node together.
 	// +optional
 	DualMedia bool `json:"dualMedia,omitempty"`
 
@@ -86,10 +86,10 @@ type EndpointCapabilities struct {
 	// +optional
 	UpdateDialect string `json:"updateDialect,omitempty"`
 
-	// IdentityDialect is how the manager's HTTPS certificate is replaced
-	// ("csr-native" | "key-upload" | "none"): the iBMC generates its CSR on
-	// the manager — the key never leaves it — while the X12 takes a
-	// locally-generated leaf and key over an OEM upload.
+	// IdentityDialect is how the HTTPS certificate of the BMC is replaced
+	// ("csr-native" | "key-upload" | "none"). The iBMC makes its CSR itself, and
+	// the key never leaves it. The X12 takes a certificate and a key that the
+	// operator makes, through an OEM upload.
 	// +optional
 	IdentityDialect string `json:"identityDialect,omitempty"`
 }
@@ -156,8 +156,9 @@ type DiscoveredSystem struct {
 
 	// BootOverrideMode is the BootSourceOverrideMode the system serves
 	// ("UEFI" | "Legacy"); empty when it serves none. A boot override asks for
-	// UEFI only where this says otherwise — the X12 reports Legacy on a
-	// machine that boots UEFI, and a system that serves no mode may refuse one.
+	// UEFI only where this field shows a different mode. The X12 reports Legacy
+	// on a machine that boots UEFI, and a system that serves no mode can refuse
+	// one.
 	// +optional
 	BootOverrideMode string `json:"bootOverrideMode,omitempty"`
 }
@@ -216,10 +217,10 @@ type ManagementEndpointStatus struct {
 	// +optional
 	Capabilities *EndpointCapabilities `json:"capabilities,omitempty"`
 
-	// VirtualMedia lists the media slots in the endpoint's collection order,
-	// with the media types each advertises — what a boot picks its slots by
-	// (optical first, in this order), next to capabilities.mediaDialects,
-	// which says how each is inserted.
+	// VirtualMedia lists the media slots in the order of the endpoint's
+	// collection, with the media types of each slot. A boot selects its slots
+	// by this list: optical slots first, in this order.
+	// capabilities.mediaDialects tells how to insert media in each slot.
 	// +listType=atomic
 	// +optional
 	VirtualMedia []DiscoveredMedia `json:"virtualMedia,omitempty"`
@@ -259,8 +260,9 @@ type ManagementEndpointStatus struct {
 // Its status holds what the BMC reports: vendor, model, serial numbers, the
 // machines behind it, virtual media slots and firmware. The Verified
 // condition compares that with the Asset. Phase Mismatch means the BMC at
-// this address is not the machine the Asset describes, and the operator does
-// nothing to it; Unreachable means nothing answered at the address.
+// this address is not the machine that the Asset describes. The operator then
+// does nothing to it. Phase Unreachable means that nothing answered at the
+// address.
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status

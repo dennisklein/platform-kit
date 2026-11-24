@@ -1,9 +1,10 @@
 package v1alpha1
 
 // AnnotationEtcdSnapshotUploaded on a HostOperation with an etcdRecover step
-// records that a person uploaded the snapshot to the node: its value is the
-// sha256:<hex> of the plaintext that pk-metal restore upload sent, after it
-// checked those bytes against the EtcdSnapshot's record. The step waits for
+// records that a person uploaded the snapshot to the node. Its value is the
+// sha256:<hex> of the plaintext that pk-metal restore upload sent. The
+// command first checked those bytes against the record of the EtcdSnapshot.
+// The step waits for
 // it, and only then asks Talos to start etcd from the upload. It is the
 // uploader's statement, not proof; Talos checks etcd's own integrity hash
 // of the upload when it recovers.

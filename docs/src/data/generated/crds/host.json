@@ -11,7 +11,7 @@
   ],
   "scope": "Cluster",
   "source": "metal/config/crd/metal.pk.io_hosts.yaml",
-  "description": "Host is one physical machine as the operator found it through its BMC. The operator creates it and names it after the machine's serial number, in lower case; the label metal.pk.io/asset names the Asset it was found by. You read it to see the state of the machine: kubectl get hosts shows the asset, serial, vendor and phase, and kubectl describe host <name> shows why it waits.\n\nA HostClaim binds a Host for use. To take a machine out of the operator's hands for hardware work, set the metal.pk.io/maintenance annotation on it.",
+  "description": "Host is one physical machine as the operator found it through its BMC. The operator creates it and names it after the machine's serial number, in lower case; the label metal.pk.io/asset names the Asset it was found by. Read it to see the state of the machine. kubectl get hosts shows the asset, serial, vendor and phase. kubectl describe host <name> shows why it waits.\n\nA HostClaim binds a Host for use. To take a machine out of the operator's hands for hardware work, set the metal.pk.io/maintenance annotation on it.",
   "statusSubresource": true,
   "printerColumns": [
     {
@@ -301,7 +301,7 @@
       "type": "string",
       "format": "date-time",
       "required": false,
-      "description": "LastResetTime is when the BMC last saw the machine reset. When it moves and no operation explains it, the Drifted condition says somebody reset the machine another way (ipmitool, the BMC web page, the power button). Not every BMC reports it (Huawei iBMC does not); drift is then not detected."
+      "description": "LastResetTime is when the BMC last saw the machine reset. If it changes and no operation explains it, the Drifted condition shows it. Then a person reset the machine in a different way (ipmitool, the BMC web page, the power button). Not every BMC reports it (Huawei iBMC does not); drift is then not detected."
     },
     {
       "path": "status.managedBy",

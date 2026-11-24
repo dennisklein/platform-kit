@@ -13,7 +13,7 @@
   ],
   "scope": "Cluster",
   "source": "metal/config/crd/metal.pk.io_managementendpoints.yaml",
-  "description": "ManagementEndpoint is one BMC — iDRAC, iLO, XCC, iBMC or any other Redfish controller — that the operator talks to. The operator creates it from an Asset; you read it to see whether the BMC answers and what it reports (kubectl get mep).\n\nIts status holds what the BMC reports: vendor, model, serial numbers, the machines behind it, virtual media slots and firmware. The Verified condition compares that with the Asset. Phase Mismatch means the BMC at this address is not the machine the Asset describes, and the operator does nothing to it; Unreachable means nothing answered at the address.",
+  "description": "ManagementEndpoint is one BMC — iDRAC, iLO, XCC, iBMC or any other Redfish controller — that the operator talks to. The operator creates it from an Asset; you read it to see whether the BMC answers and what it reports (kubectl get mep).\n\nIts status holds what the BMC reports: vendor, model, serial numbers, the machines behind it, virtual media slots and firmware. The Verified condition compares that with the Asset. Phase Mismatch means the BMC at this address is not the machine that the Asset describes. The operator then does nothing to it. Phase Unreachable means that nothing answered at the address.",
   "statusSubresource": true,
   "printerColumns": [
     {
@@ -242,7 +242,7 @@
       "depth": 2,
       "type": "boolean",
       "required": false,
-      "description": "DualMedia: two virtual media slots can hold an image at the same time (Supermicro X12 yes, Huawei iBMC no) — needed to mount the installer and the node's config together."
+      "description": "DualMedia is true when two virtual media slots can hold an image at the same time (Supermicro X12 yes, Huawei iBMC no). The install needs this to mount the installer and the config of the node together."
     },
     {
       "path": "status.capabilities.identityDialect",
@@ -251,7 +251,7 @@
       "depth": 2,
       "type": "string",
       "required": false,
-      "description": "IdentityDialect is how the manager's HTTPS certificate is replaced (\"csr-native\" | \"key-upload\" | \"none\"): the iBMC generates its CSR on the manager — the key never leaves it — while the X12 takes a locally-generated leaf and key over an OEM upload."
+      "description": "IdentityDialect is how the HTTPS certificate of the BMC is replaced (\"csr-native\" | \"key-upload\" | \"none\"). The iBMC makes its CSR itself, and the key never leaves it. The X12 takes a certificate and a key that the operator makes, through an OEM upload."
     },
     {
       "path": "status.capabilities.mediaDialects",
@@ -479,7 +479,7 @@
       "depth": 2,
       "type": "string",
       "required": false,
-      "description": "BootOverrideMode is the BootSourceOverrideMode the system serves (\"UEFI\" | \"Legacy\"); empty when it serves none. A boot override asks for UEFI only where this says otherwise — the X12 reports Legacy on a machine that boots UEFI, and a system that serves no mode may refuse one."
+      "description": "BootOverrideMode is the BootSourceOverrideMode the system serves (\"UEFI\" | \"Legacy\"); empty when it serves none. A boot override asks for UEFI only where this field shows a different mode. The X12 reports Legacy on a machine that boots UEFI, and a system that serves no mode can refuse one."
     },
     {
       "path": "status.systems[].bootTargets",
@@ -563,7 +563,7 @@
       "type": "[]object",
       "required": false,
       "listType": "atomic",
-      "description": "VirtualMedia lists the media slots in the endpoint's collection order, with the media types each advertises — what a boot picks its slots by (optical first, in this order), next to capabilities.mediaDialects, which says how each is inserted."
+      "description": "VirtualMedia lists the media slots in the order of the endpoint's collection, with the media types of each slot. A boot selects its slots by this list: optical slots first, in this order. capabilities.mediaDialects tells how to insert media in each slot."
     },
     {
       "path": "status.virtualMedia[].id",

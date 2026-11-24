@@ -246,7 +246,7 @@
       "listMapKeys": [
         "type"
       ],
-      "description": "Conditions: Valid is False when the time zone or the selector cannot be read. An invalid window still covers what it can name and is never open, so a mistake in it holds work back instead of letting it run."
+      "description": "Conditions: Valid is False when the time zone or the selector cannot be read. An invalid window still covers the hosts that it can name, and it is never open. Thus a mistake in a window stops work and does not let it run."
     },
     {
       "path": "status.conditions[].lastTransitionTime",

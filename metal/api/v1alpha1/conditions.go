@@ -41,9 +41,9 @@ const (
 	// runs the named node's config. False carries what the operator waits on
 	// or why it holds; True means the hand-off happened.
 	ConditionProvisioned = "Provisioned"
-	// ConditionDeletionHeld: on a Host or ManagementEndpoint — deletion was
-	// requested but a claim still holds the machine, so the object stays
-	// (finalizer metal.pk.io/claim-protection) until the claim is released.
+	// ConditionDeletionHeld: on a Host or ManagementEndpoint. A person deleted
+	// it, but a claim still holds the machine. The object stays (finalizer
+	// metal.pk.io/claim-protection) until the claim releases the machine.
 	ConditionDeletionHeld = "DeletionHeld"
 
 	// ConditionConverged: on a BiosSettings — the machine's managed attributes
@@ -79,16 +79,16 @@ const (
 	ReasonStepFailed = "StepFailed"
 	// ReasonHostNotFound on Executed=Unknown: hostRef names no Host (yet).
 	ReasonHostNotFound = "HostNotFound"
-	// ReasonHostNotClaimed on Executed=False: a boot of a claim was about to
-	// start, but the claim is being deleted or no longer holds the host; it
-	// never touched the machine.
+	// ReasonHostNotClaimed on Executed=False: the boot of a claim was about to
+	// start, but the claim is in deletion or no longer holds the host. The
+	// operation did not touch the machine.
 	ReasonHostNotClaimed = "HostNotClaimed"
 	// ReasonNoReachablePath on Executed=Unknown: every management path is down.
 	ReasonNoReachablePath = "NoReachablePath"
 	// ReasonClusterDisruption on Executed=Unknown: the operation would take
-	// down a control plane of a Talos cluster while another control plane of
-	// that cluster is being taken down, or while its etcd is not fully
-	// healthy without this member. It starts once that is over.
+	// down a control plane of a Talos cluster. But another control plane of
+	// that cluster is going down, or etcd is not fully healthy without this
+	// member. The operation starts when that is over.
 	ReasonClusterDisruption = "ClusterDisruption"
 	// ReasonAborted on Executed=False: a person asked the operation to stop
 	// (annotation metal.pk.io/abort, pk-metal abort). It stopped between two
@@ -109,9 +109,9 @@ const (
 )
 
 // Reasons on the convergence conditions (BiosSettings' Converged, the Host's
-// FirmwareConverged / BiosConverged). All the holds are alert-and-hold: the
-// condition blocks, nothing destructive follows, and an unchanged planHash
-// never spawns a second operation — a human unsticks by changing the desired
+// FirmwareConverged / BiosConverged). Each hold alerts and holds: the
+// condition blocks, and nothing destructive follows. An unchanged planHash
+// never makes a second operation. To continue, a person changes the desired
 // state (a profile edit), which changes the hash.
 const (
 	// ReasonInSync on Converged=True: observed matches desired.
@@ -126,16 +126,17 @@ const (
 	// ReasonOperationGone on Converged=False: the proposed operation no longer
 	// exists while drift persists — a human deleted the proposal (a veto).
 	ReasonOperationGone = "OperationGone"
-	// ReasonConvergenceFailed on Converged=False: the operation succeeded but
-	// the world did not converge — the lying-oracle shape (a flash answered
-	// success with no effect, a BIOS apply dropped the value).
+	// ReasonConvergenceFailed on Converged=False: the operation succeeded, but
+	// the machine does not show the desired state. For example, a flash
+	// reported success but changed nothing, or a BIOS apply lost the value.
 	ReasonConvergenceFailed = "ConvergenceFailed"
 	// ReasonProfileConflict on Converged=False: two same-layer profiles set the
 	// same key to different values — the materialization holds whole.
 	ReasonProfileConflict = "ProfileConflict"
 	// ReasonSchemaViolation on Converged=False: a desired value is not in the
-	// discovered attribute registry (unknown attribute, out-of-enum value) —
-	// the machine would reject or silently drop it, so nothing is proposed.
+	// discovered attribute registry (an unknown attribute, or a value out of
+	// the enum). The machine would refuse or ignore it, so the operator
+	// proposes nothing.
 	ReasonSchemaViolation = "SchemaViolation"
 	// ReasonAwaitingFirmware on Converged=False: BIOS holds until firmware
 	// converges — the BIOS schema depends on firmware.
@@ -155,10 +156,10 @@ const (
 	// ReasonAwaitingVerification on Configured=Unknown: a profile matches but
 	// the endpoint is not Verified — nothing is written to an unproven box.
 	ReasonAwaitingVerification = "AwaitingVerification"
-	// ReasonRotationFailed on Configured=False: the managed account could not
-	// be brought to the managed Secret's password, or a new password was not
-	// accepted: neither the managed nor the factory session set one that logs
-	// in. The working password stays in the Secret.
+	// ReasonRotationFailed on Configured=False: the operator could not set the
+	// password of the managed Secret on the managed account, or the BMC did not
+	// accept a new password. Neither the managed nor the factory session set a
+	// password that logs in. The working password stays in the Secret.
 	ReasonRotationFailed = "RotationFailed"
 	// ReasonNTPFailed on Configured=False: the manager's time sources could
 	// not be converged — the write failed or did not read back.
@@ -212,9 +213,9 @@ const (
 	// render yet.
 	ReasonAwaitingBootAsset = "AwaitingBootAsset"
 	// ReasonSingleMediumUnsupported: the endpoint can hold one virtual medium
-	// only, the machine has no Talos to boot from disk, and an installer with
-	// the config built in cannot help: the cluster's Talos release cannot read
-	// one (before 1.12), or the one slot does not boot an ISO.
+	// only, and the machine has no Talos to boot from disk. An installer with
+	// the config inside cannot help either. The Talos release of the cluster
+	// cannot read one (before 1.12), or the one slot does not boot an ISO.
 	ReasonSingleMediumUnsupported = "SingleMediumUnsupported"
 	// ReasonNoBootableMedia: the endpoint advertises no insertable media slot
 	// or no removable-media boot target.
@@ -229,19 +230,19 @@ const (
 	// nothing is proposed for it until the annotation is removed.
 	ReasonHeldByUser = "HeldByUser"
 	// ReasonHostInMaintenance: the bound host carries the
-	// metal.pk.io/maintenance annotation — nothing is proposed for it. Also
-	// the reason on Maintenance=True, on the blockedOn of a host in
-	// maintenance, and on Executed=Unknown of an operation that waits for
-	// the host to come out of maintenance.
+	// metal.pk.io/maintenance annotation, so the operator proposes nothing for
+	// it. It is also the reason on Maintenance=True and on the blockedOn of a
+	// host in maintenance. An operation that waits for the end of the
+	// maintenance has it on Executed=Unknown.
 	ReasonHostInMaintenance = "HostInMaintenance"
-	// ReasonSelfDisruption: the step would reboot or power off a machine
-	// that the operator itself depends on: the node its own pod runs on, or
-	// a control plane of the cluster it runs in. Nothing is proposed or
-	// started for it unless the Host carries the
-	// metal.pk.io/allow-self-disruption annotation, and a control plane is
-	// taken down only one at a time and only while etcd keeps a majority.
-	// The reason on Provisioned=False of a claim, on Executed=Unknown of an
-	// operation that waits, and on BiosConverged=False of a host.
+	// ReasonSelfDisruption: the step would reboot or power off a machine that
+	// the operator needs. This is the node of its pod, or a control plane of
+	// the cluster that it runs in. The operator proposes and starts nothing for
+	// it, unless the Host has the metal.pk.io/allow-self-disruption annotation.
+	// Even then, it takes down only one control plane at a time, and only
+	// while etcd keeps a majority.
+	// It is the reason on Provisioned=False of a claim, on BiosConverged=False
+	// of a host, and on Executed=Unknown of an operation that waits.
 	ReasonSelfDisruption = "SelfDisruption"
 )
 
@@ -304,6 +305,6 @@ const ReasonSerialMismatch = "SerialMismatch"
 const ReasonMACMismatch = "MACMismatch"
 
 // ReasonIdentityDiverged on Inspected=False: two paths to the same serial anchor
-// normalize to different identities — the anchor resolves to different machine
-// facts, so no coherent Host identity exists (alert-and-hold).
+// give different identities. The anchor leads to different machine facts, so
+// no single Host identity exists. The operator alerts and holds.
 const ReasonIdentityDiverged = "IdentityDiverged"
