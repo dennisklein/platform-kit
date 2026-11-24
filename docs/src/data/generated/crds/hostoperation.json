@@ -736,7 +736,7 @@
         "Staged",
         "Try"
       ],
-      "description": "Mode is how the node takes the config: NoReboot fails when a change needs a reboot, Reboot always reboots, Staged applies at the next boot, Try rolls back after tryTimeoutSeconds unless confirmed, Auto lets the node choose."
+      "description": "Mode is how the node takes the config: NoReboot fails when a change needs a reboot, Reboot always reboots, Staged applies at the next boot, Try applies it and the step confirms it once the node is healthy (unconfirmed, the node rolls back after tryTimeoutSeconds), Auto lets the node choose."
     },
     {
       "path": "spec.actions[].talosApplyConfig.nodeRef",
@@ -1558,6 +1558,56 @@
       "required": true,
       "minimum": 0,
       "description": "Step is the index in spec.actions this progress belongs to."
+    },
+    {
+      "path": "status.uploadAccepted",
+      "name": "uploadAccepted",
+      "parent": "status",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "UploadAccepted records that a firmware step (flashFirmware, stageFirmware) sent its image to the BMC. It is written before the upload, so a resumed operation never sends the image a second time: it only waits for the version to read back. A second upload to a manager that is still busy with the first can wedge it."
+    },
+    {
+      "path": "status.uploadAccepted.managerResetTime",
+      "name": "managerResetTime",
+      "parent": "status.uploadAccepted",
+      "depth": 2,
+      "type": "string",
+      "format": "date-time",
+      "required": false,
+      "description": "ManagerResetTime is the manager's last reset time before a flash, if the manager serves one: the flash is done only after a later reset."
+    },
+    {
+      "path": "status.uploadAccepted.sentAt",
+      "name": "sentAt",
+      "parent": "status.uploadAccepted",
+      "depth": 2,
+      "type": "string",
+      "format": "date-time",
+      "required": true,
+      "description": "SentAt is when the executor started the upload."
+    },
+    {
+      "path": "status.uploadAccepted.step",
+      "name": "step",
+      "parent": "status.uploadAccepted",
+      "depth": 2,
+      "type": "integer",
+      "format": "int32",
+      "required": true,
+      "minimum": 0,
+      "description": "Step is the index of the action in spec.actions that uploaded."
+    },
+    {
+      "path": "status.uploadAccepted.targets",
+      "name": "targets",
+      "parent": "status.uploadAccepted",
+      "depth": 2,
+      "type": "[]string",
+      "required": false,
+      "listType": "atomic",
+      "description": "Targets are the inventory entries a stageFirmware step sent its image for, in order."
     }
   ]
 }

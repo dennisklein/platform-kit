@@ -62,13 +62,13 @@ func (x *exec) step(ctx context.Context, i int) (stepState, error) {
 		if err != nil {
 			return stepState{}, err
 		}
-		return stepDone, x.r.flashFirmware(ctx, cl, a.FlashFirmware)
+		return stepDone, x.flashFirmware(ctx, i, cl, a.FlashFirmware)
 	case a.AwaitCheckIn != nil:
 		return x.awaitCheckIn(ctx, a.AwaitCheckIn)
 	case a.EtcdRecover != nil:
 		return x.etcdRecover(ctx, a.EtcdRecover)
 	case a.StageFirmware != nil:
-		return stepDone, x.stageFirmware(ctx, a.StageFirmware)
+		return stepDone, x.stageFirmware(ctx, i, a.StageFirmware)
 	}
 	if st, ok, err := x.talosStep(ctx, i); ok {
 		return st, err
@@ -693,7 +693,11 @@ func applyBios(ctx context.Context, cl bmc.Client, systemID string, a *metalv1al
 // version reading back after the manager's own reboot. Acceptance is NOT
 // completion (this firmware answers success to actions it silently declines),
 // so the upload's return value proves nothing; the goal check does.
-func (r *HostOperationReconciler) flashFirmware(ctx context.Context, cl bmc.Client, a *metalv1alpha1.FlashFirmwareAction) error {
+//
+// The upload is recorded before it is sent. A resumed pass that finds the
+// record only waits for the version: a second upload to a manager still
+// busy with the first can wedge it (the X12's "already in update mode").
+func (x *exec) flashFirmware(ctx context.Context, i int, cl bmc.Client, a *metalv1alpha1.FlashFirmwareAction) error {
 	before, err := cl.Manager(ctx)
 	if err != nil {
 		return err
@@ -701,20 +705,51 @@ func (r *HostOperationReconciler) flashFirmware(ctx context.Context, cl bmc.Clie
 	if before.FirmwareVersion == a.Version {
 		return nil // goal already met
 	}
-	image, err := oci.Pull(ctx, r.RegistryClient, a.Image)
-	if err != nil {
-		return err
-	}
-	if err := cl.UpdateFirmware(ctx, image); err != nil {
-		return err
+	sent := x.upload(i)
+	if sent == nil {
+		image, err := oci.Pull(ctx, x.r.RegistryClient, a.Image)
+		if err != nil {
+			return err
+		}
+		sent = &metalv1alpha1.FirmwareUploadProgress{Step: int32(i), SentAt: metav1.MicroTime{Time: time.Now()}}
+		if !before.LastResetTime.IsZero() {
+			sent.ManagerResetTime = &metav1.MicroTime{Time: before.LastResetTime}
+		}
+		if err := x.recordUpload(sent); err != nil {
+			return err
+		}
+		if err := cl.UpdateFirmware(ctx, image); err != nil {
+			return err
+		}
 	}
 	if err := poll.Until(ctx, poll.Every(2*time.Second), func(ctx context.Context) (bool, error) {
 		// Mid-flash reads fail while the BMC reboots — expected, keep polling.
 		m, err := cl.Manager(ctx)
 		return err == nil && m.FirmwareVersion == a.Version &&
-			(before.LastResetTime.IsZero() || m.LastResetTime.After(before.LastResetTime)), nil
+			(sent.ManagerResetTime == nil || m.LastResetTime.After(sent.ManagerResetTime.Time)), nil
 	}); err != nil {
-		return fmt.Errorf("upload accepted but version %s never read back: %w", a.Version, err)
+		return fmt.Errorf("upload sent at %s but version %s never read back: %w",
+			sent.SentAt.UTC().Format(time.RFC3339), a.Version, err)
+	}
+	return nil
+}
+
+// upload is the recorded upload of step i, nil when step i sent none.
+func (x *exec) upload(i int) *metalv1alpha1.FirmwareUploadProgress {
+	if p := x.op.Status.UploadAccepted; p != nil && int(p.Step) == i {
+		return p
+	}
+	return nil
+}
+
+// recordUpload persists the upload record before the upload is sent.
+func (x *exec) recordUpload(p *metalv1alpha1.FirmwareUploadProgress) error {
+	x.op.Status.UploadAccepted = p
+	if x.flush == nil {
+		return nil
+	}
+	if err := x.flush(); err != nil {
+		return &persistError{err}
 	}
 	return nil
 }

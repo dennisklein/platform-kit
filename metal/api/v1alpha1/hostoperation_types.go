@@ -556,8 +556,9 @@ type TalosApplyConfigAction struct {
 
 	// Mode is how the node takes the config: NoReboot fails when a change
 	// needs a reboot, Reboot always reboots, Staged applies at the next
-	// boot, Try rolls back after tryTimeoutSeconds unless confirmed, Auto
-	// lets the node choose.
+	// boot, Try applies it and the step confirms it once the node is
+	// healthy (unconfirmed, the node rolls back after tryTimeoutSeconds),
+	// Auto lets the node choose.
 	// +kubebuilder:validation:Enum=Auto;NoReboot;Reboot;Staged;Try
 	// +kubebuilder:default=NoReboot
 	// +optional
@@ -751,6 +752,24 @@ type OperationStep struct {
 	FinishedAt *metav1.Time `json:"finishedAt,omitempty"`
 }
 
+// FirmwareUploadProgress is the progress of a firmware step's upload.
+type FirmwareUploadProgress struct {
+	// Step is the index of the action in spec.actions that uploaded.
+	// +kubebuilder:validation:Minimum=0
+	Step int32 `json:"step"`
+	// SentAt is when the executor started the upload.
+	SentAt metav1.MicroTime `json:"sentAt"`
+	// ManagerResetTime is the manager's last reset time before a flash, if
+	// the manager serves one: the flash is done only after a later reset.
+	// +optional
+	ManagerResetTime *metav1.MicroTime `json:"managerResetTime,omitempty"`
+	// Targets are the inventory entries a stageFirmware step sent its image
+	// for, in order.
+	// +listType=atomic
+	// +optional
+	Targets []string `json:"targets,omitempty"`
+}
+
 // HostOperationStatus is what happened: which steps ran and how they ended, plus
 // the observations that prove the machine really did what was asked.
 type HostOperationStatus struct {
@@ -776,6 +795,14 @@ type HostOperationStatus struct {
 	// operation finishes the cycle instead of starting a second one.
 	// +optional
 	OffObserved *metav1.MicroTime `json:"offObserved,omitempty"`
+
+	// UploadAccepted records that a firmware step (flashFirmware,
+	// stageFirmware) sent its image to the BMC. It is written before the
+	// upload, so a resumed operation never sends the image a second time:
+	// it only waits for the version to read back. A second upload to a
+	// manager that is still busy with the first can wedge it.
+	// +optional
+	UploadAccepted *FirmwareUploadProgress `json:"uploadAccepted,omitempty"`
 
 	// TalosStep is the progress of the Talos step in flight that restarts or
 	// wipes the node (talosReboot, talosUpgrade, talosApplyConfig,

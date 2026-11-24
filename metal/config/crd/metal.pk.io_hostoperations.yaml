@@ -383,7 +383,7 @@ spec:
                             type: string
                           mode:
                             default: NoReboot
-                            description: 'Mode is how the node takes the config: NoReboot fails when a change needs a reboot, Reboot always reboots, Staged applies at the next boot, Try rolls back after tryTimeoutSeconds unless confirmed, Auto lets the node choose.'
+                            description: 'Mode is how the node takes the config: NoReboot fails when a change needs a reboot, Reboot always reboots, Staged applies at the next boot, Try applies it and the step confirms it once the node is healthy (unconfirmed, the node rolls back after tryTimeoutSeconds), Auto lets the node choose.'
                             enum:
                               - Auto
                               - NoReboot
@@ -810,6 +810,32 @@ spec:
                       minimum: 0
                       type: integer
                   required:
+                    - step
+                  type: object
+                uploadAccepted:
+                  description: 'UploadAccepted records that a firmware step (flashFirmware, stageFirmware) sent its image to the BMC. It is written before the upload, so a resumed operation never sends the image a second time: it only waits for the version to read back. A second upload to a manager that is still busy with the first can wedge it.'
+                  properties:
+                    managerResetTime:
+                      description: 'ManagerResetTime is the manager''s last reset time before a flash, if the manager serves one: the flash is done only after a later reset.'
+                      format: date-time
+                      type: string
+                    sentAt:
+                      description: SentAt is when the executor started the upload.
+                      format: date-time
+                      type: string
+                    step:
+                      description: Step is the index of the action in spec.actions that uploaded.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    targets:
+                      description: Targets are the inventory entries a stageFirmware step sent its image for, in order.
+                      items:
+                        type: string
+                      type: array
+                      x-kubernetes-list-type: atomic
+                  required:
+                    - sentAt
                     - step
                   type: object
               type: object

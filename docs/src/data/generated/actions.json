@@ -549,7 +549,7 @@
           "type": "string",
           "goType": "string",
           "required": false,
-          "description": "Mode is how the node takes the config: NoReboot fails when a change needs a reboot, Reboot always reboots, Staged applies at the next boot, Try rolls back after tryTimeoutSeconds unless confirmed, Auto lets the node choose.",
+          "description": "Mode is how the node takes the config: NoReboot fails when a change needs a reboot, Reboot always reboots, Staged applies at the next boot, Try applies it and the step confirms it once the node is healthy (unconfirmed, the node rolls back after tryTimeoutSeconds), Auto lets the node choose.",
           "markers": [
             "Enum=Auto;NoReboot;Reboot;Staged;Try",
             "kubebuilder:default=NoReboot",
