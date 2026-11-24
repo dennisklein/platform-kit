@@ -1,0 +1,410 @@
+// Package boot runs the media boot ladder — the day-0 sequence the CLI's boot
+// verb fronts — and holds the rungs the in-cluster executor shares with it
+// (slot and target choice, eject-and-verify, slot inspection): pack a rendered
+// machine config into its ISO, serve it under a fresh grant (directly or through
+// a relay), mount it on the BMC with the grant's credentials, point the boot
+// override at removable media, power the node, and withdraw grant and medium
+// once the image has been read or the grant expired.
+package boot
+
+import (
+	"context"
+	"crypto/tls"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"slices"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/dennisklein/platform-kit/metal/internal/asset"
+	"github.com/dennisklein/platform-kit/metal/internal/bmc"
+	"github.com/dennisklein/platform-kit/metal/internal/poll"
+	"github.com/dennisklein/platform-kit/metal/internal/relay"
+)
+
+type Options struct {
+	Client bmc.Client
+	// NodeName names the granted .iso and the revocation handle.
+	NodeName string
+	// Config is the rendered machine config to pack and serve.
+	Config []byte
+	// MediaID is the slot to mount on; empty picks the first insertable
+	// optical slot, or the first insertable slot when none is optical.
+	MediaID string
+	// SystemID is the system to boot; empty requires the endpoint to front
+	// exactly one.
+	SystemID string
+	// TTL bounds the grant — and the wait for the node's pull.
+	TTL time.Duration
+	// Listen is the asset server's own address (must be BMC-reachable).
+	// Ignored when Relay is set.
+	Listen string
+	// Relay serves through a relay front instead of a local listener. The
+	// ladder consumes the client: it is closed when serving stops.
+	Relay *relay.Client
+	// Hold keeps serving with the medium mounted after the pull, until ctx is
+	// cancelled — for watching a node that needs the medium across re-reads.
+	Hold bool
+	// AllowRestart lets the ladder hard-reset a machine that is powered on.
+	// Without it, Run refuses a running machine before it changes anything:
+	// a restart kills whatever the machine runs.
+	AllowRestart bool
+	// NoPower mounts the medium and sets the boot override, but leaves power
+	// alone: the person restarts the machine (and Run serves until the image
+	// is read or the grant ends).
+	NoPower bool
+	// Logf reports each rung; nil is silent.
+	Logf func(format string, args ...any)
+}
+
+// Result is what the ladder can observe from the serving side. ReadComplete is
+// a heuristic — cumulative bytes served reached the image size; the node's own
+// check-in (the bootstrap flow) is the authoritative signal.
+type Result struct {
+	ImageURL     string // the granted URL as mounted (credentials travel separately)
+	Size         int    // bytes of the packed config ISO
+	ServedBytes  int64
+	ReadComplete bool
+}
+
+// ErrMachineOn: the machine is powered on and the caller did not allow a
+// restart. Run returns it before it changes anything.
+var ErrMachineOn = errors.New("boot: the machine is powered on, and booting it means a hard reset")
+
+// Run climbs the ladder. On return the grant is revoked and the medium ejected
+// (best-effort on error paths), unless Hold kept them until ctx cancellation.
+func Run(ctx context.Context, o Options) (Result, error) {
+	logf := o.Logf
+	if logf == nil {
+		logf = func(string, ...any) {}
+	}
+	if o.NodeName == "" {
+		return Result{}, fmt.Errorf("boot: node name required")
+	}
+	if o.TTL <= 0 {
+		return Result{}, fmt.Errorf("boot: grant ttl must be positive")
+	}
+
+	slot, dialect, err := pickSlot(ctx, o.Client, o.MediaID)
+	if err != nil {
+		return Result{}, err
+	}
+	system, err := pickSystem(ctx, o.Client, o.SystemID)
+	if err != nil {
+		return Result{}, err
+	}
+	target, err := PickTarget(system.BootTargets)
+	if err != nil {
+		return Result{}, err
+	}
+	// Read the power state before anything changes, so that a refusal leaves
+	// the machine as it was. An unreadable state counts as on: the reset is
+	// what needs consent.
+	state, perr := o.Client.Power(ctx, system.ID)
+	running := perr != nil || state == bmc.PowerOn
+	power := "power the machine on"
+	switch {
+	case o.NoPower:
+		power = "leave power alone: restart the machine yourself to boot from the medium"
+	case running:
+		power = fmt.Sprintf("HARD-RESET the machine (it is %s now; the running OS is not shut down)", powerWord(state, perr))
+	}
+	logf("boot: plan for system %s (media slot %s, %s):", system.ID, slot, dialect)
+	logf("boot:   1. eject whatever is mounted on slot %s", slot)
+	logf("boot:   2. serve the config ISO for node %s for up to %s, under a one-time user and password", o.NodeName, o.TTL)
+	logf("boot:   3. mount it on slot %s", slot)
+	logf("boot:   4. boot from %s at the next start only", target)
+	logf("boot:   5. %s", power)
+	logf("boot:   6. wait until the machine has read the image, then eject it and stop serving")
+	if running && !o.NoPower && !o.AllowRestart {
+		return Result{}, ErrMachineOn
+	}
+
+	// The X12 lesson: a stale mount refuses InsertMedia — eject and verify
+	// Inserted=false before mounting.
+	if err := EjectAndVerify(ctx, o.Client, slot, logf); err != nil {
+		return Result{}, err
+	}
+
+	iso, err := asset.BuildConfigISO(o.Config)
+	if err != nil {
+		return Result{}, err
+	}
+
+	grants := asset.NewGrants()
+	creds, err := asset.MintCredentials()
+	if err != nil {
+		return Result{}, err
+	}
+	grant, err := grants.Issue(o.NodeName, o.NodeName+".iso", iso, o.TTL, creds)
+	if err != nil {
+		return Result{}, err
+	}
+
+	host, ln, err := listener(o)
+	if err != nil {
+		return Result{}, err
+	}
+	cert, err := asset.EphemeralCert()
+	if err != nil {
+		_ = ln.Close()
+		return Result{}, err
+	}
+	m := &meter{next: &asset.Server{Grants: grants}, size: int64(len(iso)), done: make(chan struct{})}
+	srv := &http.Server{Handler: m}
+	go func() {
+		_ = srv.Serve(tls.NewListener(ln, &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		}))
+	}()
+	defer func() { _ = srv.Close() }()
+
+	imageURL := "https://" + host + grant.Path()
+	res := Result{ImageURL: imageURL, Size: len(iso)}
+	logf("boot: serving %d B under a %s grant at %s", len(iso), o.TTL, imageURL)
+
+	if err := o.Client.InsertMedia(ctx, slot, imageURL,
+		&bmc.MediaCredentials{Username: creds.Username, Password: creds.Password}); err != nil {
+		grants.Revoke(grant.Token)
+		return res, fmt.Errorf("boot: insert: %w", err)
+	}
+	logf("boot: media mounted")
+
+	override := bmc.BootOverride{Target: target, Enabled: bmc.OverrideOnce}
+	// The medium boots UEFI. A system that serves another mode would take the
+	// override as a legacy boot (the X12 reports Legacy out of the box), so
+	// the mode goes along; one that serves none is not asked for it.
+	if mode := system.BootOverride.Mode; mode != "" && mode != "UEFI" {
+		override.Mode = "UEFI"
+	}
+	if err := o.Client.SetBootOverride(ctx, system.ID, override); err != nil {
+		return res, cleanupAfter(ctx, o, grants, grant.Token, slot, err)
+	}
+	logf("boot: boot override %s (once)", target)
+
+	if o.NoPower {
+		logf("boot: power left alone; restart the machine to boot from the medium")
+	} else {
+		// Read again: the state may have changed while the medium went in,
+		// and a machine somebody switched on meanwhile needs consent too.
+		action := bmc.ActionOn
+		if state, err := o.Client.Power(ctx, system.ID); err == nil && state == bmc.PowerOn {
+			if !o.AllowRestart {
+				return res, cleanupAfter(ctx, o, grants, grant.Token, slot, ErrMachineOn)
+			}
+			action = bmc.ActionForceRestart
+		}
+		if err := o.Client.SetPower(ctx, system.ID, action); err != nil {
+			return res, cleanupAfter(ctx, o, grants, grant.Token, slot, err)
+		}
+		logf("boot: power %s", action)
+	}
+
+	select {
+	case <-m.done:
+		res.ReadComplete = true
+		logf("boot: image read complete")
+	case <-time.After(o.TTL):
+		logf("boot: grant expired before a full read")
+	case <-ctx.Done():
+		res.ServedBytes = m.total()
+		return res, cleanupAfter(ctx, o, grants, grant.Token, slot, ctx.Err())
+	}
+	res.ServedBytes = m.total()
+
+	if o.Hold {
+		logf("boot: holding mount and grant until interrupted")
+		<-ctx.Done()
+	}
+	err = cleanupAfter(ctx, o, grants, grant.Token, slot, nil)
+	res.ServedBytes = m.total()
+	return res, err
+}
+
+// cleanupAfter withdraws the medium and the grant, keeping cause as the error.
+func cleanupAfter(ctx context.Context, o Options, grants *asset.Grants, token, slot string, cause error) error {
+	logf := o.Logf
+	if logf == nil {
+		logf = func(string, ...any) {}
+	}
+	// The BMC may be mid-pull; eject first so the mount drops before its URL dies.
+	if err := EjectAndVerify(context.WithoutCancel(ctx), o.Client, slot, logf); err != nil {
+		logf("boot: eject on cleanup: %v", err)
+	} else {
+		logf("boot: media ejected")
+	}
+	if grants.Revoke(token) {
+		logf("boot: grant revoked")
+	}
+	return cause
+}
+
+func powerWord(s bmc.PowerState, err error) string {
+	if err != nil {
+		return "in an unknown power state"
+	}
+	return strings.ToLower(string(s))
+}
+
+func listener(o Options) (host string, ln net.Listener, err error) {
+	if o.Relay != nil {
+		return o.Relay.FrontAddr(), o.Relay, nil
+	}
+	ln, err = net.Listen("tcp", o.Listen)
+	if err != nil {
+		return "", nil, fmt.Errorf("boot: listen: %w", err)
+	}
+	return ln.Addr().String(), ln, nil
+}
+
+func pickSlot(ctx context.Context, c bmc.Client, want string) (string, bmc.MediaDialect, error) {
+	caps, err := c.Capabilities(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("boot: capabilities: %w", err)
+	}
+	if want != "" {
+		if d, ok := caps.MediaDialect[want]; ok && d != bmc.DialectNone {
+			return want, d, nil
+		}
+		return "", "", fmt.Errorf("boot: media %q advertises no insert mechanism", want)
+	}
+	media, err := c.Media(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("boot: media: %w", err)
+	}
+	if slots := InsertableSlots(caps.MediaDialect, media); len(slots) > 0 {
+		return slots[0], caps.MediaDialect[slots[0]], nil
+	}
+	return "", "", fmt.Errorf("boot: endpoint advertises no insertable media slot")
+}
+
+// InsertableSlots lists the slots that advertise an insert mechanism, the best
+// boot slot first: optical slots lead, wherever they sit in the endpoint's
+// collection, the others follow in the endpoint's order (deterministic). Its
+// length is what decides whether an installer and a config medium can be
+// mounted side by side.
+func InsertableSlots(dialects map[string]bmc.MediaDialect, media []bmc.VirtualMedia) []string {
+	return bmc.InsertableSlots(media, bmc.Capabilities{MediaDialect: dialects})
+}
+
+func pickSystem(ctx context.Context, c bmc.Client, want string) (bmc.System, error) {
+	systems, err := c.Systems(ctx)
+	if err != nil {
+		return bmc.System{}, fmt.Errorf("boot: systems: %w", err)
+	}
+	if want == "" {
+		if len(systems) != 1 {
+			return bmc.System{}, fmt.Errorf("boot: endpoint fronts %d systems, pick one", len(systems))
+		}
+		return systems[0], nil
+	}
+	for _, s := range systems {
+		if s.ID == want {
+			return s, nil
+		}
+	}
+	return bmc.System{}, fmt.Errorf("boot: no system %q", want)
+}
+
+// PickTarget prefers UsbCd where offered — the X12 boots nothing from Cd —
+// and never strays outside AllowableValues.
+func PickTarget(targets []string) (string, error) {
+	for _, want := range []string{"UsbCd", "Cd"} {
+		if slices.Contains(targets, want) {
+			return want, nil
+		}
+	}
+	return "", fmt.Errorf("boot: no removable-media boot target in %v", targets)
+}
+
+// EjectAndVerify clears the slot if occupied and verifies Inserted=false —
+// InsertMedia on a stale X12 mount answers "action not supported". An empty
+// slot is success: the goal is an empty slot, not the act of emptying it.
+func EjectAndVerify(ctx context.Context, c bmc.Client, slot string, logf func(string, ...any)) error {
+	if logf == nil {
+		logf = func(string, ...any) {}
+	}
+	inserted, err := slotInserted(ctx, c, slot)
+	if err != nil || !inserted {
+		return err
+	}
+	logf("boot: ejecting stale mount on %s", slot)
+	if err := c.EjectMedia(ctx, slot); err != nil {
+		return fmt.Errorf("boot: eject %s: %w", slot, err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	return poll.Until(ctx, poll.Every(200*time.Millisecond), func(ctx context.Context) (bool, error) {
+		inserted, err := slotInserted(ctx, c, slot)
+		switch {
+		case err != nil:
+			return false, err
+		case !inserted:
+			return true, nil
+		case time.Now().After(deadline):
+			return false, fmt.Errorf("boot: media %s still inserted after eject", slot)
+		}
+		return false, nil
+	})
+}
+
+func slotInserted(ctx context.Context, c bmc.Client, slot string) (bool, error) {
+	media, err := c.Media(ctx)
+	if err != nil {
+		return false, fmt.Errorf("boot: media: %w", err)
+	}
+	for _, m := range media {
+		if m.ID == slot {
+			return m.Inserted, nil
+		}
+	}
+	return false, fmt.Errorf("boot: no media slot %q", slot)
+}
+
+// meter watches the serving side for the node's pull: cumulative GET bytes
+// reaching the image size closes done. Overlapping ranges double-count, which
+// only ever fires the signal early — the check-in is the authoritative gate.
+type meter struct {
+	next http.Handler
+	size int64
+
+	mu     sync.Mutex
+	served int64
+	once   sync.Once
+	done   chan struct{}
+}
+
+func (m *meter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	cw := &countingWriter{ResponseWriter: w}
+	m.next.ServeHTTP(cw, r)
+	if r.Method != http.MethodGet {
+		return
+	}
+	m.mu.Lock()
+	m.served += cw.n
+	total := m.served
+	m.mu.Unlock()
+	if total >= m.size {
+		m.once.Do(func() { close(m.done) })
+	}
+}
+
+func (m *meter) total() int64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.served
+}
+
+type countingWriter struct {
+	http.ResponseWriter
+	n int64
+}
+
+func (w *countingWriter) Write(p []byte) (int, error) {
+	n, err := w.ResponseWriter.Write(p)
+	w.n += int64(n)
+	return n, err
+}
