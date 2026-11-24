@@ -51,7 +51,7 @@ You tell the operator the size that you want. The operator proposes one operatio
   <dt>Before</dt>
   <dd>[](tut:lab-first-cluster)</dd>
   <dt>Memory</dt>
-  <dd>About 19 GiB free, for five machines. See [memory](lab:page/prerequisites#memory).</dd>
+  <dd>About 19 GiB free, for five machines. See [memory](lab:page/prerequisites#memory). For less memory, see [On a workstation with 16 GB](#on-a-workstation-with-16-gb).</dd>
   <dt>Lab</dt>
   <dd>Down. Step 1 starts a lab with five machines.</dd>
 </dl>
@@ -84,6 +84,17 @@ The unattended task [](lab:scale) does all steps without your hands, and it exam
    export TALOSCONFIG=$PWD/.lab/talosconfig
    ```
 
+4. Write a kubeconfig for a member of the admin group. The admin of kind is not a member.
+
+   ```sh
+   yq '.users[].user.as = "lab-admin"
+     | .users[].user."as-groups" = ["system:masters", "pk-metal:admins", "system:authenticated"]' \
+     .lab/kubeconfig > .lab/admin.kubeconfig
+   ```
+
+   Only a member of the admin group can make a claim that installs a node, or move a claim to a different machine. See [](ref:admission-policies).
+   The file uses impersonation, which is a shortcut of the lab. On a real site, your login gives you the group.
+
 <Checkpoint>
 `lab:wait` ends with `converged after`. This command shows three etcd members:
 
@@ -109,7 +120,8 @@ talosctl --nodes 10.77.0.11 etcd members
 2. Apply the plan. On the way, etcd has two members. Give a reason to accept this risk.
 
    ```sh
-   metal/bin/pk-metal scale lab --control-planes 1 --workers 2 --apply --ack-etcd-risk "lab tutorial"
+   metal/bin/pk-metal --kubeconfig .lab/admin.kubeconfig scale lab \
+     --control-planes 1 --workers 2 --apply --ack-etcd-risk "lab tutorial"
    ```
 
 3. Approve the operations that the operator proposes.
@@ -134,10 +146,11 @@ The Hosts `pklab0002` and `pklab0003` are `Available`.
 
 ### 3. Add two control planes
 
-1. Apply the larger size.
+1. Apply the larger size as the admin. The command makes claims that install a node.
 
    ```sh
-   metal/bin/pk-metal scale lab --control-planes 3 --workers 2 --apply
+   metal/bin/pk-metal --kubeconfig .lab/admin.kubeconfig scale lab \
+     --control-planes 3 --workers 2 --apply
    ```
 
    ```console
@@ -167,7 +180,8 @@ etcd has three members and no learner. `kubectl --kubeconfig .lab/workload.kubec
 1. Apply the size with one worker. The operator removes `node-5`.
 
    ```sh
-   metal/bin/pk-metal scale lab --control-planes 3 --workers 1 --apply
+   metal/bin/pk-metal --kubeconfig .lab/admin.kubeconfig scale lab \
+     --control-planes 3 --workers 1 --apply
    ```
 
 2. Approve the operation.
@@ -192,10 +206,11 @@ The cluster has four nodes. The Host `pklab0005` is `Available`, and it has no a
 
 You move `node-2` from the Host `pklab0002` to the free Host `pklab0005`, as you do when hardware fails.
 
-1. Tell the claim to use the new Host.
+1. Tell the claim to use the new Host, as the admin.
 
    ```sh
-   metal/bin/pk-metal replace node-2 --host pklab0005 --ack-etcd-risk "lab tutorial"
+   metal/bin/pk-metal --kubeconfig .lab/admin.kubeconfig replace node-2 \
+     --host pklab0005 --ack-etcd-risk "lab tutorial"
    ```
 
    ```console
@@ -230,9 +245,11 @@ For a real site, see [](howto:replace-a-node) and [](cli:replace).
 etcd has three members again. The claim `default/node-2` holds the Host `pklab0005`:
 
 ```sh
-kubectl get hosts
+kubectl get hosts -o wide
 ```
 </Checkpoint>
+
+If a step does not give its checkpoint, see [](lab:page/troubleshooting).
 
 ### 6. Stop the lab
 
@@ -241,6 +258,23 @@ kubectl get hosts
    ```sh
    mise run lab:down && mise run lab:reset
    ```
+
+## On a workstation with 16 GB
+
+The default shape of five machines needs about 19 GiB. You can give each machine less memory.
+
+1. Copy `lab/lab.yaml` to `lab-small.yaml`.
+2. In the copy, set `controlPlane.memoryMiB` to `2048` and `worker.memoryMiB` to `1024`.
+3. In step 1, start the lab with the copy.
+
+   ```sh
+   PK_LAB_SPEC=$PWD/lab-small.yaml PK_LAB_NODES=3cp+2w mise run lab:up
+   ```
+
+4. Keep `PK_LAB_SPEC` set in the terminal for all `mise run lab:*` commands of this tutorial.
+
+The doctor then asks for 11264 MiB. The doctor names these values as the smallest for Talos.
+The installs and the etcd changes are slower. The end-to-end test does not run this shape.
 
 ## What you learned
 
