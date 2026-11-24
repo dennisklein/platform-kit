@@ -31,6 +31,10 @@ HELP="usage: $SCRIPT <verb>
   pivot        move the operator from kind onto the first Talos cluster (pk-metal
                pivot), delete kind, and install the second cluster from there;
                needs a workload section (PK_LAB_WORKLOAD) and a converged lab
+  backup-restore
+               day 2: back the first cluster's etcd up to the operator's backup
+               volume, wipe etcd on every control plane, and restore it through
+               pk-metal restore and an approved etcdRecover (needs a converged lab)
   collect      write logs and object dumps to <lab directory>/diagnostics
   down         stop the fleet, delete the kind cluster, remove the network; keeps disks and caches
   reset        wipe the machines' disks and firmware state (the lab must be down)
@@ -1269,6 +1273,222 @@ The operator runs on TalosCluster $first and installed $second from there.
 EOF
 }
 
+# ---------------------------------------------------------------- day 2: etcd backup and restore
+
+# The backup volume (config/etcd-backup) on the running operator. The lab's
+# deployment does not carry it, so that the default lab stays as it is; this
+# adds the claim and patches the Deployment with the component's own patch.
+backup_volume_up() {
+  local root=$1 namespace=$2 deployment=$3
+  local component=$root/metal/config/etcd-backup
+  step "etcd backup volume"
+  kubectl apply --server-side -f "$component/pvc.yaml" >&2
+  if ! kubectl -n "$namespace" get deployment "$deployment" --output json \
+    | jq -e '.spec.template.spec.containers[0].args // [] | any(startswith("--etcd-backup-dir="))' >/dev/null; then
+    kubectl -n "$namespace" patch deployment "$deployment" --type json --patch-file "$component/manager.yaml" >&2
+  fi
+  kubectl -n "$namespace" rollout status "deployment/$deployment" --timeout=300s >&2
+}
+
+# An age identity for the lab's restorer, made once. The operator only ever
+# sees the public key, which this prints.
+age_identity() {
+  local root=$1 file=$2
+  if [[ ! -s $file ]]; then
+    (umask 077 && cd "$root/metal" && go run filippo.io/age/cmd/age-keygen -o "$file") 2>/dev/null \
+      || die "could not make an age identity with go run filippo.io/age/cmd/age-keygen. Check that Go works: cd metal && go env"
+  fi
+  sed -n 's/^# public key: //p' "$file"
+}
+
+# A kubeconfig that acts as another person: the lab's admin impersonating
+# user. Proposing and approving must be two people (the approval policy
+# refuses an approval by whoever proposed), and the lab has one admin.
+impersonating_kubeconfig() {
+  local from=$1 to=$2 user=$3
+  (umask 077 && IMPERSONATE=$user yq '
+    .users[].user.as = strenv(IMPERSONATE)
+    | .users[].user["as-groups"] = ["system:masters", "pk-metal:admins", "system:authenticated"]' "$from" >"$to")
+}
+
+# Sets a marker ConfigMap in the workload cluster: one written before the
+# snapshot must come back with the restore, one written after must not.
+marker_set() {
+  local kube_file=$1 name=$2
+  kubectl --kubeconfig "$kube_file" --request-timeout=20s -n default create configmap "$name" \
+    --from-literal=written="$(date -u +%FT%TZ)" --dry-run=client --output yaml \
+    | kubectl --kubeconfig "$kube_file" --request-timeout=20s apply -f - >&2
+}
+
+marker_present() {
+  local kube_file=$1 name=$2
+  kubectl --kubeconfig "$kube_file" --request-timeout=10s -n default get configmap "$name" >/dev/null 2>&1
+}
+
+# Succeeds when the TalosCluster's Bootstrapped condition has this status
+# and, if given, this reason.
+bootstrapped_is() {
+  local cluster_name=$1 status=$2 reason=${3:-}
+  kubectl get taloscluster "$cluster_name" --output json | jq -e --arg s "$status" --arg r "$reason" '
+    [.status.conditions[]? | select(.type == "Bootstrapped")][0]
+    | . != null and .status == $s and ($r == "" or .reason == $r)' >/dev/null
+}
+
+# Copies one file off the backup volume, through a pod that mounts the claim
+# as the manager's user (the volume is the operator's; nothing else reads it).
+backup_volume_copy() {
+  local namespace=$1 deployment=$2 key=$3 out=$4
+  local node
+  node=$(kubectl -n "$namespace" get pod --selector app.kubernetes.io/name=pk-metal,app.kubernetes.io/component=manager \
+    --output jsonpath='{.items[0].spec.nodeName}')
+  kubectl -n "$namespace" delete pod etcd-backup-reader --ignore-not-found --wait=true >&2
+  kubectl apply -f - >&2 <<EOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: etcd-backup-reader
+  namespace: $namespace
+spec:
+  nodeName: $node
+  restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    seccompProfile: { type: RuntimeDefault }
+  containers:
+    - name: reader
+      image: busybox:1.37
+      command: ["sleep", "3600"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities: { drop: ["ALL"] }
+      volumeMounts:
+        - { name: backups, mountPath: /backups, readOnly: true }
+  volumes:
+    - name: backups
+      persistentVolumeClaim: { claimName: pk-metal-etcd-backups, readOnly: true }
+EOF
+  kubectl -n "$namespace" wait --for=condition=Ready pod/etcd-backup-reader --timeout=180s >&2
+  kubectl -n "$namespace" exec etcd-backup-reader -- cat "/backups/$key" >"$out"
+  kubectl -n "$namespace" delete pod etcd-backup-reader --wait=false >&2
+  [[ -s $out ]] || die "copied nothing from /backups/$key on the backup volume (deployment $deployment). Look at it:
+  kubectl -n $namespace get etcdsnapshots; mise run lab:collect"
+}
+
+# The total-loss round on the lab's first cluster: back it up to the backup
+# volume, wipe the etcd data of every control plane, and restore it the way
+# docs/metal/disaster-recovery.md says, through pk-metal restore and an
+# approved etcdRecover operation. The outcome is checked, not the steps: a
+# marker written before the snapshot is back, one written after it is not,
+# and the TalosCluster is Bootstrapped again.
+day2_backup_restore() {
+  local root=$1 lab_dir=$2 gen=$3 namespace=$4 deployment=$5 timeout=$6
+  local cli=$root/metal/bin/pk-metal dir=$lab_dir/backup-restore
+  local cluster_name policy recipient snap key op addr addrs line last="" deadline=$((SECONDS + timeout))
+  require_cluster "$lab_dir"
+  cluster_name=$(lab_value "$gen" TALOS_CLUSTER)
+  kubeconfig_fetch "$cluster_name" "$lab_dir/workload.kubeconfig" "$lab_dir/talosconfig" \
+    || die "TalosCluster $cluster_name has not published a kubeconfig, so there is nothing to back up yet.
+  Install it first: mise run lab:wait"
+  mkdir -p "$dir"
+  chmod 700 "$dir"
+  policy=$cluster_name-dr
+
+  backup_volume_up "$root" "$namespace" "$deployment"
+  recipient=$(age_identity "$root" "$dir/identity.txt")
+  [[ $recipient == age1* ]] || die "$dir/identity.txt has no public key line. Remove it and run again."
+
+  step "EtcdBackupPolicy $policy, a snapshot, and markers around it"
+  kubectl apply --server-side -f - >&2 <<EOF
+apiVersion: os.pk.io/v1alpha1
+kind: EtcdBackupPolicy
+metadata:
+  name: $policy
+spec:
+  clusterRef:
+    name: $cluster_name
+  interval: 24h
+  sink:
+    pvc: {}
+  encryption:
+    ageRecipients:
+      - $recipient
+EOF
+  marker_set "$lab_dir/workload.kubeconfig" dr-before
+  "$cli" backup now "$policy" >&2 || die "the snapshot did not complete. Look at it: kubectl get etcdsnapshots; kubectl describe etcdbackuppolicy $policy"
+  snap=$(kubectl get etcdsnapshots --selector "os.pk.io/etcd-backup-policy=$policy" --output json \
+    | jq -r '[.items[] | select(any(.status.conditions[]?; .type == "Verified" and .status == "True"))]
+      | sort_by(.status.takenAt) | last | .metadata.name // empty')
+  [[ -n $snap ]] || die "no verified snapshot of policy $policy. Look at it: kubectl get etcdsnapshots -o yaml"
+  key=$(kubectl get etcdsnapshot "$snap" --output jsonpath='{.status.key}')
+  "$cli" backup list "$cluster_name" >&2
+  marker_set "$lab_dir/workload.kubeconfig" dr-after
+
+  step "losing etcd: wiping EPHEMERAL on every control plane of $cluster_name"
+  addrs=$(kubectl get talosnodes --output json | jq -r --arg c "$cluster_name" '
+    .items[] | select(.spec.clusterRef.name == $c and .spec.role == "controlplane") | .spec.address // empty')
+  [[ -n $addrs ]] || die "TalosCluster $cluster_name lists no control-plane address. Look at it: kubectl get talosnodes -o wide"
+  for addr in $addrs; do
+    talosctl --talosconfig "$lab_dir/talosconfig" --endpoints "$addr" --nodes "$addr" \
+      reset --graceful=false --reboot --system-labels-to-wipe EPHEMERAL --wait=false >&2
+  done
+  while ! bootstrapped_is "$cluster_name" False EtcdDataLost; do
+    (( SECONDS < deadline )) || die "TalosCluster $cluster_name did not report EtcdDataLost within ${timeout}s. Look at it:
+  kubectl describe taloscluster $cluster_name"
+    sleep 10
+  done
+  echo "  the operator sees the loss and does not bootstrap: $(kubectl get taloscluster "$cluster_name" \
+    --output jsonpath='{.status.conditions[?(@.type=="Bootstrapped")].message}')" >&2
+
+  step "restoring $snap"
+  backup_volume_copy "$namespace" "$deployment" "$key" "$dir/snapshot.db.age"
+  "$cli" backup decrypt --in "$dir/snapshot.db.age" --identity "$dir/identity.txt" >&2
+  impersonating_kubeconfig "$lab_dir/kubeconfig" "$dir/restorer.kubeconfig" lab-restorer
+  # A control plane comes back from the reset some time after; until every
+  # one answers, the plan may propose nothing. Proposing again is harmless:
+  # an operation that exists is left as it is.
+  while true; do
+    KUBECONFIG=$dir/restorer.kubeconfig "$cli" restore plan --snapshot "$snap" --propose "$cluster_name" >&2 || true
+    op=$(kubectl -n "$namespace" get hostoperations --selector "os.pk.io/etcd-restore=$cluster_name" --output json \
+      | jq -r '.items[] | select(any(.spec.actions[]?; .etcdRecover != null)) | .metadata.name' | head -n 1)
+    [[ -z $op ]] || break
+    (( SECONDS < deadline )) || die "pk-metal restore plan proposed no etcdRecover operation within ${timeout}s; its output above says why"
+    sleep 15
+  done
+  # The lab's admin approves what lab-restorer proposed: two people.
+  approve_pending "$root" >/dev/null
+  until "$cli" restore upload "$namespace/$op" --identity "$dir/identity.txt" --from-file "$dir/snapshot.db.age" >&2; do
+    (( SECONDS < deadline )) || die "the snapshot upload to $op did not succeed within ${timeout}s; its output above says why"
+    approve_pending "$root" >/dev/null || true
+    sleep 15
+  done
+
+  step "waiting for $op and for etcd"
+  while true; do
+    approve_pending "$root" >/dev/null || true
+    line="$(kubectl -n "$namespace" get hostoperation "$op" --output jsonpath='{.status.phase}' 2>/dev/null): $(
+      kubectl -n "$namespace" get hostoperation "$op" \
+        --output jsonpath='{.status.conditions[?(@.type=="Executed")].message}' 2>/dev/null)"
+    if [[ $line == Succeeded:* ]] && bootstrapped_is "$cluster_name" True \
+      && marker_present "$lab_dir/workload.kubeconfig" dr-before; then
+      break
+    fi
+    [[ $line != Failed:* ]] || die "the restore operation $op failed: ${line#Failed: }
+  Look at it: mise run lab:status; collect the evidence: mise run lab:collect"
+    if [[ $line != "$last" ]]; then
+      echo "  [$(date '+%F %T %Z')] $op $line" >&2
+      last=$line
+    fi
+    (( SECONDS < deadline )) || die "the restore did not finish within ${timeout}s. Last state: $op $line
+  Look at it: mise run lab:status; collect the evidence: mise run lab:collect"
+    sleep 15
+  done
+  ! marker_present "$lab_dir/workload.kubeconfig" dr-after \
+    || die "ConfigMap default/dr-after, written after the snapshot, is in the restored cluster: this is not the snapshot's state"
+  echo "restored after $((SECONDS - (deadline - timeout)))s: $cluster_name is Bootstrapped from $snap; dr-before is back, dr-after is not" >&2
+}
+
 # Everything worth reading after a failed run, in one directory that is safe to
 # publish: object dumps without Secret contents, logs, the machines' consoles.
 # The secrets bundle, the kubeconfigs, the disks and the image cache stay out.
@@ -1291,9 +1511,9 @@ collect() {
 
   if [[ -s $lab_dir/kubeconfig ]]; then
     "$root/metal/bin/pk-metal" status >"$out/status.txt" 2>&1 || true
-    kubectl get assets,managementendpoints,hosts,talosclusters,talosnodes,bootassets --output wide >"$out/get.txt" 2>&1 || true
+    kubectl get assets,managementendpoints,hosts,talosclusters,talosnodes,bootassets,etcdbackuppolicies,etcdsnapshots --output wide >"$out/get.txt" 2>&1 || true
     kubectl get hostclaims,hostoperations --all-namespaces --output wide >>"$out/get.txt" 2>&1 || true
-    kubectl get assets,managementendpoints,hosts,talosclusters,talosnodes,bootassets --output yaml >"$out/objects.yaml" 2>&1 || true
+    kubectl get assets,managementendpoints,hosts,talosclusters,talosnodes,bootassets,etcdbackuppolicies,etcdsnapshots --output yaml >"$out/objects.yaml" 2>&1 || true
     kubectl get hostclaims,hostoperations --all-namespaces --output yaml >>"$out/objects.yaml" 2>&1 || true
     kubectl get events --all-namespaces --sort-by=.lastTimestamp >"$out/events.txt" 2>&1 || true
     kubectl -n "$NAMESPACE" describe deployment,pod,service,configmap,job,persistentvolumeclaim >"$out/operator-describe.txt" 2>&1 || true
@@ -1431,6 +1651,10 @@ main() {
     pivot)
       require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
       pivot "$ROOT" "$LAB_DIR" "$GEN" "$CLUSTER" "$WAIT_TIMEOUT"
+      ;;
+    backup-restore)
+      require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
+      day2_backup_restore "$ROOT" "$LAB_DIR" "$GEN" "$NAMESPACE" "$DEPLOYMENT" "$WAIT_TIMEOUT"
       ;;
     collect)
       require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"

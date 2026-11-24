@@ -15,6 +15,13 @@
 # moves onto it with pk-metal pivot, kind is deleted, and from its new place
 # the operator installs a second one-machine cluster.
 #
+# The etcd disaster-recovery round runs on request only (workflow_dispatch
+# with backup_restore set), in its own job: the operator installs a
+# one-machine Talos cluster from kind and backs its etcd up to the backup
+# volume; the run wipes etcd on the control plane and restores it through
+# pk-metal restore, an approval by a second identity, and the upload
+# (docs/metal/disaster-recovery.md).
+#
 # A run started by hand can give node-2 a Huawei iBMC, which holds one
 # virtual medium only. Its machine then boots an installer the operator builds
 # for it, with its machine config inside (the imager runs as a Job in kind).
@@ -41,6 +48,10 @@ on:
         default: false
       day2:
         description: "Also run the day-2 round: reboot a worker and a control plane with pk-metal reboot (cordon, drain, Talos reboot, uncordon)"
+        type: boolean
+        default: false
+      backup_restore:
+        description: "Also run the etcd disaster-recovery round: back up a one-machine cluster, wipe its etcd, restore it with pk-metal restore"
         type: boolean
         default: false
   push:
@@ -230,6 +241,75 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lab-pivot-diagnostics
+          path: .lab/diagnostics
+          if-no-files-found: warn
+          retention-days: 7
+
+  backup-restore:
+    name: back up etcd, lose it, restore it
+    if: github.event_name == 'workflow_dispatch' && inputs.backup_restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      PK_LAB_MIN_FREE_GIB: "10"
+      PK_LAB_WAIT_TIMEOUT: "2400"
+      PK_LAB_NODES: "1cp+0w"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Enable KVM for the runner user
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install QEMU and the UEFI firmware
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends qemu-system-x86 qemu-utils ovmf
+
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
+
+      - name: Locate the Go caches
+        id: go
+        run: |
+          echo "modcache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "buildcache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go.outputs.modcache }}
+            ${{ steps.go.outputs.buildcache }}
+          key: go-lab-${{ runner.os }}-${{ hashFiles('metal/go.sum') }}
+          restore-keys: go-lab-${{ runner.os }}-
+
+      - name: Check the prerequisites
+        run: mise run lab:doctor
+
+      - name: Bring the lab up
+        run: mise run lab:up
+
+      - name: Install the cluster
+        run: mise run lab:wait
+
+      # The round checks the outcome: the TalosCluster is Bootstrapped again,
+      # a ConfigMap written before the snapshot is back and one written after
+      # it is not.
+      - name: Back up, lose and restore etcd
+        run: |
+          mise run lab:backup-restore
+          mise run lab:status
+
+      - name: Collect diagnostics
+        if: failure() || cancelled()
+        run: mise run lab:collect
+
+      - name: Upload diagnostics
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lab-backup-restore-diagnostics
           path: .lab/diagnostics
           if-no-files-found: warn
           retention-days: 7

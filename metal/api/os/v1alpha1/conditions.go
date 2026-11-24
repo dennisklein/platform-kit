@@ -136,6 +136,10 @@ const (
 	// and none runs etcd. The operator never bootstraps such a cluster
 	// again; a person restores etcd or starts over.
 	ReasonEtcdDataLost = "EtcdDataLost"
+	// ReasonRestorePending on Bootstrapped=False: the cluster carries
+	// os.pk.io/restore-pending, so its etcd is restored from a snapshot by
+	// an approved etcdRecover operation and never bootstrapped empty.
+	ReasonRestorePending = "RestorePending"
 	// ReasonEtcdUnavailable on Bootstrapped=False: the cluster was
 	// bootstrapped before, and no member lists etcd members now, while some
 	// do not answer or run etcd without a quorum. It may come back.

@@ -1,0 +1,20 @@
+# Reading the etcd backup catalogue and asking for a snapshot now (pk-metal
+# backup now|list). Taking a snapshot reads etcd and changes no machine, so this
+# is not part of the approval split; it holds no Secret and cannot decrypt a
+# backup, which only the holders of the age identities can. Restoring one goes
+# through an approved etcdRecover operation (docs/metal/disaster-recovery.md).
+# Bind it to the people who look after backups. Nothing binds it by default.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pk-metal-backup
+rules:
+  - apiGroups: ["os.pk.io"]
+    resources: ["etcdbackuppolicies"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["os.pk.io"]
+    resources: ["etcdsnapshots"]
+    verbs: ["get", "list", "watch", "create"]
+  - apiGroups: ["os.pk.io"]
+    resources: ["talosclusters"]
+    verbs: ["get", "list"]

@@ -858,6 +858,42 @@ _Appears in:_
 | `nodeRef` _[Reference](#reference)_ | NodeRef names the control-plane TalosNode (os.pk.io) that leaves. |  |  |
 
 
+#### EtcdRecoverAction
+
+
+
+EtcdRecoverAction restores a cluster's etcd from a snapshot onto one
+control plane, after the cluster lost all of it.
+
+The snapshot is encrypted to people, not to the operator, so the operator
+cannot upload it: after approval a person runs pk-metal restore upload,
+which decrypts it on their machine and streams it to the node with their
+own talosconfig. The step:
+
+ 1. refuses unless the cluster is known to have lost its etcd: it was
+    bootstrapped before (status.bootstrappedAt) or is marked
+    os.pk.io/restore-pending, and no control plane runs etcd now;
+ 2. waits for the upload (annotation metal.pk.io/etcd-snapshot-uploaded
+    naming the approved sha256);
+ 3. asks Talos to bootstrap etcd from the upload (Bootstrap with
+    RecoverEtcd) and waits until the node lists etcd members.
+
+The other control planes then join the restored etcd by themselves, once
+their own etcd data is wiped (a talosReset of EPHEMERAL each).
+
+
+
+_Appears in:_
+- [HostOperationAction](#hostoperationaction)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `nodeRef` _[Reference](#reference)_ | NodeRef names the control-plane TalosNode (os.pk.io) etcd is restored<br />on. |  |  |
+| `snapshotRef` _[Reference](#reference)_ | SnapshotRef names the EtcdSnapshot (os.pk.io) to restore. |  |  |
+| `sha256` _string_ | SHA256 pins the plaintext snapshot (sha256:<hex>) the approver<br />approved: the EtcdSnapshot's record must still say so, and the upload<br />must name it. |  | Pattern: `^sha256:[a-f0-9]\{64\}$` <br /> |
+| `timeoutSeconds` _integer_ | TimeoutSeconds bounds the step, the wait for the upload included,<br />counted from the previous step's end (or the approval). | 7200 | Maximum: 86400 <br />Minimum: 300 <br />Optional: \{\} <br /> |
+
+
 #### EtcdRemoveMemberAction
 
 
@@ -1077,6 +1113,7 @@ _Appears in:_
 | `talosReset` _[TalosResetAction](#talosresetaction)_ | TalosReset wipes the node through Talos, back towards maintenance<br />mode. |  | Optional: \{\} <br /> |
 | `waitNodeReady` _[WaitNodeReadyAction](#waitnodereadyaction)_ | WaitNodeReady waits, changing nothing, until the node runs and is<br />ready: Talos stage running with every readiness condition met, and its<br />Kubernetes Node Ready. |  | Optional: \{\} <br /> |
 | `waitEtcdHealthy` _[WaitEtcdHealthyAction](#waitetcdhealthyaction)_ | WaitEtcdHealthy waits, changing nothing, until the etcd cluster of the<br />node's TalosCluster is healthy: every member answers, none reports an<br />error or alarm, and none is a learner. |  | Optional: \{\} <br /> |
+| `etcdRecover` _[EtcdRecoverAction](#etcdrecoveraction)_ | EtcdRecover restores the etcd of a cluster that lost all of it from<br />an EtcdSnapshot, on one control plane: a person uploads the decrypted<br />snapshot (pk-metal restore upload), then Talos starts etcd from it.<br />See EtcdRecoverAction and docs/metal/disaster-recovery.md. |  | Optional: \{\} <br /> |
 
 
 #### HostOperationSpec
@@ -1565,6 +1602,7 @@ _Appears in:_
 - [CordonAction](#cordonaction)
 - [DrainAction](#drainaction)
 - [EtcdLeaveAction](#etcdleaveaction)
+- [EtcdRecoverAction](#etcdrecoveraction)
 - [EtcdRemoveMemberAction](#etcdremovememberaction)
 - [HostClaimSpec](#hostclaimspec)
 - [HostClaimStatus](#hostclaimstatus)
@@ -1824,7 +1862,7 @@ layout: internal/talos/render turns them into a Talos 1.14 multi-document
 machine configuration, and patches reach anything the kinds do not model.
 
 
-**Resources:** [BootAsset](#bootasset) · [TalosCluster](#taloscluster) · [TalosNode](#talosnode)
+**Resources:** [BootAsset](#bootasset) · [EtcdBackupPolicy](#etcdbackuppolicy) · [EtcdSnapshot](#etcdsnapshot) · [TalosCluster](#taloscluster) · [TalosNode](#talosnode)
 
 
 
@@ -1862,6 +1900,50 @@ are encrypted at rest.
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[BootAssetSpec](#bootassetspec)_ |  |  |  |
 | `status` _[BootAssetStatus](#bootassetstatus)_ |  |  | Optional: \{\} <br /> |
+
+
+### EtcdBackupPolicy
+
+
+
+EtcdBackupPolicy takes encrypted etcd snapshots of one TalosCluster on a
+schedule and keeps a bounded number of them. Each snapshot is recorded as
+an EtcdSnapshot. Taking a snapshot reads etcd and changes no machine, so
+it needs no approval; restoring one does (docs/metal/disaster-recovery.md).
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `os.pk.io/v1alpha1` | | |
+| `kind` _string_ | `EtcdBackupPolicy` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[EtcdBackupPolicySpec](#etcdbackuppolicyspec)_ |  |  |  |
+| `status` _[EtcdBackupPolicyStatus](#etcdbackuppolicystatus)_ |  |  | Optional: \{\} <br /> |
+
+
+### EtcdSnapshot
+
+
+
+EtcdSnapshot is one encrypted etcd snapshot of a TalosCluster. The backup
+policy creates one per schedule; pk-metal backup now creates one at once.
+Deleting the object does not delete the stored bytes; retention deletes
+both.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `os.pk.io/v1alpha1` | | |
+| `kind` _string_ | `EtcdSnapshot` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[EtcdSnapshotSpec](#etcdsnapshotspec)_ |  |  |  |
+| `status` _[EtcdSnapshotStatus](#etcdsnapshotstatus)_ |  |  | Optional: \{\} <br /> |
 
 
 ### TalosCluster
@@ -2087,6 +2169,149 @@ _Appears in:_
 | `match` _string_ | Match is a CEL expression over `disk` (Talos' disk locator<br />environment), for example `disk.size > 100u * GB && !disk.rotational`. |  | Optional: \{\} <br /> |
 
 
+#### EtcdBackupEncryption
+
+
+
+EtcdBackupEncryption lists the age public keys snapshots are encrypted to.
+
+
+
+_Appears in:_
+- [EtcdBackupPolicySpec](#etcdbackuppolicyspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `ageRecipients` _string array_ | AgeRecipients are age public keys (age1..., from age-keygen -y). Any<br />one of their identities decrypts a snapshot; the operator holds none,<br />so it cannot. Name at least two people or a person and a key kept<br />offline, so that a restore does not hang on one key. Post-quantum<br />keys (age1pq1...) cannot be mixed with classic ones. |  | MaxItems: 16 <br />MinItems: 1 <br />items:Pattern: `^age1[0-9a-z]+$` <br /> |
+
+
+
+#### EtcdBackupPolicySpec
+
+
+
+EtcdBackupPolicySpec says how often to snapshot one cluster's etcd, how
+long to keep the snapshots, where to keep them and whom to encrypt them for.
+
+
+
+_Appears in:_
+- [EtcdBackupPolicy](#etcdbackuppolicy)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `clusterRef` _[Reference](#reference)_ | ClusterRef names the TalosCluster whose etcd is backed up. |  |  |
+| `interval` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#duration-v1-meta)_ | Interval is the time between scheduled snapshots (6h, 30m). At least<br />5m: a snapshot reads the whole database from one member. |  |  |
+| `retention` _[EtcdBackupRetention](#etcdbackupretention)_ | Retention bounds how many snapshots are kept, and for how long. |  | Optional: \{\} <br /> |
+| `sink` _[EtcdBackupSink](#etcdbackupsink)_ | Sink is where the encrypted snapshots are stored. |  |  |
+| `encryption` _[EtcdBackupEncryption](#etcdbackupencryption)_ | Encryption names who can read the snapshots. |  |  |
+| `suspend` _boolean_ | Suspend stops scheduled snapshots; pk-metal backup now still takes<br />one, and retention still prunes. |  | Optional: \{\} <br /> |
+
+
+#### EtcdBackupPolicyStatus
+
+
+
+EtcdBackupPolicyStatus is the backup state of the cluster.
+
+
+
+_Appears in:_
+- [EtcdBackupPolicy](#etcdbackuppolicy)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions: Ready (the sink and recipients can be used) and BackedUp<br />(a verified snapshot newer than twice the interval exists). |  | Optional: \{\} <br /> |
+| `lastScheduleTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | LastScheduleTime is when the last scheduled snapshot was started. |  | Optional: \{\} <br /> |
+| `lastSuccessfulSnapshot` _[SnapshotReference](#snapshotreference)_ | LastSuccessfulSnapshot is the newest verified snapshot. |  | Optional: \{\} <br /> |
+| `consecutiveFailures` _integer_ | ConsecutiveFailures counts the snapshots that failed since the newest<br />verified one. |  | Optional: \{\} <br /> |
+| `verifiedSnapshots` _integer_ | VerifiedSnapshots counts the verified snapshots kept. |  | Optional: \{\} <br /> |
+
+
+#### EtcdBackupRetention
+
+
+
+EtcdBackupRetention bounds what is kept. Both limits apply. The newest
+verified snapshot is never deleted, whatever its age.
+
+
+
+_Appears in:_
+- [EtcdBackupPolicySpec](#etcdbackuppolicyspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `count` _integer_ | Count is how many verified snapshots to keep, the newest. | 14 | Maximum: 1000 <br />Minimum: 1 <br />Optional: \{\} <br /> |
+| `maxAge` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#duration-v1-meta)_ | MaxAge deletes verified snapshots older than this (168h for a week).<br />Unset keeps any age, up to Count. |  | Optional: \{\} <br /> |
+
+
+#### EtcdBackupSink
+
+
+
+EtcdBackupSink is where snapshots go: exactly one of s3 or pvc.
+
+
+
+_Appears in:_
+- [EtcdBackupPolicySpec](#etcdbackuppolicyspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `s3` _[S3Sink](#s3sink)_ | S3 stores snapshots in a bucket of an S3-compatible object store,<br />off the cluster: the sink for production. |  | Optional: \{\} <br /> |
+| `pvc` _[PVCSink](#pvcsink)_ | PVC stores snapshots on the operator's backup volume (the<br />config/etcd-backup component mounts a PersistentVolumeClaim into the<br />manager). Refused for the cluster the operator itself runs on: that<br />volume lives on the etcd it would back up, and is lost with it. |  | Optional: \{\} <br /> |
+
+
+
+#### EtcdSnapshotSpec
+
+
+
+EtcdSnapshotSpec names the policy a snapshot is taken under: its sink and
+recipients.
+
+
+
+_Appears in:_
+- [EtcdSnapshot](#etcdsnapshot)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `policyRef` _[Reference](#reference)_ | PolicyRef names the EtcdBackupPolicy. |  |  |
+
+
+#### EtcdSnapshotStatus
+
+
+
+EtcdSnapshotStatus records one snapshot. The object is the catalogue entry;
+the bytes live in the sink, at Location.
+
+
+
+_Appears in:_
+- [EtcdSnapshot](#etcdsnapshot)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions: Complete (True once stored; False when taking it failed,<br />which is final: the next schedule takes a new one) and Verified (the<br />plaintext is an intact etcd snapshot and the sink holds exactly the<br />ciphertext sent). |  | Optional: \{\} <br /> |
+| `clusterName` _string_ | ClusterName is the TalosCluster, copied from the policy when taken. |  | Optional: \{\} <br /> |
+| `takenAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | TakenAt is when the snapshot was started. |  | Optional: \{\} <br /> |
+| `takenFrom` _string_ | TakenFrom is the control-plane TalosNode whose etcd member streamed<br />it, and MemberID that member's ID (hex). |  | Optional: \{\} <br /> |
+| `memberID` _string_ |  |  | Optional: \{\} <br /> |
+| `raftIndex` _integer_ | RaftIndex is the member's raft index just before the snapshot: the<br />snapshot holds at least everything up to it. |  | Optional: \{\} <br /> |
+| `location` _string_ | Location is where the ciphertext is (s3://bucket/key,<br />pvc://claim/key), and Key its key in the sink. |  | Optional: \{\} <br /> |
+| `key` _string_ |  |  | Optional: \{\} <br /> |
+| `size` _integer_ | Size and SHA256 describe the plaintext snapshot (the bbolt database<br />and etcd's 32-byte integrity hash after it): what a restore uploads.<br />pk-metal restore checks the decrypted bytes against SHA256. |  | Optional: \{\} <br /> |
+| `sha256` _string_ |  |  | Optional: \{\} <br /> |
+| `encryptedSize` _integer_ | EncryptedSize and EncryptedSHA256 describe the object in the sink. |  | Optional: \{\} <br /> |
+| `encryptedSHA256` _string_ |  |  | Optional: \{\} <br /> |
+| `databaseTxID` _integer_ | DatabaseTxID is the bbolt transaction id of the database's newest<br />meta page, and PageSize its page size: read off the snapshot as it<br />passed, as evidence that it is a bbolt database. |  | Optional: \{\} <br /> |
+| `pageSize` _integer_ |  |  | Optional: \{\} <br /> |
+| `recipients` _string array_ | Recipients are the age public keys it was encrypted to. |  | Optional: \{\} <br /> |
+
+
 #### Link
 
 
@@ -2146,6 +2371,21 @@ _Appears in:_
 | `worker` |  |
 
 
+#### PVCSink
+
+
+
+PVCSink stores snapshots on the operator's backup volume, under
+<cluster>/<snapshot>.db.age. It has no settings: the volume is the one
+mounted into the manager.
+
+
+
+_Appears in:_
+- [EtcdBackupSink](#etcdbackupsink)
+
+
+
 #### Patch
 
 
@@ -2177,6 +2417,9 @@ rather than shared with the metal group, so the two groups can version apart.
 
 _Appears in:_
 - [BootAssetSpec](#bootassetspec)
+- [EtcdBackupPolicySpec](#etcdbackuppolicyspec)
+- [EtcdSnapshotSpec](#etcdsnapshotspec)
+- [S3Sink](#s3sink)
 - [TalosNodeSpec](#talosnodespec)
 
 | Field | Description | Default | Validation |
@@ -2217,6 +2460,28 @@ _Appears in:_
 | `network` _string_ | Network is the destination CIDR; empty is the default route. |  | Optional: \{\} <br /> |
 | `gateway` _string_ | Gateway is the next hop. |  | Optional: \{\} <br /> |
 | `metric` _integer_ | Metric orders competing routes. |  | Optional: \{\} <br /> |
+
+
+#### S3Sink
+
+
+
+S3Sink is one bucket of an S3-compatible store.
+
+
+
+_Appears in:_
+- [EtcdBackupSink](#etcdbackupsink)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `endpoint` _string_ | Endpoint is the store's URL, https://host[:port]<br />(https://s3.eu-central-1.amazonaws.com, https://minio.example:9000).<br />http:// works for a store on a trusted network; the snapshots are<br />encrypted either way, the store's credentials are not. |  | Pattern: `^https?://[^/]+/?$` <br /> |
+| `bucket` _string_ | Bucket must exist; the operator does not create it. |  | MaxLength: 63 <br />MinLength: 3 <br /> |
+| `prefix` _string_ | Prefix goes in front of every key; the key is<br /><prefix><cluster>/<snapshot>.db.age. |  | Pattern: `^([^/].*/)?$` <br />Optional: \{\} <br /> |
+| `region` _string_ | Region of the bucket; empty lets the client ask the store. |  | Optional: \{\} <br /> |
+| `pathStyle` _boolean_ | PathStyle sends requests as https://host/bucket/key, which most<br />stores other than AWS need. |  | Optional: \{\} <br /> |
+| `credentialsSecretRef` _[Reference](#reference)_ | CredentialsSecretRef names a Secret in the operator's namespace with<br />keys accessKeyID and secretAccessKey. Give the key write, read, list<br />and delete on the bucket (or the prefix) and nothing else. |  |  |
+| `caSecretRef` _[Reference](#reference)_ | CASecretRef names a Secret in the operator's namespace whose key<br />ca.crt (PEM) replaces the system roots for the endpoint. |  | Optional: \{\} <br /> |
 
 
 #### Schematic
@@ -2273,6 +2538,23 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `namespace` _string_ |  |  |  |
 | `name` _string_ |  |  |  |
+
+
+#### SnapshotReference
+
+
+
+SnapshotReference names a snapshot and when it was taken.
+
+
+
+_Appears in:_
+- [EtcdBackupPolicyStatus](#etcdbackuppolicystatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ |  |  |  |
+| `takenAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ |  |  |  |
 
 
 #### SystemExtensions

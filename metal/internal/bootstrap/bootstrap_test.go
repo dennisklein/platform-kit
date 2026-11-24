@@ -168,6 +168,26 @@ func TestEnsure(t *testing.T) {
 		assert.True(t, r.Bootstrapped)
 	})
 
+	// A cluster re-created to be restored was never seen bootstrapped, and
+	// looks exactly like a new one; the mark keeps it from starting empty.
+	// Once the recovery starts etcd it reads as bootstrapped as usual.
+	t.Run("a cluster marked for restore is never bootstrapped", func(t *testing.T) {
+		fleet := fake.NewFleet()
+		cp1 := configured("booting", false)
+		fleet.Add("10.77.0.11", "node-1", cp1)
+		members := []Member{{"node-1", "10.77.0.11"}}
+
+		r := Ensure(ctx, fleet.Dialer(), tc, members, Observation{RestorePending: true})
+		assert.False(t, r.Bootstrapped)
+		assert.Equal(t, osv1alpha1.ReasonRestorePending, r.Reason)
+		assert.Contains(t, r.Message, RestoreProcedure)
+		assert.Zero(t, cp1.BootstrapCalls())
+
+		cp1.SetEtcdRunning(true)
+		r = Ensure(ctx, fleet.Dialer(), tc, members, Observation{RestorePending: true})
+		assert.True(t, r.Bootstrapped)
+	})
+
 	// node-2 runs an etcd that answers its status but cannot list members:
 	// it holds the data of a cluster that lost quorum. Bootstrapping node-1
 	// would start a second etcd beside it.

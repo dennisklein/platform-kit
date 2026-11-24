@@ -264,6 +264,13 @@ type HostOperationAction struct {
 	// error or alarm, and none is a learner.
 	// +optional
 	WaitEtcdHealthy *WaitEtcdHealthyAction `json:"waitEtcdHealthy,omitempty"`
+
+	// EtcdRecover restores the etcd of a cluster that lost all of it from
+	// an EtcdSnapshot, on one control plane: a person uploads the decrypted
+	// snapshot (pk-metal restore upload), then Talos starts etcd from it.
+	// See EtcdRecoverAction and docs/metal/disaster-recovery.md.
+	// +optional
+	EtcdRecover *EtcdRecoverAction `json:"etcdRecover,omitempty"`
 }
 
 // PowerCycleAction restarts the machine. It takes no fields: there is only one

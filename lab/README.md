@@ -124,6 +124,7 @@ root on that machine; on a shared workstation, decide that on purpose.
 | `mise run lab:release <namespace/name>` | Deletes a claim, approves the shutdown it proposes, and waits until its Host is Available. |
 | `mise run lab:day2` | On a converged lab: reboots a worker, then a control plane, with `pk-metal reboot` (proposed as `lab-proposer`, approved as you), and checks that each booted again and is Ready and schedulable. With a single control plane it sets the cluster-guard override, as [Day-2 steps](../docs/metal/day2-actions.md) describes. |
 | `mise run lab:pivot` | Moves the operator from kind onto the first Talos cluster and installs a second one from there (see below). |
+| `mise run lab:backup-restore` | Backs the first cluster's etcd up, wipes it on every control plane, and restores it with `pk-metal restore` (see below). |
 | `mise run lab:collect` | Writes logs and object dumps to `.lab/diagnostics`. |
 | `mise run lab:down` | Stops everything and removes the network. Keeps disks and caches. |
 | `mise run lab:reset` | Wipes the machines' disks. The lab must be down. |
@@ -289,6 +290,41 @@ is `10.77.0.9`. To change the defaults, add a `workload:` section to
 `lab/lab.yaml` (there is a commented example at its end). Once the operator
 has moved, `lab:up` refuses to start kind again; take the lab down first. The
 whole procedure for a real site is in `docs/metal/pivot.md`.
+
+## Lose etcd and restore it (backup and restore)
+
+The lab can run the worst etcd case end to end: every control plane loses
+its etcd data, and the cluster comes back from an encrypted snapshot. One
+control plane is enough and fastest:
+
+```sh
+PK_LAB_NODES=1cp+0w mise run lab:up
+mise run lab:wait             # installs the cluster
+mise run lab:backup-restore
+```
+
+What `lab:backup-restore` does:
+
+1. It adds the operator's etcd backup volume (`metal/config/etcd-backup`)
+   to the running manager. The default lab does not carry it.
+2. It makes an age identity in `.lab/backup-restore/identity.txt` and
+   creates an `EtcdBackupPolicy` with a pvc sink, encrypted to that key.
+3. It writes the ConfigMap `default/dr-before` in the cluster, takes a
+   snapshot with `pk-metal backup now`, and writes `default/dr-after`.
+4. It wipes EPHEMERAL on every control plane with `talosctl reset`, which
+   is the disaster, and waits until the TalosCluster reports
+   `EtcdDataLost`. The operator does not bootstrap it again on its own.
+5. It copies the encrypted snapshot off the volume through a helper pod
+   and runs `pk-metal restore plan --propose` as a second identity
+   (`lab-restorer`, by impersonation), so that the lab's admin may approve
+   it. Then `pk-metal restore upload` decrypts the snapshot on the
+   workstation and streams it to the node.
+6. It waits until the restore operation succeeded and the TalosCluster is
+   Bootstrapped again, and checks the outcome: `dr-before` is back and
+   `dr-after` is not.
+
+The procedure for a real site, and the other cases, are in
+`docs/metal/disaster-recovery.md`.
 
 ## A one-slot BMC
 

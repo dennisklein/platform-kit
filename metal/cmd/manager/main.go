@@ -202,9 +202,11 @@ func main() {
 		MediaStore:             store,
 		Imager: &controller.Imager{Repository: c.imagerRepo, Digests: c.imagerPins, StoreClaim: c.storeClaim,
 			HelperImage: helper},
-		Factory:   factory,
-		TalosDial: machineapi.Dial,
-		NodeName:  c.nodeName,
+		Factory:          factory,
+		TalosDial:        machineapi.Dial,
+		EtcdBackupDir:    c.backupDir,
+		EtcdBackupVolume: c.backupClaim,
+		NodeName:         c.nodeName,
 	}, controller.AllLanes...); err != nil {
 		log.Error(err, "setup reconcilers")
 		os.Exit(1)
@@ -330,6 +332,8 @@ type config struct {
 	mediaCert    string
 	mediaStore   string
 	storeClaim   string
+	backupDir    string
+	backupClaim  string
 	imagerRepo   string
 	imagerPins   imagerDigests
 	imagerHelper string
@@ -372,6 +376,10 @@ func parseFlags(args []string, output io.Writer) (*config, error) {
 		"directory of the media store, where installers with a node's config built in rest (for BMCs that hold one virtual medium); empty: such machines are not installed")
 	fs.StringVar(&c.storeClaim, "media-store-claim", "",
 		"PersistentVolumeClaim mounted at --media-store; the imager Jobs mount it to write the installers they build. Empty with --media-store: the store is not a claim (an emptyDir) and no installer is built")
+	fs.StringVar(&c.backupDir, "etcd-backup-dir", "",
+		"directory of the etcd backup volume, where EtcdBackupPolicies with a pvc sink store encrypted snapshots; empty: pvc sinks are unavailable (s3 sinks need nothing here)")
+	fs.StringVar(&c.backupClaim, "etcd-backup-claim", "pk-metal-etcd-backups",
+		"PersistentVolumeClaim mounted at --etcd-backup-dir, which the snapshots' pvc:// locations name")
 	fs.StringVar(&c.imagerRepo, "imager-repository", controller.DefaultImagerRepository,
 		"where the Talos imager image is pulled from; a mirror must carry the same digests")
 	c.imagerPins = imagerDigests(controller.DefaultImagerDigests())

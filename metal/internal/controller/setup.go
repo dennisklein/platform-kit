@@ -38,6 +38,7 @@ const (
 	LaneTalosNode
 	LaneTalosCluster
 	LaneBootAsset
+	LaneEtcdBackup
 	laneCount
 )
 
@@ -45,6 +46,7 @@ const (
 var AllLanes = []Lane{
 	LaneAsset, LaneEndpoint, LaneHost, LaneHostClaim, LaneProtection, LaneHostOperation,
 	LaneConvergence, LaneEndpointConvergence, LaneTalosNode, LaneTalosCluster, LaneBootAsset,
+	LaneEtcdBackup,
 }
 
 // Options is what the reconcilers are configured with. The manager fills it
@@ -99,6 +101,12 @@ type Options struct {
 	ProbeKubernetes KubernetesProber
 	CheckInterval   time.Duration
 	ReadyInterval   time.Duration
+
+	// EtcdBackupDir is where the manager's etcd backup volume is mounted
+	// (empty: none, pvc sinks are unavailable); EtcdBackupVolume names it in
+	// the snapshots' pvc:// locations.
+	EtcdBackupDir    string
+	EtcdBackupVolume string
 
 	// NodeName is the Kubernetes node the manager's pod runs on. When set,
 	// the claim, operation and convergence lanes refuse to reboot the
@@ -216,6 +224,12 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 			Client: c, Scheme: scheme, Namespace: o.CredentialsNamespace,
 			Dial: o.TalosDial, ProbeKubernetes: o.ProbeKubernetes,
 			CheckInterval: o.CheckInterval, ReadyInterval: o.ReadyInterval,
+		}
+	case LaneEtcdBackup:
+		return "etcd backup", &EtcdBackups{
+			Client: c, Namespace: o.CredentialsNamespace, Dial: o.TalosDial,
+			Dir: o.EtcdBackupDir, VolumeName: o.EtcdBackupVolume, Self: self,
+			RetryInterval: o.CheckInterval,
 		}
 	default: // LaneBootAsset; SetupAll has checked the range
 		return "bootasset", &BootAssetReconciler{

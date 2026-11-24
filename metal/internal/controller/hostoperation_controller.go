@@ -124,7 +124,6 @@ type HostOperationReconciler struct {
 	Self *SelfGuard
 	// Workers is how many passes run at once. Zero defaults.
 	Workers int
-
 	// TalosDial opens the machine API of the node a Talos step acts on, and
 	// of the control planes the cluster guard asks about etcd. Nil fails
 	// every Talos step, saying so.
@@ -148,6 +147,9 @@ type HostOperationReconciler struct {
 	locks   passLocks
 	startMu sync.Mutex
 	clock   stepClocks
+	// recoveries remembers, by operation UID, when Talos accepted an
+	// etcdRecover request, so a pass soon after does not ask again.
+	recoveries sync.Map
 }
 
 // reader is the uncached reader when one is wired, the client otherwise.
@@ -1126,7 +1128,7 @@ var implementedActions = map[string]bool{
 	"ejectMedia": true, "applyBios": true, "flashFirmware": true, "awaitCheckIn": true,
 	"cordon": true, "drain": true, "uncordon": true, "talosReboot": true, "talosShutdown": true,
 	"talosUpgrade": true, "talosApplyConfig": true, "etcdLeave": true, "etcdRemoveMember": true,
-	"talosReset": true, "waitNodeReady": true, "waitEtcdHealthy": true,
+	"talosReset": true, "waitNodeReady": true, "waitEtcdHealthy": true, "etcdRecover": true,
 }
 
 // unimplementedAction returns the index and key of the first action step
