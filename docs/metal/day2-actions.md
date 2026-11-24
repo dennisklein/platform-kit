@@ -74,6 +74,10 @@ control plane, the operator checks two things:
    be raised. The members that are left must still be a majority. The
    operator counts from etcd's own member list, not from the TalosNodes: a
    member left behind by a wiped node still counts against the majority.
+   When the first such step is the node's own `etcdLeave`, as in a release,
+   the member leaves while the others answer. The majority is then counted
+   from the smaller cluster, so a release can take two control planes down
+   to one. The last member still needs the override.
 
 While either check fails, the operation waits. `pk-metal status` shows it
 blocked on `ClusterDisruption`, with the reason. Nothing has happened to the

@@ -124,6 +124,48 @@ func TestClusterGuardSingleControlPlane(t *testing.T) {
 	assert.Contains(t, msg, metalv1alpha1.AnnotationOverrideClusterGuard)
 }
 
+// TestClusterGuardGracefulLeave: an operation that first takes the node's
+// member out of etcd counts the majority of the cluster left behind, so a
+// release can shrink two control planes to one; the last member cannot leave
+// without the override.
+func TestClusterGuardGracefulLeave(t *testing.T) {
+	leaveFirst := func(node string) func(*metalv1alpha1.HostOperation) {
+		return func(op *metalv1alpha1.HostOperation) {
+			op.Spec.Actions = append([]metalv1alpha1.HostOperationAction{
+				{EtcdLeave: &metalv1alpha1.EtcdLeaveAction{NodeRef: metalv1alpha1.Reference{Name: node}}},
+			}, op.Spec.Actions...)
+		}
+	}
+	t.Run("two members become one", func(t *testing.T) {
+		lab := newTalosLab(t)
+		lab.etcd = talosfake.NewEtcdCluster()
+		lab.machines["cp-1"].JoinEtcd(lab.etcd, false)
+		lab.machines["cp-2"].JoinEtcd(lab.etcd, false)
+		lab.machines["cp-3"].SetEtcdRunning(false)
+		assert.Contains(t, guardCheck(t, lab, "cp-2"), "1 healthy voting member(s) of 2, and needs 2",
+			"a reboot without leaving still loses the majority")
+		assert.Empty(t, guardCheck(t, lab, "cp-2", leaveFirst("cp-2")))
+		assert.NotEmpty(t, guardCheck(t, lab, "cp-2", leaveFirst("cp-1")), "another node's leave does not count")
+	})
+	t.Run("the remaining member must answer", func(t *testing.T) {
+		lab := newTalosLab(t)
+		lab.etcd = talosfake.NewEtcdCluster()
+		lab.machines["cp-1"].JoinEtcd(lab.etcd, false)
+		lab.machines["cp-2"].JoinEtcd(lab.etcd, false)
+		lab.machines["cp-3"].SetEtcdRunning(false)
+		lab.machines["cp-1"].SetUnreachable(true)
+		assert.NotEmpty(t, guardCheck(t, lab, "cp-2", leaveFirst("cp-2")))
+	})
+	t.Run("the last member", func(t *testing.T) {
+		lab := newTalosLab(t)
+		lab.etcd = talosfake.NewEtcdCluster()
+		lab.machines["cp-1"].JoinEtcd(lab.etcd, false)
+		lab.machines["cp-2"].SetEtcdRunning(false)
+		lab.machines["cp-3"].SetEtcdRunning(false)
+		assert.Contains(t, guardCheck(t, lab, "cp-1", leaveFirst("cp-1")), "0 healthy voting member(s) of 1, and needs 1")
+	})
+}
+
 func TestClusterGuardLeavesDayZeroAlone(t *testing.T) {
 	lab := newTalosLab(t)
 	cluster := &osv1alpha1.TalosCluster{}

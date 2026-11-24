@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -35,6 +36,10 @@ import (
 // What the guard does not hold: a node that is not an etcd member (a worker,
 // a control plane still joining or already removed), and any cluster that
 // was never bootstrapped (day 0 installs every control plane at once).
+// An operation whose first such step is the node's own etcd leave counts
+// rule 2's majority from the cluster it leaves behind: the member goes
+// while the others answer, so two control planes may become one without
+// the override, and removal is still decided by the removal verdict.
 // AnnotationOverrideClusterGuard on the operation lifts rule 2, for the
 // repair of an etcd that is already broken and for a cluster with a single
 // control plane; rule 1 stays.
@@ -111,6 +116,13 @@ func (g *ClusterGuard) Check(ctx context.Context, host *metalv1alpha1.Host, op *
 	}
 	total := len(rep.members)
 	need := total/2 + 1
+	if leavesFirst(op, node.Name) {
+		// The member asks to leave while every other one answers, so etcd
+		// shrinks to total-1 voters before the node goes down: the majority
+		// that must stay is that of the smaller cluster. Two control planes
+		// become one this way; the last member still needs the override.
+		need = (total-1)/2 + 1
+	}
 	if probs := rep.problems(self.ID); len(probs) > 0 || healthy < need {
 		msg := fmt.Sprintf("%s, and without its member etcd would have %d healthy voting member(s) of %d, and needs %d",
 			what, healthy, total, need)
@@ -120,6 +132,13 @@ func (g *ClusterGuard) Check(ctx context.Context, host *metalv1alpha1.Host, op *
 		return msg + "." + override, nil
 	}
 	return "", nil
+}
+
+// leavesFirst: the first step of op that takes the node down is its etcd
+// member leaving the cluster, so nothing disrupts it while it is a voter.
+func leavesFirst(op *metalv1alpha1.HostOperation, node string) bool {
+	i := slices.IndexFunc(op.Spec.Actions, disruptsAction)
+	return i >= 0 && op.Spec.Actions[i].EtcdLeave != nil && op.Spec.Actions[i].EtcdLeave.NodeRef.Name == node
 }
 
 // otherControlPlaneDown names another operation that is taking down a
