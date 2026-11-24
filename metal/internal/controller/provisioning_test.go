@@ -16,13 +16,29 @@ import (
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 )
 
-// claimReconcilerFor builds a claim reconciler over a fake API.
+// claimReconcilerFor builds a claim reconciler over a fake API that also
+// holds slotlessEndpoint, the endpoint behind onPath.
 func claimReconcilerFor(t *testing.T, objs ...client.Object) *HostClaimReconciler {
 	t.Helper()
 	cl := fake.NewClientBuilder().WithScheme(testScheme(t)).
 		WithStatusSubresource(&metalv1alpha1.HostOperation{}, &metalv1alpha1.HostClaim{}).
-		WithObjects(objs...).Build()
+		WithObjects(append(objs, slotlessEndpoint())...).Build()
 	return &HostClaimReconciler{Client: cl, OperationsNamespace: "pk-metal", Proposer: "operator"}
+}
+
+// slotlessEndpoint is a reachable, inventoried endpoint whose machine has no
+// slot that takes an image: a release reads its slots and ejects none.
+func slotlessEndpoint() *metalv1alpha1.ManagementEndpoint {
+	ep := &metalv1alpha1.ManagementEndpoint{ObjectMeta: metav1.ObjectMeta{Name: "bmc"}}
+	ep.Status.Conditions = []metav1.Condition{{Type: metalv1alpha1.ConditionInventoried, Status: metav1.ConditionTrue,
+		Reason: "InventoryGathered", LastTransitionTime: metav1.Now()}}
+	return ep
+}
+
+// onPath puts the host behind slotlessEndpoint.
+func onPath(h *metalv1alpha1.Host) *metalv1alpha1.Host {
+	h.Status.ManagedBy = []metalv1alpha1.ManagementPath{{EndpointRef: metalv1alpha1.Reference{Name: "bmc"}, SystemID: "1", Reachable: true}}
+	return h
 }
 
 func testClaim(node string) *metalv1alpha1.HostClaim {
@@ -178,7 +194,7 @@ func TestReleasePowersOffOnlyWhatABootTouched(t *testing.T) {
 			if !tc.executed {
 				boot.Spec.Approval = metalv1alpha1.OperationApproval{Required: ptr.To(true)}
 			}
-			r := claimReconcilerFor(t, host, boot)
+			r := claimReconcilerFor(t, onPath(host), boot)
 
 			done, err := r.release(t.Context(), claim, []metalv1alpha1.Host{*host})
 			require.NoError(t, err)
@@ -230,7 +246,7 @@ func TestReleaseOfARunningNodeWaitsForAPerson(t *testing.T) {
 			if tc.running {
 				host.Status.Conditions = osReady
 			}
-			r := claimReconcilerFor(t, host)
+			r := claimReconcilerFor(t, onPath(host))
 
 			done, err := r.release(t.Context(), claim, []metalv1alpha1.Host{*host})
 			require.NoError(t, err)
@@ -285,7 +301,7 @@ func TestHoldKeepsADeletedClaimsMachine(t *testing.T) {
 			ClaimRef: &metalv1alpha1.ClaimReference{Namespace: claim.Namespace, Name: claim.Name, UID: claim.UID},
 		},
 	}
-	r := claimReconcilerFor(t, host)
+	r := claimReconcilerFor(t, onPath(host))
 
 	done, err := r.release(t.Context(), claim, []metalv1alpha1.Host{*host})
 	require.NoError(t, err)

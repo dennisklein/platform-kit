@@ -462,6 +462,10 @@ type endpointView struct {
 	targets []string
 	// mode is the override mode the path's system serves.
 	mode string
+	// known: the slots were read from an inventoried endpoint on a
+	// reachable path. Without that, an empty insertable list means "not
+	// read yet", not "no slots".
+	known bool
 }
 
 // endpointShape reads the media slots and the boot facts of the host's first
@@ -478,7 +482,7 @@ func (r *HostClaimReconciler) endpointShape(ctx context.Context, host *metalv1al
 			}
 			return endpointView{}, err
 		}
-		v := endpointView{}
+		v := endpointView{known: meta.IsStatusConditionTrue(ep.Status.Conditions, metalv1alpha1.ConditionInventoried)}
 		caps := bmc.Capabilities{MediaDialect: map[string]bmc.MediaDialect{}}
 		if c := ep.Status.Capabilities; c != nil {
 			for id, d := range c.MediaDialects {
@@ -734,7 +738,15 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 				return false, err
 			}
 			if op == nil {
-				op = r.releaseOp(ctx, claim, host, name)
+				var waiting string
+				if op, waiting, err = r.releaseOp(ctx, claim, host, name); err != nil {
+					return false, err
+				}
+				if op == nil {
+					set(metalv1alpha1.ReasonReleasing, waiting)
+					done = false
+					continue
+				}
 				if err := r.Create(ctx, op); err != nil && !apierrors.IsAlreadyExists(err) {
 					return false, err
 				}
@@ -881,14 +893,26 @@ func handedOff(claim *metalv1alpha1.HostClaim, hostName string) bool {
 // The gate is decided once, here. A node that comes up after a pre-cleared
 // release was created does not make that release wait for a person: the
 // claim's deletion still stands, and approval.required is frozen.
-func (r *HostClaimReconciler) releaseOp(ctx context.Context, claim *metalv1alpha1.HostClaim, host *metalv1alpha1.Host, name string) *metalv1alpha1.HostOperation {
+//
+// The eject list is fixed when the operation is created, so it is built only
+// from slots that were read. While no reachable, inventoried endpoint fronts
+// the host, releaseOp returns nil and says what it waits for; the endpoint
+// and host watches bring the claim back when that changes. The power-off
+// could not run before then either.
+func (r *HostClaimReconciler) releaseOp(ctx context.Context, claim *metalv1alpha1.HostClaim, host *metalv1alpha1.Host, name string) (*metalv1alpha1.HostOperation, string, error) {
+	shape, err := r.endpointShape(ctx, host)
+	if err != nil {
+		return nil, "", err
+	}
+	if !shape.known {
+		return nil, fmt.Sprintf("releasing host %s waits until a reachable management path has read its media slots, "+
+			"so that the release can eject them; see: kubectl get host %s -o wide", host.Name, host.Name), nil
+	}
 	actions := []metalv1alpha1.HostOperationAction{{PowerOff: &metalv1alpha1.PowerOffAction{
 		GracefulTimeoutSeconds: int32(r.releaseShutdownTimeout().Seconds()),
 	}}}
-	if shape, err := r.endpointShape(ctx, host); err == nil {
-		for _, s := range shape.insertable {
-			actions = append(actions, metalv1alpha1.HostOperationAction{EjectMedia: &metalv1alpha1.EjectMediaAction{MediaID: s}})
-		}
+	for _, s := range shape.insertable {
+		actions = append(actions, metalv1alpha1.HostOperationAction{EjectMedia: &metalv1alpha1.EjectMediaAction{MediaID: s}})
 	}
 	return &metalv1alpha1.HostOperation{
 		ObjectMeta: metav1.ObjectMeta{
@@ -903,7 +927,7 @@ func (r *HostClaimReconciler) releaseOp(ctx context.Context, claim *metalv1alpha
 			Approval:                metalv1alpha1.OperationApproval{Required: ptr.To(runsNode(host) && !approvalWaived(claim))},
 			TTLSecondsAfterFinished: ptr.To(releaseTTL),
 		},
-	}
+	}, "", nil
 }
 
 // runsNode: the host reports a running, ready OS.
