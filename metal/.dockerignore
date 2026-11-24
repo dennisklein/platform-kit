@@ -1,0 +1,4 @@
+# Build outputs and caches: they change on every local build and would defeat
+# the layer cache, and a stale binary has no business in the build context.
+bin/
+.cache/

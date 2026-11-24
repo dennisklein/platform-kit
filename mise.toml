@@ -19,6 +19,20 @@ yq = "4"
 [env]
 GOTOOLCHAIN = "local"
 
+[tasks.build]
+description = "Build the pk-metal CLI and the manager into metal/bin/"
+dir = "metal"
+# Stamped with the same tag the image gets, so `pk-metal version` on the workstation
+# and the manager in the cluster can be compared.
+run = '''
+version=$(hack/image.sh tag)
+CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$version" -o bin/ ./cmd/pk-metal ./cmd/manager
+'''
+
+[tasks.image]
+description = "Build the operator image (manager and pk-metal), tagged with the commit it was built from"
+run = "metal/hack/image.sh build"
+
 [tasks.test]
 description = "Unit tests"
 dir = "metal"
@@ -58,9 +72,9 @@ run = [
   "go tool controller-gen crd paths=./api/... output:crd:artifacts:config=config/crd",
   "go run ./hack/reflowdesc config/crd/*_*.yaml",
   "hack/crd-kustomization.sh config/crd",
-  # The manager's role comes from the +kubebuilder:rbac markers next to the code that
-  # needs each permission, on the reconcilers.
-  "go tool controller-gen rbac:roleName=pk-metal-manager paths=./internal/controller/... output:rbac:artifacts:config=config/rbac",
+  # The manager's roles come from the +kubebuilder:rbac markers next to the code that
+  # needs each permission: on the reconcilers, and in cmd/manager for leader election.
+  "go tool controller-gen rbac:roleName=pk-metal-manager 'paths=./cmd/manager/...;./internal/controller/...' output:rbac:artifacts:config=config/rbac",
 ]
 
 [tasks."generate:check"]
