@@ -23,7 +23,7 @@ It uses the same tasks as you do. [](lab:wait) does the approval, through the sa
   <dt>File</dt>
   <dd>[.github/workflows/lab-e2e.yml](/repo/.github/workflows/lab-e2e.yml)</dd>
   <dt>Starts on</dt>
-  <dd>A push to a branch `claude/**`, or by hand (`workflow_dispatch`)</dd>
+  <dd>A push to a branch `claude/**`, every night (`schedule`), or by hand (`workflow_dispatch`)</dd>
   <dt>Runner</dt>
   <dd>`ubuntu-latest`, with KVM.</dd>
   <dt>Default run</dt>
@@ -33,6 +33,22 @@ It uses the same tasks as you do. [](lab:wait) does the approval, through the sa
   <dt>On failure</dt>
   <dd>[](lab:collect), then the directory `.lab/diagnostics` as an artifact.</dd>
 </dl>
+
+## When each round runs
+
+| Round | Push to `claude/**` | Every night | By hand |
+| --- | --- | --- | --- |
+| Install and release (job `lab`) | Yes | Yes | Yes |
+| `day2` | No | Yes | With its input |
+| `observe` | No | Yes | With its input |
+| `upgrade` | No | Yes | With its input |
+| `backup_restore` | No | Yes | With its input |
+| `scale` | No | Yes | With its input |
+| `pivot` | No | Yes | With its input |
+| `huawei` fleet | No | No | With its input |
+
+The nightly run starts at 02:17 UTC. GitHub starts it on the default branch only.
+The input `huawei` changes the fleet, not the rounds. Thus the nightly run does not use it.
 
 ## The default job
 
@@ -84,7 +100,7 @@ It uses the same tasks as you do. [](lab:wait) does the approval, through the sa
 
 | Job | Size | Environment | Time limit |
 | --- | --- | --- | --- |
-| `lab` | `1cp+2w` (default) | `PK_LAB_RELEASE_TIMEOUT=600` | 75 minutes. 85 with `observe`, 135 with `day2`. |
+| `lab` | `1cp+2w` (default) | `PK_LAB_RELEASE_TIMEOUT=600` | 75 minutes. 85 with `observe`, 135 with `day2`, 145 with both and at night. |
 | `pivot` | `1cp+0w` and `1cp+0w` | `PK_LAB_NODES`, `PK_LAB_WORKLOAD` | 90 minutes |
 | `backup-restore` | `1cp+0w` | `PK_LAB_NODES` | 90 minutes |
 | `scale` | `3cp+2w` | `PK_LAB_NODES`, a spec with 2560 MiB for each control plane | 150 minutes |

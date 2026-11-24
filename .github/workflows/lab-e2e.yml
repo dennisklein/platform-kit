@@ -48,6 +48,11 @@
 # - upgrade, in its own job: a lab brought up one Talos release behind is
 #   upgraded through an approved rollout.
 # - backup_restore and scale, in their own jobs, above.
+#
+# Every night the schedule runs all of them: the default job with day2 and
+# observe, and the pivot, backup-restore, scale and upgrade jobs. The huawei
+# input changes the fleet, not a round, so the nightly run leaves it off.
+# GitHub starts a scheduled run on the default branch only.
 name: lab-e2e
 
 on:
@@ -84,6 +89,8 @@ on:
   push:
     branches:
       - "claude/**"
+  schedule:
+    - cron: "17 2 * * *"
 
 permissions:
   contents: read
@@ -100,7 +107,8 @@ jobs:
     # at forty, and a failed run still needs time to collect its evidence. The
     # day-2 round adds two reboots of at most twenty minutes each and a
     # config rollout without reboots; observe adds about three minutes.
-    timeout-minutes: ${{ inputs.day2 && 135 || inputs.observe && 85 || 75 }}
+    # The nightly run has both.
+    timeout-minutes: ${{ (github.event_name == 'schedule' || (inputs.day2 && inputs.observe)) && 145 || inputs.day2 && 135 || inputs.observe && 85 || 75 }}
     env:
       # A hosted runner promises 14 GB of free disk. The lab's sparse disks, the
       # installer image and the container images stay well below that.
@@ -175,7 +183,7 @@ jobs:
       # through a Config rollout: the operator sees the drift in its dry run,
       # proposes, and the run approves and resumes it as a person would.
       - name: "Day 2: reboot a worker and a control plane, then a config change without a reboot"
-        if: github.event_name == 'workflow_dispatch' && inputs.day2
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.day2)
         run: |
           mise run lab:day2
           mise run lab:status
@@ -183,7 +191,7 @@ jobs:
 
       # About three minutes: the window it creates opens two minutes later.
       - name: Check the day-2 views (status tables, metrics, maintenance window)
-        if: github.event_name == 'workflow_dispatch' && inputs.observe
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.observe)
         run: mise run lab:observe
 
       # Deleting the claim of a running node proposes a shutdown that waits
@@ -212,7 +220,7 @@ jobs:
 
   pivot:
     name: move the operator onto the cluster it built
-    if: github.event_name == 'workflow_dispatch' && inputs.pivot
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.pivot)
     # A hosted runner has 16 GiB. Two machines of 4 GiB and the kind node fit;
     # kind goes away after the move.
     runs-on: ubuntu-latest
@@ -284,7 +292,7 @@ jobs:
 
   backup-restore:
     name: back up etcd, lose it, restore it
-    if: github.event_name == 'workflow_dispatch' && inputs.backup_restore
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.backup_restore)
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -353,7 +361,7 @@ jobs:
 
   scale:
     name: add, remove and replace nodes
-    if: github.event_name == 'workflow_dispatch' && inputs.scale
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.scale)
     runs-on: ubuntu-latest
     # Install, then five rounds of joins and removals of about ten minutes
     # each.
@@ -434,7 +442,7 @@ jobs:
 
   upgrade:
     name: "day 2: upgrade Talos through a rollout"
-    if: github.event_name == 'workflow_dispatch' && inputs.upgrade
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.upgrade)
     runs-on: ubuntu-latest
     # Install, then a drain, an upgrade and a reboot per machine.
     timeout-minutes: 120
