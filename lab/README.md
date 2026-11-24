@@ -4,7 +4,8 @@ Three virtual machines with simulated management controllers, and the operator
 taking them from an inventory entry to a three-node Kubernetes cluster. The
 machines are real UEFI machines under QEMU, the install is a real Talos install,
 and the operator runs from the same image and manifests a real site would use.
-Only the hardware is simulated.
+Only the hardware is simulated. Three machines is the default; see "Size the
+lab" for more.
 
 New to Kubernetes, or coming from PXE, kickstart, Foreman or xCAT? Read
 [Concepts for system administrators](../docs/metal/concepts-for-sysadmins.md)
@@ -15,15 +16,15 @@ of state lives, and lists what is destructive.
 
 - **A HostClaim with `spec.os` is an install order.** The operator proposes
   to boot that machine into the Talos installer. Once a person approves, the
-  install disk is repartitioned and overwritten. `lab/manifests/30-claims.yaml`
-  has three such claims.
+  install disk is repartitioned and overwritten. The lab's
+  `.lab/generated/manifests/30-claims.yaml` has one such claim per machine.
 - **Nothing happens to a machine before somebody approves.** The approval is
   `pk-metal approve` (`mise run lab:approve` in the lab). To say no, remove
   `spec.os` from the claim, or hold it: `pk-metal hold default/node-1`.
 - **Deleting a HostClaim powers its machine off** (a graceful shutdown first,
   then a hard power-off). For a machine that runs its node, that power-off
-  waits for an approval too. `kubectl delete -f lab/manifests/` does this to
-  every lab machine. It is not "remove from the inventory".
+  waits for an approval too. `kubectl delete -f .lab/generated/manifests/`
+  does this to every lab machine. It is not "remove from the inventory".
 
 ## What runs where
 
@@ -51,20 +52,30 @@ of state lives, and lists what is destructive.
   is the only part that needs root, and `down` removes exactly what `up` made.
 - `lab/kind.yaml` is the management cluster. The operator's image is built from
   the working tree and loaded into it; nothing is pulled from a registry.
-- `lab/fleet.yaml` describes the machines. The operator's ledger and the tap
-  list are derived from it.
-- `lab/manifests/` is what a person would commit for a real site: the Assets
-  and their BMC credentials, the TalosCluster with its nodes, and one HostClaim
-  per machine.
-- `.lab/` (ignored by git) holds everything the lab writes: its own kubeconfig,
-  the generated deployment, the Talos secrets bundle, disks, caches and logs.
-  Your `~/.kube/config` is never touched.
+- `lab/lab.yaml` is the one file that describes the lab: the cluster name,
+  the Talos and Kubernetes versions, the VIP, how many control planes and
+  workers, their memory and CPUs, and per-machine overrides. `lab:up` renders
+  everything else from it into `.lab/generated/`:
+  - `fleet.yaml`, the machines the simulated BMCs serve;
+  - `manifests/`, what a person would commit for a real site: the Assets and
+    their BMC credentials, the TalosCluster with its nodes, and one HostClaim
+    per machine;
+  - `taps` for `lab/net.sh`, and `ledger.yaml` for the operator.
+
+  Machine n is `node-<n>`, and everything that tells it apart comes from n:
+  address `10.77.0.<10+n>`, BMC `https://10.77.0.1:<8440+n>`, tap `pktap<n>`,
+  serial (`PKLAB0001` for node-1), MACs and disk serial. The files cannot
+  disagree.
+- `.lab/` (ignored by git) holds everything the lab writes: the rendered
+  files, its own kubeconfig, the generated deployment, the Talos secrets
+  bundle, disks, caches and logs. Your `~/.kube/config` is never touched.
 
 ## Prerequisites
 
 Linux with KVM, cgroup v2, Docker Engine, QEMU with OVMF, `sudo`, about 12 GiB
-of free memory and 15 GiB of free disk. `mise install` brings kind, kubectl,
-talosctl, yq and jq at the versions the repository pins.
+of free memory (for the default three machines) and 15 GiB of free disk.
+`mise install` brings go, kind, kubectl, talosctl, yq and jq at the versions
+the repository pins.
 
 ```sh
 # Debian, Ubuntu
@@ -99,14 +110,15 @@ root on that machine; on a shared workstation, decide that on purpose.
 
 | Command | What it does |
 | --- | --- |
-| `mise run lab:doctor` | Checks the workstation. Changes nothing. |
-| `mise run lab:up` | Network, kind cluster, operator, fleet, manifests. Safe to rerun. |
+| `mise run lab:doctor` | Checks the workstation, and that `lab/lab.yaml` renders and fits in memory. Changes nothing. |
+| `mise run lab:render` | Renders `lab/lab.yaml` into `.lab/generated/`, to read before `lab:up`. |
+| `mise run lab:up` | Render, network, kind cluster, operator, fleet, manifests. Safe to rerun. |
 | `mise run lab:status` | The rack as the operator sees it, then every object. |
 | `mise run lab:approve` | Approves every operation that waits for a person. |
-| `mise run lab:apply [path...]` | `kubectl apply` as a member of the admin group. Default: `lab/manifests/`. |
+| `mise run lab:apply [path...]` | `kubectl apply` as a member of the admin group. Default: `.lab/generated/manifests/`. |
 | `mise run lab:kubeconfig` | Writes `.lab/workload.kubeconfig` and `.lab/talosconfig`. |
 | `mise run lab:load` | Rebuilds the operator image and rolls the manager. |
-| `mise run lab:wait` | Unattended: approves and waits for three Ready nodes. |
+| `mise run lab:wait` | Unattended: approves and waits until every machine is a Ready node. |
 | `mise run lab:release <namespace/name>` | Deletes a claim, approves the shutdown it proposes, and waits until its Host is Available. |
 | `mise run lab:collect` | Writes logs and object dumps to `.lab/diagnostics`. |
 | `mise run lab:down` | Stops everything and removes the network. Keeps disks and caches. |
@@ -143,12 +155,49 @@ kubeconfig: `export KUBECONFIG=$PWD/.lab/kubeconfig`. Then `kubectl get metal`
 lists every object of the operator, and `kubectl describe host pklab0002`
 shows why something waits.
 
-**Changing the manifests.** Edit a file under `lab/manifests/` and run
-`mise run lab:apply lab/manifests/30-claims.yaml`. A plain `kubectl apply`
-of a claim with `spec.os` is refused, even as the cluster admin: the claim
-policy (`metal/config/policy`) asks for membership of the group
-`pk-metal:admins` by name. `lab:apply` acts as a member by impersonation; a
-real site binds its admins to that group instead.
+**Changing the manifests.** Edit `lab/lab.yaml` and run `mise run lab:up`
+again: it renders the manifests anew and applies them. The files under
+`.lab/generated/` are overwritten on every `lab:up`; do not edit them. To
+apply one of them by hand: `mise run lab:apply
+.lab/generated/manifests/30-claims.yaml`. A plain `kubectl apply` of a claim
+with `spec.os` is refused, even as the cluster admin: the claim policy
+(`metal/config/policy`) asks for membership of the group `pk-metal:admins` by
+name. `lab:apply` acts as a member by impersonation; a real site binds its
+admins to that group instead.
+
+## Size the lab
+
+The default is one control plane and two workers. Set another size with
+`PK_LAB_NODES=<control planes>cp+<workers>w`:
+
+```sh
+PK_LAB_NODES=3cp+2w mise run lab:doctor   # does it fit in memory?
+PK_LAB_NODES=3cp+2w mise run lab:up
+mise run lab:wait                         # waits for all five
+```
+
+- Use 1, 3 or 5 control planes. etcd needs a majority, so an even number is
+  refused. With three or more, the Kubernetes API address (the VIP,
+  `10.77.0.10`) moves to another control plane when its holder goes down.
+- `3cp+0w` is allowed: the control planes then also run ordinary workloads.
+- The machines are numbered control planes first. With `3cp+2w`, node-1 to
+  node-3 are control planes and node-4 and node-5 are workers.
+- Memory: each control plane gets 4 GiB and each worker 2 GiB, plus about
+  3 GiB for kind. `lab:doctor` adds this up for the size you give it and
+  compares it with the free memory. `3cp+2w` needs about 19 GiB.
+- To change the defaults for good, edit `controlPlanes`, `workers`, the
+  `controlPlane` and `worker` sizes, or one machine under `nodes:` in
+  `lab/lab.yaml`. An entry under `nodes:` for a machine the size does not
+  have is ignored.
+
+The size is fixed while the lab runs. `lab:up` refuses a new size while the
+fleet runs, and the other commands use what the last `lab:up` rendered, so
+`PK_LAB_NODES` is needed on `lab:up` (and `lab:doctor`) only. To change it:
+
+```sh
+mise run lab:down && mise run lab:reset
+PK_LAB_NODES=3cp+2w mise run lab:up
+```
 
 ## Look at a machine (there is no ssh)
 
@@ -173,7 +222,8 @@ talosctl -n 10.77.0.12 read /proc/meminfo
 talosctl -n 10.77.0.12 --insecure get disks
 ```
 
-The node addresses are in `lab/manifests/20-talos.yaml`. On real hardware the
+Machine node-n has the address `10.77.0.<10+n>`; the head of
+`.lab/generated/manifests/20-talos.yaml` lists them all. On real hardware the
 console is the BMC's serial-over-LAN (`ipmitool -I lanplus -H <bmc> -U <user>
 sol activate`) or its web console; the TalosCluster's `console=` kernel
 argument must name the port the SOL redirects. Software is added to Talos as
@@ -225,35 +275,36 @@ pulling the kind node image, is set in the Docker service, not here.
 
 **The Talos machines** do not inherit any of it. They reach the outside
 through the workstation's NAT, use the DNS servers of the `ResolverConfig`
-patch in `lab/manifests/20-talos.yaml` (1.1.1.1 and 8.8.8.8, Talos' own
-defaults) and the NTP server `time.cloudflare.com`. At a site that blocks
-those, add patches to the TalosCluster's `patches:` list:
+patch in `lab/lab.yaml` (1.1.1.1 and 8.8.8.8, Talos' own defaults) and the
+NTP server `time.cloudflare.com`. At a site that blocks those, change the
+`patches:` list in `lab/lab.yaml`; it goes into the TalosCluster as it is:
 
 ```yaml
-    - inline: |
-        apiVersion: v1alpha1
-        kind: ResolverConfig
-        nameservers:
-          - address: 192.0.2.53
-    - inline: |
-        apiVersion: v1alpha1
-        kind: TimeSyncConfig
-        bootTimeout: 2m0s
-        ntp:
-          servers:
-            - ntp.example.org
-    - inline: |
-        apiVersion: v1alpha1
-        kind: EnvironmentConfig
-        variables:
-          https_proxy: http://proxy.example.org:3128
-          no_proxy: 10.77.0.0/24,10.96.0.0/12,10.244.0.0/16,.svc,.cluster.local,localhost,127.0.0.1
+patches:
+  - inline: |
+      apiVersion: v1alpha1
+      kind: ResolverConfig
+      nameservers:
+        - address: 192.0.2.53
+  - inline: |
+      apiVersion: v1alpha1
+      kind: TimeSyncConfig
+      bootTimeout: 2m0s
+      ntp:
+        servers:
+          - ntp.example.org
+  - inline: |
+      apiVersion: v1alpha1
+      kind: EnvironmentConfig
+      variables:
+        https_proxy: http://proxy.example.org:3128
+        no_proxy: 10.77.0.0/24,10.96.0.0/12,10.244.0.0/16,.svc,.cluster.local,localhost,127.0.0.1
 ```
 
 Replace the existing `ResolverConfig` and `TimeSyncConfig` entries rather
 than adding a second one. The `no_proxy` above keeps the lab network and the
 cluster's service and pod networks (Talos' defaults) off the proxy. Apply with
-`mise run lab:apply`, before the machines are installed.
+`mise run lab:up`, before the machines are installed.
 
 ## Troubleshooting
 
@@ -276,7 +327,7 @@ network is up. `lab:up` brings the network up first; for a partial rerun, run
 `lab/net.sh up` (or `mise run lab:up`) before `lab/lab.sh cluster`.
 
 **Endpoints stay unreachable.** The operator in kind has to reach
-`10.77.0.1:8441-8443` on the host. `lab/net.sh status` lists the firewall rules
+`10.77.0.1:8441` and up (one port per machine) on the host. `lab/net.sh status` lists the firewall rules
 the lab needs and marks the missing ones. Host firewalls:
 
 - firewalld (RHEL, Fedora): `lab/net.sh up` puts `pkbr0` into the zone
