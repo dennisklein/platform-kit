@@ -155,11 +155,13 @@ Two Hosts are `Provisioned`. The operator pod runs on `node-1`. The second clust
 
 ### 4. Stop the lab
 
-1. Stop the lab.
+1. Stop the lab and delete the disks.
 
    ```sh
-   mise run lab:down
+   mise run lab:down && mise run lab:reset
    ```
+
+   The disk of `node-1` holds the moved operator. Do not start a new lab from that disk.
 
 `lab:up` refuses to start kind again until you run `lab:down`. See [lab troubleshooting](lab:page/troubleshooting#the-lab-refuses-to-start-after-a-pivot).
 

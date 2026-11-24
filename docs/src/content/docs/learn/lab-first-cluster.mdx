@@ -45,19 +45,35 @@ The result is a Kubernetes cluster that the operator installed through simulated
 
 ### 1. Check the workstation
 
-1. Install the pinned tools.
+1. Install [mise](https://mise.jdx.dev/getting-started.html). It installs the tools at the versions that the repository pins.
+
+2. Trust the configuration of the repository.
+
+   ```sh
+   mise trust
+   ```
+
+3. Install the pinned tools.
 
    ```sh
    mise install
    ```
 
-2. Run the doctor.
+4. Put the tools on the `PATH` of this terminal. Do this in each new terminal.
+
+   ```sh
+   eval "$(mise activate bash)"
+   ```
+
+   Without this step, `kubectl`, `talosctl`, `kind` and `yq` are available only in `mise run` tasks.
+
+5. Run the doctor. The doctor can ask for your `sudo` password. It runs nothing as root.
 
    ```sh
    mise run lab:doctor
    ```
 
-3. If a line starts with `MISS`, do what its `fix:` line says. Then run the doctor again.
+6. If a line starts with `MISS`, do what its `fix:` line says. Then run the doctor again.
 
 <Checkpoint>
 The last line is `the workstation has what the lab needs`.
@@ -119,6 +135,7 @@ An install overwrites the install disk of the machine. In the lab, the disk is a
 3. Press `a`. Read the plan.
 4. Press `y` to approve.
 5. Do steps 2 to 4 again for the other two machines.
+6. If an operation fails at `insertMedia`, select the machine and press `r`. The image factory builds an image on the first request, and the simulated BMC waits only 10 seconds.
 
 <Shot src="top-2-approve.png" alt="The approval dialog of pk-metal top. It shows nine steps: eject media, mount the installer and the machine config, set the boot device, power cycle, wait for the node, eject media." caption="The plan of one install in lab:top. A mock screen with example data." width={1600} height={614} />
 
@@ -133,6 +150,7 @@ Each machine has an operation that runs, and its BMC shows mounted media.
 
 1. Keep the live view open. Each tile shows the step of its operation, for example `7/9 awaitCheckIn`.
 2. Wait until each Host is `Provisioned`. This takes about three minutes after the approval.
+3. If an operation fails, press `r` in the live view to try it again. [](cli:retry) does the same.
 
 <TermReplay src="casts/top.json" caption="A replay of lab:top with example data." />
 
@@ -177,16 +195,23 @@ Three nodes are `Ready`, and three Hosts are `Provisioned`.
 
 ### 7. Stop the lab
 
-1. Stop the lab. The disks of the machines stay.
+1. Stop the lab. The command uses `sudo` to remove the lab network.
 
    ```sh
    mise run lab:down
    ```
 
-2. To continue with [](tut:lab-day-2), do not stop the lab.
+2. Delete the disks of the machines.
 
-After `lab:down`, a new `lab:up` starts the same machines from their disks.
-To delete the disks, run [](lab:reset).
+   ```sh
+   mise run lab:reset
+   ```
+
+`lab:down` deletes the kind cluster, and with it all objects of the operator. It keeps the disks and the secrets bundle.
+If you do not delete the disks, the next `lab:up` starts the same machines, and the operator proposes the installs again.
+Each of the other lab tutorials starts a new lab of its own.
+
+If a step does not give its checkpoint, see [](lab:page/troubleshooting). [](lab:collect) writes the state of the lab to a directory.
 
 ## What you learned
 
