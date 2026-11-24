@@ -321,8 +321,8 @@ depends = ["docs:build"]
 run = ["node scripts/check-xrefs.mjs dist", "node scripts/check-html.mjs dist"]
 
 [tasks."docs:check"]
-description = "The documentation gate of CI: build, internal links, category links, the STE lint of the pages and the glossary (errors fail)"
-depends = ["docs:links", "docs:lint", "docs:lint:glossary"]
+description = "The documentation gate of CI: build, internal links, category links, the STE lint of the pages and the glossary (errors fail), theme contrast"
+depends = ["docs:links", "docs:lint", "docs:lint:glossary", "docs:lint:contrast"]
 
 [tasks."docs:shots"]
 description = "Take screenshots of representative pages (light, dark, phone) into docs/.shots (needs Playwright with Chromium; set NODE_PATH to it)"
@@ -330,6 +330,11 @@ dir = "docs"
 depends = ["docs:build"]
 env = { ASTRO_TELEMETRY_DISABLED = "1" }
 run = "node scripts/shots.mjs"
+
+[tasks."docs:lint:contrast"]
+description = "Check the WCAG contrast of the theme colours (docs/src/styles/theme.css): 4.5:1 for text, 3:1 for diagram lines"
+dir = "docs"
+run = "node scripts/check-contrast.mjs"
 
 [tasks."docs:lint"]
 description = "Check the prose of the documentation pages with the STE Vale style (docs/.vale.ini)"

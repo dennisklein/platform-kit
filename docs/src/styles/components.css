@@ -641,7 +641,7 @@ a.box-g:hover .box {
   transition: fill 0.35s, stroke 0.35s, opacity 0.35s;
 }
 .pk-ex .edge-g {
-  opacity: 0.35;
+  opacity: 0.6;
 }
 .pk-ex .edge-g text {
   opacity: 0;
