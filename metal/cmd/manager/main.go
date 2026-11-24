@@ -38,7 +38,9 @@ import (
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/asset"
 	"github.com/dennisklein/platform-kit/metal/internal/controller"
+	"github.com/dennisklein/platform-kit/metal/internal/k8supgrade"
 	"github.com/dennisklein/platform-kit/metal/internal/ledger"
+	"github.com/dennisklein/platform-kit/metal/internal/oci"
 	pkscheme "github.com/dennisklein/platform-kit/metal/internal/scheme"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/machineapi"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
@@ -207,6 +209,12 @@ func main() {
 		EtcdBackupDir:    c.backupDir,
 		EtcdBackupVolume: c.backupClaim,
 		NodeName:         c.nodeName,
+		// Installer images are public (the image factory, ghcr.io): pinned
+		// over the default transport, which honours the proxy environment.
+		ResolveImage: func(ctx context.Context, ref string) (string, error) {
+			return oci.Resolve(ctx, &http.Client{Timeout: 30 * time.Second}, ref)
+		},
+		Workload: k8supgrade.Dial,
 	}, controller.AllLanes...); err != nil {
 		log.Error(err, "setup reconcilers")
 		os.Exit(1)

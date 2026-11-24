@@ -38,6 +38,9 @@ require (
 	// authenticates every 64 KiB chunk, so a damaged backup fails while it is read instead
 	// of restoring garbage. It is the tool SOPS users already hold keys for.
 	filippo.io/age v1.3.1
+	// Already linked through machinery, whose compatibility package parses versions with it;
+	// orders Talos versions for the per-node render contract the same way that package does.
+	github.com/blang/semver/v4 v4.0.0
 	// Part of the same stack (lipgloss depends on it); width-aware truncation and escape
 	// stripping for the tiles and the console lines.
 	github.com/charmbracelet/x/ansi v0.11.9
@@ -86,7 +89,6 @@ require (
 	github.com/adrg/xdg v0.5.3 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect

@@ -15,6 +15,7 @@ import (
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/asset"
+	"github.com/dennisklein/platform-kit/metal/internal/k8supgrade"
 	"github.com/dennisklein/platform-kit/metal/internal/ledger"
 	"github.com/dennisklein/platform-kit/metal/internal/talos"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
@@ -39,6 +40,7 @@ const (
 	LaneTalosCluster
 	LaneBootAsset
 	LaneEtcdBackup
+	LaneTalosRollout
 	laneCount
 )
 
@@ -47,6 +49,7 @@ var AllLanes = []Lane{
 	LaneAsset, LaneEndpoint, LaneHost, LaneHostClaim, LaneProtection, LaneHostOperation,
 	LaneConvergence, LaneEndpointConvergence, LaneTalosNode, LaneTalosCluster, LaneBootAsset,
 	LaneEtcdBackup,
+	LaneTalosRollout,
 }
 
 // Options is what the reconcilers are configured with. The manager fills it
@@ -107,6 +110,13 @@ type Options struct {
 	// the snapshots' pvc:// locations.
 	EtcdBackupDir    string
 	EtcdBackupVolume string
+
+	// ResolveImage, Workload and GateInterval configure the rollout lane;
+	// DriftInterval paces the TalosNode lane's dry-run drift check.
+	ResolveImage  ImageResolver
+	Workload      k8supgrade.Dialer
+	GateInterval  time.Duration
+	DriftInterval time.Duration
 
 	// NodeName is the Kubernetes node the manager's pod runs on. When set,
 	// the claim, operation and convergence lanes refuse to reboot the
@@ -234,7 +244,7 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 		return "talosnode", reconcilers{&TalosNodeReconciler{
 			Client: c, Scheme: scheme, Namespace: o.CredentialsNamespace,
 			Factory: o.Factory, Dial: o.TalosDial,
-			CheckInterval: o.CheckInterval, ReadyInterval: o.ReadyInterval,
+			CheckInterval: o.CheckInterval, ReadyInterval: o.ReadyInterval, DriftInterval: o.DriftInterval,
 		}, &TalosNodeMemberReconciler{
 			Client: c, Dial: o.TalosDial, CredentialsNamespace: o.CredentialsNamespace,
 			OperationsNamespace: o.OperationsNamespace,
@@ -250,6 +260,16 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 			Client: c, Namespace: o.CredentialsNamespace, Dial: o.TalosDial,
 			Dir: o.EtcdBackupDir, VolumeName: o.EtcdBackupVolume, Self: self,
 			RetryInterval: o.CheckInterval,
+		}
+	case LaneTalosRollout:
+		return "talosrollout", rolloutLane{
+			run: &TalosRolloutReconciler{
+				Client: c, Scheme: scheme, Namespace: o.CredentialsNamespace,
+				OperationsNamespace: o.OperationsNamespace, Proposer: o.Proposer,
+				Factory: o.Factory, ResolveImage: o.ResolveImage, Dial: o.TalosDial,
+				Workload: o.Workload, GateInterval: o.GateInterval,
+			},
+			propose: &RolloutProposer{Client: c, Proposer: o.Proposer},
 		}
 	default: // LaneBootAsset; SetupAll has checked the range
 		return "bootasset", &BootAssetReconciler{

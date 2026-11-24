@@ -17,13 +17,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
-	"github.com/dennisklein/platform-kit/metal/internal/asset"
 	"github.com/dennisklein/platform-kit/metal/internal/talos"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
 )
@@ -51,6 +48,10 @@ type TalosNodeReconciler struct {
 	// ReadyInterval once it reported Ready (liveness). Zero values default.
 	CheckInterval time.Duration
 	ReadyInterval time.Duration
+	// DriftInterval paces the dry-run drift check of a Ready node; zero
+	// defaults. A new render, or a rollout of the node's cluster, checks
+	// sooner.
+	DriftInterval time.Duration
 }
 
 // The check-in cadences: tight while a hand-off converges, relaxed once the
@@ -84,15 +85,20 @@ func (r *TalosNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	orig := node.DeepCopy()
-	cluster, bundle, err := r.render(ctx, node)
+	cluster, bundle, rendered, err := r.render(ctx, node)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	res, err := r.checkin(ctx, node, cluster, bundle)
+	res, err := r.checkin(ctx, node, cluster, bundle, rendered)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 	if err := updateStatusIfChanged(ctx, r.Client, node, &orig.Status, &node.Status); err != nil {
+		return ctrl.Result{}, err
+	}
+	// Collected after the status is written: a config Secret goes only once
+	// the status no longer points at it.
+	if err := r.collectConfigSecrets(ctx, node); err != nil {
 		return ctrl.Result{}, err
 	}
 	return res, nil
@@ -102,29 +108,30 @@ func (r *TalosNodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 // Rendered=True or parks the node on a False condition. Only transport errors
 // return error: semantic failures are conditions, re-triggered by the watches
 // on their inputs. It hands the cluster and bundle on to the check-in when it
-// got that far.
-func (r *TalosNodeReconciler) render(ctx context.Context, node *osv1alpha1.TalosNode) (*osv1alpha1.TalosCluster, *secrets.Bundle, error) {
+// got that far, and the rendered bytes when this pass rendered.
+func (r *TalosNodeReconciler) render(ctx context.Context, node *osv1alpha1.TalosNode) (
+	cluster *osv1alpha1.TalosCluster, bundle *secrets.Bundle, rendered []byte, err error) {
 	hold := func(reason, message string) {
 		setCondition(&node.Status.Conditions, node.Generation, osv1alpha1.ConditionRendered, metav1.ConditionFalse, reason, message)
 	}
 	node.Status.Address = render.NodeAddress(node)
 
-	cluster := &osv1alpha1.TalosCluster{}
+	cluster = &osv1alpha1.TalosCluster{}
 	if err := r.Get(ctx, types.NamespacedName{Name: node.Spec.ClusterRef.Name}, cluster); err != nil {
 		if client.IgnoreNotFound(err) != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		hold(osv1alpha1.ReasonClusterNotFound,
 			fmt.Sprintf("clusterRef names no TalosCluster %q", node.Spec.ClusterRef.Name))
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 
-	bundle, err := loadBundle(ctx, r.Client, r.Namespace, cluster)
+	bundle, err = loadBundle(ctx, r.Client, r.Namespace, cluster)
 	if unavailable := (*bundleUnavailable)(nil); errors.As(err, &unavailable) {
 		hold(osv1alpha1.ReasonSecretsUnavailable, unavailable.msg)
-		return cluster, nil, nil
+		return cluster, nil, nil, nil
 	} else if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	read := configMapReader(ctx, r.Client, r.Namespace)
@@ -133,21 +140,36 @@ func (r *TalosNodeReconciler) render(ctx context.Context, node *osv1alpha1.Talos
 		var nodePatches [][]byte
 		nodePatches, err = render.ResolvePatches(node.Spec.Patches, read)
 		if err == nil {
-			err = r.renderWith(ctx, node, cluster, bundle, clusterPatches, nodePatches, hold)
+			rendered, err = r.renderWith(ctx, node, cluster, bundle, clusterPatches, nodePatches, hold)
 		}
 	}
 	switch {
 	case errors.Is(err, render.ErrPatchUnresolvable):
 		hold(osv1alpha1.ReasonPatchesUnresolvable, err.Error())
 	case err != nil:
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return cluster, bundle, nil
+	return cluster, bundle, rendered, nil
 }
 
-// renderWith is the render proper, once every input is in hand.
+// renderWith is the render proper, once every input is in hand. It renders
+// for the Talos version the machine runs while that is older than the
+// cluster's (render.RenderVersion), and writes the result into a
+// content-addressed Secret that is never rewritten: an operation approved for
+// one digest finds exactly those bytes under that name.
 func (r *TalosNodeReconciler) renderWith(ctx context.Context, node *osv1alpha1.TalosNode, cluster *osv1alpha1.TalosCluster,
-	bundle *secrets.Bundle, clusterPatches, nodePatches [][]byte, hold func(string, string)) error {
+	bundle *secrets.Bundle, clusterPatches, nodePatches [][]byte, hold func(string, string)) ([]byte, error) {
+	version := render.RenderVersion(cluster.Spec.TalosVersion, node.Status.Version, node.Status.RenderedFor)
+	if err := render.SupportedPair(version, cluster.Spec.KubernetesVersion); err != nil {
+		hold(osv1alpha1.ReasonUnsupportedVersion, err.Error())
+		return nil, nil
+	}
+	target := cluster
+	if version != cluster.Spec.TalosVersion {
+		target = cluster.DeepCopy()
+		target.Spec.TalosVersion = version
+	}
+
 	// The config names its own installer image by schematic id, and the
 	// machine pulls it mid-install with only a serial console watching.
 	// Register before rendering: an id no factory knows is a 404 there, and a
@@ -155,42 +177,35 @@ func (r *TalosNodeReconciler) renderWith(ctx context.Context, node *osv1alpha1.T
 	schematic := render.EffectiveSchematic(cluster, node)
 	if _, err := r.Factory.Register(ctx, schematic); err != nil {
 		hold(osv1alpha1.ReasonSchematicUnavailable, err.Error())
-		return nil
+		return nil, nil
 	}
-	installer, err := r.Factory.InstallerImage(schematic, cluster.Spec.TalosVersion)
+	installer, err := r.Factory.InstallerImage(schematic, version)
 	if err != nil {
 		hold(osv1alpha1.ReasonRenderFailed, err.Error())
-		return nil
+		return nil, nil
 	}
 
 	machineConfig, err := render.Node(render.Input{
-		Cluster: cluster, Node: node, Bundle: bundle, InstallerImage: installer,
+		Cluster: target, Node: node, Bundle: bundle, InstallerImage: installer,
 		ClusterPatches: clusterPatches, NodePatches: nodePatches,
 	})
 	if err != nil {
 		hold(osv1alpha1.ReasonRenderFailed, err.Error())
-		return nil
+		return nil, nil
 	}
 
-	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
-		Namespace: r.Namespace, Name: "machineconfig-" + node.Name,
-	}}
-	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, secret, func() error {
-		secret.Data = map[string][]byte{asset.ConfigFilename: machineConfig}
-		return controllerutil.SetControllerReference(node, secret, r.Scheme)
-	})
+	sum := digest.FromBytes(machineConfig)
+	secret, err := r.writeConfigSecret(ctx, node, sum, machineConfig)
 	if err != nil {
-		return fmt.Errorf("write config secret for %s: %w", node.Name, err)
-	}
-	if op != controllerutil.OperationResultNone {
-		logf.FromContext(ctx).Info("rendered machine config", "node", node.Name, "secret", secret.Name, "op", op)
+		return nil, err
 	}
 
 	node.Status.ConfigSecretRef = &osv1alpha1.SecretReference{Namespace: secret.Namespace, Name: secret.Name}
-	node.Status.ConfigDigest = digest.FromBytes(machineConfig).String()
+	node.Status.ConfigDigest = sum.String()
 	node.Status.InstallerImage = installer
+	node.Status.RenderedFor = version
 	setCondition(&node.Status.Conditions, node.Generation, osv1alpha1.ConditionRendered, metav1.ConditionTrue, osv1alpha1.ReasonConfigRendered, "")
-	return nil
+	return machineConfig, nil
 }
 
 // checkin observes the machine a Host hands this node (the authenticated
@@ -199,7 +214,7 @@ func (r *TalosNodeReconciler) renderWith(ctx context.Context, node *osv1alpha1.T
 // observations (conditions), never reconcile errors: an unreachable machine is
 // a state, and the poll re-observes it.
 func (r *TalosNodeReconciler) checkin(ctx context.Context, node *osv1alpha1.TalosNode,
-	cluster *osv1alpha1.TalosCluster, bundle *secrets.Bundle) (ctrl.Result, error) {
+	cluster *osv1alpha1.TalosCluster, bundle *secrets.Bundle, rendered []byte) (ctrl.Result, error) {
 	if r.Dial == nil {
 		return ctrl.Result{}, nil
 	}
@@ -212,7 +227,9 @@ func (r *TalosNodeReconciler) checkin(ctx context.Context, node *osv1alpha1.Talo
 		// observations leave with the hand-off (the release path).
 		meta.RemoveStatusCondition(&node.Status.Conditions, osv1alpha1.ConditionMachineReachable)
 		meta.RemoveStatusCondition(&node.Status.Conditions, osv1alpha1.ConditionReady)
-		node.Status.Stage, node.Status.Version = "", ""
+		meta.RemoveStatusCondition(&node.Status.Conditions, osv1alpha1.ConditionConfigInSync)
+		meta.RemoveStatusCondition(&node.Status.Conditions, osv1alpha1.ConditionVersionCurrent)
+		node.Status.Stage, node.Status.Version, node.Status.Drift = "", "", nil
 		return ctrl.Result{}, nil
 	}
 
@@ -240,8 +257,19 @@ func (r *TalosNodeReconciler) checkin(ctx context.Context, node *osv1alpha1.Talo
 		set(osv1alpha1.ConditionMachineReachable, metav1.ConditionTrue,
 			osv1alpha1.ReasonMachineAPI, "machine API answering at "+endpoint)
 		node.Status.Stage, node.Status.Version = st.Stage, version
+		r.observeVersion(node, cluster)
 		if st.Stage == "running" && st.Ready {
 			set(osv1alpha1.ConditionReady, metav1.ConditionTrue, osv1alpha1.ReasonNodeReady, "")
+			rolling, err := r.rolloutActive(ctx, node.Spec.ClusterRef.Name)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			r.checkDrift(ctx, node, tcfg, endpoint, rendered, rolling)
+			if rolling {
+				// The health gates between the nodes of a rollout read
+				// this: a Ready polled two minutes ago is no gate (D7).
+				return retry, nil
+			}
 			return ctrl.Result{RequeueAfter: cmp.Or(r.ReadyInterval, defaultReadyInterval)}, nil
 		}
 		msg := "stage " + st.Stage
@@ -311,6 +339,7 @@ func (r *TalosNodeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&osv1alpha1.TalosCluster{}, handler.EnqueueRequestsFromMapFunc(r.nodesForCluster)).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.nodesForBundle)).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.nodesForConfigMap)).
+		Watches(&osv1alpha1.TalosRollout{}, handler.EnqueueRequestsFromMapFunc(r.nodesForRollout)).
 		Named("talosnode")
 	if r.Dial != nil {
 		// A hand-off appearing (or leaving) on a Host starts (or ends) the poll.

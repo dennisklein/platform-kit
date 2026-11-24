@@ -64,6 +64,14 @@ on:
         description: "Also run the scale round on five machines: control planes 3 -> 1 -> 3, remove a worker, replace a control plane, back to 1"
         type: boolean
         default: false
+      day2_config_change:
+        description: "Day 2: after the install, roll a node label (no reboot) through an approved Config rollout"
+        type: boolean
+        default: false
+      day2_upgrade:
+        description: "Day 2: bring a lab up on an older Talos release and upgrade it through an approved rollout"
+        type: boolean
+        default: false
   push:
     branches:
       - "claude/**"
@@ -158,6 +166,15 @@ jobs:
         run: |
           mise run lab:day2
           mise run lab:status
+
+      # A change that needs no reboot reaches the running machines through a
+      # Config rollout: the operator sees the drift in its dry run, proposes,
+      # and the run approves and resumes it as a person would.
+      - name: "Day 2: a config change without a reboot"
+        if: github.event_name == 'workflow_dispatch' && inputs.day2_config_change
+        run: |
+          mise run lab:day2-config-change
+          metal/bin/pk-metal --kubeconfig .lab/kubeconfig rollout list
 
       # Deleting the claim of a running node proposes a shutdown that waits
       # for a person. lab:release approves it, as lab:wait does, and checks the
@@ -396,6 +413,77 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lab-scale-diagnostics
+          path: .lab/diagnostics
+          if-no-files-found: warn
+          retention-days: 7
+
+  day2-upgrade:
+    name: "day 2: upgrade Talos through a rollout"
+    if: github.event_name == 'workflow_dispatch' && inputs.day2_upgrade
+    runs-on: ubuntu-latest
+    # Install, then a drain, an upgrade and a reboot per machine.
+    timeout-minutes: 120
+    env:
+      PK_LAB_MIN_FREE_GIB: "10"
+      PK_LAB_WAIT_TIMEOUT: "2400"
+      PK_LAB_ROLLOUT_TIMEOUT: "3000"
+      # The lab comes up one patch release behind the spec; lab:day2-upgrade
+      # upgrades it to the spec's release.
+      PK_LAB_TALOS: "v1.14.5"
+      PK_LAB_NODES: "1cp+1w"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Enable KVM for the runner user
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install QEMU and the UEFI firmware
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends qemu-system-x86 qemu-utils ovmf
+
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
+
+      - name: Locate the Go caches
+        id: go
+        run: |
+          echo "modcache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "buildcache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go.outputs.modcache }}
+            ${{ steps.go.outputs.buildcache }}
+          key: go-lab-${{ runner.os }}-${{ hashFiles('metal/go.sum') }}
+          restore-keys: go-lab-${{ runner.os }}-
+
+      - name: Check the prerequisites
+        run: mise run lab:doctor
+
+      - name: Bring the lab up on the older release
+        run: mise run lab:up
+
+      - name: Install it
+        run: mise run lab:wait
+
+      - name: Upgrade it through an approved rollout
+        run: |
+          mise run lab:day2-upgrade
+          mise run lab:status
+
+      - name: Collect diagnostics
+        if: failure() || cancelled()
+        run: mise run lab:collect
+
+      - name: Upload diagnostics
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lab-day2-upgrade-diagnostics
           path: .lab/diagnostics
           if-no-files-found: warn
           retention-days: 7

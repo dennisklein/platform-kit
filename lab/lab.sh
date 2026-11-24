@@ -30,6 +30,11 @@ HELP="usage: $SCRIPT <verb>
                reboot, approved by a second user, and check each came back
   scale        on a converged lab at PK_LAB_NODES=3cp+2w: control planes 3 -> 1 -> 3,
                remove a worker, replace a control plane, back to 1; approves as wait does
+  day2-upgrade upgrade a lab brought up on an older Talos (PK_LAB_TALOS) to the spec's
+               release through an approved rollout, and check every machine runs it
+  day2-config-change
+               add a node label (no reboot) through an approved Config rollout, and
+               check that every node has it and that no machine rebooted
   pivot        move the operator from kind onto the first Talos cluster (pk-metal
                pivot), delete kind, and install the second cluster from there;
                needs a workload section (PK_LAB_WORKLOAD) and a converged lab
@@ -57,6 +62,10 @@ environment variables:
                         seconds release gives a machine to come back (default: 900)
   PK_LAB_DAY2_TIMEOUT   seconds day2 gives each reboot (default: 1200)
   PK_LAB_MIN_FREE_GIB   free disk doctor asks for under PK_LAB_DIR (default: 15)
+  PK_LAB_TALOS          start the lab on this Talos release instead of the spec's, e.g.
+                        v1.14.5, so that day2-upgrade has something to upgrade
+  PK_LAB_ROLLOUT_TIMEOUT
+                        seconds a day-2 rollout may take (default: 2400)
   PK_LAB_KIND_CONFIG    the kind cluster definition (default: <repo>/lab/kind.yaml);
                         a copy with another node image is how a host still on
                         cgroup v1 runs the lab, see lab/README.md"
@@ -76,6 +85,10 @@ RELEASE_TIMEOUT=${PK_LAB_RELEASE_TIMEOUT:-900}
 DAY2_TIMEOUT=${PK_LAB_DAY2_TIMEOUT:-1200}
 MIN_FREE_GIB=${PK_LAB_MIN_FREE_GIB:-15}
 KIND_CONFIG=${PK_LAB_KIND_CONFIG:-$ROOT/lab/kind.yaml}
+ROLLOUT_TIMEOUT=${PK_LAB_ROLLOUT_TIMEOUT:-2400}
+# The spec as committed (or as PK_LAB_SPEC names it): day2-upgrade upgrades to
+# its release, also when the lab came up on an older one through PK_LAB_TALOS.
+TARGET_SPEC=$SPEC
 
 # Fixed names, shared with files that cannot read a variable: lab/kind.yaml names
 # the kind cluster, the manifests under metal/config name the namespace and the
@@ -1306,6 +1319,169 @@ day2_scale() {
   echo "the scale round finished: $cluster has 1 control plane and 1 worker" >&2
 }
 
+# ---------------------------------------------------------------- day 2: rollouts
+
+# Prints the spec with another Talos release, for a lab that starts on an
+# older one so that day2-upgrade has something to upgrade. The copy lives in
+# the lab directory; the committed spec stays as it is.
+spec_at_talos() {
+  local spec=$1 version=$2 lab_dir=$3 out
+  [[ $version =~ ^v1\.[0-9]+\.[0-9]+$ ]] || die "PK_LAB_TALOS=$version is not a Talos release like v1.14.5"
+  [[ -r $spec ]] || die "the lab spec $spec is not readable. Point PK_LAB_SPEC at one, or unset it to use lab/lab.yaml"
+  mkdir -p "$lab_dir"
+  out=$lab_dir/spec.talos-$version.yaml
+  PK_LAB_TALOS=$version yq '.cluster.talosVersion = strenv(PK_LAB_TALOS)' "$spec" >"$out" \
+    || die "could not write $out with Talos $version"
+  echo "$out"
+}
+
+# Prints the name of the newest unfinished rollout of a kind for a cluster.
+rollout_open() {
+  local cluster_name=$1 kind=$2
+  kubectl get talosrollouts --output json | jq -r --arg c "$cluster_name" --arg k "$kind" '
+    [.items[]
+     | select(.spec.clusterRef.name == $c and .spec.kind == $k and (.spec.abort // false) == false)
+     | select(any((.status.conditions // [])[]; .type == "Complete" and .status != "Unknown") | not)]
+    | sort_by(.metadata.creationTimestamp) | last | .metadata.name // empty'
+}
+
+# Prints "<type>=<status>/<reason>" for the rollout conditions that steer the
+# unattended run, one per line.
+rollout_conditions() {
+  kubectl get talosrollout "$1" --output json | jq -r '
+    (.status.conditions // [])[] | "\(.type)=\(.status)/\(.reason)"'
+}
+
+# Waits for the operator to propose a rollout of a kind, and prints its name.
+rollout_wait_proposed() {
+  local cluster_name=$1 kind=$2 timeout=$3
+  local name deadline=$((SECONDS + timeout))
+  while true; do
+    name=$(rollout_open "$cluster_name" "$kind") || name=""
+    if [[ -n $name ]] && [[ -n $(kubectl get talosrollout "$name" --output jsonpath='{.status.planHash}') ]]; then
+      echo "$name"
+      return 0
+    fi
+    (( SECONDS < deadline )) || die "the operator proposed no planned $kind rollout for cluster $cluster_name within ${timeout}s.
+  See its conditions: kubectl get taloscluster $cluster_name -o yaml; and the nodes': kubectl get talosnodes -o wide"
+    sleep 10
+  done
+}
+
+# Stands in for the person through a whole rollout: approves its plan with
+# pk-metal rollout approve, checks the first node during the pause after it,
+# resumes, and waits until the rollout is Complete. The outcome is what is
+# checked: Complete=True, every step Succeeded.
+rollout_through() {
+  local root=$1 lab_dir=$2 name=$3 timeout=$4
+  local conditions resumed=0 line last="" deadline=$((SECONDS + timeout))
+  step "rollout $name: approve, check the first node, resume, wait (up to ${timeout}s)"
+  "$root/metal/bin/pk-metal" rollout show "$name" >&2
+  "$root/metal/bin/pk-metal" rollout approve --yes "$name" >&2
+  while true; do
+    conditions=$(rollout_conditions "$name")
+    if grep -qx 'Complete=True/Succeeded' <<<"$conditions"; then
+      kubectl get talosrollout "$name" --output json | jq -e '
+        [.status.steps[] | select(.state != "Succeeded")] | length == 0' >/dev/null \
+        || die "rollout $name says Complete but not every step succeeded:
+$("$root/metal/bin/pk-metal" rollout show "$name")"
+      echo "rollout $name complete after $((SECONDS - (deadline - timeout)))s" >&2
+      return 0
+    fi
+    if grep -q '^Complete=False/' <<<"$conditions"; then
+      die "rollout $name did not complete:
+$("$root/metal/bin/pk-metal" rollout show "$name")
+  The failed operation says why: kubectl -n $NAMESPACE get hostoperations -l os.pk.io/rollout=$name"
+    fi
+    if (( resumed == 0 )) && grep -qx 'Paused=True/PausedAfterFirstNode' <<<"$conditions"; then
+      # The pause is the moment a person looks at the first node. The run
+      # looks at what the lab can see: every workload node is Ready.
+      converged "$lab_dir" "$(kubectl get talosnodes --output json | jq '.items | length')" \
+        || die "rollout $name paused after its first node, but not every workload node is Ready:
+$(kubectl --kubeconfig "$lab_dir/workload.kubeconfig" get nodes 2>&1)"
+      "$root/metal/bin/pk-metal" rollout resume "$name" >&2
+      resumed=1
+    fi
+    line=$(kubectl get talosrollout "$name" --output json | jq -r '
+      [(.status.steps // [])[] | .state] | group_by(.) | map("\(length) \(.[0])") | join(", ")')
+    if [[ $line != "$last" ]]; then
+      echo "  [$(date '+%F %T %Z')] steps: ${line:-none yet}" >&2
+      last=$line
+    fi
+    (( SECONDS < deadline )) || die "rollout $name did not finish within ${timeout}s:
+$("$root/metal/bin/pk-metal" rollout show "$name")
+  collect the evidence: mise run lab:collect"
+    sleep 15
+  done
+}
+
+# Prints "<node> <boot id>" for every workload node.
+boot_ids() {
+  local kube_file=$1
+  kubectl --kubeconfig "$kube_file" get nodes --output json | jq -r '
+    .items[] | "\(.metadata.name) \(.status.nodeInfo.bootID)"' | sort
+}
+
+# Day 2: a Talos upgrade through a rollout. The lab must have come up on an
+# older release (PK_LAB_TALOS); this upgrades it to the release the spec
+# names, with pk-metal upgrade, and checks that every machine runs it after.
+day2_upgrade() {
+  local root=$1 lab_dir=$2 gen=$3 timeout=$4 spec=$5
+  local cluster_name target current name stale
+  require_cluster "$lab_dir"
+  cluster_name=$(lab_value "$gen" TALOS_CLUSTER)
+  target=$(yq -r '.cluster.talosVersion' "$spec")
+  current=$(kubectl get taloscluster "$cluster_name" --output jsonpath='{.spec.talosVersion}')
+  [[ $current != "$target" ]] || die "cluster $cluster_name already asks for Talos $target, the release $spec names.
+  Bring the lab up on an older release first, for example:
+    mise run lab:down && mise run lab:reset && PK_LAB_TALOS=v1.14.5 mise run lab:up && mise run lab:wait"
+  step "day 2: upgrade cluster $cluster_name from Talos $current to $target"
+  "$root/metal/bin/pk-metal" upgrade --wait 5m talos "$cluster_name" "$target" >&2
+  name=$(rollout_wait_proposed "$cluster_name" TalosUpgrade 300)
+  rollout_through "$root" "$lab_dir" "$name" "$timeout"
+  stale=$(kubectl get talosnodes --output json | jq -r --arg v "$target" '
+    .items[] | select(.status.version != $v) | "\(.metadata.name) runs \(.status.version // "an unknown release")"')
+  [[ -z $stale ]] || die "rollout $name completed, but not every node runs Talos $target:
+$stale"
+  echo "every node runs Talos $target" >&2
+}
+
+# Day 2: a config change that needs no reboot. A node label is added to every
+# TalosNode; the operator sees the drift in its dry run and proposes a Config
+# rollout. The check: the label is on every Kubernetes node, every TalosNode
+# is in sync again, and no machine rebooted.
+day2_config_change() {
+  local root=$1 lab_dir=$2 gen=$3 timeout=$4
+  local cluster_name stamp before after node name missing
+  require_cluster "$lab_dir"
+  cluster_name=$(lab_value "$gen" TALOS_CLUSTER)
+  kubeconfig_fetch "$cluster_name" "$lab_dir/workload.kubeconfig" "$lab_dir/talosconfig" \
+    || die "TalosCluster $cluster_name has published no kubeconfig yet. Let the lab converge first: mise run lab:wait"
+  [[ -z $(rollout_open "$cluster_name" Config) ]] || die "a Config rollout for $cluster_name is open already: metal/bin/pk-metal rollout list"
+  stamp=$(date +%s)
+  before=$(boot_ids "$lab_dir/workload.kubeconfig")
+  step "day 2: label every node lab.pk.io/day2=$stamp (a change that needs no reboot)"
+  while read -r node; do
+    kubectl patch talosnode "$node" --type merge --as=lab-admin --as-group=pk-metal:admins \
+      --as-group=system:authenticated --patch "{\"spec\":{\"labels\":{\"lab.pk.io/day2\":\"$stamp\"}}}" >&2
+  done < <(kubectl get talosnodes --output json | jq -r --arg c "$cluster_name" '
+    .items[] | select(.spec.clusterRef.name == $c) | .metadata.name')
+  name=$(rollout_wait_proposed "$cluster_name" Config 600)
+  kubectl get talosrollout "$name" --output json | jq -e '[.status.plan[] | select(.rebootRequired)] | length == 0' >/dev/null \
+    || die "the operator planned a reboot for a label change:
+$("$root/metal/bin/pk-metal" rollout show "$name")"
+  rollout_through "$root" "$lab_dir" "$name" "$timeout"
+  missing=$(kubectl --kubeconfig "$lab_dir/workload.kubeconfig" get nodes --output json | jq -r --arg s "$stamp" '
+    .items[] | select(.metadata.labels["lab.pk.io/day2"] != $s) | .metadata.name')
+  [[ -z $missing ]] || die "rollout $name completed, but these nodes lack the label lab.pk.io/day2=$stamp: $missing"
+  after=$(boot_ids "$lab_dir/workload.kubeconfig")
+  [[ $before == "$after" ]] || die "a machine rebooted during a change that needs no reboot. Boot ids before:
+$before
+after:
+$after"
+  echo "every node carries lab.pk.io/day2=$stamp, and no machine rebooted" >&2
+}
+
 # ---------------------------------------------------------------- pivot
 
 # After lab:pivot the lab kubeconfig names the first Talos cluster, and kind is
@@ -1752,6 +1928,7 @@ reset() {
 
 main() {
   local verb=${1:-}
+  [[ -z ${PK_LAB_TALOS:-} ]] || SPEC=$(spec_at_talos "$TARGET_SPEC" "$PK_LAB_TALOS" "$LAB_DIR")
   case "$verb" in
     doctor) doctor "$ROOT" "$LAB_DIR" "$SPEC" "$SIZE" "$WORKLOAD" "$MIN_FREE_GIB" "$KIND_CONFIG" ;;
     render) render "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN" ;;
@@ -1818,6 +1995,14 @@ main() {
     backup-restore)
       require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
       day2_backup_restore "$ROOT" "$LAB_DIR" "$GEN" "$NAMESPACE" "$DEPLOYMENT" "$WAIT_TIMEOUT"
+      ;;
+    day2-upgrade)
+      require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
+      day2_upgrade "$ROOT" "$LAB_DIR" "$GEN" "$ROLLOUT_TIMEOUT" "$TARGET_SPEC"
+      ;;
+    day2-config-change)
+      require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
+      day2_config_change "$ROOT" "$LAB_DIR" "$GEN" "$ROLLOUT_TIMEOUT"
       ;;
     collect)
       require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"

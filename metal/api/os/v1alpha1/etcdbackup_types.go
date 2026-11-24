@@ -332,7 +332,7 @@ const (
 	// than twice the interval exists.
 	ConditionBackedUp = "BackedUp"
 	// ConditionComplete on an EtcdSnapshot: taking it has ended, stored
-	// (True) or failed (False).
+	// (True) or failed (False). A TalosRollout uses it too: every node done.
 	ConditionComplete = "Complete"
 	// ConditionVerified on an EtcdSnapshot: the snapshot is an intact etcd
 	// database and the sink holds what was sent.

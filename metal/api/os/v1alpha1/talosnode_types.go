@@ -209,7 +209,8 @@ type ConfigMapKeyReference struct {
 // never un-renders a machine's config.
 type TalosNodeStatus struct {
 	// Conditions: Rendered, plus the check-in observations MachineReachable
-	// and Ready while a Host hands this node a machine.
+	// and Ready while a Host hands this node a machine, ConfigInSync (the
+	// dry-run drift check) and VersionCurrent (Talos version skew).
 	// +optional
 	// +listType=map
 	// +listMapKey=type
@@ -243,6 +244,49 @@ type TalosNodeStatus struct {
 	// Version is the Talos version the machine reports.
 	// +optional
 	Version string `json:"version,omitempty"`
+
+	// RenderedFor is the Talos version the config was rendered for: the
+	// cluster's talosVersion, or the older version the machine still runs
+	// until its upgrade, so that a config is never written for a contract
+	// the running machine does not accept yet.
+	// +optional
+	RenderedFor string `json:"renderedFor,omitempty"`
+
+	// AppliedConfigDigest is the rendered config the machine was last seen
+	// to run: the digest of a render a dry run found no change against.
+	// Config Secrets of other digests are collected once nothing refers to
+	// them.
+	// +optional
+	AppliedConfigDigest string `json:"appliedConfigDigest,omitempty"`
+
+	// Drift is the last dry run of the rendered config against the
+	// machine (ConfigInSync tells the verdict).
+	// +optional
+	Drift *ConfigDrift `json:"drift,omitempty"`
+}
+
+// ConfigDrift is what a dry-run apply of the rendered config reported. A dry
+// run is a read: the machine validates the config, diffs it against the one
+// it runs and says whether it could take it without a reboot.
+type ConfigDrift struct {
+	// ConfigDigest is the rendered config the dry run was made with.
+	ConfigDigest string `json:"configDigest"`
+
+	// Changed: the machine runs a config that differs from this render.
+	Changed bool `json:"changed"`
+
+	// RebootRequired: the machine said it needs a reboot to take it.
+	// +optional
+	RebootRequired bool `json:"rebootRequired,omitempty"`
+
+	// Summary counts the changed lines and names the configuration keys
+	// they touch. Values are left out: a diff of a machine config carries
+	// secrets.
+	// +optional
+	Summary string `json:"summary,omitempty"`
+
+	// ObservedAt is when the dry run was made.
+	ObservedAt metav1.Time `json:"observedAt"`
 }
 
 // +kubebuilder:object:root=true
@@ -253,6 +297,8 @@ type TalosNodeStatus struct {
 // +kubebuilder:printcolumn:name="Address",type=string,JSONPath=`.status.address`
 // +kubebuilder:printcolumn:name="Stage",type=string,JSONPath=`.status.stage`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+// +kubebuilder:printcolumn:name="Version",type=string,JSONPath=`.status.version`,priority=1
+// +kubebuilder:printcolumn:name="InSync",type=string,JSONPath=`.status.conditions[?(@.type=="ConfigInSync")].status`,priority=1
 
 // TalosNode is one member of a TalosCluster: the machine-specific half of its
 // configuration, and what the machine reports once it runs.

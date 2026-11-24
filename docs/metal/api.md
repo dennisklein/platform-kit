@@ -1898,7 +1898,7 @@ layout: internal/talos/render turns them into a Talos 1.14 multi-document
 machine configuration, and patches reach anything the kinds do not model.
 
 
-**Resources:** [BootAsset](#bootasset) · [EtcdBackupPolicy](#etcdbackuppolicy) · [EtcdSnapshot](#etcdsnapshot) · [TalosCluster](#taloscluster) · [TalosNode](#talosnode)
+**Resources:** [BootAsset](#bootasset) · [EtcdBackupPolicy](#etcdbackuppolicy) · [EtcdSnapshot](#etcdsnapshot) · [TalosCluster](#taloscluster) · [TalosNode](#talosnode) · [TalosRollout](#talosrollout)
 
 
 
@@ -2020,6 +2020,28 @@ configuration, and what the machine reports once it runs.
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[TalosNodeSpec](#talosnodespec)_ |  |  |  |
 | `status` _[TalosNodeStatus](#talosnodestatus)_ |  |  | Optional: \{\} <br /> |
+
+
+### TalosRollout
+
+
+
+TalosRollout is one change rolled through the nodes of a cluster in a safe
+order — a Talos upgrade, a Kubernetes upgrade, a config change or a
+reboot — under one approval of a frozen plan, with a mandatory pause after
+the first node and health gates between nodes.
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `os.pk.io/v1alpha1` | | |
+| `kind` _string_ | `TalosRollout` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[TalosRolloutSpec](#talosrolloutspec)_ |  |  |  |
+| `status` _[TalosRolloutStatus](#talosrolloutstatus)_ |  |  | Optional: \{\} <br /> |
 
 
 
@@ -2148,6 +2170,28 @@ _Appears in:_
 | `cni` _[CNI](#cni)_ | CNI selects the pod network plugin. Empty means flannel. |  | Optional: \{\} <br /> |
 
 
+#### ConfigDrift
+
+
+
+ConfigDrift is what a dry-run apply of the rendered config reported. A dry
+run is a read: the machine validates the config, diffs it against the one
+it runs and says whether it could take it without a reboot.
+
+
+
+_Appears in:_
+- [TalosNodeStatus](#talosnodestatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `configDigest` _string_ | ConfigDigest is the rendered config the dry run was made with. |  |  |
+| `changed` _boolean_ | Changed: the machine runs a config that differs from this render. |  |  |
+| `rebootRequired` _boolean_ | RebootRequired: the machine said it needs a reboot to take it. |  | Optional: \{\} <br /> |
+| `summary` _string_ | Summary counts the changed lines and names the configuration keys<br />they touch. Values are left out: a diff of a machine config carries<br />secrets. |  | Optional: \{\} <br /> |
+| `observedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | ObservedAt is when the dry run was made. |  |  |
+
+
 #### ConfigMapKeyReference
 
 
@@ -2181,6 +2225,25 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `vip` _string_ | VIP is a shared address the control-plane members announce over layer 2<br />(Talos' Layer2VIPConfig). Each control-plane node carries it on the link<br />whose static address shares a subnet with it. |  | Optional: \{\} <br /> |
 | `allowScheduling` _boolean_ | AllowScheduling lets ordinary workloads run on control-plane nodes (the<br />control-plane NoSchedule taint is not rendered). |  | Optional: \{\} <br /> |
+
+
+#### CredentialsSpec
+
+
+
+CredentialsSpec configures the published credentials. Certificates signed
+by the cluster's CAs cannot be revoked short of a CA rotation, so a short
+lifetime is what bounds a leaked copy.
+
+
+
+_Appears in:_
+- [TalosClusterSpec](#talosclusterspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `ttl` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#duration-v1-meta)_ | TTL is how long a published admin kubeconfig and talosconfig are<br />valid. A credential is minted again once less than a third of it is<br />left. Default 24h. |  | Optional: \{\} <br /> |
+| `readerTalosconfig` _boolean_ | ReaderTalosconfig also publishes <cluster>-talosconfig-reader: a<br />talosconfig with the os:reader role, for monitoring, which can read<br />but not change a machine. |  | Optional: \{\} <br /> |
 
 
 #### DiskSelector
@@ -2399,6 +2462,7 @@ _Validation:_
 - Enum: [controlplane worker]
 
 _Appears in:_
+- [RolloutStep](#rolloutstep)
 - [TalosNodeSpec](#talosnodespec)
 
 | Field | Description |
@@ -2457,6 +2521,7 @@ _Appears in:_
 - [EtcdSnapshotSpec](#etcdsnapshotspec)
 - [S3Sink](#s3sink)
 - [TalosNodeSpec](#talosnodespec)
+- [TalosRolloutSpec](#talosrolloutspec)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
@@ -2478,6 +2543,146 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `registry` _string_ | Registry is the upstream registry host the mirror stands in for<br />(docker.io, ghcr.io, factory.talos.dev), or "*" for every registry. |  | MinLength: 1 <br /> |
 | `endpoints` _string array_ | Endpoints are the mirror URLs, tried in order. |  | MinItems: 1 <br /> |
+
+
+#### RolloutApproval
+
+
+
+RolloutApproval is the approval of one plan.
+
+
+
+_Appears in:_
+- [TalosRolloutSpec](#talosrolloutspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `approvedBy` _string_ | ApprovedBy is the person who approved. Admission enforces that it<br />equals the requesting username, is empty at creation, is write-once,<br />and is not the proposer. |  | Optional: \{\} <br /> |
+| `planHash` _string_ | PlanHash is the status.planHash the approver saw. The rollout runs<br />only while it equals status.planHash: a plan that changed after it was<br />shown is not the plan that was approved. |  | Pattern: `^sha256:[a-f0-9]\{64\}$` <br />Optional: \{\} <br /> |
+
+
+#### RolloutKind
+
+_Underlying type:_ _string_
+
+RolloutKind is what a rollout changes on each node.
+
+_Validation:_
+- Enum: [Config TalosUpgrade KubernetesUpgrade Reboot]
+
+_Appears in:_
+- [TalosRolloutSpec](#talosrolloutspec)
+
+| Field | Description |
+| --- | --- |
+| `Config` | RolloutConfig applies each node's current rendered config: without a<br />reboot where the node says it can take it live, with a drain and a<br />reboot where it says it cannot.<br /> |
+| `TalosUpgrade` | RolloutTalosUpgrade installs another Talos release on each node, one<br />node at a time, each drained first.<br /> |
+| `KubernetesUpgrade` | RolloutKubernetesUpgrade applies the configs rendered for a new<br />Kubernetes version without a reboot (control planes first: their<br />static pods and kubelet), moves the kube-proxy DaemonSet to the new<br />image, then does the workers' kubelets.<br /> |
+| `Reboot` | RolloutReboot reboots each node through Talos, drained first.<br /> |
+
+
+#### RolloutNodeState
+
+_Underlying type:_ _string_
+
+RolloutNodeState is where one node of a plan stands.
+
+_Validation:_
+- Enum: [Pending Running Succeeded Failed Skipped]
+
+_Appears in:_
+- [RolloutStepStatus](#rolloutstepstatus)
+
+| Field | Description |
+| --- | --- |
+| `Pending` |  |
+| `Running` |  |
+| `Succeeded` |  |
+| `Failed` |  |
+| `Skipped` | RolloutNodeSkipped: the rollout was aborted or failed before this<br />node started.<br /> |
+
+
+#### RolloutStep
+
+
+
+RolloutStep is one entry of a frozen plan. Everything that decides what is
+done to the node is in here, and so in the planHash.
+
+
+
+_Appears in:_
+- [TalosRolloutStatus](#talosrolloutstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `kind` _[RolloutStepKind](#rolloutstepkind)_ | Kind is Node (one node through a HostOperation) or KubeProxy. |  | Enum: [Node KubeProxy] <br /> |
+| `node` _string_ | Node is the TalosNode; Host the Host that runs it. Empty for a<br />KubeProxy step. |  | Optional: \{\} <br /> |
+| `host` _string_ |  |  | Optional: \{\} <br /> |
+| `role` _[NodeRole](#noderole)_ | Role is the node's role; control planes go one at a time. |  | Enum: [controlplane worker] <br />Optional: \{\} <br /> |
+| `from` _string_ | From is what the node runs now, as far as the operator knows (a<br />version, or the digest of the config it last confirmed); To is what<br />it runs afterwards. |  | Optional: \{\} <br /> |
+| `to` _string_ |  |  | Optional: \{\} <br /> |
+| `image` _string_ | Image is the installer image of a TalosUpgrade, pinned by digest, or<br />the kube-proxy image of a KubeProxy step. |  | Optional: \{\} <br /> |
+| `configSecret` _string_ | ConfigSecret and ConfigDigest pin the rendered config a Config or<br />KubernetesUpgrade step applies. The Secret is content-addressed and<br />never rewritten, so the bytes approved are the bytes applied. |  | Optional: \{\} <br /> |
+| `configDigest` _string_ |  |  | Optional: \{\} <br /> |
+| `rebootRequired` _boolean_ | RebootRequired: the node said, in a dry run, that it cannot take<br />this config without a reboot. The node is then drained, the config<br />applied with a reboot, and the node uncordoned once it is back. |  | Optional: \{\} <br /> |
+| `actions` _string array_ | Actions are the HostOperation action keys this step runs, in order,<br />for the approver to read. |  | Optional: \{\} <br /> |
+
+
+#### RolloutStepKind
+
+_Underlying type:_ _string_
+
+RolloutStepKind tells a node's change from a cluster-wide step of the plan.
+
+_Validation:_
+- Enum: [Node KubeProxy]
+
+_Appears in:_
+- [RolloutStep](#rolloutstep)
+
+| Field | Description |
+| --- | --- |
+| `Node` | RolloutStepNode changes one node through a HostOperation.<br /> |
+| `KubeProxy` | RolloutStepKubeProxy moves the kube-proxy DaemonSet to a new image<br />through the cluster's Kubernetes API, between the control planes and<br />the workers of a KubernetesUpgrade.<br /> |
+
+
+#### RolloutStepStatus
+
+
+
+RolloutStepStatus is how one step of the plan went.
+
+
+
+_Appears in:_
+- [TalosRolloutStatus](#talosrolloutstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `state` _[RolloutNodeState](#rolloutnodestate)_ | State is Pending, Running, Succeeded, Failed or Skipped. |  | Enum: [Pending Running Succeeded Failed Skipped] <br /> |
+| `operation` _string_ | Operation is the HostOperation (namespace/name) running a Node step. |  | Optional: \{\} <br /> |
+| `message` _string_ | Message says why a step failed or what it waits for. |  | Optional: \{\} <br /> |
+| `startedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ |  |  | Optional: \{\} <br /> |
+| `finishedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ |  |  | Optional: \{\} <br /> |
+
+
+#### RolloutTarget
+
+
+
+RolloutTarget is the version a rollout moves the nodes to.
+
+
+
+_Appears in:_
+- [TalosRolloutSpec](#talosrolloutspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `talosVersion` _string_ | TalosVersion is the Talos release of a TalosUpgrade. |  | Pattern: `^v1\.(1[4-9]\|[2-9][0-9])\.[0-9]+$` <br />Optional: \{\} <br /> |
+| `kubernetesVersion` _string_ | KubernetesVersion is the Kubernetes release of a KubernetesUpgrade. |  | Pattern: `^v[0-9]+\.[0-9]+\.[0-9]+$` <br />Optional: \{\} <br /> |
 
 
 #### Route
@@ -2666,6 +2871,7 @@ _Appears in:_
 | `secretsRef` _[SecretReference](#secretreference)_ | SecretsRef names the Secret holding the cluster's Talos secrets bundle<br />under key secrets.yaml, as `talosctl gen secrets` writes it. A person<br />generates the bundle once and commits it sealed; the operator only reads<br />it. Every certificate and key in a rendered config, and the<br />kubeconfig and talosconfig the operator publishes, derive from it. |  |  |
 | `schematic` _[Schematic](#schematic)_ | Schematic is the installer image customization every node uses unless it<br />sets its own (a node's schematic replaces this one, it does not merge<br />with it). |  | Optional: \{\} <br /> |
 | `patches` _[Patch](#patch) array_ | Patches apply to every node, in order, after the operator's own<br />rendering and before the node's patches. |  | Optional: \{\} <br /> |
+| `credentials` _[CredentialsSpec](#credentialsspec)_ | Credentials sets the lifetime of the admin credentials the operator<br />publishes, and whether it also publishes a read-only talosconfig. |  | Optional: \{\} <br /> |
 
 
 #### TalosClusterStatus
@@ -2684,7 +2890,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `bootstrappedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | BootstrappedAt is when the operator first observed this cluster's etcd<br />running (or its Kubernetes API answering). It is the one remembered<br />fact in this status: once set the operator never bootstraps the<br />cluster again, so that a cluster whose control planes all lost their<br />etcd data is restored by a person instead of silently started empty<br />(Bootstrapped=False, reason EtcdDataLost). Write-once; starting over<br />means deleting and re-creating the TalosCluster. |  | Optional: \{\} <br /> |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions: Bootstrapped and Available. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions: Bootstrapped and Available; VersionsSupported (the<br />Kubernetes version against the Talos version), VersionsCurrent (what<br />the machines and the API run against the spec) and SecretsBundleHeld<br />(an edited secrets bundle the machines do not run yet). |  | Optional: \{\} <br /> |
 | `controlPlanes` _integer_ | ControlPlanes and Workers count the TalosNodes that name this cluster<br />and that a machine is handed (a Host's spec.os names them); the Ready<br />counts are the ones whose Ready condition is True. A TalosNode with no<br />machine yet, or one being removed, is counted in UnassignedNodes<br />instead: it is not a member, so it does not hold Available at False. |  | Optional: \{\} <br /> |
 | `readyControlPlanes` _integer_ |  |  | Optional: \{\} <br /> |
 | `workers` _integer_ |  |  | Optional: \{\} <br /> |
@@ -2693,6 +2899,8 @@ _Appears in:_
 | `kubernetesVersion` _string_ | KubernetesVersion is the version the Kubernetes API reports, empty<br />while it does not answer. |  | Optional: \{\} <br /> |
 | `kubeconfigSecretRef` _[SecretReference](#secretreference)_ | KubeconfigSecretRef points at the Secret (key kubeconfig) holding an<br />admin kubeconfig minted from the bundle's Kubernetes CA. |  | Optional: \{\} <br /> |
 | `talosconfigSecretRef` _[SecretReference](#secretreference)_ | TalosconfigSecretRef points at the Secret (key talosconfig) holding an<br />admin talosconfig minted from the bundle's Talos CA, with every<br />control-plane address as an endpoint. |  | Optional: \{\} <br /> |
+| `readerTalosconfigSecretRef` _[SecretReference](#secretreference)_ | ReaderTalosconfigSecretRef points at the os:reader talosconfig, when<br />spec.credentials.readerTalosconfig asks for one. |  | Optional: \{\} <br /> |
+| `credentialsExpireAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | CredentialsExpireAt is when the first of the published credentials<br />expires. The operator mints new ones well before; a time in the past<br />means it could not. |  | Optional: \{\} <br /> |
 
 
 
@@ -2736,12 +2944,68 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions: Rendered, plus the check-in observations MachineReachable<br />and Ready while a Host hands this node a machine. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions: Rendered, plus the check-in observations MachineReachable<br />and Ready while a Host hands this node a machine, ConfigInSync (the<br />dry-run drift check) and VersionCurrent (Talos version skew). |  | Optional: \{\} <br /> |
 | `configSecretRef` _[SecretReference](#secretreference)_ | ConfigSecretRef points at the Secret holding this node's rendered<br />machine config (key config.yaml). Owned by the TalosNode and collected<br />with it; it is the one place the rendered secrets rest. |  | Optional: \{\} <br /> |
 | `configDigest` _string_ | ConfigDigest is sha256:<hex> of the rendered config, what BootAsset<br />builds key their rebuilds on. |  | Optional: \{\} <br /> |
 | `installerImage` _string_ | InstallerImage is the installer the rendered config installs from. |  | Optional: \{\} <br /> |
 | `address` _string_ | Address is where the check-in dials (spec.address, or the first static<br />link address). |  | Optional: \{\} <br /> |
 | `stage` _string_ | Stage is the machine's observed boot stage (maintenance, booting,<br />installing, running, ...), empty while no machine answers. |  | Optional: \{\} <br /> |
 | `version` _string_ | Version is the Talos version the machine reports. |  | Optional: \{\} <br /> |
+| `renderedFor` _string_ | RenderedFor is the Talos version the config was rendered for: the<br />cluster's talosVersion, or the older version the machine still runs<br />until its upgrade, so that a config is never written for a contract<br />the running machine does not accept yet. |  | Optional: \{\} <br /> |
+| `appliedConfigDigest` _string_ | AppliedConfigDigest is the rendered config the machine was last seen<br />to run: the digest of a render a dry run found no change against.<br />Config Secrets of other digests are collected once nothing refers to<br />them. |  | Optional: \{\} <br /> |
+| `drift` _[ConfigDrift](#configdrift)_ | Drift is the last dry run of the rendered config against the<br />machine (ConfigInSync tells the verdict). |  | Optional: \{\} <br /> |
+
+
+
+#### TalosRolloutSpec
+
+
+
+TalosRolloutSpec says what to change on which nodes of one cluster, and
+carries the one approval that covers every node of it.
+
+A rollout is proposed by the operator (or created by a person), then
+planned: the operator writes the ordered node list, each node's actions
+and the exact target (config digest, installer image digest) into
+status.plan, and its hash into status.planHash. A person approves that
+plan by stamping spec.approval with their name and the planHash they saw.
+From then on the plan is frozen: the operator runs exactly it, or nothing.
+
+
+
+_Appears in:_
+- [TalosRollout](#talosrollout)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `clusterRef` _[Reference](#reference)_ | ClusterRef names the TalosCluster whose nodes this rollout changes. |  |  |
+| `kind` _[RolloutKind](#rolloutkind)_ | Kind is what changes on each node. |  | Enum: [Config TalosUpgrade KubernetesUpgrade Reboot] <br /> |
+| `target` _[RolloutTarget](#rollouttarget)_ | Target is where the rollout takes the nodes: the Talos version of a<br />TalosUpgrade, the Kubernetes version of a KubernetesUpgrade. A Config<br />or Reboot rollout takes none; its target is each node's current<br />rendered config, frozen into the plan. |  | Optional: \{\} <br /> |
+| `nodes` _string array_ | Nodes limits the rollout to these TalosNodes. Empty means every node<br />of the cluster that needs the change. |  | Optional: \{\} <br /> |
+| `maxUnavailableWorkers` _integer_ | MaxUnavailableWorkers is how many workers may be in the middle of the<br />change at once. Control planes always go one at a time, and only<br />while etcd keeps every member healthy. | 1 | Maximum: 100 <br />Minimum: 1 <br />Optional: \{\} <br /> |
+| `drainTimeoutSeconds` _integer_ | DrainTimeoutSeconds bounds the drain of each node that is drained<br />(an upgrade, a reboot, a config that needs a reboot). | 900 | Maximum: 86400 <br />Minimum: 30 <br />Optional: \{\} <br /> |
+| `proposedBy` _string_ | ProposedBy is the username that created the rollout. Admission checks<br />it against the creating request, and refuses an approval by the same<br />person. |  | MinLength: 1 <br /> |
+| `approval` _[RolloutApproval](#rolloutapproval)_ | Approval is the one human gate of the whole rollout. |  | Optional: \{\} <br /> |
+| `paused` _boolean_ | Paused stops the rollout from starting another node. A node already<br />in the middle of its change finishes it. Set and clear it at will. |  | Optional: \{\} <br /> |
+| `abort` _boolean_ | Abort stops the rollout for good: no further node starts, a node in<br />the middle of its change finishes it, and nodes already changed stay<br />as they are. It cannot be taken back; a new rollout is how to go on. |  | Optional: \{\} <br /> |
+
+
+#### TalosRolloutStatus
+
+
+
+TalosRolloutStatus is the plan and how far it got.
+
+
+
+_Appears in:_
+- [TalosRollout](#talosrollout)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions: Planned, Approved, Progressing, Paused, Complete. |  | Optional: \{\} <br /> |
+| `plan` _[RolloutStep](#rolloutstep) array_ | Plan is the ordered list of steps: control planes first, one at a<br />time, then a KubeProxy step for a Kubernetes upgrade, then the<br />workers. Rewritten on every pass until approved, frozen afterwards. |  | Optional: \{\} <br /> |
+| `planHash` _string_ | PlanHash is sha256 over the kind, cluster, target and plan: what an<br />approval names, and what every HostOperation of the rollout carries. |  | Optional: \{\} <br /> |
+| `steps` _[RolloutStepStatus](#rolloutstepstatus) array_ | Steps is the progress of each plan entry, by index. |  | Optional: \{\} <br /> |
 
 

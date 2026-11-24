@@ -64,6 +64,28 @@ type TalosClusterSpec struct {
 	// rendering and before the node's patches.
 	// +optional
 	Patches []Patch `json:"patches,omitempty"`
+
+	// Credentials sets the lifetime of the admin credentials the operator
+	// publishes, and whether it also publishes a read-only talosconfig.
+	// +optional
+	Credentials *CredentialsSpec `json:"credentials,omitempty"`
+}
+
+// CredentialsSpec configures the published credentials. Certificates signed
+// by the cluster's CAs cannot be revoked short of a CA rotation, so a short
+// lifetime is what bounds a leaked copy.
+type CredentialsSpec struct {
+	// TTL is how long a published admin kubeconfig and talosconfig are
+	// valid. A credential is minted again once less than a third of it is
+	// left. Default 24h.
+	// +optional
+	TTL *metav1.Duration `json:"ttl,omitempty"`
+
+	// ReaderTalosconfig also publishes <cluster>-talosconfig-reader: a
+	// talosconfig with the os:reader role, for monitoring, which can read
+	// but not change a machine.
+	// +optional
+	ReaderTalosconfig bool `json:"readerTalosconfig,omitempty"`
 }
 
 // ControlPlaneSpec holds control-plane-only rendering.
@@ -149,7 +171,10 @@ type TalosClusterStatus struct {
 	// +optional
 	BootstrappedAt *metav1.Time `json:"bootstrappedAt,omitempty"`
 
-	// Conditions: Bootstrapped and Available.
+	// Conditions: Bootstrapped and Available; VersionsSupported (the
+	// Kubernetes version against the Talos version), VersionsCurrent (what
+	// the machines and the API run against the spec) and SecretsBundleHeld
+	// (an edited secrets bundle the machines do not run yet).
 	// +optional
 	// +listType=map
 	// +listMapKey=type
@@ -188,6 +213,17 @@ type TalosClusterStatus struct {
 	// control-plane address as an endpoint.
 	// +optional
 	TalosconfigSecretRef *SecretReference `json:"talosconfigSecretRef,omitempty"`
+
+	// ReaderTalosconfigSecretRef points at the os:reader talosconfig, when
+	// spec.credentials.readerTalosconfig asks for one.
+	// +optional
+	ReaderTalosconfigSecretRef *SecretReference `json:"readerTalosconfigSecretRef,omitempty"`
+
+	// CredentialsExpireAt is when the first of the published credentials
+	// expires. The operator mints new ones well before; a time in the past
+	// means it could not.
+	// +optional
+	CredentialsExpireAt *metav1.Time `json:"credentialsExpireAt,omitempty"`
 }
 
 // +kubebuilder:object:root=true

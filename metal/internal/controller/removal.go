@@ -140,7 +140,9 @@ func wipesDisk(op *metalv1alpha1.HostOperation) bool {
 	})
 }
 
-// actionNode is the TalosNode an action names, "" for the BMC actions.
+// actionNode is the TalosNode an action names, "" for the BMC actions. The
+// release plan (removal.go) and the rollout gate (hostoperation_rollout.go)
+// both read it.
 func actionNode(a metalv1alpha1.HostOperationAction) string {
 	switch {
 	case a.AwaitCheckIn != nil:

@@ -52,6 +52,11 @@ func loadBundle(ctx context.Context, c client.Reader, namespace string, cluster 
 	if len(data) == 0 {
 		return nil, &bundleUnavailable{fmt.Sprintf("secrets Secret %s/%s carries no %s", ref.Namespace, ref.Name, render.BundleKey)}
 	}
+	// An edited bundle the machines do not run yet is held (bundle_guard.go).
+	data, _, err := chooseBundle(ctx, c, namespace, cluster, data)
+	if err != nil {
+		return nil, err
+	}
 	b, err := render.LoadBundle(data, cluster.Spec.TalosVersion)
 	if err != nil {
 		return nil, &bundleUnavailable{fmt.Sprintf("secrets Secret %s/%s: %v", ref.Namespace, ref.Name, err)}
@@ -114,7 +119,9 @@ func clustersUsingSecret(ctx context.Context, c client.Reader, obj client.Object
 	}
 	var out []osv1alpha1.TalosCluster
 	for _, cl := range clusters.Items {
-		if ref := cl.Spec.SecretsRef; ref.Namespace == obj.GetNamespace() && ref.Name == obj.GetName() {
+		// The applied copy of the bundle (bundle_guard.go) is an input too.
+		if ref := cl.Spec.SecretsRef; ref.Namespace == obj.GetNamespace() &&
+			(ref.Name == obj.GetName() || obj.GetName() == appliedBundleName(cl.Name)) {
 			out = append(out, cl)
 		}
 	}

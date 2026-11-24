@@ -187,12 +187,8 @@ func claimOn(node string) (*metalv1alpha1.HostClaim, *metalv1alpha1.Host) {
 	return claim, host
 }
 
-func actionKeys(op *metalv1alpha1.HostOperation) []string {
-	var keys []string
-	for _, a := range op.Spec.Actions {
-		keys = append(keys, a.Key())
-	}
-	return keys
+func opActionKeys(op *metalv1alpha1.HostOperation) []string {
+	return actionKeys(op.Spec.Actions)
 }
 
 func TestReadEtcdSeesStaleAndLearnerMembers(t *testing.T) {
@@ -225,7 +221,7 @@ func TestReleaseOfAnsweringControlPlaneLeavesEtcdAndWipes(t *testing.T) {
 	rel := releaseOps(t, lab.r, claim)
 	require.Len(t, rel, 1)
 	assert.Equal(t, []string{"cordon", "drain", "etcdForfeitLeadership", "etcdLeave", "talosReset", "deleteKubernetesNode", "powerOff"},
-		actionKeys(&rel[0]), "leave etcd, wipe, then power off; no slot to eject behind this endpoint")
+		opActionKeys(&rel[0]), "leave etcd, wipe, then power off; no slot to eject behind this endpoint")
 	reset := rel[0].Spec.Actions[4].TalosReset
 	assert.False(t, *reset.Graceful, "the steps before did what a graceful reset does")
 	assert.Empty(t, reset.Mode, "a release wipes every disk")
@@ -262,7 +258,7 @@ func TestReleaseOfUnreachableControlPlaneRemovesItsMemberByID(t *testing.T) {
 	require.False(t, releasePass(t, lab.r, claim))
 	rel := releaseOps(t, lab.r, claim)
 	require.Len(t, rel, 1)
-	assert.Equal(t, []string{"etcdRemoveMember", "deleteKubernetesNode", "powerOff"}, actionKeys(&rel[0]))
+	assert.Equal(t, []string{"etcdRemoveMember", "deleteKubernetesNode", "powerOff"}, opActionKeys(&rel[0]))
 	assert.Equal(t, memberIDHex(id), rel[0].Spec.Actions[0].EtcdRemoveMember.MemberID, "the member read at proposal is frozen in")
 	assert.Positive(t, rel[0].Spec.Actions[2].PowerOff.GracefulTimeoutSeconds, "the OS may still be up: ask it first")
 
@@ -315,7 +311,7 @@ func TestReleaseOfAWorkerWithoutTalosStepsMarksTheHost(t *testing.T) {
 	if implementedActions["talosReset"] {
 		t.Skip("the executor runs the Talos steps: covered by the tests above")
 	}
-	assert.Equal(t, []string{"powerOff"}, actionKeys(&rel[0]))
+	assert.Equal(t, []string{"powerOff"}, opActionKeys(&rel[0]))
 	got := &metalv1alpha1.Host{}
 	require.NoError(t, lab.r.Get(t.Context(), client.ObjectKey{Name: "host-a"}, got))
 	assert.Equal(t, "lab/w-1", got.Annotations[metalv1alpha1.AnnotationDiskNotWiped])
@@ -336,7 +332,7 @@ func TestDeletedTalosNodeIsRemovedWhileTheClaimKeepsTheMachine(t *testing.T) {
 	ops, err := lab.r.claimOps(t.Context(), claim, purposeRemove)
 	require.NoError(t, err)
 	require.Len(t, ops, 1)
-	assert.Equal(t, []string{"cordon", "drain", "talosReset", "deleteKubernetesNode", "powerOff"}, actionKeys(&ops[0]))
+	assert.Equal(t, []string{"cordon", "drain", "talosReset", "deleteKubernetesNode", "powerOff"}, opActionKeys(&ops[0]))
 	assert.Equal(t, "w-1", ops[0].Labels[labelNode])
 	assert.Equal(t, metalv1alpha1.ReasonRemovingNode, provisionedCond(t, claim).Reason)
 
@@ -474,7 +470,7 @@ func TestReinstallLeavesEtcdBeforeTheBoot(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, reason, msg)
 	op := &metalv1alpha1.HostOperation{Spec: metalv1alpha1.HostOperationSpec{Actions: steps}}
-	assert.Equal(t, []string{"cordon", "drain", "etcdForfeitLeadership", "etcdLeave", "talosReset", "deleteKubernetesNode"}, actionKeys(op))
+	assert.Equal(t, []string{"cordon", "drain", "etcdForfeitLeadership", "etcdLeave", "talosReset", "deleteKubernetesNode"}, opActionKeys(op))
 	assert.Equal(t, "SystemDisk", steps[4].TalosReset.Mode, "a reinstall keeps the user disks")
 }
 
@@ -512,7 +508,7 @@ func TestWipeIsProposedOnRequestAndClearsTheMark(t *testing.T) {
 	require.NoError(t, cl.List(t.Context(), ops))
 	require.Len(t, ops.Items, 1)
 	op := &ops.Items[0]
-	assert.Equal(t, []string{"ejectMedia", "insertMedia", "setBootOverride", "powerCycle"}, actionKeys(op))
+	assert.Equal(t, []string{"ejectMedia", "insertMedia", "setBootOverride", "powerCycle"}, opActionKeys(op))
 	assert.True(t, *op.Spec.Approval.Required, "erasing a disk is a person's decision")
 
 	meta.SetStatusCondition(&op.Status.Conditions, metav1.Condition{Type: metalv1alpha1.ConditionExecuted,

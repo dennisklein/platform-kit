@@ -29,7 +29,13 @@ import (
 // certificate signed by the bundle's Talos CA with the os:admin role, valid
 // for ttl, and the given endpoints.
 func Talosconfig(bundle *secrets.Bundle, clusterName string, endpoints []string, ttl time.Duration) ([]byte, error) {
-	cert, err := bundle.GenerateTalosAPIClientCertificateWithTTL(role.MakeSet(role.Admin), ttl)
+	return TalosconfigWithRole(bundle, clusterName, endpoints, ttl, role.Admin)
+}
+
+// TalosconfigWithRole is Talosconfig with another role: os:reader can read
+// every machine resource and change none, which is what monitoring needs.
+func TalosconfigWithRole(bundle *secrets.Bundle, clusterName string, endpoints []string, ttl time.Duration, r role.Role) ([]byte, error) {
+	cert, err := bundle.GenerateTalosAPIClientCertificateWithTTL(role.MakeSet(r), ttl)
 	if err != nil {
 		return nil, fmt.Errorf("mint talos client certificate: %w", err)
 	}
@@ -157,4 +163,56 @@ func parseCert(s string) (*stdx509.Certificate, error) {
 		return nil, errors.New("no PEM block")
 	}
 	return stdx509.ParseCertificate(block.Bytes)
+}
+
+// TalosconfigNotAfter is when a talosconfig's client certificate expires.
+func TalosconfigNotAfter(data []byte) (time.Time, error) {
+	cfg, err := clientconfig.FromBytes(data)
+	if err != nil {
+		return time.Time{}, err
+	}
+	ctx := cfg.Contexts[cfg.Context]
+	if ctx == nil {
+		return time.Time{}, errors.New("talosconfig has no current context")
+	}
+	crt, err := parseCert(ctx.Crt)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return crt.NotAfter, nil
+}
+
+// KubeconfigNotAfter is when a kubeconfig's client certificate expires.
+func KubeconfigNotAfter(data []byte) (time.Time, error) {
+	cfg, err := clientcmd.Load(data)
+	if err != nil {
+		return time.Time{}, err
+	}
+	ctx := cfg.Contexts[cfg.CurrentContext]
+	if ctx == nil || cfg.AuthInfos[ctx.AuthInfo] == nil {
+		return time.Time{}, errors.New("kubeconfig has no current user")
+	}
+	crt, err := parseCert(string(cfg.AuthInfos[ctx.AuthInfo].ClientCertificateData))
+	if err != nil {
+		return time.Time{}, err
+	}
+	return crt.NotAfter, nil
+}
+
+// TalosconfigRoles are the roles a talosconfig's client certificate carries
+// (Talos puts them in the certificate's organizations).
+func TalosconfigRoles(data []byte) ([]string, error) {
+	cfg, err := clientconfig.FromBytes(data)
+	if err != nil {
+		return nil, err
+	}
+	ctx := cfg.Contexts[cfg.Context]
+	if ctx == nil {
+		return nil, errors.New("talosconfig has no current context")
+	}
+	crt, err := parseCert(ctx.Crt)
+	if err != nil {
+		return nil, err
+	}
+	return crt.Subject.Organization, nil
 }
