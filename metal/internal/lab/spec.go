@@ -3,9 +3,9 @@
 // person would commit for a real site (Assets, TalosCluster and TalosNodes,
 // HostClaims), the tap list for the lab network and the operator's ledger.
 //
-// Before this, those files were written by hand and had to agree on serials,
-// MACs, addresses and ports. Now each machine's identity is derived from its
-// index, so they agree by construction, and the size of the lab is a number.
+// Those files must agree on serials, MACs, addresses and ports. Each machine's
+// identity is derived from its index, so they agree by construction, and the
+// size of the lab is a number.
 package lab
 
 import (

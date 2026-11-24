@@ -671,7 +671,7 @@ manifests_apply() {
 rerender_guard() {
   local root=$1 lab_dir=$2 spec=$3 size=$4 preview differs=0
   fleet_running "$lab_dir" "$root/metal/bin/pk-metal" || return 0
-  # A fleet started by an older lab.sh has no copy to compare with.
+  # A fleet started some other way has no copy to compare with.
   [[ -e $lab_dir/fleet.running.yaml ]] || return 0
   preview=$(mktemp -d)
   render_into "$root" "$spec" "$size" "$preview"

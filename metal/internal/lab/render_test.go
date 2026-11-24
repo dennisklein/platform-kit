@@ -68,9 +68,9 @@ func yamlDocs(t *testing.T, raw []byte) []any {
 
 // The default render is the lab the lab-e2e workflow has proven: one control
 // plane on generic, two workers, node-3 on supermicro-x12, the same
-// addresses, memory and MACs. The hand-written files it replaced (formerly
-// lab/fleet.yaml and lab/manifests) are kept under testdata as the reference;
-// they are frozen, a change of the default lab changes this test.
+// addresses, memory and MACs. The hand-written fleet file and manifests under
+// testdata/handwritten are that lab, frozen as the reference: a change of the
+// default lab has to change this test on purpose.
 func TestDefaultRenderMatchesHandWrittenLab(t *testing.T) {
 	files := render(t, "")
 	reference := filepath.Join("testdata", "handwritten")
