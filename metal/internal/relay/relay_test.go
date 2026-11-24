@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -8,6 +9,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -29,14 +33,14 @@ func startRelay(t *testing.T, wrapFront func(net.Listener) net.Listener) (tunnel
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	go func() { _ = Serve(ctx, tunnel, front, "") }()
+	go func() { _ = Serve(ctx, tunnel, front, "", testSecret) }()
 	return tunnel.Addr().String(), front.Addr().String()
 }
 
 func TestReverseStream(t *testing.T) {
 	tunnelAddr, frontAddr := startRelay(t, nil)
 
-	client, err := Dial(context.Background(), tunnelAddr)
+	client, err := Dial(context.Background(), tunnelAddr, testSecret)
 	require.NoError(t, err)
 	defer func() { _ = client.Close() }()
 	assert.Equal(t, frontAddr, client.FrontAddr(), "registration must report the front address")
@@ -67,7 +71,7 @@ func TestFrontSeesOnlyTLS(t *testing.T) {
 		return &teeListener{Listener: ln, reads: &reads, writes: &writes}
 	})
 
-	client, err := Dial(context.Background(), tunnelAddr)
+	client, err := Dial(context.Background(), tunnelAddr, testSecret)
 	require.NoError(t, err)
 	defer func() { _ = client.Close() }()
 
@@ -99,7 +103,7 @@ func TestFrontSeesOnlyTLS(t *testing.T) {
 
 func TestDialOnward(t *testing.T) {
 	tunnelAddr, _ := startRelay(t, nil)
-	client, err := Dial(context.Background(), tunnelAddr)
+	client, err := Dial(context.Background(), tunnelAddr, testSecret)
 	require.NoError(t, err)
 	defer func() { _ = client.Close() }()
 
@@ -133,9 +137,9 @@ func TestDialOnward(t *testing.T) {
 func TestOperatorHandover(t *testing.T) {
 	tunnelAddr, frontAddr := startRelay(t, nil)
 
-	first, err := Dial(context.Background(), tunnelAddr)
+	first, err := Dial(context.Background(), tunnelAddr, testSecret)
 	require.NoError(t, err)
-	second, err := Dial(context.Background(), tunnelAddr)
+	second, err := Dial(context.Background(), tunnelAddr, testSecret)
 	require.NoError(t, err)
 	defer func() { _ = second.Close() }()
 
@@ -170,14 +174,136 @@ func TestOperatorHandover(t *testing.T) {
 
 func TestAcceptUnknownID(t *testing.T) {
 	tunnelAddr, _ := startRelay(t, nil)
-	conn, err := net.Dial("tcp", tunnelAddr)
-	require.NoError(t, err)
+	conn, br := signedOpen(t, tunnelAddr, testSecret, "ACCEPT", "deadbeef")
 	defer func() { _ = conn.Close() }()
-	_, err = io.WriteString(conn, "ACCEPT deadbeef\n")
-	require.NoError(t, err)
 	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, err = conn.Read(make([]byte, 1))
+	_, err := br.ReadByte()
 	assert.ErrorIs(t, err, io.EOF, "an unknown rendezvous id is dropped")
+}
+
+// testSecret is the secret the test relays run with.
+var testSecret = []byte("0123456789abcdef0123456789abcdef")
+
+// signedOpen opens a tunnel connection, reads the greeting and sends verb
+// and arg signed with secret.
+func signedOpen(t testing.TB, tunnel string, secret []byte, verb, arg string) (net.Conn, *bufio.Reader) {
+	t.Helper()
+	c, err := net.Dial("tcp", tunnel)
+	require.NoError(t, err)
+	br := bufio.NewReader(c)
+	greet, err := br.ReadString('\n')
+	require.NoError(t, err)
+	nonce, ok := strings.CutPrefix(strings.TrimSuffix(greet, "\n"), greeting+" ")
+	require.True(t, ok, "greeting %q", greet)
+	_, err = io.WriteString(c, signedLine(secret, nonce, verb, arg))
+	require.NoError(t, err)
+	return c, br
+}
+
+// TestTunnelNeedsTheSecret: a peer without the secret can neither take the
+// control slot from the registered operator nor dial onward.
+func TestTunnelNeedsTheSecret(t *testing.T) {
+	tr := startTestRelay(t, time.Second)
+	ctl, _ := register(t, tr.tunnel)
+	defer ctl.Close()
+
+	other := []byte("ffffffffffffffffffffffffffffffff")
+	for _, line := range [][2]string{{"REGISTER", ""}, {"DIAL", "10.0.0.21:443"}, {"ACCEPT", "0011223344556677"}} {
+		c, br := signedOpen(t, tr.tunnel, other, line[0], line[1])
+		_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+		got, err := io.ReadAll(br)
+		require.NoError(t, err)
+		assert.Equal(t, "ERR unauthenticated\n", string(got), "%s with another secret", line[0])
+		_ = c.Close()
+	}
+	assert.Zero(t, tr.dials.count(), "no onward dial without the secret")
+
+	// The registered operator still holds the slot: a front connection is
+	// announced to it.
+	front, err := net.Dial("tcp", tr.front)
+	require.NoError(t, err)
+	defer front.Close()
+	_ = ctl.SetReadDeadline(time.Now().Add(2 * time.Second))
+	announced, err := bufio.NewReader(ctl).ReadString('\n')
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(announced, "STREAM "), "got %q", announced)
+}
+
+// TestSignedLineIsBoundToItsConnection: a line seen on the wire is worthless
+// on another connection (another nonce) and with another target.
+func TestSignedLineIsBoundToItsConnection(t *testing.T) {
+	tr := startTestRelay(t, time.Second)
+
+	c, err := net.Dial("tcp", tr.tunnel)
+	require.NoError(t, err)
+	defer c.Close()
+	br := bufio.NewReader(c)
+	_, err = br.ReadString('\n')
+	require.NoError(t, err)
+	// Signed for another nonce: what a replay of an earlier connection sends.
+	_, err = io.WriteString(c, signedLine(testSecret, "00000000000000000000000000000000", "DIAL", "10.0.0.21:443"))
+	require.NoError(t, err)
+	_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	got, err := io.ReadAll(br)
+	require.NoError(t, err)
+	assert.Equal(t, "ERR unauthenticated\n", string(got))
+
+	// Signed for this nonce but for another target.
+	c2, err := net.Dial("tcp", tr.tunnel)
+	require.NoError(t, err)
+	defer c2.Close()
+	br2 := bufio.NewReader(c2)
+	greet, err := br2.ReadString('\n')
+	require.NoError(t, err)
+	nonce := strings.TrimSpace(strings.TrimPrefix(greet, greeting+" "))
+	forged := strings.Replace(signedLine(testSecret, nonce, "DIAL", "10.0.0.21:443"), "10.0.0.21", "10.0.0.99", 1)
+	_, err = io.WriteString(c2, forged)
+	require.NoError(t, err)
+	_ = c2.SetReadDeadline(time.Now().Add(2 * time.Second))
+	got, err = io.ReadAll(br2)
+	require.NoError(t, err)
+	assert.Equal(t, "ERR unauthenticated\n", string(got))
+	assert.Zero(t, tr.dials.count())
+}
+
+func TestDialWithAnotherSecretIsRefused(t *testing.T) {
+	tunnelAddr, _ := startRelay(t, nil)
+	_, err := Dial(context.Background(), tunnelAddr, []byte("ffffffffffffffffffffffffffffffff"))
+	assert.ErrorContains(t, err, "hold different secrets")
+}
+
+func TestServeRefusesWithoutSecret(t *testing.T) {
+	tunnel, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer tunnel.Close()
+	front, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer front.Close()
+	assert.ErrorContains(t, Serve(context.Background(), tunnel, front, "", nil), "secret")
+}
+
+func TestLoadSecret(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "relay.secret")
+
+	_, _, err := LoadSecret(path, false)
+	assert.ErrorIs(t, err, os.ErrNotExist, "without create, a missing file is an error")
+
+	first, created, err := LoadSecret(path, true)
+	require.NoError(t, err)
+	assert.True(t, created)
+	assert.Len(t, first, 64)
+	fi, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), fi.Mode().Perm(), "readable by its owner only")
+
+	again, created, err := LoadSecret(path, true)
+	require.NoError(t, err)
+	assert.False(t, created, "an existing secret is never replaced")
+	assert.Equal(t, first, again)
+
+	require.NoError(t, os.WriteFile(path, []byte("short\n"), 0o600))
+	_, _, err = LoadSecret(path, true)
+	assert.ErrorContains(t, err, "at least 32")
 }
 
 // captureBuf is a concurrency-safe byte sink for the tee.

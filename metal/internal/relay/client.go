@@ -3,7 +3,6 @@ package relay
 import (
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"strings"
 	"sync"
@@ -15,6 +14,7 @@ import (
 // terminates TLS simply by serving a tls.NewListener wrapped around it.
 type Client struct {
 	tunnelAddr string
+	secret     []byte
 	frontAddr  string
 	control    net.Conn
 	streams    chan net.Conn
@@ -25,15 +25,16 @@ type Client struct {
 var _ net.Listener = (*Client)(nil)
 
 // Dial connects to a relay's tunnel port and registers as its operator,
-// replacing any previous registration.
-func Dial(ctx context.Context, tunnelAddr string) (*Client, error) {
+// replacing any previous registration. secret is the one the relay was
+// started with.
+func Dial(ctx context.Context, tunnelAddr string, secret []byte) (*Client, error) {
 	d := net.Dialer{Timeout: handshakeTimeout}
 	conn, err := d.DialContext(ctx, "tcp", tunnelAddr)
 	if err != nil {
 		return nil, fmt.Errorf("relay: dial tunnel: %w", err)
 	}
 	_ = conn.SetDeadline(time.Now().Add(handshakeTimeout))
-	if _, err := io.WriteString(conn, "REGISTER\n"); err != nil {
+	if err := greet(conn, secret, "REGISTER", ""); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("relay: register: %w", err)
 	}
@@ -41,6 +42,10 @@ func Dial(ctx context.Context, tunnelAddr string) (*Client, error) {
 	if err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("relay: register: %w", err)
+	}
+	if why, refused := strings.CutPrefix(line, "ERR "); refused {
+		_ = conn.Close()
+		return nil, fmt.Errorf("relay: register refused: %s (this side and the relay hold different secrets)", why)
 	}
 	front, ok := strings.CutPrefix(line, "OK front=")
 	if !ok {
@@ -51,6 +56,7 @@ func Dial(ctx context.Context, tunnelAddr string) (*Client, error) {
 
 	c := &Client{
 		tunnelAddr: tunnelAddr,
+		secret:     secret,
 		frontAddr:  front,
 		control:    conn,
 		streams:    make(chan net.Conn),
@@ -84,10 +90,12 @@ func (c *Client) pickup(id string) {
 	if err != nil {
 		return
 	}
-	if _, err := fmt.Fprintf(conn, "ACCEPT %s\n", id); err != nil {
+	_ = conn.SetDeadline(time.Now().Add(handshakeTimeout))
+	if err := greet(conn, c.secret, "ACCEPT", id); err != nil {
 		_ = conn.Close()
 		return
 	}
+	_ = conn.SetDeadline(time.Time{})
 	select {
 	case c.streams <- conn:
 	case <-c.closed:
@@ -130,7 +138,7 @@ func (c *Client) DialOnward(ctx context.Context, hostport string) (net.Conn, err
 		return nil, fmt.Errorf("relay: dial tunnel: %w", err)
 	}
 	_ = conn.SetDeadline(time.Now().Add(handshakeTimeout))
-	if _, err := fmt.Fprintf(conn, "DIAL %s\n", hostport); err != nil {
+	if err := greet(conn, c.secret, "DIAL", hostport); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("relay: dial onward: %w", err)
 	}

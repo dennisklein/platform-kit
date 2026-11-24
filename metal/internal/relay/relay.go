@@ -11,13 +11,18 @@
 // reached over `ssh -L`, so the onward-dial path is never an open proxy into the
 // BMC island), a 1034-macvlan pod (steady state).
 //
-// The protocol is three line-prefixed TCP flavors on the tunnel port:
+// The protocol is three line-prefixed TCP flavors on the tunnel port, each
+// opened by the relay's greeting and authenticated by the shared secret (see
+// auth.go):
 //
 //	REGISTER          -> OK front=<addr>    the control connection (last wins)
 //	ACCEPT <id>       picks up the front stream announced as "STREAM <id>"
 //	DIAL <host:port>  -> OK | ERR <why>     the operator's Redfish path onward
 //
-// Everything after a connection's first line is spliced payload.
+// Everything after a connection's first line is spliced payload. Without the
+// secret, a connection to the tunnel port can neither take the control slot
+// (and with it the BMCs' media fetches, whose certificate the BMCs do not
+// check) nor dial onward into the BMC network.
 package relay
 
 import (
@@ -27,7 +32,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strings"
 	"sync"
 	"time"
 )
@@ -41,16 +45,22 @@ const (
 // Serve runs the relay over the two listeners until ctx is cancelled or a
 // listener dies. advertise overrides the front address reported to the
 // registering operator (the address as BMCs reach it); empty means front.Addr().
-func Serve(ctx context.Context, tunnel, front net.Listener, advertise string) error {
+// secret is the shared secret every tunnel connection must prove it holds
+// (ParseSecret, LoadSecret); the relay refuses to run without one.
+func Serve(ctx context.Context, tunnel, front net.Listener, advertise string, secret []byte) error {
+	if len(secret) < minSecret {
+		return fmt.Errorf("relay: a secret of at least %d characters is required", minSecret)
+	}
 	if advertise == "" {
 		advertise = front.Addr().String()
 	}
-	return newRelay(advertise).serve(ctx, tunnel, front)
+	return newRelay(advertise, secret).serve(ctx, tunnel, front)
 }
 
-func newRelay(advertise string) *relay {
+func newRelay(advertise string, secret []byte) *relay {
 	return &relay{
 		advertise:         advertise,
+		secret:            secret,
 		pending:           map[string]chan net.Conn{},
 		dial:              net.DialTimeout,
 		handshakeTimeout:  handshakeTimeout,
@@ -79,6 +89,7 @@ func (r *relay) serve(ctx context.Context, tunnel, front net.Listener) error {
 
 type relay struct {
 	advertise string
+	secret    []byte
 	// dial and the two timeouts are fields so that tests can record onward
 	// dials and wait milliseconds, not seconds.
 	dial              func(network, address string, timeout time.Duration) (net.Conn, error)
@@ -101,14 +112,29 @@ func acceptLoop(ln net.Listener, handle func(net.Conn)) error {
 }
 
 func (r *relay) handleTunnel(c net.Conn) {
-	_ = c.SetReadDeadline(time.Now().Add(r.handshakeTimeout))
+	_ = c.SetDeadline(time.Now().Add(r.handshakeTimeout))
+	nonce, err := newNonce()
+	if err != nil {
+		_ = c.Close()
+		return
+	}
+	if _, err := io.WriteString(c, greeting+" "+nonce+"\n"); err != nil {
+		_ = c.Close()
+		return
+	}
 	line, err := readLine(c)
 	if err != nil {
 		_ = c.Close()
 		return
 	}
-	_ = c.SetReadDeadline(time.Time{})
-	verb, arg, _ := strings.Cut(line, " ")
+	verb, arg, err := verifyLine(r.secret, nonce, line)
+	if err != nil {
+		// Nothing was registered, accepted or dialled for this connection.
+		_, _ = fmt.Fprintf(c, "ERR %v\n", err)
+		_ = c.Close()
+		return
+	}
+	_ = c.SetDeadline(time.Time{})
 	switch verb {
 	case "REGISTER":
 		r.register(c)

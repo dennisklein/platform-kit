@@ -66,15 +66,16 @@ func TestLadderDirect(t *testing.T) {
 // has NO listener of its own — it serves purely over the tunnel, so the sim's
 // pull succeeding proves the traversal.
 func TestLadderOverRelay(t *testing.T) {
+	relaySecret := []byte("0123456789abcdef0123456789abcdef")
 	tunnel, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	front, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	go func() { _ = relay.Serve(ctx, tunnel, front, "") }()
+	go func() { _ = relay.Serve(ctx, tunnel, front, "", relaySecret) }()
 
-	rc, err := relay.Dial(ctx, tunnel.Addr().String())
+	rc, err := relay.Dial(ctx, tunnel.Addr().String(), relaySecret)
 	require.NoError(t, err)
 
 	st := simState(t, "supermicro-x12")

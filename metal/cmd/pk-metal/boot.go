@@ -28,7 +28,9 @@ BMC web console) and boot waits until the image has been read.
 
 The BMC must reach the address boot serves on: give --listen with an address
 on the BMC network, or --relay to serve through pk-metal relay on a host that
-the BMCs can reach. The BMC password comes from $PK_METAL_BMC_PASSWORD only.
+the BMCs can reach. With --relay, boot needs the relay's secret, from
+$PK_METAL_RELAY_SECRET or --relay-secret-file. The BMC password comes from
+$PK_METAL_BMC_PASSWORD only.
 
 example:
   PK_METAL_BMC_PASSWORD=... pk-metal boot --config clusterconfig/node-1.yaml \
@@ -48,6 +50,7 @@ func bootCmd(args []string) {
 	ttl := fs.Duration("ttl", 10*time.Minute, "how long the image is served, and so how long boot waits for the machine to read it")
 	listen := fs.String("listen", "", "address to serve the image on; the BMC must reach it (not with --relay)")
 	relayAddr := fs.String("relay", "", "address of a pk-metal relay to serve the image through (not with --listen)")
+	relaySecretFile := fs.String("relay-secret-file", "", "file with the relay's shared secret (or set $"+relay.SecretEnv+")")
 	hold := fs.Bool("hold", false, "keep serving and keep the medium mounted until interrupted (Ctrl-C)")
 	yes := fs.Bool("yes", false, "allow a hard reset of a machine that is on")
 	forceRestart := fs.Bool("force-restart", false, "same as --yes")
@@ -59,6 +62,9 @@ func bootCmd(args []string) {
 	}
 	if (*listen == "") == (*relayAddr == "") {
 		badUsage(fs, "give exactly one of --listen or --relay")
+	}
+	if *relaySecretFile != "" && *relayAddr == "" {
+		badUsage(fs, "--relay-secret-file goes with --relay")
 	}
 	if *noPower && (*yes || *forceRestart) {
 		badUsage(fs, "--no-power does not touch power, so --yes or --force-restart has no meaning with it")
@@ -74,7 +80,12 @@ func bootCmd(args []string) {
 
 	var rc *relay.Client
 	if *relayAddr != "" {
-		if rc, err = relay.Dial(ctx, *relayAddr); err != nil {
+		// Read, never created here: boot must hold the secret the relay has.
+		secret, err := relaySecret(*relaySecretFile, false)
+		if err != nil {
+			die(err)
+		}
+		if rc, err = relay.Dial(ctx, *relayAddr, secret); err != nil {
 			die(err)
 		}
 		log.Printf("boot: registered at relay %s, front %s", *relayAddr, rc.FrontAddr())

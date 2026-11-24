@@ -54,7 +54,7 @@ func startTestRelay(t testing.TB, rendezvous time.Duration) *testRelay {
 	front, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	d := &dialRecorder{}
-	r := newRelay(front.Addr().String())
+	r := newRelay(front.Addr().String(), testSecret)
 	r.dial = d.dial
 	r.handshakeTimeout = 200 * time.Millisecond
 	r.rendezvousTimeout = rendezvous
@@ -80,50 +80,59 @@ func (tr *testRelay) hasControl() bool {
 // register opens a control connection and reads the OK line.
 func register(t testing.TB, tunnel string) (net.Conn, *bufio.Reader) {
 	t.Helper()
-	c, err := net.Dial("tcp", tunnel)
-	require.NoError(t, err)
-	_, err = io.WriteString(c, "REGISTER\n")
-	require.NoError(t, err)
-	br := bufio.NewReader(c)
+	c, br := signedOpen(t, tunnel, testSecret, "REGISTER", "")
 	line, err := br.ReadString('\n')
 	require.NoError(t, err)
 	require.True(t, strings.HasPrefix(line, "OK front="), "got %q", line)
 	return c, br
 }
 
-// FuzzRelayFirstLine sends an arbitrary first line to the tunnel port. The
-// relay must answer or close within the handshake timeout, dial onward only
-// for the DIAL verb, leave no rendezvous behind, and stop every goroutine it
-// started for the connection.
+// FuzzRelayFirstLine sends an arbitrary first line to the tunnel port, after
+// the greeting, either as it is or signed with the relay's secret. The relay
+// must answer or close within the handshake timeout, act only on a line that
+// carries a valid MAC, dial onward only for a signed DIAL, leave no
+// rendezvous behind, and stop every goroutine it started for the connection.
 func FuzzRelayFirstLine(f *testing.F) {
 	for _, seed := range []string{
 		"REGISTER\n", "ACCEPT 0011223344556677\n", "ACCEPT\n", "DIAL 10.0.0.21:443\n", "DIAL\n",
 		"dial 10.0.0.21:443\n", "DIAL\r\n", "HELLO\n", "\n", "no newline",
+		"REGISTER mac=00\n", "DIAL 10.0.0.21:443 mac=" + strings.Repeat("0", 64) + "\n",
 		strings.Repeat("A", 300) + "\n", "GET / HTTP/1.1\r\nHost: x\r\n\r\n",
 	} {
-		f.Add([]byte(seed))
+		f.Add([]byte(seed), false)
+		f.Add([]byte(seed), true)
 	}
 	tr := startTestRelay(f, time.Second)
-	f.Fuzz(func(t *testing.T, line []byte) {
+	f.Fuzz(func(t *testing.T, line []byte, sign bool) {
 		baseline := relayGoroutines()
 		before := tr.dials.count()
 
 		c, err := net.Dial("tcp", tr.tunnel)
 		require.NoError(t, err)
+		br := bufio.NewReader(c)
+		_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+		greet, err := br.ReadString('\n')
+		require.NoError(t, err, "every tunnel connection is greeted")
+		nonce := strings.TrimSpace(strings.TrimPrefix(greet, greeting+" "))
+
+		first, rest, hasLine := bytes.Cut(line, []byte("\n"))
+		verb, arg, _ := strings.Cut(string(first), " ")
+		if sign && hasLine {
+			line = append([]byte(strings.TrimSuffix(signedLine(testSecret, nonce, verb, arg), "\n")), '\n')
+			line = append(line, rest...)
+			first, _, _ = bytes.Cut(line, []byte("\n"))
+		}
+		authed := sign && hasLine && len(first) < maxLine
 		_, _ = c.Write(line)
 		// Read whatever the relay answers until it closes the connection or
-		// the handshake timeout has clearly passed. A REGISTER is the one
-		// verb that keeps it open, as the control connection.
-		_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
-		first, _, _ := bytes.Cut(line, []byte("\n"))
-		verb, _, _ := strings.Cut(string(first), " ")
-		hasLine := bytes.IndexByte(line, '\n') >= 0 && len(first) < maxLine
+		// the handshake timeout has clearly passed. A signed REGISTER is the
+		// one line that keeps it open, as the control connection.
 		var got []byte
-		if hasLine && verb == "REGISTER" {
-			got, _ = bufio.NewReader(c).ReadBytes('\n')
+		if authed && verb == "REGISTER" {
+			got, _ = br.ReadBytes('\n')
 			assert.True(t, bytes.HasPrefix(got, []byte("OK front=")), "REGISTER answered %q", got)
 		} else {
-			got, err = io.ReadAll(c)
+			got, err = io.ReadAll(br)
 			var ne net.Error
 			assert.False(t, errors.As(err, &ne) && ne.Timeout(),
 				"the relay kept a %q connection open past the handshake timeout", verb)
@@ -131,10 +140,14 @@ func FuzzRelayFirstLine(f *testing.F) {
 		_ = c.Close()
 
 		dialed := tr.dials.count() - before
-		if hasLine && verb == "DIAL" {
-			assert.Equal(t, 1, dialed, "DIAL must dial onward once")
+		switch {
+		case authed && verb == "DIAL":
+			assert.Equal(t, 1, dialed, "a signed DIAL must dial onward once")
 			assert.True(t, bytes.HasPrefix(got, []byte("ERR ")), "a refused dial answers ERR, got %q", got)
-		} else {
+		case !authed && hasLine && len(first) < maxLine:
+			assert.Zero(t, dialed, "first line %q dialed onward without the secret", first)
+			assert.Equal(t, "ERR unauthenticated\n", string(got), "first line %q", first)
+		default:
 			assert.Zero(t, dialed, "first line %q dialed onward", first)
 		}
 		assert.Zero(t, tr.pendingCount(), "a rendezvous was left behind")
@@ -172,13 +185,10 @@ func TestFrontWithoutAccept(t *testing.T) {
 	assert.Zero(t, tr.pendingCount(), "forget must withdraw the id")
 
 	// A late ACCEPT finds nothing and is closed, never spliced.
-	late, err := net.Dial("tcp", tr.tunnel)
-	require.NoError(t, err)
+	late, lateBR := signedOpen(t, tr.tunnel, testSecret, "ACCEPT", strings.TrimSpace(strings.TrimPrefix(line, "STREAM ")))
 	defer late.Close()
-	_, err = io.WriteString(late, "ACCEPT "+strings.TrimSpace(strings.TrimPrefix(line, "STREAM "))+"\n")
-	require.NoError(t, err)
 	_ = late.SetReadDeadline(time.Now().Add(5 * time.Second))
-	_, err = late.Read(make([]byte, 1))
+	_, err = lateBR.ReadByte()
 	assert.ErrorIs(t, err, io.EOF)
 }
 
@@ -198,9 +208,8 @@ func TestAcceptRacingTimeout(t *testing.T) {
 		require.NoError(t, err)
 		id := strings.TrimSpace(strings.TrimPrefix(line, "STREAM "))
 
-		op, err := net.Dial("tcp", tr.tunnel)
-		require.NoError(t, err)
-		_, err = io.WriteString(op, "ACCEPT "+id+"\nping")
+		op, opBR := signedOpen(t, tr.tunnel, testSecret, "ACCEPT", id)
+		_, err = io.WriteString(op, "ping")
 		require.NoError(t, err)
 
 		// The front sees either the operator's bytes (spliced) or EOF.
@@ -212,13 +221,13 @@ func TestAcceptRacingTimeout(t *testing.T) {
 			require.Equal(t, "ping", string(buf[:n]))
 			_, err = io.WriteString(front, "pong")
 			require.NoError(t, err)
-			_, err = io.ReadFull(op, buf)
+			_, err = io.ReadFull(opBR, buf)
 			require.NoError(t, err, "a spliced stream must carry both ways")
 			assert.Equal(t, "pong", string(buf))
 			spliced++
 		} else {
 			require.ErrorIs(t, ferr, io.EOF)
-			_, err = op.Read(buf)
+			_, err = opBR.Read(buf)
 			var ne net.Error
 			require.False(t, errors.As(err, &ne) && ne.Timeout(),
 				"the front was closed but the accepted stream was left open")
