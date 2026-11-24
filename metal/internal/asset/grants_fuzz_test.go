@@ -177,7 +177,7 @@ func FuzzServePath(f *testing.F) {
 		case http.StatusOK, http.StatusPartialContent:
 			assert.True(t, getOrHead && match && credsOK, "%s %q answered %d", method, req.URL.Path, rec.Code)
 			if req.Method == http.MethodGet && rec.Code == http.StatusOK {
-				assert.Equal(t, g.content, body)
+				assert.Equal(t, []byte("content of "+g.Asset), body)
 			}
 		case http.StatusUnauthorized:
 			assert.True(t, match && g.Credentials != nil, "401 for %q leaks that a grant exists", req.URL.Path)

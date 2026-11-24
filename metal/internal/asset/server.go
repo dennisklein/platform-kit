@@ -1,8 +1,8 @@
 package asset
 
 import (
-	"bytes"
 	"crypto/subtle"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -61,5 +61,5 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Explicit content type — ServeContent would otherwise ask the host's mime
 	// tables what an .iso is.
 	w.Header().Set("Content-Type", "application/octet-stream")
-	http.ServeContent(w, r, g.Filename, time.Time{}, bytes.NewReader(g.content))
+	http.ServeContent(w, r, g.Filename, time.Time{}, io.NewSectionReader(g.content, 0, g.size))
 }

@@ -1,9 +1,12 @@
 package asset
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -34,7 +37,13 @@ type Grant struct {
 	ExpiresAt   time.Time
 	Credentials *Credentials
 
-	content []byte
+	// content is what the grant serves, size bytes of it. It is read at
+	// offsets, so concurrent ranged reads of one grant need no lock.
+	content io.ReaderAt
+	size    int64
+	// release frees what content holds (an open file), once, when the
+	// grant leaves the table. Nil for content held in memory.
+	release func()
 }
 
 // Path is the URL path the grant is served under.
@@ -57,15 +66,42 @@ func NewGrants() *Grants {
 	return &Grants{byToken: map[string]*Grant{}}
 }
 
-// Issue mints a grant for content. Content is held by the grant for its lifetime —
-// config media are tens of kilobytes; when embedded install images (~100 MB,
-// per-node) arrive, the content field grows an opener seam instead.
+// Issue mints a grant for content held in memory: the config media, tens of
+// kilobytes each. The grant keeps the slice for its lifetime.
 func (t *Grants) Issue(asset, filename string, content []byte, ttl time.Duration, creds *Credentials) (*Grant, error) {
-	if !strings.HasSuffix(filename, ".iso") || strings.ContainsAny(filename, "/?#") {
-		return nil, fmt.Errorf("filename %q: grant URLs must end in a plain .iso path element (vendor URL rules)", filename)
-	}
 	if len(content) == 0 {
 		return nil, fmt.Errorf("refusing to grant empty content")
+	}
+	return t.issue(asset, filename, bytes.NewReader(content), int64(len(content)), nil, ttl, creds)
+}
+
+// IssueFile mints a grant for an open file: an installer with an embedded
+// config is hundreds of megabytes and is served from the media store, not
+// from memory. The grant takes the file over and closes it when the grant is
+// revoked or expires, also when IssueFile fails. Serving from the descriptor,
+// not the path, means the grant serves the bytes that were verified when it
+// was minted, even if the store replaces or removes the file meanwhile.
+func (t *Grants) IssueFile(asset, filename string, f *os.File, ttl time.Duration, creds *Credentials) (*Grant, error) {
+	release := func() { _ = f.Close() }
+	st, err := f.Stat()
+	if err != nil {
+		release()
+		return nil, fmt.Errorf("grant %s: %w", filename, err)
+	}
+	if st.Size() == 0 {
+		release()
+		return nil, fmt.Errorf("refusing to grant empty content")
+	}
+	g, err := t.issue(asset, filename, f, st.Size(), release, ttl, creds)
+	if err != nil {
+		release()
+	}
+	return g, err
+}
+
+func (t *Grants) issue(asset, filename string, content io.ReaderAt, size int64, release func(), ttl time.Duration, creds *Credentials) (*Grant, error) {
+	if !strings.HasSuffix(filename, ".iso") || strings.ContainsAny(filename, "/?#") {
+		return nil, fmt.Errorf("filename %q: grant URLs must end in a plain .iso path element (vendor URL rules)", filename)
 	}
 	if ttl <= 0 {
 		return nil, fmt.Errorf("grant ttl must be positive, got %s", ttl)
@@ -82,6 +118,8 @@ func (t *Grants) Issue(asset, filename string, content []byte, ttl time.Duration
 		ExpiresAt:   t.clock().Add(ttl),
 		Credentials: creds,
 		content:     content,
+		size:        size,
+		release:     release,
 	}
 
 	t.mu.Lock()
@@ -95,8 +133,10 @@ func (t *Grants) Issue(asset, filename string, content []byte, ttl time.Duration
 func (t *Grants) Revoke(token string) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	_, ok := t.byToken[token]
-	delete(t.byToken, token)
+	g, ok := t.byToken[token]
+	if ok {
+		t.dropLocked(token, g)
+	}
 	return ok
 }
 
@@ -108,7 +148,7 @@ func (t *Grants) RevokeAsset(asset string) int {
 	n := 0
 	for token, g := range t.byToken {
 		if g.Asset == asset {
-			delete(t.byToken, token)
+			t.dropLocked(token, g)
 			n++
 		}
 	}
@@ -124,7 +164,7 @@ func (t *Grants) lookup(token string) *Grant {
 		return nil
 	}
 	if !t.clock().Before(g.ExpiresAt) {
-		delete(t.byToken, token)
+		t.dropLocked(token, g)
 		return nil
 	}
 	return g
@@ -146,7 +186,7 @@ func (t *Grants) Live(asset, filename string) (*Grant, bool) {
 			continue
 		}
 		if !t.clock().Before(g.ExpiresAt) {
-			delete(t.byToken, token)
+			t.dropLocked(token, g)
 			continue
 		}
 		if best == nil || g.ExpiresAt.After(best.ExpiresAt) ||
@@ -160,8 +200,17 @@ func (t *Grants) Live(asset, filename string) (*Grant, bool) {
 func (t *Grants) sweepLocked() {
 	for token, g := range t.byToken {
 		if !t.clock().Before(g.ExpiresAt) {
-			delete(t.byToken, token)
+			t.dropLocked(token, g)
 		}
+	}
+}
+
+// dropLocked takes a grant out of the table and frees its content. A request
+// still reading it then fails mid-transfer, which is what revoking means.
+func (t *Grants) dropLocked(token string, g *Grant) {
+	delete(t.byToken, token)
+	if g.release != nil {
+		g.release()
 	}
 }
 
