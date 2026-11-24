@@ -367,9 +367,11 @@ func TestOSLane(t *testing.T) {
 			_, c := nodeCondition("other-1", osv1alpha1.ConditionRendered)
 			return c != nil && c.Reason == osv1alpha1.ReasonSecretsUnavailable
 		}, waitFor, tick)
-		_, b := clusterCondition("other", osv1alpha1.ConditionBootstrapped)
-		require.NotNil(t, b)
-		assert.Equal(t, osv1alpha1.ReasonSecretsUnavailable, b.Reason)
+		// The cluster's own reconcile may land after the node's.
+		require.Eventually(t, func() bool {
+			_, b := clusterCondition("other", osv1alpha1.ConditionBootstrapped)
+			return b != nil && b.Reason == osv1alpha1.ReasonSecretsUnavailable
+		}, waitFor, tick)
 
 		createBundle("other-talos-secrets")
 		require.Eventually(t, func() bool {
