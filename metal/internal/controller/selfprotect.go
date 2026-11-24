@@ -279,11 +279,24 @@ func nodeReady(n *osv1alpha1.TalosNode) bool {
 	return meta.IsStatusConditionTrue(n.Status.Conditions, osv1alpha1.ConditionReady)
 }
 
-// disrupts: the operation can reboot or power off the machine.
+// disrupts: the operation can reboot, power off, wipe or take etcd away
+// from the machine.
 func disrupts(op *metalv1alpha1.HostOperation) bool {
-	return slices.ContainsFunc(op.Spec.Actions, func(a metalv1alpha1.HostOperationAction) bool {
-		return a.PowerCycle != nil || a.PowerOff != nil
-	})
+	return slices.ContainsFunc(op.Spec.Actions, disruptsAction)
+}
+
+// disruptsAction: the action takes the node down, or its etcd member away.
+// A config applied without a reboot, staged for the next one, or tried with
+// a rollback does not; Auto may reboot, so it counts.
+func disruptsAction(a metalv1alpha1.HostOperationAction) bool {
+	switch {
+	case a.PowerCycle != nil, a.PowerOff != nil, a.TalosReboot != nil, a.TalosShutdown != nil,
+		a.TalosUpgrade != nil, a.TalosReset != nil, a.EtcdLeave != nil:
+		return true
+	case a.TalosApplyConfig != nil:
+		return a.TalosApplyConfig.Mode == "Reboot" || a.TalosApplyConfig.Mode == "Auto"
+	}
+	return false
 }
 
 // Check reads what the verdict needs and returns "" when a step that reboots

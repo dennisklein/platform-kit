@@ -29,6 +29,7 @@ import (
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	gofishclient "github.com/dennisklein/platform-kit/metal/internal/bmc/gofish"
 	"github.com/dennisklein/platform-kit/metal/internal/phase"
+	"github.com/dennisklein/platform-kit/metal/internal/talos"
 )
 
 // opHostIndex joins operations to the Host they act on.
@@ -124,6 +125,21 @@ type HostOperationReconciler struct {
 	// Workers is how many passes run at once. Zero defaults.
 	Workers int
 
+	// TalosDial opens the machine API of the node a Talos step acts on, and
+	// of the control planes the cluster guard asks about etcd. Nil fails
+	// every Talos step, saying so.
+	TalosDial talos.Dialer
+	// Workload opens a client for a workload cluster's Kubernetes API from
+	// its admin kubeconfig; nil builds one with clientcmd. A test seam.
+	Workload func(ctx context.Context, kubeconfig []byte) (client.Client, error)
+	// Guard keeps a disruptive step off a control plane while another one of
+	// its cluster is down or etcd is not fully healthy (see ClusterGuard);
+	// nil allows every one.
+	Guard *ClusterGuard
+	// GuardInterval paces the next look at an operation a guard holds. Zero
+	// defaults to selfRecheck.
+	GuardInterval time.Duration
+
 	// locks keeps two passes off one host and off one BMC. startMu makes a
 	// guarded start (the self guard's verdict through the baseline write)
 	// one at a time across hosts. clock remembers when each waiting step
@@ -153,6 +169,11 @@ type exec struct {
 
 	cl       bmc.Client
 	systemID string
+
+	// talos and kube reach the Talos cluster of the host's node, opened on
+	// first use and kept for the pass.
+	talos *talosAccess
+	kube  client.Client
 }
 
 // stepState is what a step reports besides an error: done, or still waiting
@@ -176,7 +197,7 @@ func waitingOn(format string, args ...any) stepState {
 // +kubebuilder:rbac:groups=metal.pk.io,resources=hostclaims,verbs=get
 // +kubebuilder:rbac:groups=metal.pk.io,resources=managementendpoints,verbs=get;list;watch
 // +kubebuilder:rbac:groups=metal.pk.io,resources=biossettings,verbs=get;list;watch
-// +kubebuilder:rbac:groups=os.pk.io,resources=bootassets;talosnodes,verbs=get;list;watch
+// +kubebuilder:rbac:groups=os.pk.io,resources=bootassets;talosnodes;talosclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch,namespace=pk-metal
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
@@ -296,7 +317,7 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			if msg != "" {
 				setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonSelfDisruption,
 					msg+". This operation starts once that is resolved")
-				return ctrl.Result{RequeueAfter: selfRecheck}, client.IgnoreNotFound(flush())
+				return ctrl.Result{RequeueAfter: r.guardInterval()}, client.IgnoreNotFound(flush())
 			}
 		}
 	}
@@ -313,6 +334,9 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	x := &exec{r: r, op: op, host: host, flush: flush}
 	defer x.close()
 
+	// guarded is the step the guards just decided on at the start, which
+	// need not be asked again in the same pass; -1 when none was.
+	guarded := -1
 	// Persist the baseline and the Running state BEFORE the first mutating call —
 	// the crash rail: a resumed execution re-derives what already happened from
 	// the world, starting with this record.
@@ -326,17 +350,25 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 				metalv1alpha1.ReasonOperationQueued, "operation "+pred+" holds host "+op.Spec.HostRef.Name)
 			return ctrl.Result{}, client.IgnoreNotFound(flush())
 		}
-		obs, hold, err := x.observe(bctx)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		if hold != "" {
-			setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonNoReachablePath, hold)
-			return ctrl.Result{}, client.IgnoreNotFound(flush())
+		// The BMC baseline is taken only when a step uses the BMC: an
+		// operation made of Talos and Kubernetes steps runs while the BMC is
+		// down, and its steps record their own proof (the node's boot time).
+		var obs baseline.Observation
+		if usesBMC(op) {
+			var hold string
+			var err error
+			if obs, hold, err = x.observe(bctx); err != nil {
+				return ctrl.Result{}, err
+			}
+			if hold != "" {
+				setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonNoReachablePath, hold)
+				return ctrl.Result{}, client.IgnoreNotFound(flush())
+			}
 		}
 		if res, started, err := r.begin(ctx, op, host, obs, setCond, flush); !started {
 			return res, err
 		}
+		guarded = recordedSteps(op)
 	}
 
 	// fail records step i as failed — terminal, one-shots never auto-retry.
@@ -367,7 +399,11 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// it is entered again, so trying later is safe where failing for good
 	// would end an operation over a network hiccup.
 	held := func(i int, err error) (ctrl.Result, error) {
-		return wait(i, "BMC unavailable, retrying: "+err.Error(), r.waitInterval())
+		what := "BMC"
+		if !actionUsesBMC(op.Spec.Actions[i]) {
+			what = "cluster API"
+		}
+		return wait(i, what+" unavailable, retrying: "+err.Error(), r.waitInterval())
 	}
 
 	start := recordedSteps(op)
@@ -392,6 +428,18 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			return wait(i, "pass budget spent, continuing", passResume)
 		}
 		name := actionName(op.Spec.Actions[i])
+		// A step that takes a control plane down is decided again right
+		// before it acts: a drain in front of it can take long, and etcd can
+		// lose a member meanwhile. A step that already acted finishes.
+		if disruptsAction(op.Spec.Actions[i]) && !x.acted(i) && i != guarded {
+			msg, err := r.Guard.Check(ctx, host, op)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if msg != "" {
+				return wait(i, "held: "+msg, r.guardInterval())
+			}
+		}
 		entered := time.Now()
 		st, err := x.step(bctx, i)
 		if perr := (*persistError)(nil); errors.As(err, &perr) {
@@ -452,7 +500,7 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 // each count the other as up, and both would start.
 func (r *HostOperationReconciler) begin(ctx context.Context, op *metalv1alpha1.HostOperation, host *metalv1alpha1.Host,
 	obs baseline.Observation, setCond func(string, metav1.ConditionStatus, string, string), flush func() error) (res ctrl.Result, started bool, err error) {
-	if r.Self != nil && disrupts(op) {
+	if (r.Self != nil || r.Guard != nil) && disrupts(op) {
 		r.startMu.Lock()
 		defer r.startMu.Unlock()
 		msg, err := r.Self.Check(ctx, host)
@@ -462,7 +510,18 @@ func (r *HostOperationReconciler) begin(ctx context.Context, op *metalv1alpha1.H
 		if msg != "" {
 			setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonSelfDisruption,
 				msg+". This operation starts once that is resolved")
-			return ctrl.Result{RequeueAfter: selfRecheck}, false, client.IgnoreNotFound(flush())
+			return ctrl.Result{RequeueAfter: r.guardInterval()}, false, client.IgnoreNotFound(flush())
+		}
+		// Every Talos cluster, not only the operator's own: one control
+		// plane down at a time, and only while etcd stays fully healthy
+		// without it.
+		if msg, err = r.Guard.Check(ctx, host, op); err != nil {
+			return ctrl.Result{}, false, err
+		}
+		if msg != "" {
+			setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonClusterDisruption,
+				msg+". This operation starts once that is resolved")
+			return ctrl.Result{RequeueAfter: r.guardInterval()}, false, client.IgnoreNotFound(flush())
 		}
 	}
 	if refused, err := r.recordBootStart(ctx, op, host); err != nil {
@@ -780,12 +839,36 @@ func (r *HostOperationReconciler) recordBootStart(ctx context.Context, op *metal
 
 // passTimeout budgets one executor pass by what it runs.
 func passTimeout(op *metalv1alpha1.HostOperation) time.Duration {
+	budget := executeTimeout
 	for _, a := range op.Spec.Actions {
-		if a.FlashFirmware != nil {
-			return flashTimeout
+		switch {
+		case a.TalosUpgrade != nil:
+			budget = max(budget, talosUpgradePass)
+		case a.FlashFirmware != nil:
+			budget = max(budget, flashTimeout)
 		}
 	}
-	return executeTimeout
+	return budget
+}
+
+func (r *HostOperationReconciler) guardInterval() time.Duration {
+	if r.GuardInterval > 0 {
+		return r.GuardInterval
+	}
+	return selfRecheck
+}
+
+// usesBMC: a step of the operation talks to the BMC, so the operation needs
+// the BMC's baseline before it starts.
+func usesBMC(op *metalv1alpha1.HostOperation) bool {
+	return slices.ContainsFunc(op.Spec.Actions, actionUsesBMC)
+}
+
+// actionUsesBMC: the action is one the BMC carries out. The Talos and
+// Kubernetes actions are not; awaitCheckIn reads the TalosNode.
+func actionUsesBMC(a metalv1alpha1.HostOperationAction) bool {
+	return a.PowerCycle != nil || a.PowerOff != nil || a.SetBootOverride != nil || a.InsertMedia != nil ||
+		a.EjectMedia != nil || a.ApplyBios != nil || a.FlashFirmware != nil
 }
 
 // approvalRequired: nil is a closed gate — the safe default for every client
@@ -981,6 +1064,9 @@ type pathClient struct {
 var implementedActions = map[string]bool{
 	"powerCycle": true, "powerOff": true, "setBootOverride": true, "insertMedia": true,
 	"ejectMedia": true, "applyBios": true, "flashFirmware": true, "awaitCheckIn": true,
+	"cordon": true, "drain": true, "uncordon": true, "talosReboot": true, "talosShutdown": true,
+	"talosUpgrade": true, "talosApplyConfig": true, "etcdLeave": true, "etcdRemoveMember": true,
+	"talosReset": true, "waitNodeReady": true, "waitEtcdHealthy": true,
 }
 
 // unimplementedAction returns the index and key of the first action step

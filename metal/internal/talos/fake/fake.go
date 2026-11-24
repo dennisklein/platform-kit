@@ -520,6 +520,9 @@ func (c *conn) ApplyConfiguration(_ context.Context, machineConfig []byte, opts 
 	}
 	c.m.applied = append(c.m.applied, slices.Clone(machineConfig))
 	c.m.applyOpts = append(c.m.applyOpts, opts)
+	if mode == talos.ApplyReboot {
+		c.m.bootLocked()
+	}
 	return talos.ApplyResult{Mode: mode, Details: "Applied configuration (" + string(mode) + ")"}, nil
 }
 
