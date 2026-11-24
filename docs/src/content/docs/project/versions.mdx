@@ -1,0 +1,77 @@
+---
+title: Versions
+description: The Talos, Kubernetes and architecture range that the operator accepts, and which releases the tests use.
+type: project
+eyebrow: Project
+xref: { cat: ref, id: versions }
+sidebar:
+  order: 2
+sources:
+  - /repo/metal/go.mod
+  - /repo/metal/internal/talos/render/render.go
+  - /repo/metal/internal/talos/render/versions.go
+  - /repo/metal/internal/controller/imager.go
+  - /repo/metal/api/os/v1alpha1/taloscluster_types.go
+  - /repo/mise.toml
+  - /repo/lab/kind.yaml
+---
+
+import Callout from '../../../components/Callout.astro';
+
+The numbers on this page come from the source files in the list above. They are true for the commit that this site was built from.
+
+## The clusters that the operator installs
+
+| What | Accepted | Used in the tests | Where the rule is |
+| --- | --- | --- | --- |
+| Talos | v1.14.0 or later. The API refuses an earlier release. | v1.14.6, and v1.14.5 as the start of the upgrade round | `spec.talosVersion` of [](kind:TalosCluster) |
+| Talos, upper end | The releases that the Talos library in the operator knows. The library is `machinery` v1.14.6. | v1.14.6 | `metal/go.mod` |
+| Kubernetes | Each release that the selected Talos release supports. The operator asks the Talos library for the pair. | v1.36.2 | Condition `Rendered`, reason `UnsupportedVersionPair` |
+| Node architecture | x86-64 (`amd64`) only | x86-64 | The operator asks for `metal-amd64.iso` |
+| Boot mode | UEFI | UEFI | [](ref:hardware) |
+
+### Why the lower limit is v1.14.0
+
+The operator writes the Talos configuration as separate documents for the network, the install and Kubernetes.
+Releases before v1.14 expect a different form, which the operator does not write.
+
+Some Talos features are older than this limit. For example, a runbook can say that a feature came with Talos 1.12.
+That number is the age of the feature in Talos. It is not the lower limit of the operator.
+
+### Upgrade the operator before Talos
+
+<Callout type="caution">
+Do not ask for a Talos minor release that is newer than the Talos library of your operator.
+The operator cannot plan that upgrade, and the rollout shows `PlanBlocked`.
+</Callout>
+
+1. Build and install an operator whose `machinery` version in `metal/go.mod` is the new Talos minor release, or later.
+2. Then set the new release with [](cli:upgrade).
+
+One-slot BMCs add a second rule. The operator knows the digest of the imager image for one Talos release only: v1.14.6.
+For a different release, give the manager `--imager-digest=<version>=sha256:<digest>`. See [](ctrl:manager).
+
+## The management cluster
+
+| What | Needed | Used in the tests |
+| --- | --- | --- |
+| Kubernetes | A release with `ValidatingAdmissionPolicy` in `admissionregistration.k8s.io/v1`: 1.30 or later. Only 1.36 is tested. | 1.36 (kind and the controller tests) |
+| Operator architecture | The architecture of the machine that builds the image. Only x86-64 is tested. | x86-64 |
+| Operator replicas | One. See [Scale and sizing](concept:architecture#scale-and-sizing). | One |
+
+## The tools
+
+`mise.toml` pins the tools. `mise install` gets them.
+
+| Tool | Pinned minor | Why this one |
+| --- | --- | --- |
+| Go | 1.26 | Builds the operator and the tool. |
+| `talosctl` | 1.14 | The same minor as the Talos library. |
+| `kubectl` | 1.36 | The same minor as the Kubernetes libraries. |
+| kind | 0.32 | Its node image is Kubernetes 1.36. |
+
+## Related
+
+- [](ref:status)
+- [](howto:upgrade-talos) and [](howto:upgrade-kubernetes)
+- [](concept:talos-rendering)

@@ -1,0 +1,97 @@
+---
+title: Project status
+description: How mature pk-metal is - what is released, how stable the API is, what the tests cover and what is not tested on real hardware.
+type: project
+eyebrow: Project
+xref: { cat: ref, id: status }
+sidebar:
+  order: 1
+sources:
+  - /repo/.github/workflows/ci.yml
+  - /repo/.github/workflows/lab-e2e.yml
+  - /repo/metal/config/manager/deployment.yaml
+  - /repo/metal/go.mod
+---
+
+import Callout from '../../../components/Callout.astro';
+
+pk-metal is software before its first release. This page says what you can rely on today.
+
+## In short
+
+| Question | Answer |
+| --- | --- |
+| Is there a release? | No. The repository has no version tag, no release notes and no changelog. |
+| Is there an image or a binary to download? | No. You build both from the repository. See [](howto:install-operator). |
+| Is the API stable? | No. All kinds are `v1alpha1`. |
+| Is it tested on real hardware? | The automatic tests use simulated BMCs only. See [Real hardware](#real-hardware). |
+| What is the license? | The license is being chosen. Until the repository has a license file, you have no license to use or change the code. |
+| Is it ready for production? | No. Use it to evaluate, in a lab or on machines without data. |
+
+## What is released
+
+Nothing is released.
+
+- The base manifests use the image placeholder `pk-metal:unset`. An overlay must name an image that you built.
+- `mise run image` gives the image a tag from the commit of your clone. That tag is the only version number.
+- `pk-metal version` prints that tag, or `dev`.
+
+## API stability
+
+- The two API groups are `metal.pk.io/v1alpha1` and `os.pk.io/v1alpha1`.
+- A field, a condition reason or a phase can change or go between two commits.
+- The CRDs have one version and no conversion. After a change that is not compatible, you must write your objects again.
+- The command-line flags and the metric names can change too.
+
+The project makes no promise about upgrades from one commit to a later one.
+
+## What the tests cover
+
+| Level | What it runs | When it runs |
+| --- | --- | --- |
+| Unit tests and the race detector | The packages, with simulated BMCs and a fake Talos API | Each push and each pull request |
+| Controller tests | The controllers and the admission policies against a real Kubernetes API server | Each push and each pull request |
+| Kind tier | The operator in kind with a simulated BMC and Talos in a container | Pushes to the main branch only |
+| Virtual lab | QEMU machines behind simulated BMCs. A full install from an Asset to a `Ready` node. | When a person starts the workflow |
+| Day-2 rounds of the lab | Reboot, config change, Talos upgrade, backup and restore, scale, pivot | When a person starts the workflow and selects the round |
+
+[](lab:page/lab-e2e) has the jobs and their inputs. [](ref:develop) shows how to run each level.
+
+The largest shape in the tests is five virtual machines in one cluster. No test measures a larger fleet. See [Scale](concept:architecture#scale-and-sizing).
+
+## Real hardware
+
+<Callout type="caution">
+The repository has no test record of an install, a release, a firmware update or a BIOS change on a real server.
+</Callout>
+
+| Area | Simulated | Real hardware |
+| --- | --- | --- |
+| Redfish dialects | Three simulated BMCs: a generic one, Supermicro X12, Huawei 2288H V5 | The two vendor fixtures follow what real BMCs served. Notes in the source code record this. No test proves it again. |
+| Install from virtual media | Each lab run | Not tested |
+| One-slot BMC with the media store | A lab run with the Huawei personality, on request | Not tested |
+| BMC firmware update | Tests against the simulated BMCs | A note in the source code says that the multipart push worked on a Supermicro X12. No test record. |
+| BIOS settings, BMC accounts, time servers, certificates | Tests against the simulated BMCs | Not tested |
+| Talos upgrade, etcd backup and restore, pivot | The lab, with real Talos in virtual machines | Not tested on real servers |
+
+[](ref:hardware) has the models and the features one by one.
+
+## What works in the lab
+
+These paths run end to end in the virtual lab, with real Talos and Kubernetes in virtual machines:
+
+- Install: [](tut:lab-first-cluster)
+- Reboot, config change, Talos upgrade: [](tut:lab-day-2)
+- Add, remove and replace nodes: [](tut:lab-scaling)
+- etcd backup and restore: [](tut:lab-disaster-recovery)
+- Move the operator: [](tut:lab-pivot)
+
+## Limits
+
+[Limits](/start/overview/#limits) on the overview page lists what pk-metal does not do. [](ref:versions) has the supported releases.
+
+## Related
+
+- [](ref:hardware)
+- [](ref:versions)
+- [](ref:develop)

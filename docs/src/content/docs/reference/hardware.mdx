@@ -1,0 +1,109 @@
+---
+title: Supported hardware
+description: The BMC models that the operator knows, what each test level proves for them, and what is not tested on real hardware.
+type: reference
+eyebrow: Reference · hardware
+xref: { cat: ref, id: hardware }
+sources:
+  - /repo/metal/internal/bmc/sim/fixtures/generic.yaml
+  - /repo/metal/internal/bmc/sim/fixtures/supermicro-x12.yaml
+  - /repo/metal/internal/bmc/sim/fixtures/huawei-2288h-v5.yaml
+  - /repo/metal/internal/bmc/bmctest/bmctest.go
+  - /repo/metal/internal/bmc/bmc.go
+  - /repo/metal/internal/bmc/gofish/firmware.go
+  - /repo/metal/internal/boot/boot.go
+---
+
+import Callout from '../../../components/Callout.astro';
+
+This page shows which machines the operator can manage, and how much of that is tested.
+Read it before you buy hardware or plan an install.
+
+<Callout type="caution">
+All automatic tests use simulated BMCs. The repository has no test record of an install on real hardware.
+Do a first install on one machine that holds no data, and stay near it. See [](tut:first-real-server).
+</Callout>
+
+## What each test level proves
+
+| Level | What runs | What it proves |
+| --- | --- | --- |
+| Simulated, in tests | The Redfish client against a simulated BMC with the behavior of one model. The same checks run against each model. | The client speaks the dialect that the fixture describes. |
+| Simulated, in the lab | A QEMU machine behind a simulated BMC. Talos installs from virtual media and joins a cluster. | The full path works against that dialect. See [](lab:page/simulated-bmc). |
+| Real hardware | A real server and its BMC. | That the fixture is correct, and that the firmware of your machine behaves like it. |
+
+The fixtures of the two vendor models follow what real BMCs of these models served. Notes in the source code record these observations.
+No test in the repository runs against a real BMC without a person, and no result of such a run is in the repository.
+
+## Requirements for each machine
+
+| Requirement | Detail | Tested |
+| --- | --- | --- |
+| Architecture | x86-64. The operator asks the image factory and the imager for `amd64` images only. | In the lab |
+| Boot mode | UEFI. The operator sets the one-time boot in UEFI mode. | In the lab. Legacy mode is not tested. |
+| Secure Boot | The lab does not use it. | Not tested |
+| BMC protocol | Redfish over HTTPS, with Basic authentication. IPMI is not used. | In the lab |
+| Virtual media | The BMC can mount an ISO from an HTTPS URL. The BMC needs the license for this. | In the lab |
+| Boot override | The BMC can set a one-time boot from the virtual CD. | In the lab |
+| Media slots | Two usable slots, or one slot with the [media store](concept:one-slot-bmc). | In the lab, both shapes |
+| Network of the BMC | See [](howto:network-checklist). | |
+
+[](howto:check-a-bmc) reads these facts from one BMC and changes nothing.
+
+## Models
+
+| Model | BMC firmware | State on simulated BMCs | State on real hardware |
+| --- | --- | --- | --- |
+| Generic Redfish BMC (DMTF specification, no OEM extensions) | Not applicable | Tests, and each lab run | Not applicable. It is not a product. |
+| Supermicro X12 (board X12DPi-N6) | 01.07.09 | Tests, and each lab run (`node-3`) | Dialect read from a real BMC. Install not recorded. |
+| Huawei FusionServer 2288H V5 (iBMC) | 6.72 | Tests. Lab run only when you ask for it. | Dialect read from a real BMC. Install not recorded. |
+| Other Supermicro generations (X11, X13) | | None | Not tested |
+| Dell iDRAC | | Two BIOS behaviors of iDRAC 9 in tests. No personality. | Not tested |
+| HPE iLO | | One BIOS behavior of iLO 5 in tests. No personality. | Not tested |
+| Lenovo XCC and other vendors | | None | Not tested |
+
+A BMC that follows the DMTF specification can work without a change. Each vendor deviates in some place, and the operator knows only the deviations in the table.
+
+## Features for each model
+
+"Sim" means: proven against the simulated BMC of that model. No cell means "proven on real hardware".
+
+| Feature | Action or lane | Generic | Supermicro X12 | Huawei 2288H V5 |
+| --- | --- | --- | --- | --- |
+| Inventory, serial, MAC addresses | [](ctrl:managementendpoint) | Sim | Sim. The serial is the OEM board serial. | Sim |
+| Virtual media | [](act:InsertMedia), [](act:EjectMedia) | Sim, two slots | Sim, three slots | Sim, one usable slot, OEM action |
+| One-time boot | [](act:SetBootOverride) | Sim | Sim, target `UsbCd` | Sim, target `Cd` |
+| Power | [](act:PowerCycle), [](act:PowerOff) | Sim | Sim | Sim |
+| BIOS settings | [](kind:BiosProfile) | Sim | Sim | Sim |
+| BMC firmware | [](kind:FirmwareProfile) | Sim | Sim, multipart push | Refused. The client does not use `SimpleUpdate`. |
+| System firmware, staged for the next reset | [](act:StageFirmware) | Sim | Refused in the simulation. Not proven. | Refused |
+| Time servers of the BMC | [](kind:EndpointProfile) `ntp` | Sim | Sim | Sim, OEM service |
+| HTTPS certificate of the BMC | [](kind:EndpointProfile) `tls` | Sim | Sim, OEM upload of certificate and key | Sim, OEM CSR |
+| Account of the operator | [](kind:EndpointProfile) `credentials` | Sim | Sim | Sim |
+
+- System firmware uses the multipart push with the apply time `OnReset`. It is proven only for the generic BMC.
+- The simulated X12 does not offer `OnReset`, and the operator refuses the stage. The X12 also needs OEM fields that the operator does not send for system firmware.
+- A firmware version in a [](kind:FirmwareProfile) must be the string that the BMC shows in its inventory, character for character.
+
+## Licenses
+
+Some vendors sell Redfish features as a license. The operator cannot see a license. It sees only that an action is missing or refused.
+
+| Vendor | What the fixture or the vendor documentation says | State |
+| --- | --- | --- |
+| Supermicro X12 | The fixture models a BMC with the out-of-band license `SFT-OOB-LIC`. With that license, the BMC can mount virtual media over HTTP. | From the fixture. Not verified by a test on real hardware. |
+| Huawei iBMC | The fixture names no license. | Not known |
+| Dell, HPE, Lenovo | Virtual media usually needs a paid license level. Ask your vendor. | Not tested |
+
+## How to add a model
+
+1. Run [](cli:check) and [](cli:inventory) against the BMC. They read only.
+2. Compare the result with the nearest fixture in `metal/internal/bmc/sim/fixtures/`.
+3. Write a fixture for the differences, and run the conformance checks against it. See [](ref:develop).
+4. Do one install on a machine without data.
+
+## Related
+
+- [](ref:status) for the maturity of the project.
+- [](lab:page/simulated-bmc) for the simulated models.
+- [](concept:protocol-model) for how the operator handles the differences between vendors.
