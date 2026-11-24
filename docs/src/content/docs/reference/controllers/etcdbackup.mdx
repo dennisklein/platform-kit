@@ -1,0 +1,119 @@
+---
+title: Etcd backup controllers
+description: Schedule, take, encrypt, verify and prune the etcd snapshots of each TalosCluster.
+type: controller
+eyebrow: Controller · manager
+xref: { cat: ctrl, id: etcdbackup }
+anchors:
+  ctrl:
+    etcdbackuppolicy: { anchor: policy-loop, title: EtcdBackupPolicy controller }
+    etcdsnapshot: { anchor: snapshot-loop, title: EtcdSnapshot controller }
+sources:
+  - /repo/metal/internal/controller/etcdbackup_controller.go
+  - /repo/metal/internal/etcdbackup/pipeline.go
+---
+
+import LoopFlow from '../../../../components/controllers/LoopFlow.astro';
+import RbacRows from '../../../../components/controllers/RbacRows.astro';
+import Callout from '../../../../components/Callout.astro';
+
+The etcd backup lane has two controllers. `etcdbackuppolicy` schedules and prunes the snapshots of one [](kind:EtcdBackupPolicy).
+`etcdsnapshot` takes each new [](kind:EtcdSnapshot) once, encrypts it to your age keys and stores it in the sink.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Reconciles</dt>
+  <dd>[](kind:EtcdBackupPolicy) (`etcdbackuppolicy`) and [](kind:EtcdSnapshot) (`etcdsnapshot`). Both with a generation predicate.</dd>
+  <dt>Approval</dt>
+  <dd>None. A snapshot is a read. It changes no machine.</dd>
+  <dt>Talks to</dt>
+  <dd>The Talos API of a healthy control plane, and the sink: an S3 bucket or the backup volume of the manager.</dd>
+  <dt>Keys</dt>
+  <dd>The operator holds only the public age recipients. It can write a backup, but it can never read one.</dd>
+  <dt>Requeue</dt>
+  <dd>At the next schedule time, or 30 seconds while the sink is not ready or a snapshot runs.</dd>
+  <dt>Metric</dt>
+  <dd>`pk_metal_etcd_backup_last_success_timestamp_seconds` for each cluster.</dd>
+</dl>
+
+## Watches
+
+| Controller | Kind | Relation | Why a change starts a pass |
+| --- | --- | --- | --- |
+| `etcdbackuppolicy` | [](kind:EtcdBackupPolicy) | `For`, generation or annotation | You changed the policy, or asked for a snapshot now. |
+| `etcdbackuppolicy` | [](kind:EtcdSnapshot) | `Watches`, label `os.pk.io/etcd-backup-policy` | A snapshot ended. |
+| `etcdsnapshot` | [](kind:EtcdSnapshot) | `For`, generation | A new snapshot record. |
+
+## Policy loop
+
+<LoopFlow
+  title="The policy loop: check the sink, prune by retention, summarize, set BackedUp, schedule the next snapshot."
+  steps={[
+    { label: 'Read the policy and the cluster', out: 'Ready = False', outSub: 'ClusterNotFound' },
+    { label: 'Build the sink, parse recipients', out: 'Ready = False', outSub: 'SinkUnavailable, SinkRefused, RecipientsInvalid' },
+    { label: 'Prune by retention', sub: 'object first, then the record' },
+    { label: 'Summarize, set BackedUp' },
+    { label: 'Schedule a snapshot if due', sub: 'one at a time', variant: 'ok' },
+  ]}
+  loop="next pass: the next schedule time"
+/>
+
+1. Read the policy and its [](kind:TalosCluster).
+2. Build the sink and parse the age recipients. Set `Ready`.
+3. Delete snapshots that the retention no longer keeps. Delete the stored object first, then the record. The newest verified snapshot always stays.
+4. Write the summary, newest first. Set `BackedUp`. It turns False when the newest verified snapshot is older than twice the interval.
+5. If the interval passed, the policy is not suspended and no snapshot runs, create a new EtcdSnapshot.
+
+## Snapshot loop
+
+1. Read the snapshot. Act only while it is in progress.
+2. If `status.takenAt` is set but the end was never recorded, the stream stopped halfway. Delete the partial object and fail the snapshot. The next schedule tries again.
+3. Pick a healthy etcd member. Prefer a follower, so that the leader is not slowed. Wait up to 10 minutes.
+4. Record the start, then stream the snapshot through age encryption into the sink. The limit is 30 minutes.
+5. Read the object back and check it. Set `Complete` and `Verified`.
+
+## Guards and decisions
+
+<dl>
+  <dt>No backup on its own disk</dt>
+  <dd>A `pvc` sink is refused for the cluster that the operator runs on. That volume lives on the etcd that it backs up. Use an S3 sink for that cluster.</dd>
+  <dt>One stream for each policy</dt>
+  <dd>A slow sink does not pile up streams from the same etcd.</dd>
+  <dt>Failures stay</dt>
+  <dd>The lane keeps the last 3 failed snapshots for a person to read.</dd>
+</dl>
+
+<Callout type="note">
+A restore is not part of this lane. It is an approved [](act:EtcdRecover) operation, and a person uploads the snapshot with [](cli:restore).
+</Callout>
+
+## Writes
+
+| Object or field | When | Field manager |
+| --- | --- | --- |
+| EtcdSnapshot objects (create, delete) | Schedule and retention | `manager` |
+| Stored snapshot objects in the sink | Each snapshot | the manager process |
+| Policy status: `Ready`, `BackedUp`, summary, `lastScheduleTime` | When it changed | `manager` (status update) |
+| Snapshot status: `Complete`, `Verified`, `takenAt`, location | When it changed | `manager` (status update) |
+
+## Conditions
+
+| Object | Condition | Reasons |
+| --- | --- | --- |
+| Policy | `Ready` | `SinkReady`, `SinkUnavailable`, `SinkRefused`, `RecipientsInvalid`, `ClusterNotFound` |
+| Policy | `BackedUp` | `SnapshotRecent`, `NoSnapshot`, `BackupTooOld` |
+| Snapshot | `Complete` | `Taking`, `Stored`, `SnapshotFailed` |
+| Snapshot | `Verified` | `Intact`, `Damaged`, `ReadBackFailed` |
+
+## Failure modes
+
+| You see | Cause | Do this |
+| --- | --- | --- |
+| `Ready=False`, `SinkRefused` | A `pvc` sink for the cluster of the operator. | Use an S3 sink. |
+| `BackedUp=False`, `BackupTooOld` | Snapshots fail or the sink is down. | Read the failed snapshots. See [](cli:backup). |
+| Etcd lost its data | All members lost etcd. | Use [](rb:etcd-unhealthy). |
+
+## Permissions
+
+<RbacRows sources={['etcdbackup_controller.go']} />

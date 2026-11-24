@@ -1,0 +1,167 @@
+---
+title: TalosRollout controller
+description: Plans a rollout of a Talos cluster, waits for one approval of the whole plan, then runs it node by node behind live health gates.
+type: controller
+eyebrow: Controller · manager
+xref: { cat: ctrl, id: talosrollout }
+anchors:
+  ctrl: { rolloutproposer: { anchor: the-proposer, title: Rollout proposer } }
+sources:
+  - /repo/metal/internal/controller/talosrollout_controller.go
+  - /repo/metal/internal/controller/talosrollout_plan.go
+  - /repo/metal/internal/controller/talosrollout_proposer.go
+  - /repo/metal/internal/controller/hostoperation_rollout.go
+---
+
+import LoopFlow from '../../../../components/controllers/LoopFlow.astro';
+import RbacRows from '../../../../components/controllers/RbacRows.astro';
+import Figure from '../../../../components/diagram/Figure.astro';
+import Box from '../../../../components/diagram/Box.astro';
+import Edge from '../../../../components/diagram/Edge.astro';
+import Callout from '../../../../components/Callout.astro';
+
+The TalosRollout lane changes a running cluster one node at a time: a Talos upgrade, a Kubernetes upgrade, or a config change.
+`rolloutproposer` proposes the [](kind:TalosRollout) that a cluster needs. `talosrollout` plans it and, after one approval, runs it.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Reconciles</dt>
+  <dd>[](kind:TalosRollout) (`talosrollout`) and [](kind:TalosCluster) (`rolloutproposer`).</dd>
+  <dt>Writes</dt>
+  <dd>The rollout plan and step status, one [](kind:HostOperation) for each node step, and new rollouts (proposer).</dd>
+  <dt>Approval</dt>
+  <dd>One approval for the whole plan. It names the `planHash` that the person read.</dd>
+  <dt>Talks to</dt>
+  <dd>The Talos API of the control planes (etcd gate), the Kubernetes API of the cluster, and the image registry to pin installer images.</dd>
+  <dt>Requeue</dt>
+  <dd>1 minute while the plan waits for approval. 15 seconds while a step runs or a gate holds.</dd>
+  <dt>Metrics</dt>
+  <dd>`pk_metal_rollout_nodes_done` and `pk_metal_rollout_nodes_total`.</dd>
+</dl>
+
+## Watches
+
+| Controller | Kind | Relation | Why a change starts a pass |
+| --- | --- | --- | --- |
+| `talosrollout` | [](kind:TalosRollout) | `For` | Approval, pause, resume or abort. |
+| `talosrollout` | [](kind:HostOperation) | `Owns` | A node step moved. |
+| `talosrollout` | [](kind:TalosNode) | `Watches`, the unapproved rollouts of its cluster | Drift or version of a node changed. The plan is made again. |
+| `rolloutproposer` | [](kind:TalosCluster) | `For` | The target versions changed. |
+| `rolloutproposer` | [](kind:TalosNode), [](kind:TalosRollout) | `Watches` | A node drifted, or a rollout ended. |
+
+## The plan order
+
+<Figure
+  title="A rollout plan: control planes one at a time, then kube-proxy for a Kubernetes upgrade, then workers up to maxUnavailableWorkers at once. A canary pause follows the first node."
+  caption="Control planes go one by one. Workers go in groups. A person resumes after the first node."
+  width={720}
+  height={140}
+>
+  <Box x={10} y={30} w={90} h={44} label="cp-1" sub="first node" variant="accent" />
+  <Box x={130} y={30} w={90} h={44} label="pause" sub="resume?" variant="warn" />
+  <Box x={250} y={30} w={90} h={44} label="cp-2" />
+  <Box x={370} y={30} w={90} h={44} label="cp-3" />
+  <Box x={490} y={30} w={90} h={44} label="kube-proxy" sub="k8s only" variant="soft" />
+  <Box x={610} y={8} w={100} h={36} label="worker-1" />
+  <Box x={610} y={52} w={100} h={36} label="worker-2" />
+  <Box x={610} y={96} w={100} h={36} label="worker-3" variant="soft" />
+  <Edge points={[[100, 52], [130, 52]]} />
+  <Edge points={[[220, 52], [250, 52]]} />
+  <Edge points={[[340, 52], [370, 52]]} />
+  <Edge points={[[460, 52], [490, 52]]} />
+  <Edge points={[[580, 52], [595, 52], [595, 26], [610, 26]]} />
+  <Edge points={[[580, 52], [610, 70]]} />
+  <text class="t-small t-label" x={300} y={110} text-anchor="middle">health gate before each start: etcd healthy, all Nodes Ready</text>
+</Figure>
+
+## Reconcile loop
+
+<LoopFlow
+  title="The rollout reconcile loop: plan while unapproved; once approved, check the plan hash, observe steps, stop on failure or abort, pause, gate, start the next steps."
+  steps={[
+    { label: 'Read the rollout', out: 'Plan pass', outSub: 'not approved: write plan, planHash', outVariant: 'accent', outEdge: 'unapproved' },
+    { label: 'Approval covers the plan?', out: 'Complete = False', outSub: 'PlanChanged, nothing ran', outVariant: 'err', outEdge: 'no' },
+    { label: 'Observe the running steps' },
+    { label: 'Failed or aborted?', out: 'Skip pending steps', outSub: 'RolloutFailed / RolloutAborted', outVariant: 'err', outEdge: 'yes' },
+    { label: 'Pick the next steps', out: 'Complete = True', outSub: 'RolloutSucceeded', outVariant: 'ok', outEdge: 'none left' },
+    { label: 'Paused?', out: 'Paused = True', outSub: 'PausedByPerson / CanaryPause', outEdge: 'yes' },
+    { label: 'Health gate', sub: 'earlier rollout, etcd, Nodes', out: 'Progressing', outSub: 'WaitingForHealth' },
+    { label: 'Start: create HostOperations', variant: 'ok' },
+  ]}
+  loop="next pass: 15 s"
+/>
+
+1. Read the rollout. If nobody approved it, plan it. List the nodes that need the change, pin each installer image by digest, and write the plan and its hash. Plan again each minute.
+2. Check that the approval names the current `planHash`. The approval is write-once, so a plan that moved after approval ends the rollout. Nothing ran.
+3. Observe each running step through its operation, or the kube-proxy DaemonSet.
+4. If a step failed or a person aborted, mark the pending steps Skipped. Wait for running steps to finish. Nodes that changed stay changed.
+5. Pick the next steps: control planes and kube-proxy one at a time, workers up to `maxUnavailableWorkers`.
+6. Pause if `spec.paused` is set, or after the first node until a person resumes it with the plan hash.
+7. Gate: no earlier rollout of the cluster runs, every etcd member answers and votes, and every Kubernetes Node is Ready. The gate reads live, not from a status.
+8. Start each step: create a [](kind:HostOperation) with `rolloutRef` and no approval of its own.
+
+## The proposer
+
+`rolloutproposer` acts only on a bootstrapped cluster with no unfinished rollout. It proposes the first need in this order:
+
+1. A `TalosUpgrade` when a node runs another Talos version than the spec.
+2. A `KubernetesUpgrade` when the API runs another Kubernetes version.
+3. A `Config` rollout for the nodes whose dry run reports drift.
+
+The name comes from a hash of what it proposes, so the same need is not proposed twice. A failed or aborted rollout stays until a person deletes it.
+
+## Guards and decisions
+
+<dl>
+  <dt>One approval, bound to a hash</dt>
+  <dd>The executor runs a rollout operation only while the rollout approval covers its plan hash, node, host and actions. See [](ctrl:hostoperation).</dd>
+  <dt>Canary pause</dt>
+  <dd>After the first node succeeds, the rollout stops until the annotation `os.pk.io/resume` equals the plan hash. Use [](cli:rollout).</dd>
+  <dt>One rollout for each cluster</dt>
+  <dd>Two rollouts side by side could take two control planes down at once.</dd>
+</dl>
+
+<Callout type="caution">
+Do not abort a rollout to stop a node in the middle of its step. An abort starts no new step. The running step finishes.
+</Callout>
+
+## Writes
+
+| Object or field | When | Field manager |
+| --- | --- | --- |
+| Rollout status: `plan`, `planHash`, `steps`, conditions | Each pass | `manager` (status update) |
+| HostOperation for each node step, owned by the rollout | Step start | `manager` (create) |
+| kube-proxy DaemonSet in the workload cluster | Kubernetes upgrade | through the admin kubeconfig |
+| New TalosRollout (proposer) | A need appears | `manager` (create) |
+
+## Conditions
+
+| Condition | Reasons |
+| --- | --- |
+| `Approved` | `AwaitingApproval`, `PlanApproved`, `PlanChanged` |
+| `Planned` | `PlanReady`, `PlanBlocked` |
+| `Progressing` | `RolloutNotStarted`, `NodeRunning`, `WaitingForHealth`, `CanaryPause`, `PausedByPerson`, `RolloutSucceeded`, `RolloutFailed`, `RolloutAborted`, `PlanChanged` |
+| `Paused` | `PausedByPerson`, `CanaryPause`, `NotPaused` |
+| `Complete` | `RolloutSucceeded`, `NothingToDo`, `RolloutFailed`, `RolloutAborted`, `PlanChanged` |
+
+## Failure modes
+
+| You see | Cause | Do this |
+| --- | --- | --- |
+| `Progressing`, `WaitingForHealth` | Etcd or a Node is not healthy. | Use [](rb:node-not-ready) or [](rb:etcd-unhealthy). |
+| `Complete=False`, `RolloutFailed` | A node step failed. | Use [](rb:operation-failed). |
+| `Complete=False`, `PlanChanged` | The plan moved after approval. | Delete the rollout. The proposer makes a new one. |
+
+## Permissions
+
+<RbacRows sources={['talosrollout_controller.go', 'talosrollout_proposer.go']} />
+
+## Tests
+
+- [talosrollout_test.go](/repo/metal/internal/controller/talosrollout_test.go)
+
+## Related
+
+- [](howto:upgrade-talos)
+- [](concept:approval)

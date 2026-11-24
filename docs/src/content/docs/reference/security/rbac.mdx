@@ -1,0 +1,133 @@
+---
+title: RBAC
+description: The roles of pk-metal, what binds them, and who may propose and approve a change.
+type: reference
+eyebrow: Reference · security
+xref: { cat: ref, id: rbac }
+sources:
+  - /repo/metal/config/rbac/role.yaml
+  - /repo/metal/config/rbac/role_binding.yaml
+  - /repo/metal/config/rbac/approver_role.yaml
+  - /repo/metal/config/rbac/backup_role.yaml
+---
+
+import RbacRows from '../../../../components/controllers/RbacRows.astro';
+import Figure from '../../../../components/diagram/Figure.astro';
+import Box from '../../../../components/diagram/Box.astro';
+import Edge from '../../../../components/diagram/Edge.astro';
+import Zone from '../../../../components/diagram/Zone.astro';
+import Callout from '../../../../components/Callout.astro';
+
+pk-metal splits the power to change a machine in two. The [operator](term:operator) may propose a change. Only a person may approve it.
+Kubernetes RBAC does the split. The [admission policies](ref:admission-policies) check the names.
+
+## The split
+
+<Figure
+  title="The operator service account may create HostOperations and TalosRollouts but not patch them. A person with pk-metal-approver may patch them. The admission policies stand between both and the API."
+  caption="Create is propose. Patch is approve. No identity holds both by default."
+  width={720}
+  height={200}
+>
+  <Box x={10} y={30} w={200} h={50} label="pk-metal-manager" sub="service account" cat="ctrl" href="/reference/controllers/manager/" />
+  <Box x={10} y={120} w={200} h={50} label="A person" sub="bound to pk-metal-approver" variant="accent" />
+  <Zone x={260} y={10} w={200} h={180} label="API server" />
+  <Box x={280} y={40} w={160} h={44} label="RBAC" sub="create or patch?" />
+  <Box x={280} y={116} w={160} h={44} label="Admission policies" sub="who, as whom?" variant="warn" />
+  <Box x={510} y={30} w={200} h={50} label="HostOperation" sub="TalosRollout" cat="kind" href="/reference/kinds/hostoperation/" />
+  <Box x={510} y={120} w={200} h={50} label="approval.approvedBy" sub="write-once" variant="ok" />
+  <Edge points={[[210, 55], [280, 55]]} label="create" at={[245, 47]} />
+  <Edge points={[[210, 145], [280, 145]]} label="patch" at={[245, 137]} />
+  <Edge points={[[360, 84], [360, 116]]} />
+  <Edge points={[[440, 130], [475, 130], [475, 55], [510, 55]]} />
+  <Edge points={[[440, 145], [510, 145]]} />
+</Figure>
+
+1. The manager creates a [](kind:HostOperation) or a [](kind:TalosRollout) with `spec.proposedBy` set to its own name.
+2. The CRD schema freezes what the object changes. So the only field that a patch can still change is the approval.
+3. A person who holds `patch` sets `approvedBy` to their own name. Permission to patch is permission to approve.
+4. The admission policies refuse an approval in another name, a second approval, and an approval of your own proposal.
+
+## Roles
+
+<dl>
+  <dt>`pk-metal-manager` (ClusterRole and Role)</dt>
+  <dd>Generated from the `+kubebuilder:rbac` markers of the controllers. The ClusterRole holds the kinds. The Role in `pk-metal` holds Secrets, ConfigMaps, Jobs, the lease and certificate requests.</dd>
+  <dt>`pk-metal-approver` (ClusterRole)</dt>
+  <dd>Read and patch operations and rollouts. Read Hosts, clusters and nodes. Nothing binds it by default.</dd>
+  <dt>`pk-metal-backup` (ClusterRole)</dt>
+  <dd>Read backup policies and snapshots, and ask for a snapshot now. It holds no Secret and cannot decrypt a backup. Nothing binds it by default.</dd>
+</dl>
+
+### pk-metal-approver
+
+<RbacRows role="pk-metal-approver" />
+
+### pk-metal-backup
+
+<RbacRows role="pk-metal-backup" />
+
+### pk-metal-manager, cluster scope
+
+<RbacRows role="pk-metal-manager" kind="ClusterRole" />
+
+<Callout type="note">
+The manager has `create` on `hostoperations` and `talosrollouts`, but no `patch` and no `update`. It can write their status only. So it cannot approve its own proposal.
+</Callout>
+
+### pk-metal-manager, namespace pk-metal
+
+<RbacRows role="pk-metal-manager" kind="Role" />
+
+Each controller page shows the rules that its markers ask for. See [](ctrl:index).
+
+## Bindings
+
+| Binding | Kind | Role | Subject |
+| --- | --- | --- | --- |
+| `pk-metal-manager` | ClusterRoleBinding | ClusterRole `pk-metal-manager` | ServiceAccount `pk-metal/pk-metal-manager` |
+| `pk-metal-manager` | RoleBinding in `pk-metal` | Role `pk-metal-manager` | ServiceAccount `pk-metal/pk-metal-manager` |
+
+You bind the approver and backup roles yourself. Bind them to a group, not to single users:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pk-metal-approvers
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: pk-metal-approver
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: example:platform-approvers
+```
+
+## Who may do what
+
+| Change | Who may do it | What checks it |
+| --- | --- | --- |
+| Propose a HostOperation | Anyone with `create`. The manager does it for you. | RBAC, and `proposedBy` must be your name. |
+| Approve a HostOperation | A holder of `patch` who did not propose it. | RBAC, and [](ref:admission-policies). |
+| Create a HostOperation that needs no approval | The manager, or a member of the admin group. | `hostoperation-approval` |
+| Approve a TalosRollout | A holder of `patch` who did not propose it. Never the manager. | RBAC, and `talosrollout-approval` |
+| Pause, resume or abort a rollout | A holder of `patch`. | RBAC |
+| Name the TalosNode that a claim installs | A member of the admin group. | `hostclaim-provisioning` |
+| Set `provisioning.approval: Automatic` on a claim | A member of the admin group. | `hostclaim-provisioning` |
+| Point a claim at another machine ([](cli:replace)) | A member of the admin group. | `hostclaim-provisioning` |
+| Ask for an etcd snapshot now | A holder of `pk-metal-backup`. | RBAC |
+| Restore etcd | An approved [](act:EtcdRecover) operation. | The same approval gate |
+
+The admin group is `pk-metal:admins`. It comes from the ConfigMap `hostoperation-approval` in `pk-metal`.
+
+<Callout type="caution">
+Cluster admin (`system:masters`) is not a member of the admin group. The policies ask for the group by name. Bind your admins to it.
+</Callout>
+
+## Related
+
+- [](concept:approval)
+- [](ref:threat-model)
+- [](cli:approve)

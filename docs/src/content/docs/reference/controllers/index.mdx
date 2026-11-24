@@ -1,0 +1,108 @@
+---
+title: Controllers
+description: All controllers of the manager and what each one watches.
+type: reference
+eyebrow: Reference · manager
+xref: { cat: ctrl, id: index }
+sidebar:
+  label: Overview
+sources:
+  - /repo/metal/internal/controller/setup.go
+  - /repo/metal/cmd/manager/main.go
+---
+
+import WatchMatrix from '../../../../components/controllers/WatchMatrix.astro';
+import WriteChains from '../../../../components/controllers/WriteChains.astro';
+import Callout from '../../../../components/Callout.astro';
+
+The [](ctrl:manager) is one process. It runs one controller for each kind that it reconciles.
+Each controller reads objects, compares them with the world, and writes only its own part of the status.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Process</dt>
+  <dd>One binary, `manager`, in the Deployment `pk-metal-manager` in the namespace `pk-metal`.</dd>
+  <dt>Wiring</dt>
+  <dd>`SetupAll` in [setup.go](/repo/metal/internal/controller/setup.go) wires 14 lanes, in a fixed order. A lane is one or more controllers.</dd>
+  <dt>Named controllers</dt>
+  <dd>18. Some lanes have a helper controller, for example `host-wipe` in the HostClaim lane.</dd>
+  <dt>Leader election</dt>
+  <dd>Optional, with `--leader-elect`. All controllers run in the leader only.</dd>
+  <dt>Writers to a BMC</dt>
+  <dd>Two: the [](ctrl:hostoperation) after approval, and the [](ctrl:endpointconvergence) for the BMC settings. All other controllers only read.</dd>
+</dl>
+
+## The lanes
+
+The table shows the lanes in the order that `SetupAll` wires them.
+
+| # | Lane | Controller names | Reconciles |
+| --- | --- | --- | --- |
+| 1 | [Asset](ctrl:asset) | `asset` | [](kind:Asset) |
+| 2 | [Endpoint](ctrl:managementendpoint) | `managementendpoint` | [](kind:ManagementEndpoint) |
+| 3 | [Host](ctrl:host) | `host` | [](kind:Host) |
+| 4 | [HostClaim](ctrl:hostclaim) | `hostclaim`, `host-wipe` | [](kind:HostClaim), [](kind:Host) |
+| 5 | [Protection](ctrl:protection) | `protection` | [](kind:Host) |
+| 6 | [HostOperation](ctrl:hostoperation) | `hostoperation` | [](kind:HostOperation) |
+| 7 | [Convergence](ctrl:convergence) | `convergence` | [](kind:BiosSettings) |
+| 8 | [EndpointConvergence](ctrl:endpointconvergence) | `endpointconvergence` | [](kind:ManagementEndpoint) |
+| 9 | [TalosNode](ctrl:talosnode) | `talosnode`, `talosnode-member` | [](kind:TalosNode) |
+| 10 | [TalosCluster](ctrl:taloscluster) | `taloscluster` | [](kind:TalosCluster) |
+| 11 | [BootAsset](ctrl:bootasset) | `bootasset` | [](kind:BootAsset) |
+| 12 | [EtcdBackup](ctrl:etcdbackup) | `etcdbackuppolicy`, `etcdsnapshot` | [](kind:EtcdBackupPolicy), [](kind:EtcdSnapshot) |
+| 13 | [TalosRollout](ctrl:talosrollout) | `talosrollout`, `rolloutproposer` | [](kind:TalosRollout), [](kind:TalosCluster) |
+| 14 | [MaintenanceWindow](ctrl:maintenancewindow) | `maintenancewindow` | [](kind:MaintenanceWindow) |
+
+## Who watches what
+
+A controller starts a pass when an object of a kind that it watches changes.
+The matrix shows the `For`, `Owns` and `Watches` calls of each `SetupWithManager` function.
+
+<WatchMatrix />
+
+Read the matrix in two directions:
+
+- Read a row to see what wakes a controller.
+- Read a column to see which controllers react when you change an object of that kind.
+
+## Who writes what
+
+<WriteChains />
+
+## Rules that all controllers obey
+
+<dl>
+  <dt>Conditions are the facts</dt>
+  <dd>A controller writes conditions. Only `internal/phase` writes `status.phase` and `status.blockedOn`, from the conditions. See [](concept:phases-and-conditions).</dd>
+  <dt>One field, one owner</dt>
+  <dd>The Host and the ManagementEndpoint each have two status writers. Each writer applies only its own fields with server-side apply, under its own field manager.</dd>
+  <dt>Propose, never approve</dt>
+  <dd>A controller that wants to change a machine creates a [](kind:HostOperation). The manager RBAC has no `patch` on operations, so no controller can approve one. See [](concept:approval).</dd>
+  <dt>Hold, do not destroy</dt>
+  <dd>If an input is wrong, the controller sets a condition to False and keeps the last good state. A mismatch never wipes or powers off a machine.</dd>
+  <dt>Level-triggered</dt>
+  <dd>Each pass reads the world again and decides from what it sees. A controller does not keep a memory that a restart can lose, except where a status field records it.</dd>
+</dl>
+
+<Callout type="note">
+Most controllers write their status with an ordinary update. The field manager of an update is the name of the binary, `manager`.
+The five server-side apply owners are on the [](ctrl:host), [](ctrl:managementendpoint), [](ctrl:convergence), [](ctrl:endpointconvergence) and [](ctrl:protection) pages.
+</Callout>
+
+## Field owners
+
+| Field manager | Writes | Controller |
+| --- | --- | --- |
+| `pk-metal-endpoint` | ManagementEndpoint status, except `Configured` and `identityPushed` | [](ctrl:managementendpoint) |
+| `pk-metal-endpoint-convergence` | ManagementEndpoint `Configured` condition and `identityPushed` | [](ctrl:endpointconvergence) |
+| `pk-metal-protection` | ManagementEndpoint `DeletionHeld` condition | [](ctrl:protection) |
+| `pk-metal-host` | Host status, except the convergence part | [](ctrl:host) |
+| `pk-metal-host-convergence` | Host `BiosConverged`, `FirmwareConverged`, `SystemFirmwareConverged`, `firmwareProposed`, `systemFirmwareProposed` | [](ctrl:convergence) |
+| `manager` | All other status writes (update, not apply) | all other controllers |
+
+## Related
+
+- [](ctrl:manager): flags, leader election, metrics and the imager Job.
+- [](concept:architecture): where the manager runs and what it talks to.
+- [](flow:rack-to-node): the controllers in the order that a new machine meets them.

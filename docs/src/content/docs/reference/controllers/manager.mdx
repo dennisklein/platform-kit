@@ -1,0 +1,164 @@
+---
+title: Manager
+description: The process that runs all controllers, with its flags, the ledger, leader election, the media service, the imager Job and the metrics.
+type: controller
+eyebrow: Controller · manager
+xref: { cat: ctrl, id: manager }
+sources:
+  - /repo/metal/cmd/manager/main.go
+  - /repo/metal/cmd/manager/imager.go
+  - /repo/metal/internal/controller/setup.go
+  - /repo/metal/internal/metrics/collector.go
+---
+
+import RbacRows from '../../../../components/controllers/RbacRows.astro';
+import Figure from '../../../../components/diagram/Figure.astro';
+import Box from '../../../../components/diagram/Box.astro';
+import Edge from '../../../../components/diagram/Edge.astro';
+import Zone from '../../../../components/diagram/Zone.astro';
+import Callout from '../../../../components/Callout.astro';
+
+The manager is the operator process. It loads the [ledger](concept:ledger), wires the 14 lanes of [controllers](ctrl:index), and serves boot media to the BMCs.
+It runs the same way against a kind cluster on day 0 and in the management cluster.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Binary</dt>
+  <dd>`manager`, from [cmd/manager](/repo/metal/cmd/manager/main.go).</dd>
+  <dt>Deployment</dt>
+  <dd>`pk-metal-manager` in the namespace `pk-metal`, service account `pk-metal-manager`.</dd>
+  <dt>Identity</dt>
+  <dd>At start, the manager asks the API server who it is (SelfSubjectReview). It writes that name into `proposedBy` of each proposal.</dd>
+  <dt>Leader election</dt>
+  <dd>`--leader-elect`. Lease `pk-metal.metal.pk.io` in the namespace of the pod. The lease is released on a clean stop.</dd>
+  <dt>Cache</dt>
+  <dd>Secrets, ConfigMaps and Jobs only in the namespace of `--credentials-namespace`. So their permissions can be a namespaced Role.</dd>
+  <dt>Subcommands</dt>
+  <dd>`imager-stage` and `imager-run`. Only the imager Job uses them.</dd>
+</dl>
+
+## What runs inside
+
+<Figure
+  title="The manager process: the controllers, the media service and the metrics endpoint. It reads the ledger file, talks to the API server, the BMCs, the Talos API of nodes, and starts imager Jobs."
+  caption="One process. The media service starts only with --media-url."
+  width={720}
+  height={250}
+>
+  <Zone x={170} y={10} w={380} h={230} label="manager pod" />
+  <Box x={190} y={40} w={340} h={44} label="Controllers" sub="14 lanes, 18 controllers" cat="ctrl" href="/reference/controllers/" />
+  <Box x={190} y={104} w={160} h={44} label="Metrics, probes" sub="/metrics, /healthz" />
+  <Box x={370} y={104} w={160} h={44} label="Media service" sub="--media-listen :8443" />
+  <Box x={190} y={168} w={340} h={44} label="Ledger" sub="--ledger, read once at start" variant="soft" />
+  <Box x={10} y={40} w={130} h={44} label="API server" sub="objects, lease" />
+  <Box x={10} y={168} w={130} h={44} label="Imager Job" sub="media store" variant="soft" />
+  <Box x={580} y={40} w={130} h={44} label="Talos API" sub="nodes" />
+  <Box x={580} y={104} w={130} h={44} label="BMCs" sub="Redfish, media pull" variant="accent" />
+  <Edge points={[[190, 62], [140, 62]]} both />
+  <Edge points={[[190, 76], [158, 76], [158, 190], [140, 190]]} label="starts" at={[152, 140]} anchor="end" />
+  <Edge points={[[530, 62], [580, 62]]} />
+  <Edge points={[[530, 76], [556, 76], [556, 114], [580, 114]]} />
+  <Edge points={[[580, 138], [530, 138]]} label="pull" at={[555, 160]} />
+</Figure>
+
+The controllers reconcile the [kinds](kind:index) of the API group. [](ctrl:index) shows which controller owns which kind.
+
+## Flags
+
+| Flag | Default | What it sets |
+| --- | --- | --- |
+| `--ledger` | necessary | The ledger file: YAML that maps each BMC MAC to its HTTPS URL. A line that does not parse is logged and skipped. |
+| `--credentials-namespace` | `pk-metal` | Where the manager reads BMC logins and CAs, and writes node configs and cluster credentials. Operations are proposed here too. |
+| `--bmc-ca-secret` | empty | Secret (key `ca.crt`) with the CA of the BMC certificates. Empty trusts the system CAs. |
+| `--bmc-insecure` | `false` | Accept any BMC certificate. For simulated BMCs in a lab only. |
+| `--poll-interval` | `5m` | How often each BMC is read again. |
+| `--image-factory` | public factory | The host of the Talos image factory. |
+| `--registry-ca` | empty | PEM file with the CA of the registry that serves firmware images. |
+| `--media-listen` | `:8443` | The address of the media service (HTTPS). |
+| `--media-url` | empty | `https://host[:port]` where BMCs reach the media service. Empty stops the media service, and with it installs. |
+| `--media-cert-secret` | empty | Secret with the media certificate, read again each minute. Empty uses a self-signed certificate, replaced 10 days before it expires. |
+| `--media-store` | empty | Directory of the media store for embedded installers. |
+| `--media-store-claim` | empty | PersistentVolumeClaim at `--media-store`, which the imager Jobs mount. Needs `--media-store`. |
+| `--imager-repository` | upstream | Where the imager image comes from. The default is `ghcr.io/siderolabs/imager`. |
+| `--imager-digest` | current release | `<version>=sha256:<digest>`. Can repeat. |
+| `--imager-helper-image` | pod image | The image with the manager binary for the imager Jobs. |
+| `--etcd-backup-dir` | empty | Directory of the etcd backup volume for `pvc` sinks. |
+| `--etcd-backup-claim` | `pk-metal-etcd-backups` | The claim that `pvc://` locations name. |
+| `--checkin-timeout` | `30m` | How long an install waits for the machine to answer. |
+| `--release-shutdown-timeout` | `5m` | How long a release lets the OS shut down before it forces the machine off. From 1 s to 1 h. |
+| `--node-name` | `$NODE_NAME` | The Kubernetes node of the pod. With it, the self guard works. See [](ctrl:protection). |
+| `--metrics-bind-address` | `0` (off) | Address of `/metrics`. |
+| `--health-probe-bind-address` | `0` (off) | Address of `/healthz` and `/readyz`. |
+| `--leader-elect` | `false` | Use leader election. |
+| `--version` | | Print the version and stop. |
+
+The manager refuses to start when `--ledger` is empty, a duration is out of range, or `--media-store-claim` has no `--media-store`. Each error message names the fix.
+
+## The ledger
+
+The ledger maps each BMC MAC to the address of the BMC. The standard install mounts it from `ledger.yaml` in the ConfigMap `pk-metal-ledger`.
+
+- The manager reads the ledger once, at start.
+- After you edit it, restart the Deployment: `kubectl -n pk-metal rollout restart deployment/pk-metal-manager`.
+- A bad line does not stop the manager. The Asset with that MAC says `LedgerEntryInvalid`.
+
+See [](ctrl:asset).
+
+## The media service
+
+BMCs download boot media over HTTPS from the media service. Each download needs a grant: a 128-bit random token in the URL path, valid for one operation and a limited time.
+
+- The service starts only with `--media-url`.
+- BMCs do not check the certificate. HTTPS gives privacy. The grant gives access control.
+- A grant ends when its operation ends or is deleted.
+
+See [](concept:virtual-media-boot).
+
+## The imager Job
+
+For a BMC with one media slot, the [](ctrl:bootasset) builds an installer with the config inside. The imager runs as a Job in `pk-metal`.
+
+1. The init container `stage` copies the manager binary into the pod (`manager imager-stage`).
+2. The container `imager` runs the pinned imager through `manager imager-run`, which keeps the config out of the log.
+3. The ISO goes to the media store. The manager imports it.
+
+The Job runs without root and without a service account token, next to the manager pod.
+
+## Metrics
+
+All series have the prefix `pk_metal_`. They come from the cache at scrape time.
+
+| Metric | Labels | Meaning |
+| --- | --- | --- |
+| `host_phase` | host, phase | 1 for the phase of each Host. |
+| `host_blocked` | host, reason | 1 while a Host is blocked. |
+| `operations` | phase, action | HostOperations by phase and action. |
+| `operation_failed` | namespace, operation, host, reason | 1 for each failed operation that waits for a person. |
+| `operation_awaiting_approval_seconds` | namespace, operation, host, reason | How long an operation waits for approval. |
+| `operation_blocked` | namespace, operation, host, reason | 1 for each approved operation that did not start. |
+| `bmc_reachable` | endpoint | 1 when the BMC answers Redfish. |
+| `talosnode_ready` | node, cluster, role | 1 when a node is Ready. |
+| `talosnode_info` | node, cluster, version | The Talos version of a node. |
+| `taloscluster_available` | cluster | 1 when the API answers and all nodes are Ready. |
+| `taloscluster_nodes` | cluster, role, ready | Nodes by role and readiness. |
+| `credentials_expiry_timestamp_seconds` | cluster, kind | When a published credential expires. |
+| `etcd_backup_last_success_timestamp_seconds` | cluster | Time of the newest verified snapshot. |
+| `rollout_nodes_done`, `rollout_nodes_total` | rollout, cluster | Progress of a rollout. |
+
+<Callout type="note">
+`pk-metal pivot` scales the manager to zero and waits for the lease. The lease release on a clean stop keeps that wait short. See [](cli:pivot).
+</Callout>
+
+## Permissions
+
+The manager itself asks for these rules. The rules of each controller are on its page.
+
+<RbacRows sources={['main.go']} />
+
+The full role is on the [RBAC page](ref:rbac).
+
+## Tests
+
+- [main_test.go](/repo/metal/cmd/manager/main_test.go)
+- [setup_test.go](/repo/metal/internal/controller/setup_test.go)

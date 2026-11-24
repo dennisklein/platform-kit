@@ -1,0 +1,136 @@
+---
+title: Admission policies
+description: The three ValidatingAdmissionPolicies that guard approval and provisioning, rule by rule.
+type: reference
+eyebrow: Reference · security
+xref: { cat: ref, id: admission-policies }
+sources:
+  - /repo/metal/config/policy/hostoperation-approval.yaml
+  - /repo/metal/config/policy/hostclaim-provisioning.yaml
+  - /repo/metal/config/policy/talosrollout-approval.yaml
+---
+
+import Figure from '../../../../components/diagram/Figure.astro';
+import Box from '../../../../components/diagram/Box.astro';
+import Edge from '../../../../components/diagram/Edge.astro';
+import Callout from '../../../../components/Callout.astro';
+
+RBAC says who may create or patch an object. It cannot see the name that a person writes into a field.
+Three [ValidatingAdmissionPolicies](term:vap) close that gap. They are [CEL](term:cel) in the API server: no webhook, no certificate, no pod.
+
+## At a glance
+
+| Policy | Kind | Operations | Purpose |
+| --- | --- | --- | --- |
+| `hostoperation-approval` | [](kind:HostOperation) | CREATE, UPDATE | The approval gate of one operation. |
+| `talosrollout-approval` | [](kind:TalosRollout) | CREATE, UPDATE | The approval gate of one rollout plan. |
+| `hostclaim-provisioning` | [](kind:HostClaim) | CREATE, UPDATE | Who may choose the OS of a machine, and who may skip the boot approval. |
+
+All three have these settings:
+
+<dl>
+  <dt>`failurePolicy: Fail`</dt>
+  <dd>If the API server cannot evaluate the policy, it refuses the request.</dd>
+  <dt>`validationActions: [Deny]`</dt>
+  <dd>A failed rule refuses the request with reason `Forbidden`.</dd>
+  <dt>Parameters</dt>
+  <dd>The ConfigMap `hostoperation-approval` in `pk-metal`. Key `operator` is the name of the manager. Key `adminGroup` is the admin group.</dd>
+  <dt>`parameterNotFoundAction: Deny`</dt>
+  <dd>Without the ConfigMap, each create and update is refused. The gate fails closed.</dd>
+</dl>
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hostoperation-approval
+  namespace: pk-metal
+data:
+  operator: system:serviceaccount:pk-metal:pk-metal-manager
+  adminGroup: pk-metal:admins
+```
+
+## The approval path
+
+<Figure
+  title="An operation from proposal to start: the manager creates it, the policy checks the proposer, a person patches the approval, the policy checks the approver, and the executor starts."
+  caption="Two checks: one at create, one at approval."
+  width={720}
+  height={130}
+>
+  <Box x={10} y={40} w={120} h={50} label="Propose" sub="manager creates" cat="ctrl" href="/reference/controllers/hostclaim/" />
+  <Box x={160} y={40} w={130} h={50} label="Policy" sub="rules 1 to 3" variant="warn" />
+  <Box x={320} y={40} w={120} h={50} label="Approve" sub="a person patches" variant="accent" />
+  <Box x={470} y={40} w={110} h={50} label="Policy" sub="rules 4 to 6" variant="warn" />
+  <Box x={610} y={40} w={100} h={50} label="Run" sub="executor" variant="ok" cat="ctrl" href="/reference/controllers/hostoperation/" />
+  <Edge points={[[130, 65], [160, 65]]} />
+  <Edge points={[[290, 65], [320, 65]]} />
+  <Edge points={[[440, 65], [470, 65]]} />
+  <Edge points={[[580, 65], [610, 65]]} />
+</Figure>
+
+## `hostoperation-approval`
+
+The CRD schema freezes the target, the actions, `approval.required` and `proposedBy`. The policy checks the rules that need the name of the requester.
+
+| # | Rule | When | Message |
+| --- | --- | --- | --- |
+| 1 | Nobody creates an operation that is already approved. | CREATE | an operation cannot be created pre-approved |
+| 2 | `spec.proposedBy` is your own name. | CREATE | spec.proposedBy must name you |
+| 3 | Only the operator or an admin creates an operation with `approval.required: false`. | CREATE | only the operator or an admin may create an operation that needs no approval |
+| 4 | An approval, once set, does not change. | UPDATE | approval is write-once |
+| 5 | You approve as yourself: `approvedBy` is your name. | Approval write | you may only approve as yourself |
+| 6 | You do not approve your own proposal. | Approval write | you may not approve your own proposal |
+
+<dl>
+  <dt>Why rule 3</dt>
+  <dd>Anybody else could skip the gate. The operator itself creates such operations in three cases. These are the node steps of an approved rollout, an install of a claim with `provisioning.approval: Automatic`, and a release that needs no person.</dd>
+  <dt>Exception in rule 6</dt>
+  <dd>The CEL lets the approver equal the proposer when the proposer is the operator. RBAC stops the operator: it has no `patch` on operations. See [](ref:rbac).</dd>
+</dl>
+
+Example: the manager proposed an operation. `jo` approves it.
+
+```sh
+kubectl -n pk-metal patch hostoperation install-node-07 --type merge \
+  -p '{"spec":{"approval":{"approvedBy":"jo"}}}'
+```
+
+The policy accepts this only if the username of `jo` is `jo`. Use [](cli:approve). It writes your name.
+
+## `talosrollout-approval`
+
+One approval covers each node of a rollout plan. So the rules are the rules of an operation, plus the plan hash.
+
+| # | Rule | When | Message |
+| --- | --- | --- | --- |
+| 1 | Nobody creates a rollout with `approvedBy` or `planHash`. | CREATE | a rollout cannot be created pre-approved |
+| 2 | `spec.proposedBy` is your own name. | CREATE | spec.proposedBy must name you |
+| 3 | `approvedBy` and `planHash`, once set, do not change. | UPDATE | approval is write-once |
+| 4 | You approve as yourself. | Approval write | you may only approve as yourself |
+| 5 | You do not approve your own proposal, and the operator approves nothing. | Approval write | you may not approve your own proposal, and the operator approves nothing |
+
+The approval names the `planHash` that you read. The [](ctrl:talosrollout) runs the rollout only while that hash is the plan.
+
+## `hostclaim-provisioning`
+
+A claim that names a [](kind:TalosNode) makes the operator mount the config of that node on the machine. A control-plane config carries the CA keys of the cluster. So these changes are an admin decision.
+
+| # | Rule | When | Message |
+| --- | --- | --- | --- |
+| 1 | Only an admin sets or changes `spec.os.nodeRef`. | CREATE, UPDATE | only an admin may name the TalosNode a claim boots |
+| 2 | Only an admin turns `spec.provisioning.approval` to `Automatic`. | CREATE, UPDATE | only an admin may waive provisioning approval |
+| 3 | Only an admin points a claim at another machine: a change of `spec.assetRef` or `spec.systemRef`. | UPDATE | only an admin may point a claim at another machine |
+
+- A value that did not change passes. So the finalizers of the operator and edits to other fields need no admin.
+- Each refusal says who you are, your groups, and how to join the admin group.
+
+<Callout type="caution">
+Cluster admin (`system:masters`) is not enough. The policy asks for the group `pk-metal:admins` by name.
+</Callout>
+
+## Related
+
+- [](ref:rbac)
+- [](concept:approval)
+- [](ctrl:hostoperation)

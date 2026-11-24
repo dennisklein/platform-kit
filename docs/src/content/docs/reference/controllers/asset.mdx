@@ -1,0 +1,109 @@
+---
+title: Asset controller
+description: Finds the BMC of each Asset through the ledger and makes its ManagementEndpoint.
+type: controller
+eyebrow: Controller · manager
+xref: { cat: ctrl, id: asset }
+sources:
+  - /repo/metal/internal/controller/asset_controller.go
+  - /repo/metal/internal/ledger/ledger.go
+---
+
+import LoopFlow from '../../../../components/controllers/LoopFlow.astro';
+import RbacRows from '../../../../components/controllers/RbacRows.astro';
+
+The Asset controller turns each [](kind:Asset) into a [](kind:ManagementEndpoint).
+It finds the address of the BMC in the [ledger](concept:ledger) and writes the full spec of the endpoint.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Reconciles</dt>
+  <dd>[](kind:Asset) (`For`). Controller name `asset`.</dd>
+  <dt>Writes</dt>
+  <dd>The ManagementEndpoint with the same name as the Asset, and the Asset condition `Materialized`.</dd>
+  <dt>Talks to</dt>
+  <dd>Nothing outside the cluster. It reads the ledger file that the manager loaded at start.</dd>
+  <dt>Requeue</dt>
+  <dd>None. A change to the Asset or to its endpoint starts the next pass.</dd>
+  <dt>Lane</dt>
+  <dd>`LaneAsset`, the first lane that `SetupAll` wires.</dd>
+  <dt>Source</dt>
+  <dd>[asset_controller.go](/repo/metal/internal/controller/asset_controller.go)</dd>
+</dl>
+
+## Watches
+
+| Kind | Relation | Why a change starts a pass |
+| --- | --- | --- |
+| [](kind:Asset) | `For` | You wrote or changed the Asset. |
+| [](kind:ManagementEndpoint) | `Owns` | Somebody changed or deleted the endpoint. The controller writes it again. |
+
+## Reconcile loop
+
+<LoopFlow
+  title="The Asset reconcile loop: read the Asset, check bmcMac, look it up in the ledger, then create or update the endpoint."
+  caption="One pass of the Asset controller. Each exit sets Materialized to False and records an event."
+  steps={[
+    { label: 'Read the Asset', out: 'Stop', outSub: 'gone, or being deleted', outVariant: 'soft' },
+    { label: 'Is spec.bmcMac set?', out: 'NoBMCMac', outEdge: 'no' },
+    { label: 'Look up bmcMac in the ledger', out: 'LedgerEntryInvalid / NoLedgerEntry', outEdge: 'missing' },
+    { label: 'Create or update the endpoint', sub: 'address, credentialsRef, TLS', out: 'MaterializeConflict', outSub: 'another Asset owns it', outEdge: 'owned' },
+    { label: 'Materialized = True', sub: 'EndpointMaterialized', variant: 'ok' },
+  ]}
+  loop="next pass: Asset or endpoint event"
+/>
+
+1. Read the Asset. If it is gone or has a deletion timestamp, stop. Garbage collection removes the endpoint, because the Asset owns it.
+2. If `spec.bmcMac` is empty, set `Materialized` to False with the reason `NoBMCMac`.
+3. Find the MAC in the ledger. If the ledger skipped the line for this MAC, the reason is `LedgerEntryInvalid`. If the MAC is not in the ledger, the reason is `NoLedgerEntry`.
+4. Create or update the endpoint with the same name as the Asset. The spec gets the address from the ledger, the `credentialsRef` from the Asset and the TLS policy from the manager flags.
+5. Set the owner reference to the Asset and set `Materialized` to True.
+
+## Guards and decisions
+
+<dl>
+  <dt>The ledger is read once</dt>
+  <dd>The manager reads the ledger file at start. After you edit the ledger ConfigMap, restart the Deployment. The message of `NoLedgerEntry` gives the command.</dd>
+  <dt>An event only on change</dt>
+  <dd>The controller records a Warning event only when the reason or the message of `Materialized` changes. The condition stays; the event is for people who watch events.</dd>
+  <dt>No fight over a name</dt>
+  <dd>If an endpoint with the same name belongs to another Asset, the controller does not change it. It sets `MaterializeConflict`.</dd>
+</dl>
+
+## Writes
+
+| Object or field | When | Field manager |
+| --- | --- | --- |
+| ManagementEndpoint `spec` (all of it) and owner reference | Each pass with a ledger entry | `manager` (create or update) |
+| Asset `status.conditions[Materialized]` | When the condition changes | `manager` (status update) |
+| Event on the Asset | When the verdict changes | `pk-metal` event source |
+
+## Conditions
+
+| Condition | Status | Reason | Meaning |
+| --- | --- | --- | --- |
+| `Materialized` | True | `EndpointMaterialized` | The endpoint exists at the address from the ledger. |
+| `Materialized` | False | `NoBMCMac` | The Asset names no BMC MAC. |
+| `Materialized` | False | `NoLedgerEntry` | The MAC is not in the ledger. |
+| `Materialized` | False | `LedgerEntryInvalid` | The ledger line for the MAC did not parse. |
+| `Materialized` | False | `MaterializeConflict` | An endpoint with this name belongs to another Asset. |
+
+## Failure modes
+
+| You see | Cause | Do this |
+| --- | --- | --- |
+| `Materialized=False`, `NoLedgerEntry` | The MAC is not in the ledger, or has a typo. | Add the line to the ledger, then restart the manager. See [](howto:enrol-hosts). |
+| `Materialized=False`, `LedgerEntryInvalid` | The ledger line has a syntax error. | Correct the line. The manager log names it. |
+| `Materialized=False`, `MaterializeConflict` | Two Assets have the same name. | Rename one Asset. |
+| No Host after a long time | The endpoint does not reach the BMC. | Use [](rb:bmc-unreachable). |
+
+## Permissions
+
+<RbacRows sources={['asset_controller.go']} />
+
+The rule on `assets/finalizers` is necessary because the endpoint has a blocking owner reference to the Asset.
+
+## Tests
+
+- [asset_test.go](/repo/metal/internal/controller/asset_test.go)

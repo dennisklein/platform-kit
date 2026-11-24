@@ -1,0 +1,127 @@
+---
+title: Endpoint convergence controller
+description: Applies the matching EndpointProfiles to the BMC itself, such as its accounts, its time servers and its TLS certificate.
+type: controller
+eyebrow: Controller · manager
+xref: { cat: ctrl, id: endpointconvergence }
+sources:
+  - /repo/metal/internal/controller/endpointprofile_controller.go
+  - /repo/metal/internal/controller/identity.go
+---
+
+import LoopFlow from '../../../../components/controllers/LoopFlow.astro';
+import RbacRows from '../../../../components/controllers/RbacRows.astro';
+import Callout from '../../../../components/Callout.astro';
+
+The endpoint convergence controller configures the BMC itself from the [](kind:EndpointProfile) objects that match a [](kind:ManagementEndpoint).
+Nothing here disrupts the machine, so there is no operation and no approval. To merge a profile is to approve it.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Reconciles</dt>
+  <dd>[](kind:ManagementEndpoint) (`For`). Controller name `endpointconvergence`.</dd>
+  <dt>Writes</dt>
+  <dd>The BMC (accounts, NTP, HTTPS certificate), the managed credential Secret `endpoint-creds-<name>`, a cert-manager request, and the `Configured` condition.</dd>
+  <dt>Talks to</dt>
+  <dd>The BMC, through a write session. cert-manager, through a CertificateRequest in `pk-metal`.</dd>
+  <dt>Requeue</dt>
+  <dd>After `--poll-interval` while a profile matches. None when no profile matches.</dd>
+  <dt>Reads</dt>
+  <dd>The endpoint from the API server, not from the cache. See the note under Writes.</dd>
+</dl>
+
+## Watches
+
+| Kind | Relation | Why a change starts a pass |
+| --- | --- | --- |
+| [](kind:ManagementEndpoint) | `For` | The endpoint changed or the poll interval ended. |
+| Secret | `Owns` | The managed credential Secret changed. |
+| [](kind:EndpointProfile) | `Watches`, all endpoints | A profile changed. Matching is per endpoint. |
+
+## Reconcile loop
+
+<LoopFlow
+  title="The endpoint convergence loop: match profiles, check verification, then credentials, NTP and identity in order."
+  caption="Each stanza must be in sync before the next one starts."
+  steps={[
+    { label: 'Read the endpoint (uncached)', out: 'Stop', outSub: 'gone, or being deleted', outVariant: 'soft' },
+    { label: 'Match the profiles', out: 'Withdraw identity material', outSub: 'no profile: remove Configured', outVariant: 'soft' },
+    { label: 'Merge the stanzas', out: 'Configured = False', outSub: 'ProfileConflict' },
+    { label: 'Is the endpoint Verified?', out: 'Configured = Unknown', outSub: 'AwaitingVerification', outEdge: 'no' },
+    { label: 'Credentials', sub: 'park, set, test, promote', out: 'Configured = False', outSub: 'RotationFailed' },
+    { label: 'NTP', out: 'Configured = False', outSub: 'NTPFailed' },
+    { label: 'Identity', sub: 'certificate from cert-manager' },
+    { label: 'Configured = True', sub: 'InSync', variant: 'ok' },
+  ]}
+  loop="next pass: --poll-interval"
+/>
+
+1. Read the endpoint from the API server.
+2. Select the matching profiles. If none matches, withdraw the in-flight identity material and remove `Configured`. A rotated account stays as it is.
+3. Merge the profiles stanza by stanza. Two profiles that set the same stanza differently are a `ProfileConflict`.
+4. Do not write to a BMC that is not `Verified`. The wrong-box guard holds every lane that writes.
+5. Credentials: rotate the account of the operator when it is due (see below).
+6. NTP: set the time servers if they differ.
+7. Identity: get a certificate for `bmc-<endpoint>.<domain>` from cert-manager and push it to the BMC. It goes last, because a certificate needs a correct clock.
+8. Set `Configured` to True with a summary and apply the share of this lane.
+
+## Credential rotation
+
+The lane rotates the account of the operator. The factory credentials in `spec.credentialsRef` stay as a break-glass login.
+
+1. Generate a new password. Park it in the managed Secret as a candidate, next to the working one.
+2. Set it on the BMC, through the managed login or the factory login.
+3. Log in with the candidate.
+4. If the login works, promote the candidate. If not, the working password stays.
+
+The annotation `metal.pk.io/rotated-at` on the managed Secret records the time of the last rotation. Each crash window heals on a later pass. See [](howto:rotate-bmc-credentials).
+
+## Guards and decisions
+
+<dl>
+  <dt>Unmatched is unmanaged</dt>
+  <dd>When no profile matches, the controller stops. It does not undo a rotation.</dd>
+  <dt>A key never outlives its push</dt>
+  <dd>A transient Secret carries the certificate request and, for some vendors, the private key. The controller deletes it when the BMC serves the new certificate.</dd>
+  <dt>Push once</dt>
+  <dd>`status.identityPushed` records that the BMC accepted a certificate and restarted. The controller does not push the same material twice.</dd>
+</dl>
+
+## Writes
+
+| Object or field | When | Field manager |
+| --- | --- | --- |
+| BMC accounts, NTP, HTTPS certificate | When they differ from the profile | Redfish |
+| Secret `endpoint-creds-<name>` (owned by the endpoint) | Rotation | `manager` |
+| In-flight identity Secret and CertificateRequest | Identity push | `manager` |
+| Endpoint `Configured` and `status.identityPushed` | When they changed | `pk-metal-endpoint-convergence` (server-side apply) |
+
+<Callout type="note">
+The push memory is a server-side apply, not an update. An update from a stale cache could drop it. The next pass would then push again, and the BMC refuses a request that it consumed already.
+</Callout>
+
+## Conditions
+
+| Condition | Status | Reasons |
+| --- | --- | --- |
+| `Configured` | True | `InSync` |
+| `Configured` | False | `ProfileConflict`, `RotationFailed`, `NTPFailed`, and the reasons of the identity lane |
+| `Configured` | Unknown | `AwaitingVerification` |
+
+## Failure modes
+
+| You see | Cause | Do this |
+| --- | --- | --- |
+| `Configured=False`, `RotationFailed` | The BMC refused the new password. | The old password still works. See [](howto:rotate-bmc-credentials). |
+| `Configured=Unknown`, `AwaitingVerification` | The endpoint is not verified. | Use [](rb:host-mismatch). |
+
+## Permissions
+
+<RbacRows sources={['endpointprofile_controller.go', 'identity.go']} />
+
+## Tests
+
+- [endpointprofile_test.go](/repo/metal/internal/controller/endpointprofile_test.go)
+- [endpointprofile_rotation_test.go](/repo/metal/internal/controller/endpointprofile_rotation_test.go)
+- [identity_test.go](/repo/metal/internal/controller/identity_test.go)

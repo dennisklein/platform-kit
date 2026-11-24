@@ -1,0 +1,155 @@
+---
+title: Protection controller
+description: Keeps a claimed machine and its BMC endpoints alive until the claim lets go, and describes the self guard and the cluster guard.
+type: controller
+eyebrow: Controller · manager
+xref: { cat: ctrl, id: protection }
+sources:
+  - /repo/metal/internal/controller/protection_controller.go
+  - /repo/metal/internal/controller/selfprotect.go
+  - /repo/metal/internal/controller/clusterguard.go
+---
+
+import LoopFlow from '../../../../components/controllers/LoopFlow.astro';
+import RbacRows from '../../../../components/controllers/RbacRows.astro';
+import Figure from '../../../../components/diagram/Figure.astro';
+import Box from '../../../../components/diagram/Box.astro';
+import Edge from '../../../../components/diagram/Edge.astro';
+import Callout from '../../../../components/Callout.astro';
+
+The protection controller stops garbage collection from deleting a machine that a claim holds.
+This page also describes the two guards that keep the operator from rebooting itself or breaking etcd.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Reconciles</dt>
+  <dd>[](kind:Host) (`For`). Controller name `protection`.</dd>
+  <dt>Finalizer</dt>
+  <dd>`metal.pk.io/claim-protection` on the Host and on each [](kind:ManagementEndpoint) that fronts it.</dd>
+  <dt>Writes</dt>
+  <dd>The finalizer, and the endpoint condition `DeletionHeld`.</dd>
+  <dt>Requeue</dt>
+  <dd>None. Host and endpoint events start the next pass.</dd>
+  <dt>Source</dt>
+  <dd>[protection_controller.go](/repo/metal/internal/controller/protection_controller.go)</dd>
+</dl>
+
+## Why it exists
+
+An [](kind:Asset) owns its endpoint, and the endpoint owns the Hosts that it fronts.
+If you delete an Asset, garbage collection follows the owner chain.
+Without protection, a clean-up of an Asset could delete a machine in production or in the middle of an install.
+
+<Figure
+  title="The owner chain Asset, ManagementEndpoint, Host. The claim-protection finalizer stops the chain at the endpoint and the Host while a HostClaim binds the Host."
+  caption="The finalizer holds the endpoint and the Host. The release removes it."
+  width={720}
+  height={150}
+>
+  <Box x={10} y={50} w={150} h={44} label="Asset" sub="deleted" variant="soft" cat="kind" href="/reference/kinds/asset/" />
+  <Box x={210} y={50} w={170} h={44} label="ManagementEndpoint" sub="finalizer" variant="warn" cat="kind" href="/reference/kinds/managementendpoint/" />
+  <Box x={430} y={50} w={120} h={44} label="Host" sub="finalizer" variant="warn" cat="kind" href="/reference/kinds/host/" />
+  <Box x={600} y={50} w={110} h={44} label="HostClaim" sub="binds" cat="kind" href="/reference/kinds/hostclaim/" />
+  <Edge points={[[160, 72], [210, 72]]} label="owns" at={[185, 64]} />
+  <Edge points={[[380, 72], [430, 72]]} label="owns" at={[405, 64]} />
+  <Edge points={[[600, 72], [550, 72]]} label="claimRef" at={[575, 64]} />
+  <text class="t-small t-label" x={360} y={130} text-anchor="middle">garbage collection waits until the claim is released</text>
+</Figure>
+
+## Watches
+
+| Kind | Relation | Why a change starts a pass |
+| --- | --- | --- |
+| [](kind:Host) | `For` | A claim bound or released the Host. |
+| [](kind:ManagementEndpoint) | `Watches`, mapped to the Hosts it fronts | An endpoint got a deletion timestamp. |
+
+## Reconcile loop
+
+<LoopFlow
+  title="The protection reconcile loop: set or remove the finalizer on the Host, then on each fronting endpoint, then mark a held endpoint."
+  steps={[
+    { label: 'Read the Host', out: 'Stop', outSub: 'gone', outVariant: 'soft' },
+    { label: 'Finalizer on the Host', sub: 'present while spec.claimRef is set' },
+    { label: 'For each path in status.managedBy' },
+    { label: 'Finalizer on the endpoint', sub: 'present while it fronts a claimed Host' },
+    { label: 'Mark a deleting endpoint', sub: 'DeletionHeld = True, HostClaimed', variant: 'ok' },
+  ]}
+  loop="next pass: a Host or endpoint event"
+/>
+
+1. Read the Host.
+2. Add the finalizer if `spec.claimRef` is set. Remove it if not.
+3. Go through each endpoint in `status.managedBy`.
+4. Add the finalizer to the endpoint if it fronts any claimed Host. Remove it if not.
+5. If the endpoint has a deletion timestamp and a claimed Host, set `DeletionHeld` to True. The message names the claim to delete.
+
+Each finalizer change is a merge patch with an optimistic lock, so that the controller never drops a finalizer that somebody else added.
+
+## The self guard
+
+The self guard keeps the operator from rebooting the machine that it runs on, or a control plane of its own cluster.
+It matters after [](cli:pivot), when the operator runs on a cluster that it built. See [](concept:self-protection).
+
+How the guard finds where the operator runs:
+
+1. The Deployment passes the node name of the pod as `NODE_NAME`. The manager gets it with `--node-name`.
+2. The guard reads that Kubernetes Node and its addresses.
+3. The TalosNode with the same name, or with one of these addresses, is the node of the operator. Its cluster is the cluster of the operator.
+4. A Host runs a TalosNode when its `spec.os` names it.
+
+If no TalosNode matches, for example on a kind cluster, the guard allows everything.
+
+| Host runs | Without the annotation | With `metal.pk.io/allow-self-disruption` |
+| --- | --- | --- |
+| The node of the operator pod | Held | Allowed |
+| A control plane of the operator cluster | Held | Allowed only if no other control plane is in a power action, and a majority of the other control planes run and are ready now |
+| Any other node | Allowed | Allowed |
+
+The guard asks the other control planes through the Talos API, with a 5 second limit for each. A control plane that does not answer counts as down.
+The [](ctrl:hostclaim), [](ctrl:hostoperation) and [](ctrl:convergence) ask the self guard before they propose or start a power action. The [](ctrl:etcdbackup) uses only its location step, to find the cluster of the operator.
+
+## The cluster guard
+
+The cluster guard keeps etcd healthy in every Talos cluster that the operator built, not only its own.
+The [](ctrl:hostoperation) asks it before an operation starts and again before each step that takes a control plane down.
+
+A step that takes a control plane down waits while one of these is true:
+
+1. Another control plane of the same cluster is in an operation that started and did not finish.
+2. Etcd is not fully healthy without the member of this node. These cases count: a member does not answer, has an error, has no leader or is a learner. An alarm is raised, or the rest is not a majority.
+
+The guard counts from the etcd member list that it reads live from the members. It does not count TalosNodes.
+
+The guard does not hold a worker, a control plane that is not an etcd member, or a cluster that was never bootstrapped.
+
+<Callout type="caution">
+Do not set `metal.pk.io/override-cluster-guard` on an operation unless etcd is broken already and the operation is the repair, or the cluster has one control plane. The annotation lifts rule 2 only. Rule 1 stays.
+</Callout>
+
+## Writes
+
+| Object or field | When | Field manager |
+| --- | --- | --- |
+| Finalizer `metal.pk.io/claim-protection` on Host and endpoints | When the claim state changes | `manager` (merge patch) |
+| Endpoint `status.conditions[DeletionHeld]` | A deleting endpoint fronts a claimed Host | `pk-metal-protection` (server-side apply) |
+
+The [](ctrl:host) sets `DeletionHeld` on the Host itself.
+
+## Failure modes
+
+| You see | Cause | Do this |
+| --- | --- | --- |
+| Endpoint stays in deletion, `DeletionHeld=True` | A claim holds the Host behind it. | Delete the claim. See [](howto:release-a-host). |
+| Operation waits with `SelfDisruption` | The operator runs on the machine. | Move the operator first with [](cli:pivot), or set the annotation on the Host. |
+| Operation waits with `ClusterDisruption` | Etcd would lose its majority. | Use [](rb:etcd-unhealthy). |
+
+## Permissions
+
+<RbacRows sources={['protection_controller.go', 'selfprotect.go']} />
+
+## Tests
+
+- [selfprotect_test.go](/repo/metal/internal/controller/selfprotect_test.go)
+- [clusterguard_test.go](/repo/metal/internal/controller/clusterguard_test.go)
+- [identity_guard_test.go](/repo/metal/internal/controller/identity_guard_test.go)

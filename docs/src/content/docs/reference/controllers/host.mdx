@@ -1,0 +1,127 @@
+---
+title: Host controller
+description: Reads each machine through its BMC, writes the Host status and derives the phase.
+type: controller
+eyebrow: Controller · manager
+xref: { cat: ctrl, id: host }
+sources:
+  - /repo/metal/internal/controller/host_controller.go
+  - /repo/metal/internal/controller/labels.go
+  - /repo/metal/internal/phase/phase.go
+---
+
+import LoopFlow from '../../../../components/controllers/LoopFlow.astro';
+import RbacRows from '../../../../components/controllers/RbacRows.astro';
+
+The Host controller makes one [](kind:Host) for each physical machine that a BMC reports.
+It joins the facts of all endpoints that front the machine, and derives the lifecycle conditions from the claim, the operations and the Talos node.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Reconciles</dt>
+  <dd>[](kind:Host) (`For`). Controller name `host`.</dd>
+  <dt>Key</dt>
+  <dd>The normalized identity of the machine: the name that `identity.Name` makes from the vendor and the serial.</dd>
+  <dt>Writes</dt>
+  <dd>The Host object, its owner references and labels, and the projected part of its status.</dd>
+  <dt>Talks to</dt>
+  <dd>Nothing outside the cluster. It reads only Kubernetes objects.</dd>
+  <dt>Requeue</dt>
+  <dd>None. Events on endpoints, operations, claims and Talos nodes start the next pass.</dd>
+  <dt>Source</dt>
+  <dd>[host_controller.go](/repo/metal/internal/controller/host_controller.go)</dd>
+</dl>
+
+## Watches
+
+| Kind | Relation | Why a change starts a pass |
+| --- | --- | --- |
+| [](kind:Host) | `For` | A person set or removed an annotation, or a claim bound the Host. |
+| [](kind:ManagementEndpoint) | `Watches`, index `.status.systems.hostName` | A BMC reported new facts, or an endpoint went down. |
+| [](kind:HostOperation) | `Watches`, index `.spec.hostRef.name` | An operation waits for approval, started or ended. |
+| [](kind:HostClaim) | `Watches` | The claim that binds the Host changed or is deleted. |
+| [](kind:TalosNode) | `Watches` | The node that the Host runs became reachable or ready. |
+
+## Reconcile loop
+
+<LoopFlow
+  title="The Host reconcile loop: find the paths, make the Host, read the claim and the node, project the conditions, stamp the phase."
+  caption="One pass of the Host controller."
+  steps={[
+    { label: 'List the endpoints that front it', out: 'Stop', outSub: 'no path left', outVariant: 'soft' },
+    { label: 'Create or update the Host', sub: 'owner refs: every fronting endpoint' },
+    { label: 'Read the bound claim', sub: 'only if its UID matches claimRef' },
+    { label: 'Stamp the managed labels', sub: 'asset, vendor, model, claim labels' },
+    { label: 'Read the TalosNode of spec.os' },
+    { label: 'Project the conditions', sub: 'paths, identity, approval, drift, OS' },
+    { label: 'Stamp phase, apply status', variant: 'ok' },
+  ]}
+  loop="next pass: an event on an endpoint, operation, claim or node"
+/>
+
+1. List the endpoints whose discovered systems have this Host name. If none is left, stop. Garbage collection or a person removes the Host.
+2. Create or update the Host. Each fronting endpoint is an owner. If all endpoints are on their way out, do not make a new Host.
+3. Read the claim that `spec.claimRef` names, if its UID still matches.
+4. Stamp the managed labels: asset, vendor, model, and the labels that the claim asks for.
+5. Read the [](kind:TalosNode) that `spec.os` names.
+6. Project the conditions: `Reachable`, `Inspected`, `Verified`, `Maintenance`, `ApprovalPending`, `Drifted`, `Booted`, `OSReady`, `DeletionHeld` and `DiskWiped`.
+7. Stamp the phase and `blockedOn`. Apply the status if it changed.
+
+## Guards and decisions
+
+<dl>
+  <dt>Multipath</dt>
+  <dd>Two endpoints that report the same identity make one Host. `status.managedBy` lists each path and whether it answers. The Host is `Reachable` while one path answers.</dd>
+  <dt>Identity diverged</dt>
+  <dd>If two paths report a different identity, `Inspected` is False with `IdentityDiverged`.</dd>
+  <dt>Drift</dt>
+  <dd>If the reset time of the machine moves forward and no operation explains it, `Drifted` is True with `UnexpectedReset`. It is information only.</dd>
+  <dt>Disk not wiped</dt>
+  <dd>If the Host has the annotation `metal.pk.io/disk-not-wiped`, `DiskWiped` is False. The machine may still hold the install of an old node. See [](cli:wipe).</dd>
+  <dt>Maintenance</dt>
+  <dd>The annotation `metal.pk.io/maintenance` sets `Maintenance` to True. The phase becomes Maintenance. See [](howto:maintenance-mode).</dd>
+</dl>
+
+## Writes
+
+| Object or field | When | Field manager |
+| --- | --- | --- |
+| Host object and owner references | Each pass | `manager` (create or update) |
+| Host labels (managed subset, listed in an annotation) | When they changed | `manager` (update) |
+| Host status, all but the convergence share | When the status changed | `pk-metal-host` (server-side apply) |
+
+The [](ctrl:convergence) owns `BiosConverged`, `FirmwareConverged`, `SystemFirmwareConverged` and the firmware plan memory. This controller never names them.
+
+## Conditions
+
+| Condition | Source of the fact |
+| --- | --- |
+| `Reachable` | At least one endpoint path is `Reachable` (`PathUp`, `AllPathsDown`). |
+| `Inspected` | All paths agree on the identity (`RedfishFacts`, `IdentityDiverged`). |
+| `Verified` | Each endpoint is `Verified` (`AllPathsVerified`, `Verifying`, or the endpoint reason). |
+| `Maintenance` | The maintenance annotation (`HostInMaintenance`). |
+| `ApprovalPending` | The oldest operation on the Host that waits for approval. The reason names its domain. |
+| `Drifted` | The reset time (`UnexpectedReset`, `ResetExplained`). |
+| `Booted` | The TalosNode is `MachineReachable`. |
+| `OSReady` | The TalosNode `Ready` condition, copied. `NodeNotFound`, `AwaitingContact` when unknown. |
+| `DeletionHeld` | A deleted Host that a claim still holds (`HostClaimed`). |
+| `DiskWiped` | False with `InstalledNodeRemains` or `WipeRequested`. |
+
+## Failure modes
+
+| You see | Cause | Do this |
+| --- | --- | --- |
+| Phase stays Inspecting, `Verified=False` | The serial does not agree. | Use [](rb:host-mismatch). |
+| `Reachable=False`, `AllPathsDown` | No BMC answers. | Use [](rb:bmc-unreachable). |
+| `OSReady` not True after install | The node did not check in. | Use [](rb:node-not-ready). |
+
+## Permissions
+
+<RbacRows sources={['host_controller.go']} />
+
+## Tests
+
+- [host_test.go](/repo/metal/internal/controller/host_test.go)
+- [host_identity_fuzz_test.go](/repo/metal/internal/controller/host_identity_fuzz_test.go)
+- [labels_test.go](/repo/metal/internal/controller/labels_test.go)

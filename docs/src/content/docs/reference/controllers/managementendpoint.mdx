@@ -1,0 +1,115 @@
+---
+title: ManagementEndpoint controller
+description: Reads each BMC through Redfish, records what it finds and compares it with the Asset. It never writes to the BMC.
+type: controller
+eyebrow: Controller · manager
+xref: { cat: ctrl, id: managementendpoint }
+sources:
+  - /repo/metal/internal/controller/managementendpoint_controller.go
+  - /repo/metal/internal/controller/status.go
+---
+
+import LoopFlow from '../../../../components/controllers/LoopFlow.astro';
+import RbacRows from '../../../../components/controllers/RbacRows.astro';
+import Callout from '../../../../components/Callout.astro';
+
+The ManagementEndpoint controller observes one BMC through Redfish.
+It records the facts in the status of the [](kind:ManagementEndpoint) and compares them with the [](kind:Asset).
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Reconciles</dt>
+  <dd>[](kind:ManagementEndpoint) (`For`). Controller name `managementendpoint`.</dd>
+  <dt>Writes</dt>
+  <dd>The observed part of the endpoint status, and discovery labels on the endpoint.</dd>
+  <dt>Talks to</dt>
+  <dd>The BMC, through a read-only Redfish session. It sends no write to the BMC.</dd>
+  <dt>Requeue</dt>
+  <dd>Each pass, after `--poll-interval` (default 5 minutes).</dd>
+  <dt>Time limit</dt>
+  <dd>15 seconds for the connection and the discovery of one pass.</dd>
+  <dt>Source</dt>
+  <dd>[managementendpoint_controller.go](/repo/metal/internal/controller/managementendpoint_controller.go)</dd>
+</dl>
+
+## Watches
+
+| Kind | Relation | Why a change starts a pass |
+| --- | --- | --- |
+| [](kind:ManagementEndpoint) | `For` | The [](ctrl:asset) wrote the spec, or the poll interval ended. |
+| [](kind:Asset) | `Watches`, through the index `.spec.assetRef.name` | You corrected the serial or the MAC. The controller checks the identity again at once. |
+
+## Reconcile loop
+
+<LoopFlow
+  title="The ManagementEndpoint reconcile loop: snapshot the Asset, connect, discover, verify, stamp the phase, apply the status."
+  caption="One pass of the ManagementEndpoint controller. No exit writes to the BMC."
+  steps={[
+    { label: 'Read the endpoint', out: 'Stop', outSub: 'gone, or being deleted', outVariant: 'soft' },
+    { label: 'Copy the Asset into status.asset', sub: 'keep the last copy if it is gone' },
+    { label: 'Read credentials and CA', out: 'Reachable = False', outSub: 'CredentialsMissing / CAMissing' },
+    { label: 'Open a read-only session', out: 'Reachable = False', outSub: 'DialError' },
+    { label: 'Discover the facts', sub: 'manager, chassis, systems, media', out: 'Inventoried = False', outSub: 'DiscoveryError' },
+    { label: 'Compare with the Asset', out: 'Verified = False', outSub: 'MACMismatch / SerialMismatch' },
+    { label: 'Stamp phase, apply status', variant: 'ok' },
+  ]}
+  loop="next pass: after --poll-interval, or an Asset event"
+/>
+
+1. Read the endpoint. If it has a deletion timestamp, stop. The controller has no finalizer.
+2. Copy `cid`, `serial`, `bmcMac` and `vlan` of the Asset into `status.asset`. If the Asset is gone, keep the last copy.
+3. Read the credentials and the CA from the namespace `pk-metal`. A managed credential Secret `endpoint-creds-<name>` wins over `spec.credentialsRef`.
+4. Open a read-only Redfish session. If the connection fails, set `Reachable` to False.
+5. Discover the manager, the chassis, the capabilities, the media slots, the systems and the firmware inventory. Set `Inventoried` to True.
+6. Compare the BMC MAC and the serial numbers with the Asset copy. Set `Verified`.
+7. Stamp the phase. Update the discovery labels on the endpoint. Apply the status if it changed.
+
+## Guards and decisions
+
+<dl>
+  <dt>Read only</dt>
+  <dd>The session has the read-only flag. Only the [](ctrl:hostoperation) and the [](ctrl:endpointconvergence) write to a BMC.</dd>
+  <dt>Two origins</dt>
+  <dd>The Asset is what your organization says. Redfish is what the machine says. A mismatch is alert-and-hold: the phase stops and nothing destructive follows. See [](concept:identity).</dd>
+  <dt>Serial anchors</dt>
+  <dd>The controller collects every serial that discovery gives: the board serial of the chassis and the serial of each system. The Asset serial must be one of them.</dd>
+  <dt>A slot list is optional</dt>
+  <dd>If the BMC does not list its virtual media, the endpoint is still inventoried. It has no slot to boot from.</dd>
+</dl>
+
+## Writes
+
+| Object or field | When | Field manager |
+| --- | --- | --- |
+| Endpoint status: conditions `Reachable`, `Inventoried`, `Verified`, facts, `asset`, phase | When the status changed | `pk-metal-endpoint` (server-side apply) |
+| Endpoint labels from discovery (vendor, model, VLAN) | When they changed | `manager` (update) |
+
+<Callout type="note">
+The controller applies only its share of the status. It leaves out the `Configured` condition and `status.identityPushed`, which belong to the [](ctrl:endpointconvergence). If it named them, it would take them over and erase them later.
+</Callout>
+
+## Conditions
+
+| Condition | True means | False reasons |
+| --- | --- | --- |
+| `Reachable` | A Redfish session is open (`SessionUp`). | `CredentialsMissing`, `CAMissing`, `DialError` |
+| `Inventoried` | Discovery wrote the facts (`FactsGathered`). | `DiscoveryError` |
+| `Verified` | The serial of the Asset is among the discovered serials (`SerialMatch`). | `MACMismatch`, `SerialMismatch`. Unknown: `NoAssertion`, `NoSerialAnchor` |
+
+## Failure modes
+
+| You see | Cause | Do this |
+| --- | --- | --- |
+| `Reachable=False`, `DialError` | No route to the BMC, wrong address, or TLS failure. | Use [](rb:bmc-unreachable). |
+| `Reachable=False`, `CredentialsMissing` | The credentials Secret is missing or has no `username` and `password`. | Correct the Secret. See [](howto:enrol-hosts). |
+| `Verified=False`, `SerialMismatch` | The Asset and the machine do not agree. | Use [](rb:host-mismatch). |
+
+## Permissions
+
+<RbacRows sources={['managementendpoint_controller.go']} />
+
+## Tests
+
+- [protocol_model_test.go](/repo/metal/internal/controller/protocol_model_test.go)
+- [verify_test.go](/repo/metal/internal/controller/verify_test.go)

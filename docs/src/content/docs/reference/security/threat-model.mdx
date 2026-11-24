@@ -1,0 +1,123 @@
+---
+title: Threat model
+description: The trust boundaries of pk-metal, the secrets that cross them, and the control at each crossing.
+type: reference
+eyebrow: Reference · security
+xref: { cat: ref, id: threat-model }
+sources:
+  - /repo/metal/internal/asset/grants.go
+  - /repo/metal/internal/etcdbackup/pipeline.go
+  - /repo/metal/config/policy/hostoperation-approval.yaml
+---
+
+import Figure from '../../../../components/diagram/Figure.astro';
+import Box from '../../../../components/diagram/Box.astro';
+import Edge from '../../../../components/diagram/Edge.astro';
+import Zone from '../../../../components/diagram/Zone.astro';
+import Callout from '../../../../components/Callout.astro';
+
+pk-metal can wipe disks, flash firmware and boot any image on a machine. This page names what an attacker could want, where the secrets go, and what stops misuse.
+
+## Trust boundaries
+
+<Figure
+  title="Trust zones: the people, the management cluster with the media service, the manager and the API server, the BMC island, and the nodes with the backup sink. Numbered arrows are the protected crossings."
+  caption="Each arrow crosses a boundary. The table below names the control on each."
+  width={720}
+  height={300}
+>
+  <Zone x={10} y={10} w={160} h={280} label="People" />
+  <Box x={25} y={40} w={130} h={44} label="Backup holder" sub="age identity, offline" variant="soft" />
+  <Box x={25} y={200} w={130} h={44} label="Approver" sub="pk-metal-approver" variant="accent" />
+  <Zone x={200} y={10} w={210} h={280} label="Management cluster" />
+  <Box x={220} y={40} w={170} h={44} label="Media service" sub="grants, HTTPS" />
+  <Box x={220} y={120} w={170} h={44} label="Manager" sub="Secrets in pk-metal" cat="ctrl" href="/reference/controllers/manager/" />
+  <Box x={220} y={200} w={170} h={44} label="API server" sub="RBAC, admission" variant="warn" />
+  <Zone x={440} y={10} w={270} h={130} label="BMC island (L2)" />
+  <Box x={460} y={40} w={230} h={44} label="BMCs" sub="Redfish, virtual media" />
+  <Zone x={440} y={160} w={270} h={130} label="Nodes and storage" />
+  <Box x={460} y={200} w={110} h={44} label="Nodes" sub="Talos API" />
+  <Box x={580} y={200} w={110} h={44} label="Sink" sub="S3 or volume" variant="soft" />
+  <Edge points={[[155, 222], [220, 222]]} label="1" at={[187, 214]} />
+  <Edge points={[[390, 128], [432, 128], [432, 72], [460, 72]]} label="2" at={[438, 104]} anchor="start" />
+  <Edge points={[[460, 54], [390, 54]]} label="3" at={[425, 48]} />
+  <Edge points={[[390, 146], [424, 146], [424, 222], [460, 222]]} label="4" at={[430, 190]} anchor="start" />
+  <Edge points={[[390, 158], [412, 158], [412, 272], [635, 272], [635, 244]]} label="5" at={[530, 266]} />
+</Figure>
+
+| # | Crossing | What crosses | Control |
+| --- | --- | --- | --- |
+| 1 | Person to API server | Approvals | RBAC and the [](ref:admission-policies). One person proposes, another approves. |
+| 2 | Manager to BMC | BMC login, power and boot commands | Redfish over TLS. The CA comes from `--bmc-ca-secret`. |
+| 3 | BMC to media service | The boot medium, maybe with a node config | HTTPS and a grant token in the URL. |
+| 4 | Manager to node | Talos API calls | Mutual TLS with the cluster certificates. |
+| 5 | Manager to sink | Etcd snapshots | Age encryption to public recipients. Only the holder of the age identity can decrypt, on their own machine. |
+
+## Assets worth protecting
+
+<dl>
+  <dt>BMC logins</dt>
+  <dd>Secrets in `pk-metal`. With them, a person controls power and boot of a machine outside Kubernetes.</dd>
+  <dt>Rendered node configs</dt>
+  <dd>A control-plane config carries the CA keys of the cluster. It leaves the manager only on a config ISO or an embedded installer, and only under a grant.</dd>
+  <dt>Cluster credentials</dt>
+  <dd>The admin talosconfig and kubeconfig of each cluster, in Secrets in `pk-metal`.</dd>
+  <dt>Etcd snapshots</dt>
+  <dd>The full state of a cluster, including its Secrets.</dd>
+  <dt>The approval gate</dt>
+  <dd>A bypass would let the operator, or one person, wipe or reboot machines alone.</dd>
+</dl>
+
+## Controls
+
+### Media grants
+
+The BMC downloads boot media from the [media service](term:media-service). The BMC does not check the certificate, so HTTPS gives privacy but no identity.
+
+1. Each download needs a [grant](term:grant): a 128-bit random token in the URL path.
+2. A grant serves one artifact for one operation. The executor checks the artifact digest against the approved digest.
+3. A grant ends after a limited time: 15 minutes plus the power and check-in timeouts of the operation.
+4. The executor revokes the grant when the operation ends or is deleted.
+5. Grants live in memory only. A restart of the manager forgets them, so it fails closed. A mount that runs gets a new grant on retry.
+6. The BMC network must be an isolated L2 island. The confidentiality of a node config rests on the grant and on that island.
+
+### Relay
+
+The [relay](concept:relay) lets the CLI drive a BMC through a jump host on day 0.
+
+- Each request line carries HMAC-SHA256 over a new 128-bit nonce, the verb and the argument. The key is a shared secret of 32 characters or more, from a file or `$PK_METAL_RELAY_SECRET`.
+- The HMAC authenticates. It does not encrypt. So the relay listens on loopback only, and you reach it through `ssh -L`.
+- The operator does not use the relay. It is a day-0 tool.
+
+### Etcd backups
+
+- The operator holds only the public age recipients. It can write a backup but cannot read one.
+- A restore decrypts on the machine of the person who holds the age identity. Then the person uploads the snapshot with [](cli:restore).
+- `pk-metal-backup` holds no Secret.
+
+### Credentials
+
+- Published cluster credentials live 24 hours by default. The operator renews them when one third of the time is left.
+- `readerTalosconfig` publishes a talosconfig with the `os:reader` role only.
+- The client certificate for the install check-in lives 10 minutes.
+- The metric `pk_metal_credentials_expiry_timestamp_seconds` shows each expiry.
+
+### Self and cluster guards
+
+The operator refuses actions that would take down the cluster that it runs on, or break etcd quorum of a workload cluster. See [](ctrl:protection).
+
+## What this model does not cover
+
+- A person with cluster admin can change the policies, the ConfigMap or the RBAC. Watch those objects.
+- A BMC with known default logins. Change them before enrolment.
+- The firmware that you flash. The operator checks the digest that you approved, not who built the image.
+
+<Callout type="caution">
+Do not set `--bmc-insecure` outside a lab. It accepts any BMC certificate, so a machine on the BMC network can pose as a BMC and receive its login.
+</Callout>
+
+## Related
+
+- [](ref:rbac)
+- [](ref:admission-policies)
+- [](concept:approval)

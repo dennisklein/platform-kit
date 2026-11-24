@@ -1,0 +1,123 @@
+---
+title: TalosNode controller
+description: Renders the machine config of each node into a Secret, checks in with the machine, and holds a deleted node until it left its cluster.
+type: controller
+eyebrow: Controller · manager
+xref: { cat: ctrl, id: talosnode }
+anchors:
+  ctrl: { talosnode-member: { anchor: the-member-finalizer, title: TalosNode member controller } }
+sources:
+  - /repo/metal/internal/controller/talosnode_controller.go
+  - /repo/metal/internal/controller/talosnode_day2.go
+  - /repo/metal/internal/controller/talosnode_finalizer.go
+  - /repo/metal/internal/controller/talos.go
+---
+
+import LoopFlow from '../../../../components/controllers/LoopFlow.astro';
+import RbacRows from '../../../../components/controllers/RbacRows.astro';
+
+The TalosNode controller renders the machine config of each [](kind:TalosNode) and checks in with the machine that runs it.
+A second controller in the same lane, `talosnode-member`, holds a deleted node until it left its cluster.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Reconciles</dt>
+  <dd>[](kind:TalosNode) (`For`). Controller names `talosnode` and `talosnode-member`.</dd>
+  <dt>Writes</dt>
+  <dd>A config Secret for each render, named by the config digest, and the node status.</dd>
+  <dt>Finalizer</dt>
+  <dd>`os.pk.io/member` (from `talosnode-member`).</dd>
+  <dt>Talks to</dt>
+  <dd>The image factory (registers the schematic) and the Talos API of the machine.</dd>
+  <dt>Requeue</dt>
+  <dd>10 seconds while a machine converges. 2 minutes once it is Ready. 10 seconds during a rollout of its cluster. 30 seconds while a deletion waits.</dd>
+  <dt>Drift check</dt>
+  <dd>Each 10 minutes for a Ready node, each 30 seconds during a rollout.</dd>
+</dl>
+
+## Watches
+
+| Kind | Relation | Why a change starts a pass |
+| --- | --- | --- |
+| [](kind:TalosNode) | `For` | You changed the node. |
+| Secret | `Owns`, and `Watches` the secrets bundles | A config Secret changed, or the bundle of the cluster appeared or changed. |
+| [](kind:TalosCluster) | `Watches`, all members | The cluster spec moved. All members render again. |
+| ConfigMap | `Watches` | A patch ConfigMap that the node or its cluster uses changed. |
+| [](kind:TalosRollout) | `Watches` | A rollout of the cluster started. The drift check is faster. |
+| [](kind:Host) | `Watches`, the node in `spec.os` | A hand-off started or ended. |
+| [](kind:HostClaim), [](kind:HostOperation) | `Watches` (`talosnode-member`) | The removal of a deleted node moved. |
+
+## Reconcile loop
+
+<LoopFlow
+  title="The TalosNode reconcile loop: read the cluster and the bundle, resolve patches, register the schematic, render, write the Secret, check in."
+  caption="One pass of the talosnode controller. Each render exit sets Rendered to False and keeps the last good Secret."
+  steps={[
+    { label: 'Read the node', out: 'Stop', outSub: 'being deleted', outVariant: 'soft' },
+    { label: 'Read the TalosCluster and bundle', out: 'Rendered = False', outSub: 'ClusterNotFound, SecretsUnavailable' },
+    { label: 'Resolve the patches', out: 'Rendered = False', outSub: 'PatchesUnresolvable' },
+    { label: 'Register the schematic', out: 'Rendered = False', outSub: 'SchematicUnavailable' },
+    { label: 'Render, write the config Secret', sub: 'content-addressed, never rewritten', out: 'Rendered = False', outSub: 'UnsupportedVersion, RenderFailed' },
+    { label: 'Check in with the machine', sub: 'only if a Host runs the node' },
+    { label: 'Update status, collect old Secrets', variant: 'ok' },
+  ]}
+  loop="next pass: 10 s, 2 min, or an event"
+/>
+
+1. Read the node. During a deletion, only `talosnode-member` writes.
+2. Read the [](kind:TalosCluster) and its secrets bundle.
+3. Resolve the config patches of the cluster and of the node from their ConfigMaps.
+4. Register the schematic with the image factory, so that the installer image of the config exists.
+5. Render for the Talos version that the machine runs, while it is older than the cluster version. Write the config into a Secret named by its digest.
+6. If a Host hands this node out, check in: the machine API with a short-lived client certificate first, the maintenance service second.
+7. Update the status. Delete config Secrets that the status no longer names.
+
+## Check-in and drift
+
+| Machine answers | `MachineReachable` | `Ready` |
+| --- | --- | --- |
+| Machine API, stage running and ready | True, `MachineAPI` | True, `NodeReady` |
+| Machine API, other stage | True, `MachineAPI` | Unknown, `Converging` |
+| Maintenance service | True, `MaintenanceMode` | Unknown, `MaintenanceMode` |
+| Nothing | False, `DialFailed` | Unknown, `AwaitingContact` |
+| No address | False, `NoAddress` | Unknown, `AwaitingContact` |
+
+For a Ready node, the controller does a dry-run apply of the current render. It sets `ConfigInSync` (`ConfigDrift`, `DriftUnknown`) and `VersionCurrent`.
+The [](ctrl:talosrollout) proposes a rollout from these conditions.
+
+## The member finalizer
+
+`talosnode-member` adds `os.pk.io/member` to each node. When you delete a node, it removes the finalizer only when nothing of the node is left:
+
+1. No claim records an install of the node.
+2. No unfinished operation acts on the node.
+3. For a control plane of a running cluster, etcd lists no member with its name.
+
+While it waits, `RemovalBlocked` is True with `MachineAssigned`, `EtcdMemberRemains` or `EtcdUnreadable`.
+It proposes nothing. The claim that holds the machine proposes the removal. See [](howto:remove-a-node).
+
+## Writes
+
+| Object or field | When | Field manager |
+| --- | --- | --- |
+| Config Secret, owned by the node | New render | `manager` (create) |
+| Node status (`Rendered`, `MachineReachable`, `Ready`, `ConfigInSync`, `VersionCurrent`, address, digest, drift) | When it changed | `manager` (status update) |
+| Finalizer `os.pk.io/member`, `RemovalBlocked` | Add on create, remove at the end | `manager` (update) |
+
+## Failure modes
+
+| You see | Cause | Do this |
+| --- | --- | --- |
+| `Rendered=False`, `SecretsUnavailable` | The secrets bundle is missing. | Create the bundle Secret of the cluster. |
+| `Ready=Unknown`, `AwaitingContact` | The machine does not answer. | Use [](rb:node-not-ready). |
+| `RemovalBlocked=True`, `EtcdMemberRemains` | Etcd still lists the node. | See [](howto:remove-a-node). |
+
+## Permissions
+
+<RbacRows sources={['talosnode_controller.go', 'talosnode_day2.go', 'talosnode_finalizer.go']} />
+
+## Tests
+
+- [talos_test.go](/repo/metal/internal/controller/talos_test.go)
+- [membercount_test.go](/repo/metal/internal/controller/membercount_test.go)

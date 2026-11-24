@@ -1,0 +1,119 @@
+---
+title: TalosCluster controller
+description: Bootstraps etcd once, publishes the admin credentials, and reports whether the cluster is available.
+type: controller
+eyebrow: Controller · manager
+xref: { cat: ctrl, id: taloscluster }
+sources:
+  - /repo/metal/internal/controller/taloscluster_controller.go
+  - /repo/metal/internal/controller/taloscluster_day2.go
+  - /repo/metal/internal/controller/bundle_guard.go
+  - /repo/metal/internal/bootstrap/bootstrap.go
+---
+
+import LoopFlow from '../../../../components/controllers/LoopFlow.astro';
+import RbacRows from '../../../../components/controllers/RbacRows.astro';
+import Callout from '../../../../components/Callout.astro';
+
+The TalosCluster controller brings a [](kind:TalosCluster) from "nodes booted" to "bootstrapped, healthy, kubeconfig available".
+It bootstraps etcd once, and it publishes the admin kubeconfig and talosconfig as Secrets.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Reconciles</dt>
+  <dd>[](kind:TalosCluster) (`For`, spec or annotation changes only). Controller name `taloscluster`.</dd>
+  <dt>Writes</dt>
+  <dd>Secrets `<cluster>-kubeconfig`, `<cluster>-talosconfig` and, on request, `<cluster>-talosconfig-reader`. The cluster status.</dd>
+  <dt>Talks to</dt>
+  <dd>The Talos API of the control planes, and the Kubernetes API of the cluster.</dd>
+  <dt>Requeue</dt>
+  <dd>10 seconds until the cluster is Available, then 2 minutes.</dd>
+  <dt>Credential TTL</dt>
+  <dd>`spec.credentials.ttl`, default 24 hours. New credentials when a third of the life is left.</dd>
+</dl>
+
+## Watches
+
+| Kind | Relation | Why a change starts a pass |
+| --- | --- | --- |
+| [](kind:TalosCluster) | `For`, with a generation or annotation predicate | You changed the spec or asked for something with an annotation. Its own status writes do not start a pass. |
+| Secret | `Owns`, and `Watches` the secrets bundle | A credential Secret or the bundle changed. |
+| [](kind:TalosNode) | `Watches` | A member became ready, joined or left. |
+| [](kind:TalosRollout) | `Watches` | A rollout of the cluster moved. |
+| [](kind:Host) | `Watches`, the cluster of the node in `spec.os` | A machine got or lost a node. The counts change. |
+
+## Reconcile loop
+
+<LoopFlow
+  title="The TalosCluster reconcile loop: count members, guard the bundle, publish credentials, probe Kubernetes, bootstrap once, set Available."
+  steps={[
+    { label: 'Read the cluster', out: 'Stop', outSub: 'being deleted', outVariant: 'soft' },
+    { label: 'Count the members', sub: 'ready control planes and workers' },
+    { label: 'Guard the secrets bundle', out: 'SecretsBundleHeld = True', outSub: 'bundle changed after bootstrap' },
+    { label: 'Load the bundle', out: 'Bootstrapped = Unknown', outSub: 'SecretsUnavailable' },
+    { label: 'Publish the credentials', sub: 'kubeconfig, talosconfig' },
+    { label: 'Probe the Kubernetes API' },
+    { label: 'Bootstrap etcd, once', out: 'Bootstrapped = Unknown', outSub: 'BootstrapRequested' },
+    { label: 'Set Available', variant: 'ok' },
+  ]}
+  loop="next pass: 10 s, then 2 min when Available"
+/>
+
+1. Read the cluster.
+2. Count the members. A member is a node that a Host runs and that is not being removed. Other nodes count as unassigned.
+3. Guard the secrets bundle. After the bootstrap, a changed bundle is held and the copy that the machines run stays in use.
+4. Load the bundle. If it is missing, the conditions are Unknown with `SecretsUnavailable`.
+5. Publish the admin credentials. Make new ones only when the CA, the endpoints or the TTL changed, or when the expiry is near.
+6. Ask the Kubernetes API for its version.
+7. Bootstrap etcd through the first control plane that answers. Do this once only.
+8. Set `Available`.
+
+## Guards and decisions
+
+<dl>
+  <dt>Bootstrap once</dt>
+  <dd>The controller records `status.bootstrappedAt` the first time it sees the cluster bootstrapped. Later, if all members lose etcd, it reads this as a loss and never bootstraps again. Recovery is an approved [](act:EtcdRecover) operation.</dd>
+  <dt>Restore pending</dt>
+  <dd>The annotation `os.pk.io/restore-pending` also stops a bootstrap. See [](ctrl:etcdbackup).</dd>
+  <dt>Secrets bundle hold</dt>
+  <dd>A new bundle on a running cluster would make every control plane look down. The controller keeps the applied copy, and `SecretsBundleHeld` is True until a person puts the bundle back or deletes the copy.</dd>
+  <dt>Short credentials</dt>
+  <dd>A certificate that the cluster CA signed cannot be revoked. The short TTL limits a leaked copy. If you shorten the TTL, the controller makes new credentials at once.</dd>
+</dl>
+
+## Writes
+
+| Object or field | When | Field manager |
+| --- | --- | --- |
+| Credential Secrets, owned by the cluster | New or near expiry | `manager` (create or update) |
+| Applied bundle copy | First time after bootstrap | `manager` |
+| Cluster status: counts, versions, `bootstrappedAt`, `credentialsExpireAt`, conditions | When it changed | `manager` (status update) |
+
+## Conditions
+
+| Condition | Reasons |
+| --- | --- |
+| `Bootstrapped` | True when etcd runs. Unknown: `BootstrapRequested`, `SecretsUnavailable`. False: the reason of the bootstrap check. |
+| `Available` | True: `ClusterAvailable`. False: `NotBootstrapped`, `KubernetesUnreachable`, `NodesNotReady`. |
+| `SecretsBundleHeld` | True while a changed bundle is held. |
+
+<Callout type="warning">
+Do not delete `status.bootstrappedAt` to force a new bootstrap. A second bootstrap over lost data makes a new, empty etcd. Use the restore procedure.
+</Callout>
+
+## Failure modes
+
+| You see | Cause | Do this |
+| --- | --- | --- |
+| `Available=False`, `NodesNotReady` | A member is not Ready. | Use [](rb:node-not-ready). |
+| `Bootstrapped=False` after it was True | Etcd lost its data. | Use [](rb:etcd-unhealthy). |
+| `SecretsBundleHeld=True` | The bundle changed after bootstrap. | Put the bundle back. |
+
+## Permissions
+
+<RbacRows sources={['taloscluster_controller.go']} />
+
+## Tests
+
+- [talos_test.go](/repo/metal/internal/controller/talos_test.go)

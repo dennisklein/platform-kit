@@ -1,0 +1,98 @@
+---
+title: MaintenanceWindow controller
+description: Keeps the status of each maintenance window current, and describes how the executor holds work outside the windows.
+type: controller
+eyebrow: Controller · manager
+xref: { cat: ctrl, id: maintenancewindow }
+sources:
+  - /repo/metal/internal/controller/window.go
+---
+
+import LoopFlow from '../../../../components/controllers/LoopFlow.astro';
+import RbacRows from '../../../../components/controllers/RbacRows.astro';
+import Callout from '../../../../components/Callout.astro';
+
+A [](kind:MaintenanceWindow) says when approved work may start on the machines that it covers.
+The MaintenanceWindow controller only writes the status for people. The [](ctrl:hostoperation) computes the windows itself before an operation starts.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Reconciles</dt>
+  <dd>[](kind:MaintenanceWindow) (`For`). Controller name `maintenancewindow`.</dd>
+  <dt>Writes</dt>
+  <dd>`status.open`, `status.nextChange` and the condition `Valid`.</dd>
+  <dt>Talks to</dt>
+  <dd>Nothing outside the cluster.</dd>
+  <dt>Requeue</dt>
+  <dd>One second after the next opening or closing.</dd>
+  <dt>Source</dt>
+  <dd>[window.go](/repo/metal/internal/controller/window.go)</dd>
+</dl>
+
+## Watches
+
+| Kind | Relation | Why a change starts a pass |
+| --- | --- | --- |
+| [](kind:MaintenanceWindow) | `For` | You changed the window. |
+
+## Reconcile loop
+
+<LoopFlow
+  title="The MaintenanceWindow loop: parse the window, compute open and next change, update status, requeue at the next change."
+  steps={[
+    { label: 'Read the window', out: 'Stop', outSub: 'gone', outVariant: 'soft' },
+    { label: 'Parse it', sub: 'time zone, HH:MM, days, selector', out: 'Valid = False', outSub: 'WindowInvalid, never open', outVariant: 'err' },
+    { label: 'Compute open and next change' },
+    { label: 'Update status if changed', variant: 'ok' },
+  ]}
+  loop="next pass: 1 s after the next change"
+/>
+
+1. Read the window.
+2. Check what the schema cannot check. The time zone exists. Each start is `HH:MM` and each day is known. Each weekly duration is from 1 minute to 168 hours. The selector parses.
+3. Lay out the weekly slots in the time zone of the window, day by day, and add the `once` spans. A slot keeps its local start time across a daylight-saving change. Spans that touch make one longer opening.
+4. Write `open` and `nextChange`, and requeue for the next change.
+
+## The executor gate
+
+Before an operation writes its baseline, the executor asks the gate. An operation that started is never asked again, so a window that closes never stops a step.
+
+1. An operation with `metal.pk.io/ignore-window` is exempt. A new install (reason `Provisioning`) is exempt, because it disturbs no running workload.
+2. A window covers a Host if its `hostSelector` matches the Host labels, or if `clusters` names the cluster of the node that the Host runs.
+3. If no window covers the Host, the operation starts.
+4. If one covering window is open, the operation starts.
+5. Otherwise the operation waits with `OutsideMaintenanceWindow`. It looks again when the next window opens, and at least each 5 minutes.
+
+<Callout type="note">
+A window that does not parse is never open. The gate fails closed: you meant to restrict these machines.
+</Callout>
+
+## Writes
+
+| Object or field | When | Field manager |
+| --- | --- | --- |
+| Window status `open`, `nextChange`, `Valid` | When it changed | `manager` (status update) |
+| Operation `Executed=Unknown`, `OutsideMaintenanceWindow` | Gate holds (executor) | `manager` (status update) |
+
+## Conditions
+
+| Condition | Status | Reason |
+| --- | --- | --- |
+| `Valid` | True | `WindowValid` |
+| `Valid` | False | `WindowInvalid` |
+
+## Failure modes
+
+| You see | Cause | Do this |
+| --- | --- | --- |
+| Operation waits with `OutsideMaintenanceWindow` | A covering window is closed. | Wait, or annotate the operation: `metal.pk.io/ignore-window="<reason>"`. |
+| `Valid=False` | A typo in the time zone or the start time. | Correct the window. Until then it holds the machines. |
+
+## Permissions
+
+<RbacRows sources={['window.go']} />
+
+## Tests
+
+- [window_test.go](/repo/metal/internal/controller/window_test.go)

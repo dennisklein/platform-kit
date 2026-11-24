@@ -1,0 +1,128 @@
+---
+title: BootAsset controller
+description: Makes the boot media that a BMC mounts, from the image factory, from a rendered config, or with the imager Job.
+type: controller
+eyebrow: Controller · manager
+xref: { cat: ctrl, id: bootasset }
+sources:
+  - /repo/metal/internal/controller/bootasset_controller.go
+  - /repo/metal/internal/controller/bootasset_embedded.go
+  - /repo/metal/internal/controller/imager.go
+---
+
+import LoopFlow from '../../../../components/controllers/LoopFlow.astro';
+import RbacRows from '../../../../components/controllers/RbacRows.astro';
+
+The BootAsset controller makes the boot medium that a [](kind:BootAsset) describes.
+The [](ctrl:hostoperation) then mounts it on a BMC with [](act:InsertMedia).
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Reconciles</dt>
+  <dd>[](kind:BootAsset) (`For`). Controller name `bootasset`.</dd>
+  <dt>Writes</dt>
+  <dd>An artifact Secret `bootasset-<name>`, imager Jobs, files in the media store, and the BootAsset status.</dd>
+  <dt>Talks to</dt>
+  <dd>The image factory. It starts imager Jobs in `pk-metal`.</dd>
+  <dt>Requeue</dt>
+  <dd>None. Job and Secret events and TalosNode renders start the next pass.</dd>
+  <dt>Source</dt>
+  <dd>[bootasset_controller.go](/repo/metal/internal/controller/bootasset_controller.go)</dd>
+</dl>
+
+## Watches
+
+| Kind | Relation | Why a change starts a pass |
+| --- | --- | --- |
+| [](kind:BootAsset) | `For` | A new asset, or a changed spec. |
+| Secret | `Owns` | The artifact Secret changed. |
+| Job | `Owns` | An imager Job ended. |
+| [](kind:TalosNode) | `Watches`, the assets that name it | The render of the node moved. The medium is built again. |
+
+## The three strategies
+
+| `spec.strategy` | What the controller does | Carries a secret | Served from |
+| --- | --- | --- | --- |
+| `factory` | Registers the schematic with the image factory and writes the image URL. Nothing to build. | No | The image factory |
+| `configISO` | Packs the rendered config of the node into a small ISO and stores it in a Secret. | Yes | The media service, under a grant |
+| `embeddedInstaller` | Runs the imager in a Job to build one installer with the config inside. | Yes | The media store, under a grant |
+
+## Reconcile loop
+
+<LoopFlow
+  title="The BootAsset reconcile loop: branch on the strategy, then hold with a reason or set Ready."
+  steps={[
+    { label: 'Read the BootAsset', out: 'Sweep the media store', outSub: 'asset gone', outVariant: 'soft' },
+    { label: 'Branch on spec.strategy' },
+    { label: 'Get the inputs', sub: 'schematic, or the rendered config', out: 'Ready = False', outSub: 'NodeNotFound, ConfigNotRendered …' },
+    { label: 'Build or address the image', out: 'Ready = False', outSub: 'Building, BuildFailed' },
+    { label: 'Write digest, size, URL', sub: 'Ready = True', variant: 'ok' },
+  ]}
+  loop="next pass: Job, Secret or node event"
+/>
+
+1. Read the asset. If it is gone, delete the files in the media store that no asset owns.
+2. Choose the builder from `spec.strategy`.
+3. Get the inputs. For `configISO` and `embeddedInstaller`, the node must have a rendered config Secret.
+4. Build:
+   - `factory`: register the schematic, then compute the URL. Ready means that the factory has the image.
+   - `configISO`: pack the config. If the existing artifact has the same config digest, keep it.
+   - `embeddedInstaller`: start an imager Job, wait for it, import its output into the store, and delete older builds.
+5. Write `status.digest`, `status.size` and `status.url` or the artifact reference. Set `Ready` to True.
+
+## The imager Job
+
+The `embeddedInstaller` strategy builds in a Job, `build-<asset>-<key>`. The key is a hash of the config digest, the Talos version, the image, the kernel arguments and the extensions.
+
+- The imager image is pinned by digest for each Talos release. A release without a digest is not built. Add one with `--imager-digest`.
+- The pod runs as user 65532 under the restricted Pod Security profile: no root, no capabilities, read-only root file system, no service account token.
+- The config comes from the config Secret as a read-only volume. The command line never contains it.
+- An init container copies the manager binary into the pod. The imager runs through `manager imager-run`, which keeps the embedded config out of the log.
+- The pod runs on the node of the manager, because the media store is a ReadWriteOnce volume.
+- One retry, and a limit of 30 minutes.
+
+See [](ctrl:manager) for the flags.
+
+## Guards and decisions
+
+<dl>
+  <dt>The digest is the contract</dt>
+  <dd>An operation is approved for one artifact digest. The executor checks it when it mounts. A rebuilt artifact fails that check, so nothing boots a medium that nobody approved.</dd>
+  <dt>Status names the last good build</dt>
+  <dd>While a newer build runs, the status keeps the last artifact. `Ready` is False with `Building`.</dd>
+</dl>
+
+## Writes
+
+| Object or field | When | Field manager |
+| --- | --- | --- |
+| Secret `bootasset-<name>` with `asset.iso`, owned by the asset | `configISO` build | `manager` (create or update) |
+| Job `build-…`, owned by the asset | `embeddedInstaller` build | `manager` (create, delete) |
+| Files in the media store | Import and sweep | the manager process |
+| BootAsset status: `Ready`, `url`, `digest`, `size`, `buildKey`, artifact reference | When it changed | `manager` (status update) |
+
+## Conditions
+
+| Condition | Status | Reasons |
+| --- | --- | --- |
+| `Ready` | True | `URLComputed`, `ArtifactBuilt` |
+| `Ready` | False | `SchematicUnavailable`, `NodeNotFound`, `ConfigNotRendered`, `BuilderUnavailable`, `Building`, `BuildFailed` |
+
+## Failure modes
+
+| You see | Cause | Do this |
+| --- | --- | --- |
+| `Ready=False`, `BuilderUnavailable` | No media store, no store claim, or no imager digest for the version. | Set the flags on the [](ctrl:manager). |
+| `Ready=False`, `BuildFailed` | The imager Job failed twice. | Read the Job log, then delete the Job. |
+| `Ready=False`, `SchematicUnavailable` | The image factory does not answer. | See [](howto:air-gapped-site). |
+
+## Permissions
+
+<RbacRows sources={['bootasset_controller.go']} />
+
+## Tests
+
+- [bootasset_test.go](/repo/metal/internal/controller/bootasset_test.go)
+- [bootasset_embedded_test.go](/repo/metal/internal/controller/bootasset_embedded_test.go)
+- [provisioning_embedded_test.go](/repo/metal/internal/controller/provisioning_embedded_test.go)

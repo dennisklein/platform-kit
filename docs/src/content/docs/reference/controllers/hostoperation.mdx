@@ -1,0 +1,154 @@
+---
+title: HostOperation controller
+description: Runs the actions of an approved operation, one at a time.
+type: controller
+eyebrow: Controller · manager
+xref: { cat: ctrl, id: hostoperation }
+sources:
+  - /repo/metal/internal/controller/hostoperation_controller.go
+  - /repo/metal/internal/controller/hostoperation_steps.go
+  - /repo/metal/internal/controller/hostoperation_talos_steps.go
+  - /repo/metal/internal/controller/hostoperation_abort.go
+  - /repo/metal/internal/controller/hostoperation_rollout.go
+  - /repo/metal/internal/controller/window.go
+---
+
+import ExecutorExplainer from '../../../../components/controllers/ExecutorExplainer.astro';
+import RbacRows from '../../../../components/controllers/RbacRows.astro';
+import Callout from '../../../../components/Callout.astro';
+
+The HostOperation controller is the executor. It runs the steps of an approved [](kind:HostOperation) against the BMC, the Talos API and the Kubernetes API of the node.
+It is the only controller that changes a machine after a person approved it.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Reconciles</dt>
+  <dd>[](kind:HostOperation) (`For`). Controller name `hostoperation`.</dd>
+  <dt>Workers</dt>
+  <dd>4 passes at the same time, each on another Host and another BMC.</dd>
+  <dt>Writes</dt>
+  <dd>The operation status: `Approved`, `Executed`, `baseline`, `steps`, phase. It never writes the spec.</dd>
+  <dt>Talks to</dt>
+  <dd>The BMC (write session), the Talos API of the node, the Kubernetes API of the workload cluster, and the media service.</dd>
+  <dt>Pass budget</dt>
+  <dd>1 minute. 15 minutes with `flashFirmware` or `stageFirmware`. 35 minutes with `talosUpgrade`.</dd>
+  <dt>Requeue</dt>
+  <dd>5 seconds for a waiting step. 30 seconds while a guard holds. The next window opening while a window holds.</dd>
+  <dt>Source</dt>
+  <dd>[hostoperation_controller.go](/repo/metal/internal/controller/hostoperation_controller.go)</dd>
+</dl>
+
+## Watches
+
+| Kind | Relation | Why a change starts a pass |
+| --- | --- | --- |
+| [](kind:HostOperation) | `For` | A person approved, aborted or annotated the operation. |
+| [](kind:HostOperation) | `Watches`, the other operations on the same Host | A predecessor finished. The next one in the queue can start. |
+| [](kind:Host) | `Watches`, index `.spec.hostRef.name` | The Host appeared, its paths changed, or maintenance ended. |
+
+## Start gates and step loop
+
+Step through the figure, or use the arrow keys.
+
+<ExecutorExplainer />
+
+## Reconcile loop
+
+1. Read the operation. If it is deleted, revoke its media grants and stop. If it finished, delete it when its TTL ends. A failed operation never expires.
+2. If a person asked for an abort before the start, end the operation with `Aborted`. Nothing touched the machine.
+3. If the operation needs approval and `spec.approval.approvedBy` is empty, set `Approved` to False with `AwaitingApproval` and stop.
+4. If the operation names a rollout, check that the approved plan of the [](kind:TalosRollout) covers it. If not, fail with `RolloutRefused`.
+5. If an action is not known to this operator version, fail the operation before it starts.
+6. If another operation holds the Host, wait with `OperationQueued`.
+7. Take the locks on the Host and on each BMC of the Host. If one is busy, try again after 5 seconds.
+8. Before the start only: hold for maintenance, for a closed maintenance window, and for the self guard.
+9. Start: check the queue against the API server, read the BMC baseline, ask the self guard and the cluster guard again, then write the baseline.
+10. Run the steps from the last recorded step. Before each step, check for an abort, the pass budget and, for a disruptive step, the cluster guard.
+11. Record each step in `status.steps` and write the status before the next step.
+12. After the last step, read the reset time again and set `Executed` to True with `StepsSucceeded`.
+
+## Guards and decisions
+
+<dl>
+  <dt>Approval is admission</dt>
+  <dd>The executor only reads the approval. The [admission policy](concept:approval) checks who approved. The executor RBAC has no `patch` on operations, so it cannot approve.</dd>
+  <dt>One operation per Host</dt>
+  <dd>A started operation goes first, then the oldest. The executor checks the queue in the cache, then again against the API server before the start.</dd>
+  <dt>Resumable steps</dt>
+  <dd>Each step compares its goal with the world before it acts. A pass that stops halfway re-enters the step safely.</dd>
+  <dt>No retry</dt>
+  <dd>A step that fails ends the operation for good. A person reads why, then uses [](cli:retry) or deletes it.</dd>
+  <dt>A network error is a wait</dt>
+  <dd>If the BMC or the cluster API does not answer this pass, the step waits. It does not fail.</dd>
+  <dt>Running work finishes</dt>
+  <dd>Maintenance, a closed window and the self guard hold only an operation that did not start. Stopping between a mount and its boot leaves the machine worse off.</dd>
+  <dt>Abort undoes what it can</dt>
+  <dd>An abort between steps ejects media that a step mounted and clears a boot override. It uncordons a node that this operation cordoned. A reboot or a removed etcd member stays.</dd>
+  <dt>Media grants</dt>
+  <dd>For a config medium or an embedded installer, the executor issues a grant on the media service. The grant checks the digest that the person approved. It ends with the operation.</dd>
+</dl>
+
+## Step budgets
+
+| Step | Wait limit |
+| --- | --- |
+| [](act:PowerCycle), [](act:PowerOff) and the other BMC steps that wait | 5 minutes. A graceful power-off adds its graceful window. |
+| [](act:AwaitCheckIn) | `timeoutSeconds`, default 30 minutes (`--checkin-timeout` for a boot) |
+| [](act:Drain) | `timeoutSeconds`, default 900 seconds |
+| [](act:WaitNodeReady) | `timeoutSeconds`, default 1800 seconds |
+| [](act:WaitEtcdHealthy) | `timeoutSeconds`, default 900 seconds |
+| [](act:TalosUpgrade) | 45 minutes |
+| [](act:TalosReboot), [](act:TalosShutdown), [](act:TalosReset), [](act:TalosApplyConfig) | 20 minutes |
+
+## Writes
+
+| Object or field | When | Field manager |
+| --- | --- | --- |
+| Operation status (`Approved`, `Executed`, `baseline`, `steps`, `observedResetTime`, phase) | Before the first change, and after each step | `manager` (status update) |
+| Host annotation `metal.pk.io/release-power-off` | Before a boot of a claim starts | `manager` (merge patch) |
+| TalosNode annotation that asks for a check now | After a reboot step | `manager` (patch) |
+| Delete of the operation | TTL ended after success | `manager` |
+| Events `StepFailed`, `StepsSucceeded`, `Aborted` | On each outcome | `pk-metal` event source |
+
+## Conditions
+
+| Condition | Status | Reasons |
+| --- | --- | --- |
+| `Approved` | True | `Approved`, `ApprovalNotRequired` |
+| `Approved` | False | `AwaitingApproval` |
+| `Executed` | Unknown | `Executing`, `OperationQueued`, `HostNotFound`, `HostInMaintenance`, `OutsideMaintenanceWindow`, `SelfDisruption`, `ClusterDisruption`, `NoReachablePath` |
+| `Executed` | False | `StepFailed`, `RolloutRefused`, `HostNotClaimed`, `Aborted` |
+| `Executed` | True | `StepsSucceeded` |
+
+An Unknown reason other than `Executing` is the `blockedOn` of the operation. The phase stays Proposed while it holds.
+
+## Failure modes
+
+| You see | Cause | Do this |
+| --- | --- | --- |
+| Phase Failed, `StepFailed` | A step failed or its wait ran out. | Use [](rb:operation-failed). |
+| Waits with `OutsideMaintenanceWindow` | A window covers the Host and is closed. | Wait, or set `metal.pk.io/ignore-window`. See [](ctrl:maintenancewindow). |
+| Waits with `ClusterDisruption` | Etcd would not stay healthy. | Use [](rb:etcd-unhealthy). |
+| Waits with `OperationQueued` | Another operation holds the Host. | Approve or delete that one first. See [](howto:approve-hold-retry). |
+
+<Callout type="note">
+The guards are described on the [](ctrl:protection) page. The window rules are on the [](ctrl:maintenancewindow) page.
+</Callout>
+
+## Permissions
+
+<RbacRows sources={['hostoperation_controller.go', 'hostoperation_rollout.go', 'hostoperation_reinstall.go', 'hostoperation_etcdrecover.go', 'window.go']} />
+
+The `maintenancewindows/status` row belongs to the [](ctrl:maintenancewindow), whose markers are in the same file.
+
+## Tests
+
+[](concept:protocol-model) explains the model test.
+
+- [hostoperation_test.go](/repo/metal/internal/controller/hostoperation_test.go)
+- [hostoperation_model_test.go](/repo/metal/internal/controller/hostoperation_model_test.go)
+- [hostoperation_concurrency_test.go](/repo/metal/internal/controller/hostoperation_concurrency_test.go)
+- [hostoperation_queue_test.go](/repo/metal/internal/controller/hostoperation_queue_test.go)
+- [hostoperation_abort_test.go](/repo/metal/internal/controller/hostoperation_abort_test.go)
+- [window_test.go](/repo/metal/internal/controller/window_test.go)

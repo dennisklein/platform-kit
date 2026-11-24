@@ -1,0 +1,122 @@
+---
+title: Convergence controller
+description: Compares the BIOS and the firmware of each Host with the matching profiles, and proposes an operation for the difference.
+type: controller
+eyebrow: Controller · manager
+xref: { cat: ctrl, id: convergence }
+sources:
+  - /repo/metal/internal/controller/convergence_controller.go
+  - /repo/metal/internal/controller/convergence.go
+  - /repo/metal/internal/controller/convergence_sysfw.go
+  - /repo/metal/internal/controller/convergence_disrupt.go
+---
+
+import LoopFlow from '../../../../components/controllers/LoopFlow.astro';
+import RbacRows from '../../../../components/controllers/RbacRows.astro';
+
+The convergence controller drives the BIOS settings and the firmware of each [](kind:Host) toward the profiles that match it.
+It never changes a machine itself. It proposes a [](kind:HostOperation), and a person approves it.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Reconciles</dt>
+  <dd>[](kind:BiosSettings) (`For`). The key is the Host name. Controller name `convergence`.</dd>
+  <dt>Reads</dt>
+  <dd>[](kind:BiosProfile) and [](kind:FirmwareProfile) objects whose selector matches the Host labels.</dd>
+  <dt>Writes</dt>
+  <dd>[](kind:BiosSettings) and [](kind:BiosSchema) for each Host, the convergence conditions of the Host, and proposals.</dd>
+  <dt>Talks to</dt>
+  <dd>The BMC, through a read-only session, to read the BIOS attributes.</dd>
+  <dt>Requeue</dt>
+  <dd>After `--poll-interval` while BIOS profiles match. Otherwise only on events.</dd>
+  <dt>Proposal TTL</dt>
+  <dd>24 hours after success.</dd>
+</dl>
+
+## Watches
+
+| Kind | Relation | Why a change starts a pass |
+| --- | --- | --- |
+| [](kind:BiosSettings) | `For` | The desired settings changed. |
+| [](kind:Host) | `Watches`, same name | Labels, claim or maintenance changed. |
+| [](kind:BiosProfile), [](kind:FirmwareProfile) | `Watches`, all Hosts | A profile changed. Matching is per Host. |
+| [](kind:ManagementEndpoint) | `Watches`, the Hosts it fronts | A new firmware version arrived through the poll. |
+| [](kind:HostOperation) | `Watches` | A proposal was approved, failed or succeeded. |
+| [](kind:HostClaim) | `Watches` | A claim changes how a reboot must happen. |
+| [](kind:TalosNode) | `Watches`, spec changes only | A node came or went. Its status moves too often. |
+
+## Reconcile loop
+
+<LoopFlow
+  title="The convergence loop: skip a host in maintenance, match profiles, then manager firmware, system firmware and BIOS, each may propose an operation."
+  caption="Firmware goes first. A new firmware can change what the BIOS offers."
+  steps={[
+    { label: 'Read the Host', out: 'Stop', outSub: 'gone, or in maintenance', outVariant: 'soft' },
+    { label: 'Match the profiles', sub: 'label selectors' },
+    { label: 'Manager firmware', sub: 'compare, propose flashFirmware', out: 'FirmwareConverged', outSub: 'False: AwaitingOperation, …' },
+    { label: 'System firmware', sub: 'compare, propose stageFirmware', out: 'SystemFirmwareConverged', outSub: 'False: AwaitingOperation, …' },
+    { label: 'BIOS', sub: 'merge, read, validate, drift', out: 'BiosConverged', outSub: 'False: SchemaViolation, …' },
+    { label: 'Stamp phase, apply share', variant: 'ok' },
+  ]}
+  loop="next pass: --poll-interval or an event"
+/>
+
+1. Read the Host. If it is in maintenance, do nothing. The lane continues when the annotation goes.
+2. Select the BIOS and firmware profiles whose selector matches the Host labels.
+3. Compare the manager firmware with the profiles. If it differs, propose a [](act:FlashFirmware) operation.
+4. Compare the system firmware. It waits for the manager firmware. If it differs, propose an operation that uses [](act:StageFirmware) and a reboot.
+5. Merge the BIOS profiles in layers into the BiosSettings. Read the BIOS over the BMC. Write the attribute registry into a BiosSchema. Validate the settings against it.
+6. If attributes drifted, propose an [](act:ApplyBios) operation. For a Host that runs a node, the operation drains the node first and waits for it after.
+7. Stamp the phase and apply the share of this lane.
+
+## Guards and decisions
+
+<dl>
+  <dt>One plan, one operation</dt>
+  <dd>The name of a proposal comes from the hash of its plan. The same plan never makes a second operation. A changed plan withdraws the old proposal if nobody approved it.</dd>
+  <dt>Conflict holds whole</dt>
+  <dd>If two profiles disagree, the condition is False with `ProfileConflict`. The last good rendering stays. A disputed state is never applied in part.</dd>
+  <dt>Firmware before BIOS</dt>
+  <dd>The BIOS lane waits with `AwaitingFirmware` until both firmware lanes are converged.</dd>
+  <dt>Old install on disk</dt>
+  <dd>The controller does not power on a Host with `metal.pk.io/disk-not-wiped` for a BIOS change. It would boot the old node back into its cluster.</dd>
+  <dt>Self guard</dt>
+  <dd>The controller does not propose a BIOS change on a machine that the operator runs on. See [](ctrl:protection).</dd>
+</dl>
+
+## Writes
+
+| Object or field | When | Field manager |
+| --- | --- | --- |
+| BiosSettings spec and status, BiosSchema | Each pass with BIOS profiles | `manager` (create, update) |
+| Host `BiosConverged`, `FirmwareConverged`, `SystemFirmwareConverged` | When they changed | `pk-metal-host-convergence` (server-side apply) |
+| Host `status.firmwareProposed`, `status.systemFirmwareProposed` (plan memory) | After a proposal | `pk-metal-host-convergence` |
+| HostOperation with reason `BiosConvergence`, `FirmwareConvergence` or `SystemFirmwareConvergence` | Propose (create), withdraw (delete) | `manager` |
+
+## Conditions
+
+| Condition | True | False or Unknown |
+| --- | --- | --- |
+| `FirmwareConverged` | `InSync` | `ProfileConflict`, `NoUpdateTransport`, `AwaitingOperation`, `OperationFailed`, `NoReachablePath` |
+| `SystemFirmwareConverged` | `InSync` | `ProfileConflict`, `NoMatchingComponent`, `AwaitingFirmware`, `InstalledNodeMissing`, `NoUpdateTransport`, `SelfDisruption`, `AwaitingOperation`, `OperationFailed`, `NoReachablePath` |
+| `BiosConverged` | `InSync` | `ProfileConflict`, `SchemaViolation`, `AwaitingFirmware`, `InstalledNodeMissing`, `DiskNotWiped`, `SelfDisruption`, `AwaitingOperation`, `NoReachablePath` |
+
+## Failure modes
+
+| You see | Cause | Do this |
+| --- | --- | --- |
+| `BiosConverged=False`, `SchemaViolation` | A profile sets an attribute that the BIOS does not have. | Correct the profile. See [](howto:apply-bios-settings). |
+| `FirmwareConverged=False`, `AwaitingOperation` | The flash waits for approval. | See [](howto:flash-firmware). |
+| `…Converged=False`, `OperationFailed` | The proposal failed. | Use [](rb:operation-failed). |
+
+## Permissions
+
+<RbacRows sources={['convergence_controller.go']} />
+
+## Tests
+
+- [convergence_test.go](/repo/metal/internal/controller/convergence_test.go)
+- [convergence_property_test.go](/repo/metal/internal/controller/convergence_property_test.go)
+- [convergence_sysfw_test.go](/repo/metal/internal/controller/convergence_sysfw_test.go)
+- [applybios_test.go](/repo/metal/internal/controller/applybios_test.go)

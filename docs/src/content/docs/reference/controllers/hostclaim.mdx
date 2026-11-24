@@ -1,0 +1,167 @@
+---
+title: HostClaim controller
+description: Binds a claim to a free Host and proposes the install operation.
+type: controller
+eyebrow: Controller · manager
+xref: { cat: ctrl, id: hostclaim }
+sources:
+  - /repo/metal/internal/controller/hostclaim_controller.go
+  - /repo/metal/internal/controller/provisioning.go
+  - /repo/metal/internal/controller/removal.go
+  - /repo/metal/internal/controller/lifecycle.go
+  - /repo/metal/internal/controller/host_wipe.go
+---
+
+import LoopFlow from '../../../../components/controllers/LoopFlow.astro';
+import RbacRows from '../../../../components/controllers/RbacRows.astro';
+import Callout from '../../../../components/Callout.astro';
+
+The HostClaim controller binds each [](kind:HostClaim) to one [](kind:Host), like a volume claim binds a volume.
+If the claim names a [](kind:TalosNode), it proposes one boot operation. When you delete the claim, it releases the machine.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Reconciles</dt>
+  <dd>[](kind:HostClaim) (`For`). Controller name `hostclaim`. The same lane runs `host-wipe`.</dd>
+  <dt>Writes</dt>
+  <dd>`spec.claimRef` and `spec.os` on the Host, the claim status, boot and release [](kind:HostOperation)s, and boot [](kind:BootAsset)s.</dd>
+  <dt>Finalizer</dt>
+  <dd>`metal.pk.io/release` on the claim. It holds the delete until the machine is back.</dd>
+  <dt>Talks to</dt>
+  <dd>The Talos API of control planes, to read the etcd members before a node joins or leaves. It never talks to a BMC.</dd>
+  <dt>Requeue</dt>
+  <dd>None. Events on Hosts, operations, endpoints, Assets, Talos nodes and boot assets start the next pass.</dd>
+  <dt>Flags</dt>
+  <dd>`--checkin-timeout` (default 30 minutes) and `--release-shutdown-timeout` (default 5 minutes).</dd>
+</dl>
+
+## Watches
+
+| Kind | Relation | Why a change starts a pass |
+| --- | --- | --- |
+| [](kind:HostClaim) | `For` | You wrote, changed or deleted the claim. |
+| [](kind:Host) | `Watches` | The Host appeared or became free. A waiting claim tries again. |
+| [](kind:HostOperation) | `Watches` | The boot or release operation moved. |
+| [](kind:ManagementEndpoint) | `Watches` | The media slots and boot targets shape the boot plan. |
+| [](kind:Asset) | `Watches`, index `.spec.assetRef.name` | `Materialized` says why a claim waits. |
+| [](kind:TalosNode) | `Watches` | The render or the check-in of the node moved. |
+| [](kind:BootAsset) | `Watches` | The boot media became ready. |
+
+## Reconcile loop
+
+<LoopFlow
+  title="The HostClaim reconcile loop: release if deleted, add the finalizer, resolve the target, bind, provision."
+  caption="One pass of the HostClaim controller."
+  steps={[
+    { label: 'Read the claim', out: 'Release the machine', outSub: 'claim has a deletion timestamp', outVariant: 'accent', outEdge: 'deleted' },
+    { label: 'Add the release finalizer' },
+    { label: 'Resolve the target Host', sub: 'Asset → endpoint → system', out: 'Bound = False', outSub: 'AssetNotFound, AmbiguousSystem …' },
+    { label: 'Release the old Host first', sub: 'only if the claim moved', out: 'Bound = False', outSub: 'Replacing' },
+    { label: 'Bind: write claimRef on the Host', out: 'Bound = False', outSub: 'HostAlreadyClaimed' },
+    { label: 'Provision', sub: 'propose one boot operation', out: 'Provisioned = False', outSub: 'the reason it waits' },
+    { label: 'Stamp phase, update status', variant: 'ok' },
+  ]}
+  loop="next pass: an event on a watched kind"
+/>
+
+1. Read the claim. If it has a deletion timestamp, run the release (see below). If the claim is gone, unbind what it still holds.
+2. Add the finalizer `metal.pk.io/release`.
+3. Resolve the target: the Asset, its endpoint, then the discovered systems. One system is the target. More than one needs `spec.systemRef`.
+4. If the claim held another Host before, release that Host first. A claim never holds two machines that run the same node.
+5. Bind: write `spec.claimRef` and `spec.os` on the Host. The first writer wins. The API server rejects a second writer with a conflict.
+6. Provision: if all inputs are ready, propose one boot [](kind:HostOperation). Then follow it and record the hand-off.
+7. Stamp the phase and update the status if it changed.
+
+## Provision: what the boot waits for
+
+The controller proposes the boot only when each item below is true. If an item is false, `Provisioned` is False with the reason.
+
+| Wait | Reason |
+| --- | --- |
+| You did not put the claim on hold. | `HeldByUser` |
+| The Host is not in maintenance. | `HostInMaintenance` |
+| The Host is `Verified`. | `AwaitingVerification` |
+| The Host does not hold the install of another node. | `DiskNotWiped` |
+| The TalosNode and TalosCluster exist, and the node has a rendered config. | `AwaitingRender` |
+| The BMC has a media slot that can boot. | `NoBootableMedia`, `SingleMediumUnsupported` |
+| The boot assets are `Ready`. | `AwaitingBootAsset` |
+| The operator does not run on this machine. | `SelfDisruption` |
+
+The boot plan has a hash. The hash names the operation, so the same plan never makes two operations. A new render, image or endpoint shape is a new plan.
+The boot has one of three shapes:
+
+- **Two media**: the installer on a boot slot, the config medium on another slot.
+- **Config only**: one slot, and the machine already runs Talos in maintenance mode.
+- **Embedded installer**: one slot and a blank machine. One installer with the config built in. See [](concept:one-slot-bmc).
+
+## Release
+
+When you delete the claim, the finalizer holds it until the machine is back.
+
+1. If a boot of the claim ran on the machine, propose a release operation. It takes the node out of its cluster, then powers the machine off and empties the media slots.
+2. If no boot ever touched the machine, unbind it as it is. The controller confirms this against the API server first.
+3. Withdraw the boot operations that did not finish, after the release operation exists.
+4. Clear `claimRef`, `spec.os` and the power-off annotation on the Host. Remove the finalizer.
+
+A held claim, or a Host in maintenance, stops the release before approval. If the node does not answer, nothing can wipe the disk. The Host then gets the annotation `metal.pk.io/disk-not-wiped`. See [](howto:release-a-host).
+
+## The host-wipe helper
+
+The lane also runs the controller `host-wipe`, `For` [](kind:Host).
+It acts only on a Host with the annotation `metal.pk.io/wipe`, which [](cli:wipe) sets.
+
+1. If the Host has no `metal.pk.io/disk-not-wiped`, remove the wipe request.
+2. If a claim records an install on the Host, or the Host is in maintenance, do nothing.
+3. Make a factory [](kind:BootAsset) whose kernel argument `talos.experimental.wipe=system` wipes the system disk.
+4. Propose a wipe operation: eject all slots, insert the image, set a one-time boot override, power cycle. It always needs approval.
+5. When the operation succeeded, remove both annotations.
+
+## Guards and decisions
+
+<dl>
+  <dt>Alert and hold</dt>
+  <dd>If the Asset stops resolving under a live bind, the claim keeps the bind. `Bound` stays True with `BindRetained`. A resolution failure never releases a machine.</dd>
+  <dt>Etcd membership</dt>
+  <dd>Before a control plane joins or leaves, the controller reads etcd membership live from the control planes. It does not count TalosNodes. See [](howto:remove-a-node).</dd>
+  <dt>Admission</dt>
+  <dd>Only an admin may set `spec.os.nodeRef` or `provisioning.approval: Automatic`. See [](concept:approval).</dd>
+</dl>
+
+## Writes
+
+| Object or field | When | Field manager |
+| --- | --- | --- |
+| Host `spec.claimRef`, `spec.os` | Bind, re-stamp, release | `manager` (update) |
+| Host annotations `metal.pk.io/release-power-off`, `metal.pk.io/disk-not-wiped`, `metal.pk.io/wipe` | Release and wipe | `manager` (update) |
+| Claim finalizer `metal.pk.io/release` | First pass, end of release | `manager` (update) |
+| Claim status: `Bound`, `Provisioned`, `hostRef`, `handOff`, phase | When it changed | `manager` (status update) |
+| HostOperations with label `metal.pk.io/purpose` = `provision`, `release`, `remove` or `wipe` | Propose (create) and withdraw (delete) | `manager` |
+| BootAssets with label `metal.pk.io/provisioning` | Before a boot | `manager` (create) |
+
+<Callout type="warning">
+Do not remove the finalizer `metal.pk.io/release` by hand. The controller then unbinds the Host without a power-off, and the machine keeps its node.
+</Callout>
+
+## Failure modes
+
+| You see | Cause | Do this |
+| --- | --- | --- |
+| `Bound=False`, `AmbiguousSystem` | The endpoint fronts more than one system. | Set `spec.systemRef`. See [](rb:claim-ambiguous). |
+| `Bound=False`, `HostAlreadyClaimed` | Another claim holds the Host. | Delete the other claim, or choose another Asset. |
+| `Provisioned=False`, `OperationFailed` | The boot operation failed. | Use [](rb:operation-failed). |
+| `Provisioned=False`, `AwaitingOperation` | The boot waits for approval. | Use [](cli:approve). |
+
+## Permissions
+
+<RbacRows sources={['hostclaim_controller.go', 'selfprotect.go']} />
+
+## Tests
+
+[](concept:protocol-model) explains the model tests of the claim protocol.
+
+- [hostclaim_test.go](/repo/metal/internal/controller/hostclaim_test.go)
+- [provisioning_test.go](/repo/metal/internal/controller/provisioning_test.go)
+- [release_test.go](/repo/metal/internal/controller/release_test.go)
+- [release_gate_test.go](/repo/metal/internal/controller/release_gate_test.go)
+- [lifecycle_test.go](/repo/metal/internal/controller/lifecycle_test.go)
