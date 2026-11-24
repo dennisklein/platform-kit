@@ -392,13 +392,18 @@ jobs:
           key: go-lab-${{ runner.os }}-${{ hashFiles('metal/go.sum') }}
           restore-keys: go-lab-${{ runner.os }}-
 
-      # A hosted runner has 16 GiB. Three control planes at the default 4 GiB
-      # and two workers do not fit beside the kind node; 2.5 GiB is above
-      # Talos' minimum for a control plane. The spec is changed in a copy.
+      # A hosted runner has 16 GiB, of which a little under 15 are available
+      # once the caches are restored. Three control planes at the default
+      # 4 GiB and two workers do not fit beside the kind node. 2.5 GiB is
+      # above Talos' minimum for a control plane and 1.5 GiB above a
+      # worker's; together with the 3 GiB lab:doctor keeps for the kind node
+      # and the fleet that is 13.5 GiB. With 2 GiB workers it was 14.5 GiB,
+      # which a runner did not always have. The spec is changed in a copy.
       - name: Make five machines fit the runner
         run: |
-          yq '.controlPlane.memoryMiB = 2560' lab/lab.yaml >"$RUNNER_TEMP/lab.yaml"
+          yq '.controlPlane.memoryMiB = 2560 | .worker.memoryMiB = 1536' lab/lab.yaml >"$RUNNER_TEMP/lab.yaml"
           echo "PK_LAB_SPEC=$RUNNER_TEMP/lab.yaml" >>"$GITHUB_ENV"
+          free -m
 
       - name: Check the prerequisites
         run: mise run lab:doctor
