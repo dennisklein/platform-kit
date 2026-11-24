@@ -208,6 +208,12 @@ func TestRenderOptions(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, `glob("QEMU*", disk.model) && !disk.rotational`, expr.String())
 
+		// Talos's glob() knows only *: a ? or [ without * is compared as it is.
+		expr, err = render.DiskMatch(osv1alpha1.DiskSelector{Serial: "S3?", WWID: "naa.[5]"})
+		require.NoError(t, err)
+		assert.Equal(t, `disk.serial == "S3?" && disk.wwid == "naa.[5]"`, expr.String(),
+			"only * makes a matcher a glob")
+
 		_, err = render.DiskMatch(osv1alpha1.DiskSelector{Match: "disk.nope == 1"})
 		assert.Error(t, err, "a CEL error must fail the render, not the install")
 	})

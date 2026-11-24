@@ -351,16 +351,20 @@ func LinkMatch(hardwareAddr string) string {
 		mac, mac)
 }
 
-// DiskMatchcompiles the install disk selector into the CEL expression
-// UnattendedInstallConfig matches disks with. Every set matcher must hold;
-// string matchers containing glob metacharacters use glob().
+// DiskMatch compiles the install disk selector into the CEL expression
+// UnattendedInstallConfig matches disks with. Every set matcher must hold.
+//
+// A string matcher with a * uses glob(). Talos's glob() knows only *: ? and
+// [ match themselves, so a value with them but no * is compared as it is,
+// which is what glob() would do with it too. Match takes a full expression,
+// matches() included, for anything a * cannot say.
 func DiskMatch(s osv1alpha1.DiskSelector) (cel.Expression, error) {
 	var terms []string
 	field := func(name, value string) {
 		if value == "" {
 			return
 		}
-		if strings.ContainsAny(value, "*?[") {
+		if strings.Contains(value, "*") {
 			terms = append(terms, fmt.Sprintf("glob(%q, disk.%s)", value, name))
 			return
 		}

@@ -61,8 +61,9 @@ type TalosNodeSpec struct {
 }
 
 // DiskSelector says which disk to install onto, and so which disk to erase.
-// String matchers take glob patterns (*, ?); Match is a Talos disk expression
-// for anything else. Set at least one; serial or wwid is safest.
+// A string matcher with * is a glob pattern; * is the only wildcard Talos
+// knows, so ? and [ match themselves. Match is a Talos disk expression for
+// anything else, such as disk.serial.matches("^S3.$"). Set at least one; serial or wwid is safest.
 // +kubebuilder:validation:XValidation:rule="has(self.serial) || has(self.model) || has(self.wwid) || has(self.busPath) || has(self.match)",message="at least one matcher is required: a node that does not say where to install does not install"
 type DiskSelector struct {
 	// Serial matches the disk serial number. It names one disk and does not
