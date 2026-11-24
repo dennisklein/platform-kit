@@ -34,9 +34,9 @@ description = "Build the operator image (manager and pk-metal), tagged with the 
 run = "metal/hack/image.sh build"
 
 [tasks.test]
-description = "Unit tests"
+description = "Unit tests, and vet of the e2e build tag so the harness cannot rot"
 dir = "metal"
-run = "go test ./..."
+run = ["go test ./...", "go vet -tags e2e ./test/e2e/"]
 
 [tasks.fuzz]
 description = "Run every Go fuzz target for FUZZTIME each (default 10s); a local search, not part of CI"
@@ -123,3 +123,13 @@ echo "generate:check: clean"
 description = "Curl walk over two generic simulated BMCs: service root, media, boot override, reset, task monitor"
 dir = "metal"
 run = "hack/sim-demo.sh"
+
+[tasks."e2e:kind"]
+description = "Kind tier: simulated BMC, a real Talos container, the full reconcile path"
+dir = "metal"
+run = "go test -tags e2e -count 1 -timeout 20m -run TestE2EKind -v ./test/e2e/"
+
+[tasks."e2e:qemu"]
+description = "VM tier: simulated BMC, a real UEFI VM, config over virtual media, a real install"
+dir = "metal"
+run = "go test -tags e2e -count 1 -timeout 40m -run TestE2EQemu -v ./test/e2e/"
