@@ -4,6 +4,8 @@ description: Ask for a new Talos release, approve the rollout and resume it afte
 type: howto
 day: 2
 xref: { cat: howto, id: upgrade-talos }
+sidebar:
+  order: 4
 sources:
   - /repo/metal/cmd/pk-metal/upgrade.go
   - /repo/metal/cmd/pk-metal/rollout.go
@@ -25,7 +27,9 @@ Move every node of one cluster to a new Talos release, one node at a time.
 - You have the kubeconfig of the management cluster.
 - A second person can approve. You cannot approve your own rollout.
 - The cluster is `Available`. Each node is `Ready`.
-- The new release is one step from the current release. [](cli:upgrade) refuses a jump and a downgrade.
+- Talos accepts the new release from the release that each node runs. Talos v1.14 accepts an upgrade from v1.12 or later. The Talos project recommends one minor at a time.
+- [](cli:upgrade) refuses a downgrade.
+- This pk-metal knows the new release. See [Upgrade pk-metal first](#upgrade-pk-metal-first).
 - Optional: a [](kind:MaintenanceWindow) covers the machines. A node outside its window waits.
 
 ## How the rollout moves
@@ -35,7 +39,7 @@ Move every node of one cluster to a new Talos release, one node at a time.
   steps={[
     { title: 'Ask', caption: 'You set the new release. The operator proposes one TalosRollout with a plan. No machine changes.', code: 'pk-metal upgrade talos prod v1.14.7', state: { you: 'active', ro: 'warn', ask: 'flow' }, text: { 'ro-ph': 'AwaitingApproval' } },
     { title: 'Approve', caption: 'A second person reads the plan and approves it. The approval names the plan hash.', code: 'pk-metal rollout approve prod-talosupgrade-1a2b3c4d', state: { you: 'done', ask: 'done', ro: 'active', other: 'active', ok: 'flow' }, text: { 'ro-ph': 'Approved' } },
-    { title: 'First node', caption: 'The first control plane drains, upgrades, reboots and becomes Ready. etcd must be healthy again.', code: 'cordon → drain → talosUpgrade → waitNodeReady → waitEtcdHealthy → uncordon', state: { ro: 'active', ok: 'done', cp1: 'active', r1: 'flow' }, text: { 'ro-ph': 'NodeRunning', 'cp1-v': 'upgrading' } },
+    { title: 'First node', caption: 'The first control plane drains, upgrades, reboots and becomes Ready. etcd must be healthy again.', code: 'drain → talosUpgrade → waitNodeReady → waitEtcdHealthy → uncordon', state: { ro: 'active', ok: 'done', cp1: 'active', r1: 'flow' }, text: { 'ro-ph': 'NodeRunning', 'cp1-v': 'upgrading' } },
     { title: 'Pause', caption: 'The rollout always stops after the first node. Examine the node, then resume.', code: 'pk-metal rollout resume prod-talosupgrade-1a2b3c4d', state: { ro: 'warn', cp1: 'ok', you: 'active', res: 'flow' }, text: { 'ro-ph': 'PausedAfterFirstNode', 'cp1-v': 'v1.14.7' } },
     { title: 'Control planes', caption: 'The other control planes follow, one at a time. The etcd leader goes last.', state: { ro: 'active', cp1: 'ok', cp2: 'active', r2: 'flow' }, text: { 'ro-ph': 'NodeRunning', 'cp1-v': 'v1.14.7', 'cp2-v': 'upgrading' } },
     { title: 'Workers', caption: 'Then the workers. Between two nodes, the operator checks etcd and all Kubernetes nodes again.', state: { ro: 'active', cp1: 'ok', cp2: 'ok', cp3: 'ok', w1: 'active', r4: 'flow' }, text: { 'ro-ph': 'WaitingForHealth', 'cp1-v': 'v1.14.7', 'cp2-v': 'v1.14.7', 'cp3-v': 'v1.14.7', 'w1-v': 'upgrading' } },
@@ -67,6 +71,18 @@ Move every node of one cluster to a new Talos release, one node at a time.
     <text class="t-small t-label" x={570} y={222} text-anchor="middle">workers</text>
   </svg>
 </Explainer>
+
+## Upgrade pk-metal first
+
+pk-metal checks each Talos step against the Talos libraries in its build. A build knows the Talos releases up to its own Talos minor. For a newer minor, [](cli:upgrade) and the rollout plan stop with the message `upgrades to version … are not supported`.
+
+<Steps>
+
+1. Read the Talos version of the libraries in the pk-metal release notes.
+
+2. If the new Talos minor is newer, upgrade pk-metal first.
+
+</Steps>
 
 ## Steps
 
@@ -130,6 +146,10 @@ The plan changes, and the rollout ends with the reason `PlanChanged`.
 - To stop before the next node: `pk-metal rollout pause <rollout>`.
 - To stop for good: `pk-metal rollout abort <rollout>`. A node that runs finishes. The other nodes are `Skipped`.
 - The operator does not downgrade Talos. [](cli:upgrade) refuses a lower version.
+
+## Staged upgrades
+
+The rollout does not stage an upgrade. A [](act:TalosUpgrade) action with `stage: true` writes the image and reboots the node at once. The upgrade runs early in the next boot. Talos does not drain the node in this mode, so put a `drain` action before it. Use it only when open files stop a normal upgrade.
 
 ## If it fails
 
