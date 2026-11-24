@@ -186,6 +186,11 @@ func blockedOn(conds []metav1.Condition) string {
 		// design doc's Approval(bios) shape. Condition reasons cannot carry parens.
 		return fmt.Sprintf("Approval(%s)", ap.Reason)
 	}
+	// A machine that may still hold a node's install waits for a person's
+	// wipe before anything else is done with it.
+	if dw := meta.FindStatusCondition(conds, metalv1alpha1.ConditionDiskWiped); dw != nil && dw.Status == metav1.ConditionFalse {
+		return dw.Reason
+	}
 	return ""
 }
 

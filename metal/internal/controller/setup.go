@@ -119,6 +119,18 @@ func CacheByObject(namespace string) map[client.Object]cache.ByObject {
 // reconciler is what every lane's reconciler offers SetupAll.
 type reconciler interface{ SetupWithManager(ctrl.Manager) error }
 
+// reconcilers sets up several reconcilers as one lane.
+type reconcilers []reconciler
+
+func (rs reconcilers) SetupWithManager(mgr ctrl.Manager) error {
+	for _, r := range rs {
+		if err := r.SetupWithManager(mgr); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // SetupAll wires the chosen lanes into mgr with o, in lane order. It is the
 // one place that builds the reconcilers, so the manager and the test suites
 // run the same configuration.
@@ -174,12 +186,15 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 	case LaneHost:
 		return "host", &HostReconciler{Client: c}
 	case LaneHostClaim:
-		return "hostclaim", &HostClaimReconciler{
+		claims := &HostClaimReconciler{
 			Client: c, OperationsNamespace: o.OperationsNamespace, Proposer: o.Proposer,
 			CheckInTimeoutSeconds:  int32(o.CheckInTimeout.Seconds()),
 			ReleaseShutdownTimeout: o.ReleaseShutdownTimeout,
 			Self:                   self,
+			Dial:                   o.TalosDial, CredentialsNamespace: o.CredentialsNamespace,
 		}
+		// Wipes of released machines share the claims' configuration.
+		return "hostclaim", reconcilers{claims, &hostWipeReconciler{claims}}
 	case LaneProtection:
 		return "protection", &ProtectionReconciler{Client: c}
 	case LaneHostOperation:
@@ -199,11 +214,16 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 			Client: c, CredentialsNamespace: o.CredentialsNamespace, PollInterval: o.PollInterval,
 		}
 	case LaneTalosNode:
-		return "talosnode", &TalosNodeReconciler{
+		// The member finalizer rides with the node lane: every setup that
+		// renders nodes also holds their deletion until they left.
+		return "talosnode", reconcilers{&TalosNodeReconciler{
 			Client: c, Scheme: scheme, Namespace: o.CredentialsNamespace,
 			Factory: o.Factory, Dial: o.TalosDial,
 			CheckInterval: o.CheckInterval, ReadyInterval: o.ReadyInterval,
-		}
+		}, &TalosNodeMemberReconciler{
+			Client: c, Dial: o.TalosDial, CredentialsNamespace: o.CredentialsNamespace,
+			OperationsNamespace: o.OperationsNamespace,
+		}}
 	case LaneTalosCluster:
 		return "taloscluster", &TalosClusterReconciler{
 			Client: c, Scheme: scheme, Namespace: o.CredentialsNamespace,

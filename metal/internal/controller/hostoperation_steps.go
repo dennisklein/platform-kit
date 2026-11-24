@@ -578,6 +578,9 @@ func (x *exec) awaitCheckIn(ctx context.Context, a *metalv1alpha1.AwaitCheckInAc
 		return stepState{}, err
 	}
 	if nodeCheckedIn(node) {
+		if stale, err := x.staleCheckIn(ctx, node); err != nil || stale {
+			return waitingOn("waiting for TalosNode %s to check in after its reinstall", node.Name), err
+		}
 		return stepDone, nil
 	}
 	seen := "no answer from the machine yet"

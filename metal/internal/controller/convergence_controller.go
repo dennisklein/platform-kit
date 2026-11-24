@@ -346,6 +346,12 @@ func (r *ConvergenceReconciler) bios(ctx context.Context, host *metalv1alpha1.Ho
 			return false, err
 		}
 		// The change takes effect at a reboot, which the operation does.
+		// A machine that may still hold a released node's install is not
+		// powered on for it: it would boot that node back into its cluster.
+		if hold := notWipedPowerHold(host); hold != "" {
+			reason, msg = metalv1alpha1.ReasonDiskNotWiped, "drift on "+strings.Join(drifted, ", ")+"; "+hold
+			break
+		}
 		guard, err := r.Self.Check(ctx, host)
 		if err != nil {
 			return false, err

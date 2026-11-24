@@ -503,6 +503,11 @@ func describeAction(a metalv1alpha1.HostOperationAction, pc planContext) string 
 			where = " at " + nodeAddress(n)
 		}
 		return fmt.Sprintf("wait up to %s for TalosNode %s to report in%s", shortDuration(timeout), node, where)
+	case a.EtcdForfeitLeadership != nil:
+		return fmt.Sprintf("if TalosNode %s leads etcd, hand the leadership to another member (a follower is left as it is)",
+			a.EtcdForfeitLeadership.NodeRef.Name)
+	case a.DeleteKubernetesNode != nil:
+		return fmt.Sprintf("delete the Kubernetes Node %s from its cluster (its pods are gone with it)", a.DeleteKubernetesNode.NodeRef.Name)
 	}
 	if key := a.Key(); key != "unknown" {
 		// An action the API defines but this renderer does not describe

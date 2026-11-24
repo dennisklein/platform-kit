@@ -93,6 +93,11 @@ type provisionPlan struct {
 	// ArtifactDigest is its digest. Omitted when false, so the plans of the
 	// other shapes keep their hashes.
 	Embedded bool `json:"embedded,omitempty"`
+	// Replaces names the install the boot replaces, <node>@<hand-off time>:
+	// a reinstall of the same node, or another node the claim's machine ran
+	// before. Its operation first takes that node out of its cluster.
+	// Omitted for a first install, so those plans keep their hashes.
+	Replaces string `json:"replaces,omitempty"`
 }
 
 // bootShape is the kind of boot an endpoint and a machine allow.
@@ -175,10 +180,16 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 		}
 		return err
 	}
+	// A TalosNode being deleted is taken out of its cluster, and its machine
+	// wiped, while the claim keeps the machine (removeNode).
+	if !node.DeletionTimestamp.IsZero() {
+		return r.removeNode(ctx, claim, host, node, ops)
+	}
+	reinstall := reinstallRequested(claim, hostName, node.Name)
 	// The hand-off record on the claim says the install is done: the node may
 	// simply be down now, and that is not a reason to install it again. A
 	// record of any other host or node is no record of this one.
-	if h := claim.Status.HandOff; h != nil && h.Host == hostName && h.Node == node.Name {
+	if h := claim.Status.HandOff; h != nil && h.Host == hostName && h.Node == node.Name && !reinstall {
 		at := h.At.UTC().Format(time.RFC3339)
 		msg := fmt.Sprintf("host %s runs TalosNode %s (installed %s)", hostName, node.Name, at)
 		if !nodeCheckedIn(node) {
@@ -188,7 +199,7 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 		set(metav1.ConditionTrue, metalv1alpha1.ReasonHandedOff, msg)
 		return r.withdraw(ctx, ops, "")
 	}
-	if nodeCheckedIn(node) {
+	if nodeCheckedIn(node) && !reinstall {
 		// The boot that got it there, if one of ours did: the release reads
 		// it to know whether the operator touched this machine.
 		var booted *metalv1alpha1.HostOperation
@@ -204,7 +215,7 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 	// A claim from before the record existed: a succeeded boot operation of
 	// this node onto this host is the hand-off, and becomes the record.
 	for i := range ops {
-		if opSucceeded(&ops[i]) && bootsNode(&ops[i], hostName, node.Name) {
+		if !reinstall && opSucceeded(&ops[i]) && bootsNode(&ops[i], hostName, node.Name) && ops[i].Annotations[annotationReinstallOf] == "" {
 			recordHandOff(claim, hostName, node.Name, ops[i].Annotations[annotationConfigDigest], &ops[i])
 			set(metav1.ConditionTrue, metalv1alpha1.ReasonHandedOff,
 				fmt.Sprintf("operation %s/%s booted host %s", ops[i].Namespace, ops[i].Name, hostName))
@@ -239,6 +250,20 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 	if !meta.IsStatusConditionTrue(host.Status.Conditions, metalv1alpha1.ConditionVerified) {
 		return hold(metalv1alpha1.ReasonAwaitingVerification, fmt.Sprintf("host %s is not verified", hostName))
 	}
+	// Another node's install left on the disk must not boot again, and is
+	// not installed over without a person seeing it.
+	if msg := notWipedHold(host, node.Spec.ClusterRef.Name, node.Name); msg != "" {
+		if err := r.withdraw(ctx, ops, ""); err != nil {
+			return err
+		}
+		return hold(metalv1alpha1.ReasonDiskNotWiped, msg)
+	}
+	// What the boot replaces: the same node (a reinstall), or another node
+	// the machine ran for this claim before its OS intent was changed.
+	var prior string
+	if h := claim.Status.HandOff; h != nil && h.Host == hostName {
+		prior = h.Node
+	}
 
 	cluster := &osv1alpha1.TalosCluster{}
 	if err := r.Get(ctx, client.ObjectKey{Name: node.Spec.ClusterRef.Name}, cluster); err != nil {
@@ -264,7 +289,10 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 	// maintenance mode) needs the config medium alone; a blank one gets an
 	// installer with its config built in. Either way the config reaches the
 	// machine through the BMC, never over the machine's own network.
-	kind, why, msg := decideShape(hostName, shape, meta.IsStatusConditionTrue(node.Status.Conditions, osv1alpha1.ConditionMachineReachable),
+	// A machine that replaces an install is reset first: it has no Talos on
+	// disk to take a config medium alone.
+	kind, why, msg := decideShape(hostName, shape,
+		prior == "" && meta.IsStatusConditionTrue(node.Status.Conditions, osv1alpha1.ConditionMachineReachable),
 		cluster.Spec.TalosVersion)
 	if why != "" {
 		return hold(why, msg)
@@ -312,6 +340,9 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 		plan.Mode = overrideMode(shape.mode)
 	}
 
+	if prior != "" {
+		plan.Replaces = prior + "@" + claim.Status.HandOff.At.UTC().Format(time.RFC3339)
+	}
 	name := fmt.Sprintf("provision-%s-%s", hostName, hash8(planHash(plan)))
 	if err := r.withdraw(ctx, ops, name); err != nil {
 		return err
@@ -335,7 +366,21 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 		} else if msg != "" {
 			return hold(metalv1alpha1.ReasonSelfDisruption, "no install is proposed: "+msg)
 		}
+		// The node the boot replaces leaves its cluster first, in the same
+		// operation; a new control plane waits for its turn to join.
+		prefix, reason, msg, err := r.bootPrefix(ctx, claim, host, node, cluster, prior, name)
+		if err != nil {
+			return err
+		}
+		if reason != "" {
+			return hold(reason, msg)
+		}
 		op := r.provisionOp(claim, hostName, name, plan, node, config, installer)
+		op.Spec.Actions = append(prefix, op.Spec.Actions...)
+		if prior != "" {
+			op.Annotations[annotationReinstallOf] = claim.Status.HandOff.At.UTC().Format(time.RFC3339)
+			op.Labels[labelNode] = node.Name
+		}
 		if err := r.Create(ctx, op); err != nil && !apierrors.IsAlreadyExists(err) {
 			return err
 		}
@@ -350,6 +395,15 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 	ex := meta.FindStatusCondition(current.Status.Conditions, metalv1alpha1.ConditionExecuted)
 	ref := current.Namespace + "/" + current.Name
 	switch {
+	case prior != "" && opSucceeded(current):
+		// The replacing install is the hand-off now. Its new time makes a
+		// reinstall annotation naming the old one ask for nothing.
+		claim.Status.HandOff = &metalv1alpha1.ClaimHandOff{
+			Host: hostName, Node: node.Name, ConfigDigest: plan.ConfigDigest, At: metav1.Now(),
+			Operation: current.Namespace + "/" + current.Name,
+		}
+		set(metav1.ConditionTrue, metalv1alpha1.ReasonHandedOff, fmt.Sprintf("operation %s reinstalled host %s with TalosNode %s", ref, hostName, node.Name))
+		return nil
 	case opAwaitsApproval(current):
 		return hold(metalv1alpha1.ReasonAwaitingOperation, awaitsApprovalMessage(claim, current, "boot", "install"))
 	case ex != nil && ex.Status == metav1.ConditionFalse:
@@ -853,7 +907,11 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 		}
 		// The decision to power off is made once, while the boot records are
 		// still there to read; the release operation then carries it.
-		powerOff := op != nil || bootRan(provisionOps, host.Name) || handedOff(claim, host.Name) || powerOffDecided(host, claim)
+		// A node found already running when the claim was made counts too:
+		// it is a node of a cluster this operator renders, and releasing its
+		// machine takes it out of that cluster.
+		powerOff := op != nil || bootRan(provisionOps, host.Name) || installedOnRecord(claim, host.Name, provisionOps) ||
+			powerOffDecided(host, claim)
 		if !powerOff {
 			// Unbinding as it is cannot be taken back: confirm against the
 			// API server that no boot of the claim ran.
@@ -883,29 +941,44 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 				done, keepRecords = false, true
 				continue
 			}
-			// Record the decision before the boot records it came from go.
-			if err := r.recordPowerOff(ctx, host, claim); err != nil {
-				return false, err
-			}
 			if op == nil {
 				// The release powers the machine off. On one the operator
 				// runs on, that waits for a person (SelfGuard).
 				if msg, err := r.Self.Check(ctx, host); err != nil {
 					return false, err
 				} else if msg != "" {
+					if err := r.recordPowerOff(ctx, host, claim, false); err != nil {
+						return false, err
+					}
 					set(metalv1alpha1.ReasonSelfDisruption, "the claim is deleted, but the machine is not shut down: "+msg)
 					done, keepRecords = false, true
 					continue
 				}
-				var waiting string
-				if op, waiting, err = r.releaseOp(ctx, claim, host, name, provisionOps); err != nil {
+				var reason, waiting string
+				if op, reason, waiting, err = r.releaseOp(ctx, claim, host, name, provisionOps); err != nil {
 					return false, err
 				}
 				if op == nil {
-					set(metalv1alpha1.ReasonReleasing, waiting)
+					// The decision stands while the release waits.
+					if err := r.recordPowerOff(ctx, host, claim, false); err != nil {
+						return false, err
+					}
+					set(reason, waiting)
 					done = false
 					continue
 				}
+			}
+			// Record the decision, and what the release cannot wipe, before
+			// the boot records it came from go.
+			marked := false
+			if v := op.Annotations[metalv1alpha1.AnnotationDiskNotWiped]; v != "" {
+				cluster, node, _ := strings.Cut(v, "/")
+				marked = markNotWiped(host, cluster, node)
+			}
+			if err := r.recordPowerOff(ctx, host, claim, marked); err != nil {
+				return false, err
+			}
+			if !opExists(releaseOps, name) {
 				if err := r.Create(ctx, op); err != nil && !apierrors.IsAlreadyExists(err) {
 					return false, err
 				}
@@ -916,10 +989,9 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 			switch {
 			case opAwaitsApproval(op):
 				set(metalv1alpha1.ReasonReleasing, fmt.Sprintf(
-					"host %s runs or ran its node, so releasing it waits for a person: the release shuts the machine down "+
-						"(forced off after %s) and ejects its media. To go ahead: pk-metal approve %s/%s. "+
+					"host %s runs or ran its node, so releasing it waits for a person: the release %s. To go ahead: pk-metal approve %s/%s. "+
 						"To keep the machine running for now: pk-metal hold %s/%s",
-					host.Name, r.releaseShutdownTimeout(), op.Namespace, op.Name, claim.Namespace, claim.Name))
+					host.Name, r.describeRelease(op), op.Namespace, op.Name, claim.Namespace, claim.Name))
 				done = false
 				continue
 			case ex != nil && ex.Status == metav1.ConditionFalse:
@@ -933,6 +1005,11 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 				done = false
 				continue
 			}
+		}
+		if op != nil && opSucceeded(op) && wipesDisk(op) {
+			// The reset wiped the machine: whatever an earlier release
+			// could not wipe is gone too.
+			delete(host.Annotations, metalv1alpha1.AnnotationDiskNotWiped)
 		}
 		if err := r.releaseAll(ctx, []metalv1alpha1.Host{*host}, ""); err != nil {
 			return false, err
@@ -1017,10 +1094,11 @@ func powerOffDecided(host *metalv1alpha1.Host, claim *metalv1alpha1.HostClaim) b
 	return claim.UID != "" && host.Annotations[annotationReleasePowerOff] == string(claim.UID)
 }
 
-// recordPowerOff writes the power-off decision onto the host. releaseAll
-// removes it when the host is unbound.
-func (r *HostClaimReconciler) recordPowerOff(ctx context.Context, host *metalv1alpha1.Host, claim *metalv1alpha1.HostClaim) error {
-	if powerOffDecided(host, claim) {
+// recordPowerOff writes the power-off decision onto the host, with any mark
+// the caller set on it in memory (markNotWiped). releaseAll removes the
+// decision when the host is unbound; the mark stays.
+func (r *HostClaimReconciler) recordPowerOff(ctx context.Context, host *metalv1alpha1.Host, claim *metalv1alpha1.HostClaim, marked bool) error {
+	if powerOffDecided(host, claim) && !marked {
 		return nil
 	}
 	if host.Annotations == nil {
@@ -1028,6 +1106,11 @@ func (r *HostClaimReconciler) recordPowerOff(ctx context.Context, host *metalv1a
 	}
 	host.Annotations[annotationReleasePowerOff] = string(claim.UID)
 	return r.Update(ctx, host)
+}
+
+// opExists: an operation of that name is among ops.
+func opExists(ops []metalv1alpha1.HostOperation, name string) bool {
+	return slices.ContainsFunc(ops, func(op metalv1alpha1.HostOperation) bool { return op.Name == name })
 }
 
 // handedOff: the claim's hand-off record says a boot of the claim installed
@@ -1038,8 +1121,12 @@ func handedOff(claim *metalv1alpha1.HostClaim, hostName string) bool {
 	return h != nil && h.Host == hostName && h.Operation != ""
 }
 
-// releaseOp shuts the machine down — the OS first, forced off after the
-// release shutdown timeout — and empties every insertable slot.
+// releaseOp takes the machine's node out of its cluster, shuts the machine
+// down and empties every insertable slot (see removal.go for the steps).
+// When the node does not answer, or the executor cannot run the Talos steps,
+// the machine is only shut down, the OS first and forced off after the
+// release shutdown timeout, and the Host is marked as still holding the
+// install (AnnotationDiskNotWiped) before the operation is created.
 //
 // A machine that runs its node is a server, and turning it off is as
 // disruptive as installing it: the release then waits for a person, as a
@@ -1060,27 +1147,46 @@ func handedOff(claim *metalv1alpha1.HostClaim, hostName string) bool {
 // from slots that were read. While no reachable, inventoried endpoint fronts
 // the host, releaseOp returns nil and says what it waits for; the endpoint
 // and host watches bring the claim back when that changes. The power-off
-// could not run before then either.
+// could not run before then either. It also returns nil, with the reason,
+// while a control plane may not leave etcd yet (removalVerdict).
 func (r *HostClaimReconciler) releaseOp(ctx context.Context, claim *metalv1alpha1.HostClaim, host *metalv1alpha1.Host, name string,
-	provisionOps []metalv1alpha1.HostOperation) (*metalv1alpha1.HostOperation, string, error) {
+	provisionOps []metalv1alpha1.HostOperation) (*metalv1alpha1.HostOperation, string, string, error) {
 	shape, err := r.endpointShape(ctx, host)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 	if !shape.known {
-		return nil, fmt.Sprintf("releasing host %s waits until a reachable management path has read its media slots, "+
+		return nil, metalv1alpha1.ReasonReleasing, fmt.Sprintf("releasing host %s waits until a reachable management path has read its media slots, "+
 			"so that the release can eject them; see: kubectl get host %s -o wide", host.Name, host.Name), nil
 	}
-	actions := []metalv1alpha1.HostOperationAction{{PowerOff: &metalv1alpha1.PowerOffAction{
-		GracefulTimeoutSeconds: int32(r.releaseShutdownTimeout().Seconds()),
-	}}}
+	steps, wipes, nodeName, cluster, reason, msg, err := r.nodeExit(ctx, claim, host, name, "")
+	if err != nil || reason != "" {
+		return nil, reason, "the claim is deleted, but " + msg, err
+	}
+	graceful := int32(r.releaseShutdownTimeout().Seconds())
+	if wipes {
+		// The reset ends with the machine off; the power-off only proves it.
+		graceful = 0
+	}
+	actions := append(steps, metalv1alpha1.HostOperationAction{PowerOff: &metalv1alpha1.PowerOffAction{GracefulTimeoutSeconds: graceful}})
 	for _, s := range shape.insertable {
 		actions = append(actions, metalv1alpha1.HostOperationAction{EjectMedia: &metalv1alpha1.EjectMediaAction{MediaID: s}})
+	}
+	labels := claimLabels(claim, purposeRelease)
+	if nodeName != "" {
+		labels[labelNode] = nodeName
+	}
+	var annotations map[string]string
+	if !wipes {
+		// The operation says what it leaves on the disk; the caller marks
+		// the host with it, together with the power-off decision, before
+		// the operation is created.
+		annotations = map[string]string{metalv1alpha1.AnnotationDiskNotWiped: cluster + "/" + nodeName}
 	}
 	return &metalv1alpha1.HostOperation{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name, Namespace: r.OperationsNamespace,
-			Labels: claimLabels(claim, purposeRelease),
+			Labels: labels, Annotations: annotations,
 		},
 		Spec: metalv1alpha1.HostOperationSpec{
 			HostRef:                 metalv1alpha1.Reference{Name: host.Name},
@@ -1090,7 +1196,69 @@ func (r *HostClaimReconciler) releaseOp(ctx context.Context, claim *metalv1alpha
 			Approval:                metalv1alpha1.OperationApproval{Required: ptr.To(releaseNeedsPerson(claim, host, provisionOps))},
 			TTLSecondsAfterFinished: ptr.To(releaseTTL),
 		},
-	}, "", nil
+	}, "", "", nil
+}
+
+// nodeExit decides the steps that take the node the host runs out of its
+// cluster, before any power action: the TalosNode the host's hand-off (or
+// the claim's record) names. It returns no steps, and wipes false, when that
+// node is gone or the executor runs none of its steps; the caller then marks
+// the host as not wiped. reason is set when a control plane may not leave
+// etcd now. resetMode is the Talos reset's mode ("" wipes every disk).
+func (r *HostClaimReconciler) nodeExit(ctx context.Context, claim *metalv1alpha1.HostClaim, host *metalv1alpha1.Host, opName, resetMode string) (
+	steps []metalv1alpha1.HostOperationAction, wipes bool, nodeName, cluster, reason, msg string, err error) {
+	switch {
+	case host.Spec.OS != nil:
+		nodeName = host.Spec.OS.NodeRef.Name
+	case claim.Status.HandOff != nil && claim.Status.HandOff.Host == host.Name:
+		nodeName = claim.Status.HandOff.Node
+	}
+	cluster = "unknown-cluster"
+	if nodeName == "" {
+		return nil, false, "", cluster, "", "", nil
+	}
+	node := &osv1alpha1.TalosNode{}
+	if err := r.Get(ctx, client.ObjectKey{Name: nodeName}, node); err != nil {
+		return nil, false, nodeName, cluster, "", "", client.IgnoreNotFound(err)
+	}
+	cluster = node.Spec.ClusterRef.Name
+	member, reason, msg, err := r.etcdExitGuard(ctx, claim, node, opName)
+	if err != nil || reason != "" {
+		return nil, false, nodeName, cluster, reason, msg, err
+	}
+	if s, w, ok := r.exitSteps(node, member, resetMode); ok {
+		steps, wipes = s, w
+	}
+	return steps, wipes, nodeName, cluster, "", "", nil
+}
+
+// describeRelease says in a clause what an approved release does.
+func (r *HostClaimReconciler) describeRelease(op *metalv1alpha1.HostOperation) string {
+	var parts []string
+	for _, a := range op.Spec.Actions {
+		switch {
+		case a.Drain != nil:
+			parts = append(parts, "drains node "+a.Drain.NodeRef.Name)
+		case a.EtcdLeave != nil:
+			parts = append(parts, "takes it out of etcd")
+		case a.EtcdRemoveMember != nil:
+			parts = append(parts, fmt.Sprintf("removes its etcd member %s through a peer", a.EtcdRemoveMember.MemberID))
+		case a.TalosReset != nil:
+			parts = append(parts, "wipes the machine through Talos")
+		case a.DeleteKubernetesNode != nil:
+			parts = append(parts, "deletes its Kubernetes Node")
+		case a.PowerOff != nil && a.PowerOff.GracefulTimeoutSeconds > 0:
+			parts = append(parts, fmt.Sprintf("shuts the machine down (forced off after %s)", r.releaseShutdownTimeout()))
+		case a.PowerOff != nil:
+			parts = append(parts, "powers it off")
+		}
+	}
+	parts = append(parts, "ejects its media")
+	s := strings.Join(parts, ", ")
+	if !wipesDisk(op) {
+		s += "; its disk is not wiped, so the host is marked for a wipe (pk-metal wipe " + op.Spec.HostRef.Name + ") before it is used again"
+	}
+	return s
 }
 
 // releaseNeedsPerson: the release of host waits for a person. It does when
