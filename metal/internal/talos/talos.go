@@ -29,8 +29,9 @@ var ErrAlreadyBootstrapped = errors.New("etcd is already bootstrapped")
 // (members, status, snapshot, a dry-run apply) need no approval.
 type Client interface {
 	// ApplyConfiguration submits a machine config. The zero ApplyOptions is
-	// AUTO mode: the container platform applies without a reboot, metal
-	// reboots into the config. With DryRun the node validates the config and
+	// AUTO mode: the node applies without a reboot when every change can be
+	// applied live, and reboots otherwise; the result's Mode says which.
+	// With DryRun the node validates the config and
 	// reports, in the result's Details, the diff and the mode it would use,
 	// and changes nothing.
 	ApplyConfiguration(ctx context.Context, machineConfig []byte, opts ApplyOptions) (ApplyResult, error)
@@ -73,9 +74,13 @@ type Client interface {
 	Shutdown(ctx context.Context, opts ShutdownOptions) error
 	// Reset wipes the node back towards maintenance mode: with Graceful a
 	// control plane leaves etcd and the node is cordoned and drained first.
+	// The node answers at once and resets afterwards, so the call returning
+	// says only that the request arrived.
 	Reset(ctx context.Context, opts ResetOptions) error
-	// Upgrade installs another Talos image on the node and, unless Stage
-	// is set, reboots into it. It returns the node's acknowledgement.
+	// Upgrade installs another Talos image on the node and reboots into it.
+	// With Stage the node writes the image to META and reboots at once; the
+	// upgrade runs early in the next boot. It returns the node's
+	// acknowledgement.
 	Upgrade(ctx context.Context, opts UpgradeOptions) (string, error)
 	// BootTime is when the node's kernel last booted. It moves forward
 	// exactly when the machine restarted, whatever the path (kexec, warm
@@ -209,12 +214,14 @@ type ShutdownOptions struct {
 type WipeMode string
 
 const (
-	// WipeAll wipes the system disk and the user disks. The zero value,
-	// as in the machine API.
+	// WipeAll wipes the system disk and the disks named in
+	// ResetOptions.UserDisks. The zero value, as in the machine API.
 	WipeAll WipeMode = ""
-	// WipeSystemDisk wipes only the system disk.
+	// WipeSystemDisk wipes only the system disk; Talos refuses UserDisks
+	// with it.
 	WipeSystemDisk WipeMode = "system-disk"
-	// WipeUserDisks wipes only the user disks.
+	// WipeUserDisks wipes only the disks named in ResetOptions.UserDisks.
+	// Talos finds no user disk by itself: with none named it wipes nothing.
 	WipeUserDisks WipeMode = "user-disks"
 )
 
@@ -230,7 +237,9 @@ type ResetOptions struct {
 	// SystemPartitions limits the wipe to these partition labels (STATE,
 	// EPHEMERAL, META); empty wipes what Mode names.
 	SystemPartitions []string
-	// UserDisks are extra disks (device paths) to wipe.
+	// UserDisks are the data disks (device paths, /dev/sdb) to wipe, in
+	// mode WipeAll or WipeUserDisks. Talos refuses a path it does not know,
+	// a read-only disk and the system disk.
 	UserDisks []string
 }
 
@@ -246,8 +255,9 @@ const (
 type UpgradeOptions struct {
 	// Image is the installer image reference, pinned by digest.
 	Image string
-	// Stage writes the image and upgrades at the next reboot, for a node
-	// whose open files would otherwise block the upgrade.
+	// Stage writes the image to META and reboots now; the upgrade runs
+	// early in the next boot, for a node whose open files would otherwise
+	// block it. Talos does not cordon or drain the node in this mode.
 	Stage bool
 	// Preserve keeps the EPHEMERAL partition. Talos 1.8 and later always
 	// preserve; the field is passed through for older nodes.

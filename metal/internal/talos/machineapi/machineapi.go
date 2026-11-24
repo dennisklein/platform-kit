@@ -381,6 +381,8 @@ func (m *conn) Upgrade(ctx context.Context, opts talos.UpgradeOptions) (string, 
 	// whose Upgrade only installs to disk: it has no stage, force or reboot
 	// mode, so the caller would sequence the reboot itself. Talos 1.14 still
 	// serves the machine-service call, which does it all in one request.
+	// The API marks it for removal in Talos v1.18: by then the upgrade step
+	// moves to LifecycleService.Upgrade followed by its own Reboot.
 	resp, err := m.c.UpgradeWithOptions(ctx, //nolint:staticcheck // see above: LifecycleService lacks stage/reboot
 		client.WithUpgradeImage(opts.Image),
 		client.WithUpgradeStage(opts.Stage),
