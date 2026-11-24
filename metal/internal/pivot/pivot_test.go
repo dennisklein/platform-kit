@@ -159,7 +159,7 @@ func TestManagerForTarget(t *testing.T) {
 		{Name: "manager", Image: "old:1", Args: []string{"--leader-elect", "--media-url=https://10.0.0.1:30443"}},
 		{Name: "sidecar", Image: "side:1", Args: []string{"--media-url=keep"}},
 	}
-	d := managerForTarget(src, "registry.example/pk-metal:2", "https://10.0.0.11:30443")
+	d := managerForTarget(src, "registry.example/pk-metal:2", "https://10.0.0.11:30443", nil)
 	assert.Equal(t, int32(0), *d.Spec.Replicas)
 	assert.NotContains(t, d.Annotations, "deployment.kubernetes.io/revision")
 	assert.Equal(t, "registry.example/pk-metal:2", d.Spec.Template.Spec.Containers[0].Image)
@@ -167,7 +167,7 @@ func TestManagerForTarget(t *testing.T) {
 	assert.Equal(t, "side:1", d.Spec.Template.Spec.Containers[1].Image, "only the manager container changes")
 	assert.Equal(t, int32(1), *src.Spec.Replicas, "the source object is not changed")
 
-	d = managerForTarget(src, "", "")
+	d = managerForTarget(src, "", "", nil)
 	assert.Equal(t, "old:1", d.Spec.Template.Spec.Containers[0].Image)
 	assert.Equal(t, "https://10.0.0.1:30443", argValue(d, "--media-url"))
 }

@@ -22,6 +22,13 @@ func TestConfirmPivot(t *testing.T) {
 	assert.Contains(t, out.String(), "Move? [y/N]")
 
 	out.Reset()
+	withStore := *plan
+	withStore.Claims = []pivot.ClaimMove{{Volume: "media-store", Name: "pk-metal-media-store", Action: pivot.ClaimEphemeral}}
+	require.NoError(t, confirmPivot(&out, strings.NewReader(""), &withStore, "kind", "mgmt", true, false))
+	assert.Contains(t, out.String(), "The volumes the operator mounts, on mgmt:")
+	assert.Contains(t, out.String(), "PersistentVolumeClaim pk-metal-media-store is replaced by an emptyDir")
+
+	out.Reset()
 	require.ErrorIs(t, confirmPivot(&out, strings.NewReader("\n"), plan, "kind", "mgmt", false, true), errDeclined)
 
 	err := confirmPivot(&out, strings.NewReader(""), plan, "kind", "mgmt", false, false)

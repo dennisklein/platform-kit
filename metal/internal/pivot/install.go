@@ -32,7 +32,8 @@ var operatorGroups = []string{metalv1alpha1.GroupVersion.Group, osv1alpha1.Group
 // server. The order is the one a fresh install needs: the CRDs (and the wait
 // until they are served), the admission policies, the cluster-wide RBAC, the
 // operator namespace, and in it the service account, roles, the policies'
-// parameters, the Services and the manager's Deployment at zero replicas.
+// parameters, the Services, the claims the manager mounts (empty: their
+// contents do not move) and the manager's Deployment at zero replicas.
 // Every object is applied server-side, so a rerun changes only what differs.
 func (m *Mover) Install(ctx context.Context) error {
 	o := m.Options
@@ -209,11 +210,24 @@ func (m *Mover) Install(ctx context.Context) error {
 			return err
 		}
 	}
+	claims, err := m.claimMoves(ctx)
+	if err != nil {
+		return err
+	}
+	for _, c := range claims {
+		if c.Action != ClaimCreate {
+			continue
+		}
+		if err := m.applyTyped(ctx, targetClaim(c), "PersistentVolumeClaim"); err != nil {
+			return err
+		}
+		m.logf("made PersistentVolumeClaim %s/%s, empty", o.Namespace, c.Name)
+	}
 	d := &appsv1.Deployment{}
 	if err := src.Get(ctx, client.ObjectKey{Namespace: o.Namespace, Name: o.Deployment}, d); err != nil {
 		return err
 	}
-	if err := m.applyTyped(ctx, managerForTarget(d, o.Image, o.MediaURL), "Deployment"); err != nil {
+	if err := m.applyTyped(ctx, managerForTarget(d, o.Image, o.MediaURL, claims), "Deployment"); err != nil {
 		return err
 	}
 	m.logf("installed the operator in namespace %s (Deployment %s at 0 replicas)", o.Namespace, o.Deployment)
@@ -222,12 +236,27 @@ func (m *Mover) Install(ctx context.Context) error {
 
 // managerForTarget is the source's Deployment as the target runs it: at zero
 // replicas until the state is copied, with the image and media URL the
-// target needs.
-func managerForTarget(src *appsv1.Deployment, image, mediaURL string) *appsv1.Deployment {
+// target needs. A claim made ephemeral becomes an emptyDir, and the manager
+// no longer names it to the imager Jobs: they are other pods and could not
+// write into it. A claim copied keeps its name, so the flag that names it
+// stays right.
+func managerForTarget(src *appsv1.Deployment, image, mediaURL string, claims []ClaimMove) *appsv1.Deployment {
 	d := src.DeepCopy()
 	zero := int32(0)
 	d.Spec.Replicas = &zero
 	delete(d.Annotations, "deployment.kubernetes.io/revision")
+	var ephemeral []string
+	for _, c := range claims {
+		if c.Action != ClaimEphemeral {
+			continue
+		}
+		ephemeral = append(ephemeral, c.Name)
+		for i := range d.Spec.Template.Spec.Volumes {
+			if v := &d.Spec.Template.Spec.Volumes[i]; v.Name == c.Volume {
+				v.VolumeSource = ephemeralVolume(c)
+			}
+		}
+	}
 	for i := range d.Spec.Template.Spec.Containers {
 		c := &d.Spec.Template.Spec.Containers[i]
 		if c.Name != "manager" {
@@ -240,6 +269,10 @@ func managerForTarget(src *appsv1.Deployment, image, mediaURL string) *appsv1.De
 			c.Args = slices.DeleteFunc(c.Args, func(a string) bool { return strings.HasPrefix(a, "--media-url=") })
 			c.Args = append(c.Args, "--media-url="+mediaURL)
 		}
+		c.Args = slices.DeleteFunc(c.Args, func(a string) bool {
+			v, ok := strings.CutPrefix(a, storeClaimFlag+"=")
+			return ok && slices.Contains(ephemeral, v)
+		})
 	}
 	return d
 }

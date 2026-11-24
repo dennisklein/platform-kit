@@ -1,6 +1,7 @@
 package pivot
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -120,10 +121,11 @@ func (m *Mover) Start(ctx context.Context) error {
 }
 
 // WaitRunning waits until the target manager is available and holds its
-// leader lease.
+// leader lease. When it gives up, it names a claim that has not bound: the
+// usual reason a manager pod does not start on a cluster without storage.
 func (m *Mover) WaitRunning(ctx context.Context) error {
 	o := m.Options
-	return m.wait(ctx, "the manager on "+m.Target.Name+" to run and lead", func(ctx context.Context) (bool, error) {
+	err := m.wait(ctx, "the manager on "+m.Target.Name+" to run and lead", func(ctx context.Context) (bool, error) {
 		d := &appsv1.Deployment{}
 		if err := m.Target.Client.Get(ctx, client.ObjectKey{Namespace: o.Namespace, Name: o.Deployment}, d); err != nil {
 			return false, err
@@ -134,6 +136,30 @@ func (m *Mover) WaitRunning(ctx context.Context) error {
 		free, err := leaseFree(ctx, m.Target.Client, o.Namespace, time.Now())
 		return !free, err
 	})
+	if err != nil {
+		if hint := m.unboundClaims(context.WithoutCancel(ctx)); hint != "" {
+			err = fmt.Errorf("%w\n%s", err, hint)
+		}
+	}
+	return err
+}
+
+// unboundClaims names the claims in the operator namespace of the target that
+// have not bound, and how to look at them; "" when there are none.
+func (m *Mover) unboundClaims(ctx context.Context) string {
+	o := m.Options
+	pvcs := &corev1.PersistentVolumeClaimList{}
+	if err := m.Target.Client.List(ctx, pvcs, client.InNamespace(o.Namespace)); err != nil {
+		return ""
+	}
+	var lines []string
+	for _, p := range pvcs.Items {
+		if p.Status.Phase != corev1.ClaimBound {
+			lines = append(lines, fmt.Sprintf("PersistentVolumeClaim %s/%s is %s, and the manager pod does not start until it binds: "+
+				"kubectl -n %s describe pvc %s (on %s)", o.Namespace, p.Name, cmp.Or(string(p.Status.Phase), "not bound"), o.Namespace, p.Name, m.Target.Name))
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // Verify compares the target with what the copy left there, and lists what

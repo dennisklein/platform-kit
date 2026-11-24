@@ -5,12 +5,13 @@
 //
 // A move is a sequence of steps, each safe to run again:
 //
-//  1. Preflight: nothing runs or waits on the source, and the target runs no
-//     manager of its own.
+//  1. Preflight: nothing runs or waits on the source, the target runs no
+//     manager of its own, and it can give the manager the volumes it mounts.
 //  2. Pause: the source manager is scaled to zero, and the move waits until
 //     no manager pod runs and the leader lease is free.
 //  3. Install: the operator's own objects (CRDs, admission policies, RBAC,
-//     namespace, Deployment at zero replicas) are copied from the source.
+//     namespace, the claims the manager mounts, Deployment at zero replicas)
+//     are copied from the source. A claim's contents do not move.
 //  4. Copy: the operator's state is copied in dependency order, status
 //     included, with every UID reference rewritten to the target's UIDs.
 //  5. Start: the target manager is scaled up.
@@ -99,6 +100,9 @@ type Options struct {
 	// MediaURL replaces the manager's --media-url on the target; empty keeps
 	// the source's.
 	MediaURL string
+	// Claims says what happens to the PersistentVolumeClaims the manager
+	// mounts (the media store); empty is ClaimsCopy.
+	Claims ClaimsMode
 	// ForceWaiting moves operations that still wait for approval; they wait
 	// on the target instead.
 	ForceWaiting bool

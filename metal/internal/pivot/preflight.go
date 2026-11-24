@@ -32,6 +32,9 @@ type Plan struct {
 	// Reachable lists what must be reachable at the target, for the
 	// person to check: the move cannot test it.
 	Reachable []string
+	// Claims are the PersistentVolumeClaims the manager mounts, and how
+	// each gets to the target.
+	Claims []ClaimMove
 }
 
 // opState is how far one operation got, from its conditions and baseline.
@@ -141,6 +144,9 @@ func (m *Mover) Preflight(ctx context.Context) (*Plan, error) {
 				m.Target.Name, held, m.Source.Name)
 		}
 		plan.Prune = true
+	}
+	if plan.Claims, err = m.claimMoves(ctx); err != nil {
+		return nil, err
 	}
 	if plan.Reachable, err = m.reachability(ctx); err != nil {
 		return nil, err

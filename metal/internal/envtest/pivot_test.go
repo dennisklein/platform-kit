@@ -21,7 +21,9 @@ import (
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -123,12 +125,27 @@ func TestPivot(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app.kubernetes.io/name": "pk-metal"}},
 				Spec: corev1.PodSpec{ServiceAccountName: "pk-metal-manager", Containers: []corev1.Container{{
 					Name: "manager", Image: "registry.example/pk-metal:v1",
-					Args: []string{"--leader-elect", "--media-url=https://192.0.2.1:30443"},
-				}}},
+					Args: []string{"--leader-elect", "--media-url=https://192.0.2.1:30443",
+						"--media-store=/var/lib/pk-metal/media", "--media-store-claim=pk-metal-media-store"},
+					VolumeMounts: []corev1.VolumeMount{{Name: "media-store", MountPath: "/var/lib/pk-metal/media"}},
+				}}, Volumes: []corev1.Volume{{Name: "media-store", VolumeSource: corev1.VolumeSource{
+					PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "pk-metal-media-store"},
+				}}}},
 			},
 		},
 	}
 	require.NoError(t, cl.Create(ctx, deploy))
+	// The media store's claim, bound on the bootstrap cluster to a volume of
+	// its own class (kind's local-path).
+	require.NoError(t, cl.Create(ctx, &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: "pk-metal-media-store", Namespace: ns},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources:        corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("10Gi")}},
+			StorageClassName: ptr.To("standard"),
+			VolumeName:       "pvc-on-kind",
+		},
+	}))
 	ensureNamespace(t, ctx, cl, claimNS)
 	require.NoError(t, cl.Create(ctx, &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "bmc-creds", Namespace: ns},
@@ -309,8 +326,20 @@ func TestPivot(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// A bare Talos cluster has no storage: the move refuses before it
+	// stops anything, and says how to go on.
+	_, err = mover.Preflight(ctx)
+	require.ErrorContains(t, err, "--media-store=ephemeral")
+	require.NoError(t, dst.cl.Create(ctx, &storagev1.StorageClass{
+		ObjectMeta: metav1.ObjectMeta{Name: "local-path",
+			Annotations: map[string]string{"storageclass.kubernetes.io/is-default-class": "true"}},
+		Provisioner: "rancher.io/local-path",
+	}))
+
 	plan, err := mover.Preflight(ctx)
 	require.NoError(t, err)
+	require.Len(t, plan.Claims, 1)
+	assert.Equal(t, pivot.ClaimCreate, plan.Claims[0].Action)
 	assert.False(t, plan.Resume)
 	assert.False(t, plan.Prune)
 	require.NotEmpty(t, plan.Reachable)
@@ -318,6 +347,22 @@ func TestPivot(t *testing.T) {
 
 	require.NoError(t, mover.Pause(ctx))
 	require.NoError(t, mover.Install(ctx))
+	t.Run("the media store's claim is made from its request", func(t *testing.T) {
+		pvc := &corev1.PersistentVolumeClaim{}
+		require.NoError(t, dst.cl.Get(ctx, client.ObjectKey{Namespace: ns, Name: "pk-metal-media-store"}, pvc))
+		assert.Equal(t, []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}, pvc.Spec.AccessModes)
+		assert.True(t, resource.MustParse("10Gi").Equal(pvc.Spec.Resources.Requests[corev1.ResourceStorage]))
+		assert.Empty(t, pvc.Spec.VolumeName, "the bootstrap cluster's volume stays there")
+		if pvc.Spec.StorageClassName != nil {
+			assert.Equal(t, "local-path", *pvc.Spec.StorageClassName, "the target's default, never the source's class")
+		}
+		d := &appsv1.Deployment{}
+		require.NoError(t, dst.cl.Get(ctx, client.ObjectKey{Namespace: ns, Name: "pk-metal-manager"}, d))
+		require.NotNil(t, d.Spec.Template.Spec.Volumes[0].PersistentVolumeClaim)
+		assert.Contains(t, d.Spec.Template.Spec.Containers[0].Args, "--media-store-claim=pk-metal-media-store",
+			"the imager Jobs mount the claim the manager does")
+		require.NoError(t, mover.Install(ctx), "a second install leaves the claim as it is")
+	})
 	rep, err := mover.Copy(ctx, plan)
 	require.NoError(t, err)
 	assert.Equal(t, 1, rep.Copied["HostClaim"])

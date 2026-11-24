@@ -28,7 +28,8 @@ The steps:
   1. Check: no operation runs or waits for approval, and the other cluster
      runs no pk-metal operator.
   2. Stop the operator here (scale it to zero) and wait until it has stopped.
-  3. Install the operator there: CRDs, admission policies, RBAC, namespace.
+  3. Install the operator there: CRDs, admission policies, RBAC, namespace,
+     and the media store's PersistentVolumeClaim, empty (see --media-store).
   4. Copy the operator's objects there, with their status: machines, BMCs,
      claims, operations, Talos clusters and nodes, and the Secrets in the
      pk-metal namespace.
@@ -38,6 +39,14 @@ The steps:
 The operator here stays stopped, and its objects stay. Nothing on the
 machines changes. pivot prints what the new cluster must be able to reach
 (BMCs, Talos API, media service); check it before you approve.
+
+The media store (a PersistentVolumeClaim the operator keeps the installers
+for one-slot BMCs in) needs storage on the other cluster: the claim there
+already, or a default StorageClass to make it from. Its files do not move;
+the operator builds the installers it needs again. A cluster without storage
+is refused, unless --media-store=ephemeral: the operator there then mounts an
+emptyDir, which starts empty and is lost on every restart, and it builds no
+installer for a one-slot BMC until the claim exists.
 
 Run pivot again after a failure: it continues where it stopped. To move back,
 run pivot from the new cluster with --to naming the old one.
@@ -53,6 +62,8 @@ func pivotCmd(args []string) {
 	toContext := fs.String("to-context", "", "context in the --to kubeconfig (default: its current context)")
 	image := fs.String("image", "", "manager image on the new cluster (default: the image the operator runs now)")
 	mediaURL := fs.String("media-url", "", "address the BMCs fetch boot media from on the new cluster, for example https://<node address>:30443 (default: the current one)")
+	mediaStore := fs.String("media-store", string(pivot.ClaimsCopy),
+		"what the media store becomes on the new cluster: copy (a claim made there from its StorageClass, or the one already there) or ephemeral (an emptyDir: no installer for a one-slot BMC is built there)")
 	forceWaiting := fs.Bool("force-waiting", false, "move operations that wait for approval; they wait on the new cluster instead")
 	settle := fs.Duration("settle", 90*time.Second, "how long to watch the new operator for operations it must not propose")
 	timeout := fs.Duration("timeout", 5*time.Minute, "how long to wait for each step")
@@ -64,6 +75,10 @@ func pivotCmd(args []string) {
 	}
 	if *to == "" {
 		badUsage(fs, "--to is required: the kubeconfig of the cluster to move to")
+	}
+	claims := pivot.ClaimsMode(*mediaStore)
+	if claims != pivot.ClaimsCopy && claims != pivot.ClaimsEphemeral {
+		badUsage(fs, fmt.Sprintf("--media-store is copy or ephemeral, not %q", *mediaStore))
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -86,7 +101,7 @@ func pivotCmd(args []string) {
 		die(err)
 	}
 	m, err := pivot.New(ctx, source, target, pivot.Options{
-		Image: *image, MediaURL: *mediaURL, ForceWaiting: *forceWaiting,
+		Image: *image, MediaURL: *mediaURL, Claims: claims, ForceWaiting: *forceWaiting,
 		Settle: *settle, Timeout: *timeout, Log: prefixed{os.Stdout},
 	})
 	if err != nil {
@@ -117,6 +132,12 @@ func confirmPivot(out io.Writer, in io.Reader, plan *pivot.Plan, src, dst string
 	fmt.Fprintf(out, "From %s, the operator must reach (pivot cannot test this):\n", dst)
 	for _, line := range plan.Reachable {
 		fmt.Fprintf(out, "  - %s\n", line)
+	}
+	if len(plan.Claims) > 0 {
+		fmt.Fprintf(out, "\nThe volumes the operator mounts, on %s:\n", dst)
+		for _, c := range plan.Claims {
+			fmt.Fprintf(out, "  - %s\n", c)
+		}
 	}
 	if plan.Prune {
 		fmt.Fprintf(out, "\n%s holds an older copy of the operator's objects; objects that %s no longer has are removed from it.\n", dst, src)
