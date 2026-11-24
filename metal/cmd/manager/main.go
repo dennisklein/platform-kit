@@ -11,8 +11,10 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"time"
@@ -52,98 +54,45 @@ var version = "dev"
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch,namespace=pk-metal
 
 func main() {
-	var (
-		ledgerPath   string
-		credsNS      string
-		caSecret     string
-		bmcInsecure  bool
-		poll         time.Duration
-		imageFactory string
-		registryCA   string
-		metricsAddr  string
-		probeAddr    string
-		leaderElect  bool
-		mediaListen  string
-		mediaURL     string
-		mediaCert    string
-		checkIn      time.Duration
-		shutdown     time.Duration
-	)
-	flag.StringVar(&ledgerPath, "ledger", "",
-		"path to the ledger file (required): YAML that maps each BMC MAC address to the BMC's https URL; entries that do not parse are logged and skipped")
-	flag.StringVar(&credsNS, "credentials-namespace", "pk-metal",
-		"namespace for the operator's Secrets: BMC logins and CAs are read from it, and node configs and cluster credentials are written to it")
-	flag.StringVar(&caSecret, "bmc-ca-secret", "",
-		"Secret (key ca.crt) with the CA that signed your BMCs' HTTPS certificates; empty trusts the system CAs")
-	flag.StringVar(&imageFactory, "image-factory", render.PublicFactory,
-		"host of the Talos image factory that builds and serves install images; a self-hosted factory works the same way")
-	flag.StringVar(&registryCA, "registry-ca", "",
-		"PEM file with the CA of the registry that serves firmware images; empty trusts the system CAs")
-	flag.BoolVar(&bmcInsecure, "bmc-insecure", false,
-		"accept any BMC certificate without checking it; for simulated BMCs in a lab only")
-	flag.DurationVar(&poll, "poll-interval", 5*time.Minute, "how often each BMC is asked again what it reports")
-	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "metrics address ('0' disables)")
-	flag.StringVar(&probeAddr, "health-probe-bind-address", "0", "health probe address ('0' disables)")
-	flag.BoolVar(&leaderElect, "leader-elect", false, "enable leader election")
-	flag.StringVar(&mediaListen, "media-listen", ":8443",
-		"address the media service listens on (HTTPS); BMCs download boot images from it")
-	flag.StringVar(&mediaURL, "media-url", "",
-		"https://host[:port] at which BMCs reach the media service (a NodePort or a load balancer); empty turns the media service off, and with it installing machines")
-	flag.StringVar(&mediaCert, "media-cert-secret", "",
-		"Secret (keys tls.crt, tls.key) with the media service's certificate; empty uses a self-signed one made at start-up (BMCs do not check it)")
-	flag.DurationVar(&checkIn, "checkin-timeout", 30*time.Minute,
-		"how long an install waits for the machine to come up and answer before it fails")
-	flag.DurationVar(&shutdown, "release-shutdown-timeout", 5*time.Minute,
-		"when a HostClaim is deleted, how long its machine's OS gets to shut down before the machine is forced off")
-	showVersion := flag.Bool("version", false, "print the build version and exit")
-	flag.Parse()
-
-	if *showVersion {
-		fmt.Println(version)
+	c, err := parseFlags(os.Args[1:], os.Stderr)
+	if errors.Is(err, flag.ErrHelp) {
 		return
 	}
-	if ledgerPath == "" {
-		fmt.Fprintln(os.Stderr, "manager: --ledger is required")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "manager:", err)
 		os.Exit(2)
 	}
-	// The release operation carries it in seconds, and its schema allows an hour.
-	if shutdown < time.Second || shutdown > time.Hour {
-		fmt.Fprintln(os.Stderr, "manager: --release-shutdown-timeout must be between 1s and 1h")
-		os.Exit(2)
+	if c.showVersion {
+		fmt.Println(version)
+		return
 	}
 
 	ctrl.SetLogger(zap.New())
 	log := ctrl.Log.WithName("manager")
 
-	led, err := ledger.Load(ledgerPath)
+	led, err := ledger.Load(c.ledgerPath)
 	if err != nil {
 		log.Error(err, "load ledger")
 		os.Exit(1)
 	}
-	log.Info("ledger loaded", "path", ledgerPath, "entries", led.Len(), "version", version)
+	log.Info("ledger loaded", "path", c.ledgerPath, "entries", led.Len(), "version", version)
 	// A bad line is skipped, not fatal: the other machines keep being managed,
 	// and an Asset naming a skipped MAC says so in its Materialized condition.
 	for _, p := range led.Problems() {
-		log.Error(fmt.Errorf("%s", p), "ledger entry skipped; fix it in the ledger ConfigMap and restart the manager", "path", ledgerPath)
+		log.Error(fmt.Errorf("%s", p), "ledger entry skipped; fix it in the ledger ConfigMap and restart the manager", "path", c.ledgerPath)
 	}
 
 	// One factory for both lanes: the boot medium's URL and the installer image
 	// inside a rendered config have to name the same one, or a node installs
 	// from somewhere nobody registered a schematic with.
-	factory := render.NewFactory(imageFactory)
-	log.Info("image factory", "host", imageFactory)
+	factory := render.NewFactory(c.imageFactory)
+	log.Info("image factory", "host", c.imageFactory)
 
-	var tlsDefault *metalv1alpha1.EndpointTLS
-	switch {
-	case caSecret != "":
-		tlsDefault = &metalv1alpha1.EndpointTLS{CASecretRef: &corev1.LocalObjectReference{Name: caSecret}}
-	case bmcInsecure:
-		tlsDefault = &metalv1alpha1.EndpointTLS{InsecureSkipVerify: true}
-	}
+	tlsDefault := c.endpointTLS()
 
 	var registryClient *http.Client
-	if registryCA != "" {
-		pool, err := cert.NewPool(registryCA)
+	if c.registryCA != "" {
+		pool, err := cert.NewPool(c.registryCA)
 		if err != nil {
 			log.Error(err, "load registry CA")
 			os.Exit(1)
@@ -172,36 +121,25 @@ func main() {
 	log.Info("operator identity", "username", proposer)
 
 	var media *asset.Service
-	if mediaURL != "" {
-		cert, err := mediaCertificate(restCfg, scheme, credsNS, mediaCert)
+	if c.mediaURL != "" {
+		cert, err := mediaCertificate(restCfg, scheme, c.credsNS, c.mediaCert)
 		if err != nil {
 			log.Error(err, "media certificate")
 			os.Exit(1)
 		}
-		if media, err = asset.NewService(mediaListen, mediaURL, cert); err != nil {
+		if media, err = asset.NewService(c.mediaListen, c.mediaURL, cert); err != nil {
 			log.Error(err, "media service")
 			os.Exit(1)
 		}
-		log.Info("media service", "listen", mediaListen, "url", mediaURL, "certSecret", mediaCert)
+		log.Info("media service", "listen", c.mediaListen, "url", c.mediaURL, "certSecret", c.mediaCert)
 	}
 
 	mgr, err := ctrl.NewManager(restCfg, ctrl.Options{
-		Scheme: scheme,
-		// Every Secret and ConfigMap the reconcilers read or write lives in the
-		// operator's namespace: credentials, secrets bundles, patches, rendered
-		// configs. Confining the informers to it is what lets those permissions
-		// be a namespaced Role. An unrestricted informer lists and watches the
-		// kind in every namespace and needs a ClusterRole to do it, which for
-		// Secrets means reading every Secret in the cluster.
-		Cache: cache.Options{
-			ByObject: map[client.Object]cache.ByObject{
-				&corev1.Secret{}:    {Namespaces: map[string]cache.Config{credsNS: {}}},
-				&corev1.ConfigMap{}: {Namespaces: map[string]cache.Config{credsNS: {}}},
-			},
-		},
-		Metrics:                metricsserver.Options{BindAddress: metricsAddr},
-		HealthProbeBindAddress: probeAddr,
-		LeaderElection:         leaderElect,
+		Scheme:                 scheme,
+		Cache:                  cacheOptions(c.credsNS),
+		Metrics:                metricsserver.Options{BindAddress: c.metricsAddr},
+		HealthProbeBindAddress: c.probeAddr,
+		LeaderElection:         c.leaderElect,
 		LeaderElectionID:       "pk-metal.metal.pk.io",
 	})
 	if err != nil {
@@ -212,18 +150,18 @@ func main() {
 	// Each TalosCluster names its own secrets bundle (spec.secretsRef); a
 	// cluster whose bundle is missing holds its nodes at SecretsUnavailable.
 	if err := controller.SetupAll(mgr, controller.Options{
-		CredentialsNamespace: credsNS,
-		OperationsNamespace:  credsNS,
+		CredentialsNamespace: c.credsNS,
+		OperationsNamespace:  c.credsNS,
 		Proposer:             proposer,
 		Ledger:               led,
 		// The standard install mounts the ledger from this ConfigMap; the
 		// path is what this process actually read.
-		LedgerSource:           fmt.Sprintf("the ledger (%s, from ledger.yaml in the pk-metal-ledger ConfigMap in namespace %s)", ledgerPath, credsNS),
-		LedgerReload:           fmt.Sprintf("The manager reads the ledger when it starts: after an edit, run kubectl -n %s rollout restart deployment/pk-metal-manager.", credsNS),
+		LedgerSource:           fmt.Sprintf("the ledger (%s, from ledger.yaml in the pk-metal-ledger ConfigMap in namespace %s)", c.ledgerPath, c.credsNS),
+		LedgerReload:           fmt.Sprintf("The manager reads the ledger when it starts: after an edit, run kubectl -n %s rollout restart deployment/pk-metal-manager.", c.credsNS),
 		TLS:                    tlsDefault,
-		PollInterval:           poll,
-		CheckInTimeout:         checkIn,
-		ReleaseShutdownTimeout: shutdown,
+		PollInterval:           c.poll,
+		CheckInTimeout:         c.checkIn,
+		ReleaseShutdownTimeout: c.shutdown,
 		RegistryClient:         registryClient,
 		Media:                  media,
 		Factory:                factory,
@@ -233,7 +171,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if probeAddr != "0" {
+	if c.probeAddr != "0" {
 		if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 			log.Error(err, "add healthz")
 			os.Exit(1)
@@ -244,7 +182,7 @@ func main() {
 		}
 	}
 
-	log.Info("starting", "credentialsNamespace", credsNS, "pollInterval", poll)
+	log.Info("starting", "credentialsNamespace", c.credsNS, "pollInterval", c.poll)
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		log.Error(err, "manager exited")
 		os.Exit(1)
@@ -279,4 +217,111 @@ func mediaCertificate(cfg *rest.Config, scheme *runtime.Scheme, namespace, name 
 		return tls.Certificate{}, fmt.Errorf("secret %s/%s: %w", namespace, name, err)
 	}
 	return tls.X509KeyPair(sec.Data[corev1.TLSCertKey], sec.Data[corev1.TLSPrivateKeyKey])
+}
+
+// config is what the command line sets.
+type config struct {
+	ledgerPath   string
+	credsNS      string
+	caSecret     string
+	bmcInsecure  bool
+	poll         time.Duration
+	imageFactory string
+	registryCA   string
+	metricsAddr  string
+	probeAddr    string
+	leaderElect  bool
+	mediaListen  string
+	mediaURL     string
+	mediaCert    string
+	checkIn      time.Duration
+	shutdown     time.Duration
+	showVersion  bool
+}
+
+// parseFlags reads the command line. It returns flag.ErrHelp after printing
+// the usage for -h, and an error that names the fix for a value the manager
+// cannot run with.
+func parseFlags(args []string, output io.Writer) (*config, error) {
+	c := &config{}
+	fs := flag.NewFlagSet("manager", flag.ContinueOnError)
+	fs.SetOutput(output)
+	fs.StringVar(&c.ledgerPath, "ledger", "",
+		"path to the ledger file (required): YAML that maps each BMC MAC address to the BMC's https URL; entries that do not parse are logged and skipped")
+	fs.StringVar(&c.credsNS, "credentials-namespace", "pk-metal",
+		"namespace for the operator's Secrets: BMC logins and CAs are read from it, and node configs and cluster credentials are written to it")
+	fs.StringVar(&c.caSecret, "bmc-ca-secret", "",
+		"Secret (key ca.crt) with the CA that signed your BMCs' HTTPS certificates; empty trusts the system CAs")
+	fs.StringVar(&c.imageFactory, "image-factory", render.PublicFactory,
+		"host of the Talos image factory that builds and serves install images; a self-hosted factory works the same way")
+	fs.StringVar(&c.registryCA, "registry-ca", "",
+		"PEM file with the CA of the registry that serves firmware images; empty trusts the system CAs")
+	fs.BoolVar(&c.bmcInsecure, "bmc-insecure", false,
+		"accept any BMC certificate without checking it; for simulated BMCs in a lab only")
+	fs.DurationVar(&c.poll, "poll-interval", 5*time.Minute, "how often each BMC is asked again what it reports")
+	fs.StringVar(&c.metricsAddr, "metrics-bind-address", "0", "metrics address ('0' disables)")
+	fs.StringVar(&c.probeAddr, "health-probe-bind-address", "0", "health probe address ('0' disables)")
+	fs.BoolVar(&c.leaderElect, "leader-elect", false, "enable leader election")
+	fs.StringVar(&c.mediaListen, "media-listen", ":8443",
+		"address the media service listens on (HTTPS); BMCs download boot images from it")
+	fs.StringVar(&c.mediaURL, "media-url", "",
+		"https://host[:port] at which BMCs reach the media service (a NodePort or a load balancer); empty turns the media service off, and with it installing machines")
+	fs.StringVar(&c.mediaCert, "media-cert-secret", "",
+		"Secret (keys tls.crt, tls.key) with the media service's certificate; empty uses a self-signed one made at start-up (BMCs do not check it)")
+	fs.DurationVar(&c.checkIn, "checkin-timeout", 30*time.Minute,
+		"how long an install waits for the machine to come up and answer before it fails")
+	fs.DurationVar(&c.shutdown, "release-shutdown-timeout", 5*time.Minute,
+		"when a HostClaim is deleted, how long its machine's OS gets to shut down before the machine is forced off")
+	fs.BoolVar(&c.showVersion, "version", false, "print the build version and exit")
+	if err := fs.Parse(args); err != nil {
+		return nil, err
+	}
+	if fs.NArg() > 0 {
+		return nil, fmt.Errorf("unexpected argument %q: every setting is a flag, see manager -h", fs.Arg(0))
+	}
+	if c.showVersion {
+		return c, nil
+	}
+	if c.ledgerPath == "" {
+		return nil, errors.New("--ledger is required: the path of the ledger file, e.g. --ledger=/etc/pk-metal/ledger.yaml")
+	}
+	// The release operation carries it in seconds, and its schema allows an hour.
+	if c.shutdown < time.Second || c.shutdown > time.Hour {
+		return nil, fmt.Errorf("--release-shutdown-timeout must be between 1s and 1h, got %s", c.shutdown)
+	}
+	if c.poll <= 0 {
+		return nil, fmt.Errorf("--poll-interval must be positive, got %s", c.poll)
+	}
+	if c.checkIn <= 0 {
+		return nil, fmt.Errorf("--checkin-timeout must be positive, got %s", c.checkIn)
+	}
+	return c, nil
+}
+
+// endpointTLS is the TLS default for BMCs whose endpoint names none: a CA
+// Secret wins over --bmc-insecure, and neither trusts the system CAs (nil).
+func (c *config) endpointTLS() *metalv1alpha1.EndpointTLS {
+	switch {
+	case c.caSecret != "":
+		return &metalv1alpha1.EndpointTLS{CASecretRef: &corev1.LocalObjectReference{Name: c.caSecret}}
+	case c.bmcInsecure:
+		return &metalv1alpha1.EndpointTLS{InsecureSkipVerify: true}
+	}
+	return nil
+}
+
+// cacheOptions confines the Secret and ConfigMap informers to the operator's
+// namespace. Every Secret and ConfigMap the reconcilers read or write lives
+// there: credentials, secrets bundles, patches, rendered configs. The
+// confinement is what lets those permissions be a namespaced Role. An
+// unrestricted informer lists and watches the kind in every namespace and
+// needs a ClusterRole to do it, which for Secrets means reading every Secret
+// in the cluster.
+func cacheOptions(namespace string) cache.Options {
+	return cache.Options{
+		ByObject: map[client.Object]cache.ByObject{
+			&corev1.Secret{}:    {Namespaces: map[string]cache.Config{namespace: {}}},
+			&corev1.ConfigMap{}: {Namespaces: map[string]cache.Config{namespace: {}}},
+		},
+	}
 }
