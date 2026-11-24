@@ -897,11 +897,27 @@ cluster_converged() {
   (( ready == nodes ))
 }
 
+# Prints what failed when a claim is held because its operation failed, or
+# nothing. Such a claim waits for a person (pk-metal retry), so an unattended
+# wait would only run into its deadline.
+failed_operations() {
+  local held
+  held=$(kubectl get hostclaims --all-namespaces --output json | jq -r '
+    [.items[] | select(.status.blockedOn == "OperationFailed")] | length')
+  (( held > 0 )) || return 0
+  kubectl get hostoperations --all-namespaces --output json | jq -r '
+    .items[] | select(.status.phase == "Failed")
+    | "\(.metadata.namespace)/\(.metadata.name): " + (
+        [(.status.steps // [])[] | select((.message // "") != "") | "\(.name // .action // "step"): \(.message)"]
+        + [(.status.conditions // [])[] | select(.status == "False" or .type == "Failed") | "\(.type) \(.reason): \(.message)"]
+        | join("; "))'
+}
+
 # The unattended run: stands in for the person by approving whatever is
 # proposed, and holds until the lab has done what it is for.
 wait_converged() {
   local root=$1 lab_dir=$2 gen=$3 timeout=$4
-  local want cluster_name line last="" deadline=$((SECONDS + timeout))
+  local want cluster_name line failed last="" deadline=$((SECONDS + timeout))
   require_cluster "$lab_dir"
   want=$(lab_value "$gen" NODES)
   cluster_name=$(lab_value "$gen" TALOS_CLUSTER)
@@ -918,6 +934,11 @@ wait_converged() {
       echo "  [$(date '+%F %T %Z')] $line" >&2
       last=$line
     fi
+    failed=$(failed_operations 2>/dev/null || true)
+    [[ -z $failed ]] || die "an operation failed and its claim waits for a person:
+$failed
+  Look at it: mise run lab:status; collect the evidence: mise run lab:collect;
+  retry it: metal/bin/pk-metal retry <claim>"
     (( SECONDS < deadline )) || die "the lab did not converge within ${timeout}s. Last state: $line
   Look at it: mise run lab:status; collect the evidence: mise run lab:collect;
   or wait longer: PK_LAB_WAIT_TIMEOUT=3600 mise run lab:wait"
@@ -1029,7 +1050,7 @@ cluster_vip() {
 # cluster is left to do.
 pivot() {
   local root=$1 lab_dir=$2 gen=$3 cluster=$4 timeout=$5
-  local first second registry ref vip want_hosts want_nodes line last="" deadline=$((SECONDS + timeout))
+  local first second registry ref vip want_hosts want_nodes line failed last="" deadline=$((SECONDS + timeout))
   require_cluster "$lab_dir"
   [[ -n $(lab_value_or "$gen" WORKLOAD_CLUSTER "") ]] || die "the lab has no second cluster to install after the move.
   Bring it up with one: mise run lab:down && PK_LAB_WORKLOAD=1cp+0w mise run lab:up && mise run lab:wait"
@@ -1074,6 +1095,10 @@ pivot() {
       echo "  [$(date '+%F %T %Z')] $line" >&2
       last=$line
     fi
+    failed=$(failed_operations 2>/dev/null || true)
+    [[ -z $failed ]] || die "an operation failed on the operator's new cluster and its claim waits for a person:
+$failed
+  Look at it: mise run lab:status; collect the evidence: mise run lab:collect"
     (( SECONDS < deadline )) || die "TalosCluster $second did not come up within ${timeout}s. Last state: $line
   Look at it: mise run lab:status; collect the evidence: mise run lab:collect"
     sleep 15
