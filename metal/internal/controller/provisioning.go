@@ -158,7 +158,7 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 		// for the old node survives into the new intent.
 		meta.RemoveStatusCondition(&claim.Status.Conditions, metalv1alpha1.ConditionProvisioned)
 		for i := range ops {
-			if opFinished(&ops[i]) || !ops[i].DeletionTimestamp.IsZero() {
+			if ops[i].Finished() || !ops[i].DeletionTimestamp.IsZero() {
 				continue
 			}
 			logf.FromContext(ctx).Info("stopped boot operation of a dropped OS intent", "operation", ops[i].Namespace+"/"+ops[i].Name)
@@ -415,7 +415,7 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 		}
 		set(metav1.ConditionTrue, metalv1alpha1.ReasonHandedOff, fmt.Sprintf("operation %s %s host %s with TalosNode %s", ref, verb, hostName, node.Name))
 		return nil
-	case opAwaitsApproval(current):
+	case current.AwaitsApproval():
 		return hold(metalv1alpha1.ReasonAwaitingOperation, awaitsApprovalMessage(claim, current, "boot", "install"))
 	case ex != nil && ex.Status == metav1.ConditionFalse:
 		return hold(metalv1alpha1.ReasonOperationFailed, fmt.Sprintf(
@@ -579,7 +579,7 @@ func (r *HostClaimReconciler) claimOps(ctx context.Context, claim *metalv1alpha1
 // keep — a superseded plan is not left in front of the approver.
 func (r *HostClaimReconciler) withdraw(ctx context.Context, ops []metalv1alpha1.HostOperation, keep string) error {
 	for i := range ops {
-		if ops[i].Name == keep || !opAwaitsApproval(&ops[i]) {
+		if ops[i].Name == keep || !ops[i].AwaitsApproval() {
 			continue
 		}
 		logf.FromContext(ctx).Info("withdrew obsolete boot proposal", "operation", ops[i].Namespace+"/"+ops[i].Name)
@@ -936,7 +936,7 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 		if powerOff {
 			// A hold stops the release before it is approved: the proposal is
 			// taken back, and none is made. One already running finishes.
-			if held && (op == nil || opAwaitsApproval(op)) {
+			if held && (op == nil || op.AwaitsApproval()) {
 				if op != nil {
 					logf.FromContext(ctx).Info("withdrew release proposal of a held claim", "operation", op.Namespace+"/"+op.Name)
 					if err := r.Delete(ctx, op); client.IgnoreNotFound(err) != nil {
@@ -1001,7 +1001,7 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 			}
 			ex := meta.FindStatusCondition(op.Status.Conditions, metalv1alpha1.ConditionExecuted)
 			switch {
-			case opAwaitsApproval(op):
+			case op.AwaitsApproval():
 				set(metalv1alpha1.ReasonReleasing, fmt.Sprintf(
 					"host %s runs or ran its node, so releasing it waits for a person: the release %s. To go ahead: pk-metal approve %s/%s. "+
 						"To keep the machine running for now: pk-metal hold %s/%s",
@@ -1038,7 +1038,7 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 	// die with them. They go only after the release operations exist, so a
 	// failed pass never loses the record that a boot ran.
 	for i := range provisionOps {
-		if !opFinished(&provisionOps[i]) && provisionOps[i].DeletionTimestamp.IsZero() {
+		if !provisionOps[i].Finished() && provisionOps[i].DeletionTimestamp.IsZero() {
 			if err := r.Delete(ctx, &provisionOps[i]); client.IgnoreNotFound(err) != nil {
 				return false, err
 			}
@@ -1086,7 +1086,7 @@ func (r *HostClaimReconciler) bootRanUncached(ctx context.Context, claim *metalv
 	}
 	for i := range ops.Items {
 		op := &ops.Items[i]
-		if op.Spec.HostRef.Name != hostName || opFinished(op) {
+		if op.Spec.HostRef.Name != hostName || op.Finished() {
 			continue
 		}
 		uid, rv := op.UID, op.ResourceVersion

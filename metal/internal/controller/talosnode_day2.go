@@ -121,7 +121,7 @@ func (r *TalosNodeReconciler) collectConfigSecrets(ctx context.Context, node *os
 	}
 	for i := range ops.Items {
 		op := &ops.Items[i]
-		if opFinished(op) {
+		if op.Finished() {
 			continue
 		}
 		for _, a := range op.Spec.Actions {

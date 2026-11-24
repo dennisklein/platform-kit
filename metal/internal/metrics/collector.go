@@ -171,7 +171,7 @@ func (c *Collector) operations(ctx context.Context, ch chan<- prometheus.Metric,
 		switch {
 		case op.Status.Phase == metalv1alpha1.OperationFailed:
 			gauge(ch, descOperationFailed, 1, labels...)
-		case awaitingApproval(op):
+		case op.AwaitsApproval():
 			gauge(ch, descAwaitingApproval, now.Sub(op.CreationTimestamp.Time).Seconds(), labels...)
 		case op.Status.BlockedOn != "":
 			gauge(ch, descOperationBlocked, 1, append(labels[:3:3], op.Status.BlockedOn)...)
@@ -203,17 +203,6 @@ func currentStep(op *metalv1alpha1.HostOperation) (step string, since time.Time,
 		return "", time.Time{}, false
 	}
 	return op.Spec.Actions[i].Key(), since, true
-}
-
-// awaitingApproval mirrors the executor's gate: approval required (the
-// default) and nobody has approved yet.
-func awaitingApproval(op *metalv1alpha1.HostOperation) bool {
-	required := op.Spec.Approval.Required == nil || *op.Spec.Approval.Required
-	if !required || op.Spec.Approval.ApprovedBy != "" {
-		return false
-	}
-	ex := meta.FindStatusCondition(op.Status.Conditions, metalv1alpha1.ConditionExecuted)
-	return ex == nil || ex.Status == metav1.ConditionUnknown
 }
 
 func (c *Collector) endpoints(ctx context.Context, ch chan<- prometheus.Metric) {

@@ -221,7 +221,7 @@ func disruptionVerdict(in disruptionInput) string {
 		}
 		for j := range in.ops {
 			op := &in.ops[j]
-			if op.Spec.HostRef.Name == h.Name && opStarted(op) && !opFinished(op) && disrupts(op) {
+			if op.Spec.HostRef.Name == h.Name && opStarted(op) && !op.Finished() && disrupts(op) {
 				return fmt.Sprintf("%s. It is allowed by annotation, but operation %s/%s is taking down control plane %s right now; "+
 					"control planes of the operator's own cluster go one at a time. This step starts when that one has finished",
 					what, op.Namespace, op.Name, h.Name)

@@ -373,7 +373,7 @@ func (r *HostClaimReconciler) etcdChangeInFlight(ctx context.Context, cluster, s
 	}
 	for i := range ops.Items {
 		op := &ops.Items[i]
-		if op.Name == skip || opFinished(op) || !op.DeletionTimestamp.IsZero() {
+		if op.Name == skip || op.Finished() || !op.DeletionTimestamp.IsZero() {
 			continue
 		}
 		boots := slices.ContainsFunc(op.Spec.Actions, func(a metalv1alpha1.HostOperationAction) bool { return a.AwaitCheckIn != nil })

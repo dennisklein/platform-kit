@@ -358,7 +358,7 @@ func projectOS(host *metalv1alpha1.Host, setCond func(string, metav1.ConditionSt
 func projectApproval(setCond func(string, metav1.ConditionStatus, string, string), ops []metalv1alpha1.HostOperation) {
 	var pending []metalv1alpha1.HostOperation
 	for _, op := range ops {
-		if opAwaitsApproval(&op) {
+		if op.AwaitsApproval() {
 			pending = append(pending, op)
 		}
 	}

@@ -166,7 +166,7 @@ func (g *ClusterGuard) otherControlPlaneDown(ctx context.Context, host *metalv1a
 		}
 		for j := range ops.Items {
 			o := &ops.Items[j]
-			if o.UID != op.UID && o.Spec.HostRef.Name == h.Name && opStarted(o) && !opFinished(o) && disrupts(o) {
+			if o.UID != op.UID && o.Spec.HostRef.Name == h.Name && opStarted(o) && !o.Finished() && disrupts(o) {
 				return fmt.Sprintf("operation %s/%s is taking down control plane %s (host %s) right now", o.Namespace, o.Name, other.Name, h.Name), nil
 			}
 		}

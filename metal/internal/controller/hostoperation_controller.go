@@ -220,7 +220,7 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		r.forget(req.NamespacedName)
 		return ctrl.Result{}, nil
 	}
-	if opFinished(op) {
+	if op.Finished() {
 		r.forget(req.NamespacedName)
 		return r.expire(ctx, op)
 	}
@@ -245,12 +245,12 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			abortMessage(by, "before it started", nil, nil)+"; nothing was done to the machine")
 	}
 
-	if approvalRequired(op) && op.Spec.Approval.ApprovedBy == "" {
+	if op.ApprovalRequired() && op.Spec.Approval.ApprovedBy == "" {
 		setCond(metalv1alpha1.ConditionApproved, metav1.ConditionFalse,
 			metalv1alpha1.ReasonAwaitingApproval, awaitingApprovalMessage(op))
 		return ctrl.Result{}, client.IgnoreNotFound(flush())
 	}
-	if approvalRequired(op) {
+	if op.ApprovalRequired() {
 		setCond(metalv1alpha1.ConditionApproved, metav1.ConditionTrue,
 			metalv1alpha1.ReasonApproved, "approved by "+op.Spec.Approval.ApprovedBy)
 	} else {
@@ -826,12 +826,6 @@ func (r *HostOperationReconciler) revokeGrants(key types.NamespacedName) {
 	}
 }
 
-// opFinished: Succeeded or Failed are terminal — conditions, not phase (lint-phase).
-func opFinished(op *metalv1alpha1.HostOperation) bool {
-	c := meta.FindStatusCondition(op.Status.Conditions, metalv1alpha1.ConditionExecuted)
-	return c != nil && c.Status != metav1.ConditionUnknown
-}
-
 // opSucceeded: finished with every step at its goal.
 func opSucceeded(op *metalv1alpha1.HostOperation) bool {
 	return meta.IsStatusConditionTrue(op.Status.Conditions, metalv1alpha1.ConditionExecuted)
@@ -947,21 +941,9 @@ func actionUsesBMC(a metalv1alpha1.HostOperationAction) bool {
 		a.EjectMedia != nil || a.ApplyBios != nil || a.FlashFirmware != nil || a.StageFirmware != nil
 }
 
-// approvalRequired: nil is a closed gate — the safe default for every client
-// that says nothing (the schema default writes true, but unpersisted or
-// hand-built objects must land the same way).
-func approvalRequired(op *metalv1alpha1.HostOperation) bool {
-	return op.Spec.Approval.Required == nil || *op.Spec.Approval.Required
-}
-
-// opAwaitsApproval: the gate is required and unstamped, and the op is unfinished.
-func opAwaitsApproval(op *metalv1alpha1.HostOperation) bool {
-	return approvalRequired(op) && op.Spec.Approval.ApprovedBy == "" && !opFinished(op)
-}
-
 // opActive: approved and unfinished — holds (or is about to hold) the host.
 func opActive(op *metalv1alpha1.HostOperation) bool {
-	return !opFinished(op) && !opAwaitsApproval(op)
+	return !op.Finished() && !op.AwaitsApproval()
 }
 
 // opStarted: the operation captured its baseline, so it may have touched the
@@ -1220,7 +1202,7 @@ func (r *HostOperationReconciler) opsFor(ctx context.Context, hostName string, s
 	}
 	var reqs []ctrl.Request
 	for i := range ops.Items {
-		if op := &ops.Items[i]; op.UID != skip && !opFinished(op) {
+		if op := &ops.Items[i]; op.UID != skip && !op.Finished() {
 			reqs = append(reqs, ctrl.Request{NamespacedName: types.NamespacedName{
 				Namespace: op.Namespace, Name: op.Name,
 			}})

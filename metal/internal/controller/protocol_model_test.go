@@ -43,8 +43,9 @@ import (
 // a create of an existing object is AlreadyExists, a delete always lands.
 //
 // Every decision the real code makes through a pure helper is made here by
-// that helper, over real API objects built from the model state: opFinished,
-// opAwaitsApproval, opActive, opSucceeded, approvalRequired, hostHolder,
+// that helper, over real API objects built from the model state: the
+// HostOperation methods Finished, AwaitsApproval and ApprovalRequired, and
+// opActive, opSucceeded, hostHolder,
 // bootRan, handedOff, powerOffDecided, heldBy, inMaintenance,
 // releaseNeedsPerson, approvalWaived, disruptionVerdict, and the phase
 // derivations. The control flow around them
@@ -153,7 +154,7 @@ func opObj(o mOp) *metalv1alpha1.HostOperation {
 		setCondition(&op.Status.Conditions, 1, t, s, reason, "")
 	}
 	switch {
-	case approvalRequired(op) && !o.Approved:
+	case op.ApprovalRequired() && !o.Approved:
 		set(metalv1alpha1.ConditionApproved, metav1.ConditionFalse, metalv1alpha1.ReasonAwaitingApproval)
 	default:
 		set(metalv1alpha1.ConditionApproved, metav1.ConditionTrue, metalv1alpha1.ReasonApproved)
@@ -422,7 +423,7 @@ func claimPass(s state, v view, mask uint8) *pass {
 func (p *pass) provision(v view, claim mClaim, host mHost) {
 	boot := v.Ops[slotBoot]
 	withdraw := func() {
-		if boot.Exists && opAwaitsApproval(opObj(boot)) {
+		if boot.Exists && opObj(boot).AwaitsApproval() {
 			p.delete(slotBoot)
 		}
 	}
@@ -475,14 +476,14 @@ func (p *pass) release(v view) {
 			live := p.next.Ops[slotBoot]
 			if live.Exists && bootRan([]metalv1alpha1.HostOperation{*opObj(live)}, "") {
 				powerOff = true
-			} else if live.Exists && !opFinished(opObj(live)) {
+			} else if live.Exists && !opObj(live).Finished() {
 				p.delete(slotBoot)
 			}
 		}
 		unbind := !powerOff
 		if powerOff {
 			switch {
-			case isHeld && (op == nil || opAwaitsApproval(op)):
+			case isHeld && (op == nil || op.AwaitsApproval()):
 				if op != nil {
 					p.delete(slotRelease)
 				}
@@ -514,7 +515,7 @@ func (p *pass) release(v view) {
 					op = opObj(mOp{Exists: true, Required: required})
 				}
 				switch {
-				case opAwaitsApproval(op):
+				case op.AwaitsApproval():
 					done = false
 				case !opSucceeded(op):
 					done = false // failed or not yet finished
@@ -532,7 +533,7 @@ func (p *pass) release(v view) {
 	if keepRecords && !done {
 		return
 	}
-	if boot.Exists && !opFinished(opObj(boot)) {
+	if boot.Exists && !opObj(boot).Finished() {
 		p.delete(slotBoot)
 	}
 	if !done {
@@ -566,7 +567,7 @@ func executorPass(s state, v view, mask uint8, i opSlot, fail bool) *pass {
 	if !o.Exists {
 		return p // NotFound: its grants are revoked
 	}
-	if opFinished(obj) {
+	if obj.Finished() {
 		if i != slotBoot {
 			p.delete(i) // expire: release and convergence operations carry a TTL
 		}
@@ -578,7 +579,7 @@ func executorPass(s state, v view, mask uint8, i opSlot, fail bool) *pass {
 		p.updateOp(i, o, func(m *mOp) { m.Outcome, m.Queued = 3, false })
 		return p
 	}
-	if approvalRequired(obj) && obj.Spec.Approval.ApprovedBy == "" {
+	if obj.ApprovalRequired() && obj.Spec.Approval.ApprovedBy == "" {
 		return p // Approved=False; nothing else
 	}
 	// activePredecessor: hostHolder over the cached operations.
@@ -709,7 +710,7 @@ func successors(s state) []*pass {
 	for i := range nSlots {
 		// The admission policy: approve once, never your own proposal, and
 		// only an unfinished operation that asks for it.
-		if o := w.Ops[i]; o.Exists && opAwaitsApproval(opObj(o)) {
+		if o := w.Ops[i]; o.Exists && opObj(o).AwaitsApproval() {
 			person("person approves "+i.String(), func(n *world) {
 				n.Ops[i].Approved = true
 				n.Ops[i].ApprovedWhileHeld = n.Claim.Held
@@ -840,7 +841,7 @@ var protocolInvariants = []invariant{
 				return ""
 			}
 			o := p.s.Cur.Ops[p.mountedBy]
-			if approvalRequired(opObj(o)) && !o.Approved {
+			if opObj(o).ApprovalRequired() && !o.Approved {
 				return p.mountedBy.String() + " mounted without approval"
 			}
 			return ""

@@ -140,7 +140,7 @@ func runOp(t *testing.T, r *HostOperationReconciler) *metalv1alpha1.HostOperatio
 		_, err := r.Reconcile(t.Context(), ctrl.Request{NamespacedName: key})
 		require.NoError(t, err)
 		require.NoError(t, r.Get(t.Context(), key, op))
-		if opFinished(op) {
+		if op.Finished() {
 			return op
 		}
 	}
@@ -271,7 +271,7 @@ func TestGracefulPowerOffForcesAfterTheWindow(t *testing.T) {
 	require.NoError(t, err)
 	got := &metalv1alpha1.HostOperation{}
 	require.NoError(t, r.Get(t.Context(), key, got))
-	assert.False(t, opFinished(got))
+	assert.False(t, got.Finished())
 	assert.Equal(t, []bmc.PowerAction{bmc.ActionGracefulShutdown}, rec.powers, "asked once, not on every pass")
 	require.NotNil(t, got.Status.ShutdownRequested)
 	ex := meta.FindStatusCondition(got.Status.Conditions, metalv1alpha1.ConditionExecuted)
@@ -347,7 +347,7 @@ func TestStepRecordConflictIsNotAFailure(t *testing.T) {
 			assert.True(t, apierrors.IsConflict(err), "the pass ends with the write's error: %v", err)
 			got := &metalv1alpha1.HostOperation{}
 			require.NoError(t, r.Get(t.Context(), client.ObjectKeyFromObject(op), got))
-			assert.False(t, opFinished(got), "%+v", got.Status.Conditions)
+			assert.False(t, got.Finished(), "%+v", got.Status.Conditions)
 
 			got = runOp(t, r)
 			require.True(t, opSucceeded(got), "%+v", got.Status)
@@ -559,7 +559,7 @@ func TestUnreachableMachineHoldsTheStep(t *testing.T) {
 			require.NoError(t, err)
 			got := &metalv1alpha1.HostOperation{}
 			require.NoError(t, r.Get(t.Context(), key, got))
-			require.False(t, opFinished(got), "a pass that could not reach the machine is no verdict: %+v", got.Status)
+			require.False(t, got.Finished(), "a pass that could not reach the machine is no verdict: %+v", got.Status)
 			assert.Positive(t, res.RequeueAfter)
 			ex := meta.FindStatusCondition(got.Status.Conditions, metalv1alpha1.ConditionExecuted)
 			require.NotNil(t, ex)
@@ -586,7 +586,7 @@ func TestPassStopsBeforeItsBudgetRunsOut(t *testing.T) {
 	got := &metalv1alpha1.HostOperation{}
 	require.NoError(t, r.Get(t.Context(), key, got))
 	require.Len(t, got.Status.Steps, 1, "one step, then the pass yields")
-	assert.False(t, opFinished(got))
+	assert.False(t, got.Finished())
 	assert.Positive(t, res.RequeueAfter)
 	require.True(t, opSucceeded(runOp(t, r)), "the next pass continues")
 }

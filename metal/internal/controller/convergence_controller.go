@@ -430,7 +430,7 @@ func (r *ConvergenceReconciler) withdrawObsolete(ctx context.Context, plan *meta
 	if err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, op); err != nil {
 		return client.IgnoreNotFound(err)
 	}
-	if !opAwaitsApproval(op) {
+	if !op.AwaitsApproval() {
 		return nil
 	}
 	logf.FromContext(ctx).Info("withdrew obsolete proposal", "operation", plan.Operation)
@@ -499,7 +499,7 @@ func (r *ConvergenceReconciler) propose(ctx context.Context, op *metalv1alpha1.H
 		if err := r.Get(ctx, client.ObjectKeyFromObject(op), existing); err != nil {
 			return client.IgnoreNotFound(err)
 		}
-		if !opFinished(existing) {
+		if !existing.Finished() {
 			return nil // this round's proposal — a double-propose race
 		}
 	}

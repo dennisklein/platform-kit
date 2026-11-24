@@ -527,7 +527,7 @@ func runExecutorCase(t *testing.T, seed uint64, image func(string) string, media
 			}
 		}
 
-		if opFinished(cur) {
+		if cur.Finished() {
 			_, live := media.Grants.Live(handle, modelConfig+".iso")
 			require.False(t, live, "%s: a finished operation's grant still answers", desc())
 			if finished == nil {

@@ -210,7 +210,7 @@ func TestPinnedMediumWaitsForItsArtifact(t *testing.T) {
 	assert.Positive(t, res.RequeueAfter)
 	got := &metalv1alpha1.HostOperation{}
 	require.NoError(t, r.Get(t.Context(), key, got))
-	require.False(t, opFinished(got), "%+v", got.Status)
+	require.False(t, got.Finished(), "%+v", got.Status)
 	ex := meta.FindStatusCondition(got.Status.Conditions, metalv1alpha1.ConditionExecuted)
 	require.NotNil(t, ex)
 	assert.Contains(t, ex.Message, "has no artifact yet")

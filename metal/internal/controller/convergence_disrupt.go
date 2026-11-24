@@ -143,7 +143,7 @@ func (r *ConvergenceReconciler) withdrawPlan(ctx context.Context, plan **metalv1
 		}
 		return err
 	}
-	if !opAwaitsApproval(op) {
+	if !op.AwaitsApproval() {
 		return nil
 	}
 	logf.FromContext(ctx).Info("withdrew proposal for a node that is gone", "operation", (*plan).Operation)

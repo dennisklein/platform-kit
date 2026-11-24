@@ -165,7 +165,7 @@ func (r *HostClaimReconciler) removeNode(ctx context.Context, claim *metalv1alph
 	// No boot of a node on its way out goes on: one waiting for approval is
 	// withdrawn, one running stops between steps.
 	for i := range boots {
-		if opFinished(&boots[i]) || !boots[i].DeletionTimestamp.IsZero() {
+		if boots[i].Finished() || !boots[i].DeletionTimestamp.IsZero() {
 			continue
 		}
 		logf.FromContext(ctx).Info("stopped boot operation of a deleted node", "operation", boots[i].Namespace+"/"+boots[i].Name)
@@ -233,7 +233,7 @@ func (r *HostClaimReconciler) removeNode(ctx context.Context, claim *metalv1alph
 	ref := op.Namespace + "/" + op.Name
 	ex := meta.FindStatusCondition(op.Status.Conditions, metalv1alpha1.ConditionExecuted)
 	switch {
-	case opAwaitsApproval(op):
+	case op.AwaitsApproval():
 		set(metalv1alpha1.ReasonRemovingNode, fmt.Sprintf(
 			"TalosNode %s is being deleted: its removal %s. To go ahead: pk-metal approve %s. To keep it for now: pk-metal hold %s/%s",
 			node.Name, r.describeRelease(op), ref, claim.Namespace, claim.Name))

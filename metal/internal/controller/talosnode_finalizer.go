@@ -111,7 +111,7 @@ func (r *TalosNodeMemberReconciler) blocked(ctx context.Context, node *osv1alpha
 	}
 	for i := range ops.Items {
 		op := &ops.Items[i]
-		if opFinished(op) {
+		if op.Finished() {
 			continue
 		}
 		for _, n := range opNodes(op) {

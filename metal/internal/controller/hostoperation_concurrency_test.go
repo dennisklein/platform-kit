@@ -38,7 +38,7 @@ func TestStepBudgetCountsFromTheFirstLook(t *testing.T) {
 	assert.Positive(t, res.RequeueAfter)
 	got := &metalv1alpha1.HostOperation{}
 	require.NoError(t, r.Get(t.Context(), key, got))
-	require.False(t, opFinished(got), "one look is not a verdict: %+v", got.Status)
+	require.False(t, got.Finished(), "one look is not a verdict: %+v", got.Status)
 	assert.Equal(t, []bmc.PowerAction{bmc.ActionForceOff}, rec.powers)
 
 	// Watched for longer than the budget, it gives up.
@@ -107,7 +107,7 @@ func TestPassesOnTwoHostsRunSideBySide(t *testing.T) {
 					return
 				}
 				op := &metalv1alpha1.HostOperation{}
-				if !assert.NoError(t, r.Get(t.Context(), key, op)) || opFinished(op) {
+				if !assert.NoError(t, r.Get(t.Context(), key, op)) || op.Finished() {
 					return
 				}
 			}
