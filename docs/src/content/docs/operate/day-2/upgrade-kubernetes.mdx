@@ -12,6 +12,7 @@ sources:
 ---
 
 import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
 
 ## Goal
 
@@ -20,6 +21,7 @@ Move the control plane, kube-proxy and the kubelets of one cluster to a new Kube
 ## Before you start
 
 - The Talos release of the cluster supports the new version. [](cli:upgrade) refuses a version that it does not support.
+- The new version has the same minor as the current version, or the next minor. [](cli:upgrade) and the rollout plan refuse a skipped minor and a downgrade. To go from v1.34 to v1.36, do two upgrades.
 - A second person can approve.
 - The cluster is `Available`.
 
@@ -30,6 +32,28 @@ Move the control plane, kube-proxy and the kubelets of one cluster to a new Kube
 3. The workers. Each gets a new kubelet image.
 
 A node reboots only if Talos says that the change needs it.
+
+<Callout type="caution">
+Each control plane gets its new API server and its new kubelet in one config change. A new kubelet can then talk to an API server of the old version. This lasts until the rollout finishes the last control plane. The Kubernetes version-skew policy does not support a kubelet that is newer than the API server. `talosctl upgrade-k8s` updates all API servers first. Keep this window short: approve and resume the rollout without a long pause.
+</Callout>
+
+## What the rollout does not update
+
+The rollout does not update the bootstrap manifests in the machine config: CoreDNS, Flannel and other CNI manifests. Talos creates these objects once and does not change an object that exists. They stay at the old version.
+
+<Steps>
+
+1. List the manifests that Talos rendered on a control plane.
+
+   ```sh
+   talosctl -n <control-plane> get manifests
+   ```
+
+2. Find the versions that the new Kubernetes minor needs, in the release notes of CoreDNS and of your CNI.
+
+3. Update CoreDNS and the CNI with the tool that you use for workloads.
+
+</Steps>
 
 ## Steps
 
