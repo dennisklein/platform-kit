@@ -236,6 +236,13 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return nil
 	}
 
+	// An abort of an operation that has not started ends it at once:
+	// nothing was done to the machine, so there is nothing to undo.
+	if by, asked := op.Annotations[metalv1alpha1.AnnotationAbort]; asked && op.Status.Baseline == nil {
+		return r.finishAborted(op, req.NamespacedName, setCond, flush,
+			abortMessage(by, "before it started", nil, nil)+"; nothing was done to the machine")
+	}
+
 	if approvalRequired(op) && op.Spec.Approval.ApprovedBy == "" {
 		setCond(metalv1alpha1.ConditionApproved, metav1.ConditionFalse,
 			metalv1alpha1.ReasonAwaitingApproval, awaitingApprovalMessage(op))
@@ -406,8 +413,25 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return wait(i, what+" unavailable, retrying: "+err.Error(), r.waitInterval())
 	}
 
+	// abort stops before step i, which has not acted on the machine, and
+	// undoes what the steps before it left behind. An undo the machine could
+	// not be reached for is tried again on the next pass.
+	abort := func(i int, by string) (ctrl.Result, error) {
+		undone, failed, err := x.undo(bctx, i)
+		if err != nil {
+			return wait(i, "aborting, undoing what the operation left behind: "+err.Error()+
+				". Delete the operation to stop trying", r.waitInterval())
+		}
+		where := fmt.Sprintf("before step %d/%d %s", i+1, len(op.Spec.Actions), actionName(op.Spec.Actions[i]))
+		return r.finishAborted(op, req.NamespacedName, setCond, flush, abortMessage(by, where, undone, failed))
+	}
+
 	start := recordedSteps(op)
 	if start < len(op.Spec.Actions) {
+		if by, asked := op.Annotations[metalv1alpha1.AnnotationAbort]; asked && !x.acted(start) {
+			// Asked while the step waited: no remount, nothing new mounted.
+			return abort(start, by)
+		}
 		if err := x.remount(bctx, start); err != nil {
 			if transient(bctx, err) {
 				return held(start, err)
@@ -417,10 +441,16 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 	for i := start; i < len(op.Spec.Actions); i++ {
 		// A pass can outlive its operation: a release deletes an unfinished
-		// provisioning operation, and the steps after that must not run.
-		if gone, err := r.opGone(ctx, req.NamespacedName); err != nil || gone {
+		// provisioning operation, and the steps after that must not run. A
+		// person can ask it to stop (an abort), which it does here, between
+		// steps, unless the step ahead already acted.
+		gone, by, asked, err := r.opNow(ctx, req.NamespacedName)
+		if err != nil || gone {
 			r.forget(req.NamespacedName)
 			return ctrl.Result{}, err
+		}
+		if asked && !x.acted(i) {
+			return abort(i, by)
 		}
 		// A pass that cannot fit another power settle stops between steps
 		// and the next pass continues; at least one step runs per pass.
@@ -726,16 +756,46 @@ func (r *HostOperationReconciler) powerTimeout() time.Duration {
 	return defaultPowerTimeout
 }
 
-// opGone re-reads the operation between steps; deleted or deleting stops the pass.
-func (r *HostOperationReconciler) opGone(ctx context.Context, key types.NamespacedName) (bool, error) {
+// opNow re-reads the operation between steps: deleted or deleting stops the
+// pass; an abort annotation asks it to stop and undo (by is its value).
+func (r *HostOperationReconciler) opNow(ctx context.Context, key types.NamespacedName) (gone bool, by string, asked bool, err error) {
 	cur := &metalv1alpha1.HostOperation{}
 	if err := r.Get(ctx, key, cur); err != nil {
 		if apierrors.IsNotFound(err) {
-			return true, nil
+			return true, "", false, nil
 		}
-		return false, err
+		return false, "", false, err
 	}
-	return !cur.DeletionTimestamp.IsZero(), nil
+	by, asked = cur.Annotations[metalv1alpha1.AnnotationAbort]
+	return !cur.DeletionTimestamp.IsZero(), by, asked, nil
+}
+
+// finishAborted ends the operation as Aborted, with the record of it as the
+// last step.
+func (r *HostOperationReconciler) finishAborted(op *metalv1alpha1.HostOperation, key types.NamespacedName,
+	setCond func(string, metav1.ConditionStatus, string, string), flush func() error, msg string) (ctrl.Result, error) {
+	op.Status.Steps = append(op.Status.Steps, metalv1alpha1.OperationStep{
+		Action: "abort", Phase: "Aborted", Message: msg, FinishedAt: ptrTime(metav1.Now()),
+	})
+	setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionFalse, metalv1alpha1.ReasonAborted, msg)
+	r.Recorder.Eventf(op, nil, corev1.EventTypeWarning, metalv1alpha1.ReasonAborted, "Abort", "%s", msg)
+	r.forget(key)
+	return ctrl.Result{}, client.IgnoreNotFound(flush())
+}
+
+// abortMessage says who stopped the operation, where, and what was undone.
+func abortMessage(by, where string, undone, failed []string) string {
+	msg := "aborted " + where
+	if by = strings.TrimSpace(by); by != "" {
+		msg += " (" + by + ")"
+	}
+	if len(undone) > 0 {
+		msg += "; undone: " + strings.Join(undone, ", ")
+	}
+	if len(failed) > 0 {
+		msg += "; NOT undone, see to it by hand: " + strings.Join(failed, "; ")
+	}
+	return msg
 }
 
 // grantHandle names an operation's grants in the media service's table.
