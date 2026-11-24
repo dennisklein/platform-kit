@@ -99,8 +99,13 @@ The boot has one of three shapes:
 
 When you delete the claim, the finalizer holds it until the machine is back.
 
-1. If a boot of the claim ran on the machine, propose a release operation. It takes the node out of its cluster, then powers the machine off and empties the media slots.
-2. If no boot ever touched the machine, unbind it as it is. The controller confirms this against the API server first.
+1. Propose a release operation if one of these is true:
+   - The Host shows that the node runs (`OSReady` is True).
+   - The hand-off record of the claim names the Host.
+   - A boot of the claim ran on the machine.
+
+   The operation takes the node out of its cluster, then powers the machine off and empties the media slots.
+2. If none of these is true, unbind the machine as it is. The controller first confirms against the API server that no boot ran.
 3. Withdraw the boot operations that did not finish, after the release operation exists.
 4. Clear `claimRef`, `spec.os` and the power-off annotation on the Host. Remove the finalizer.
 
