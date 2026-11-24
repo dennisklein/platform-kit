@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -125,6 +126,72 @@ func TestEnsure(t *testing.T) {
 	t.Run("no control plane", func(t *testing.T) {
 		r := Ensure(ctx, fake.NewFleet().Dialer(), tc, nil, Observation{})
 		assert.Equal(t, osv1alpha1.ReasonNoControlPlane, r.Reason)
+	})
+
+	// Every control plane answers and none runs etcd: after a total loss this
+	// looks exactly like a cluster never bootstrapped. Remembered, it is a
+	// loss, and only a person may start etcd again.
+	t.Run("a cluster bootstrapped before is never bootstrapped again", func(t *testing.T) {
+		fleet := fake.NewFleet()
+		cp1, cp2 := configured("booting", false), configured("booting", false)
+		fleet.Add("10.77.0.11", "node-1", cp1)
+		fleet.Add("10.77.0.12", "node-2", cp2)
+		members := []Member{{"node-1", "10.77.0.11"}, {"node-2", "10.77.0.12"}}
+		at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+		for _, obs := range []Observation{
+			{BootstrappedAt: at},
+			// Even with a request outstanding past its window, the case in
+			// which the old code asked again.
+			{BootstrappedAt: at, RequestedAt: at, Now: at.Add(RequestGrace + time.Hour)},
+		} {
+			r := Ensure(ctx, fleet.Dialer(), tc, members, obs)
+			assert.False(t, r.Bootstrapped)
+			assert.Equal(t, osv1alpha1.ReasonEtcdDataLost, r.Reason)
+			assert.Contains(t, r.Message, "2026-01-01T00:00:00Z")
+			assert.Contains(t, r.Message, RestoreProcedure)
+		}
+		assert.Zero(t, cp1.BootstrapCalls()+cp2.BootstrapCalls())
+
+		// A silent member may still hold the data: that is not a loss yet,
+		// and still no bootstrap.
+		cp2.SetUnreachable(true)
+		r := Ensure(ctx, fleet.Dialer(), tc, members, Observation{BootstrappedAt: at})
+		assert.Equal(t, osv1alpha1.ReasonEtcdUnavailable, r.Reason)
+		assert.Contains(t, r.Message, "not answering: node-2")
+		assert.Zero(t, cp1.BootstrapCalls())
+
+		// A member back with etcd is observed as before.
+		cp2.SetUnreachable(false)
+		cp2.SetEtcdRunning(true)
+		r = Ensure(ctx, fleet.Dialer(), tc, members, Observation{BootstrappedAt: at})
+		assert.True(t, r.Bootstrapped)
+	})
+
+	// node-2 runs an etcd that answers its status but cannot list members:
+	// it holds the data of a cluster that lost quorum. Bootstrapping node-1
+	// would start a second etcd beside it.
+	t.Run("a member holding etcd data blocks the first bootstrap", func(t *testing.T) {
+		fleet := fake.NewFleet()
+		cp1, cp2 := configured("booting", false), configured("booting", false)
+		cp2.SetEtcdRunning(true)
+		cp2.SetFailure("EtcdMembers", errors.New("etcdserver: request timed out"))
+		fleet.Add("10.77.0.11", "node-1", cp1)
+		fleet.Add("10.77.0.12", "node-2", cp2)
+		members := []Member{{"node-1", "10.77.0.11"}, {"node-2", "10.77.0.12"}}
+
+		r := Ensure(ctx, fleet.Dialer(), tc, members, Observation{})
+		assert.False(t, r.Bootstrapped)
+		assert.Equal(t, osv1alpha1.ReasonEtcdDataPresent, r.Reason)
+		assert.Contains(t, r.Message, "node-2")
+		assert.Contains(t, r.Message, RestoreProcedure)
+		assert.Zero(t, cp1.BootstrapCalls(), "no second etcd beside the one node-2 holds")
+
+		// Remembered as bootstrapped, the same member reads as quorum lost.
+		r = Ensure(ctx, fleet.Dialer(), tc, members, Observation{BootstrappedAt: time.Now()})
+		assert.Equal(t, osv1alpha1.ReasonEtcdUnavailable, r.Reason)
+		assert.Contains(t, r.Message, "quorum lost")
+		assert.Zero(t, cp1.BootstrapCalls())
 	})
 }
 

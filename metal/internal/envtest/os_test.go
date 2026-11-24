@@ -40,6 +40,7 @@ import (
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/asset"
 	"github.com/dennisklein/platform-kit/metal/internal/controller"
+	"github.com/dennisklein/platform-kit/metal/internal/talos"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/fake"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
 )
@@ -599,5 +600,42 @@ func TestOSLane(t *testing.T) {
 		old.Name = "old"
 		old.Spec.TalosVersion = "v1.13.4"
 		assert.Error(t, cl.Create(ctx, old), "pre-1.14 Talos must be refused")
+	})
+
+	st.run(t, "a cluster whose etcd data is lost is never bootstrapped again", func(t *testing.T) {
+		c, _ := clusterCondition("lab", osv1alpha1.ConditionBootstrapped)
+		require.NotNil(t, c.Status.BootstrappedAt, "the first observed bootstrap is remembered")
+		calls := machines["node-1"].BootstrapCalls()
+
+		// Every control plane (the lab has one) loses its etcd data, the way
+		// a forced reset of EPHEMERAL or a reinstall loses it, and Kubernetes
+		// stops answering. The machine still answers its authenticated API:
+		// to the observer this is a cluster that was never bootstrapped.
+		require.NoError(t, talos.With(ctx, fleet.Dialer(), talos.Target{Endpoint: "10.77.0.11", Talosconfig: []byte("tc")},
+			func(c talos.Client) error {
+				return c.Reset(ctx, talos.ResetOptions{Reboot: true, SystemPartitions: []string{"EPHEMERAL"}})
+			}))
+		kubeUp.Store(false)
+		require.False(t, machines["node-1"].Bootstrapped())
+
+		require.Eventually(t, func() bool {
+			_, b := clusterCondition("lab", osv1alpha1.ConditionBootstrapped)
+			return b != nil && b.Status == metav1.ConditionFalse && b.Reason == osv1alpha1.ReasonEtcdDataLost
+		}, waitFor, tick, "the loss must be reported, not repaired with a new etcd")
+		c, lost := clusterCondition("lab", osv1alpha1.ConditionBootstrapped)
+		assert.Contains(t, lost.Message, "docs/metal/disaster-recovery.md", "the condition points at the restore procedure")
+		_, avail := clusterCondition("lab", osv1alpha1.ConditionAvailable)
+		require.NotNil(t, avail)
+		assert.Equal(t, osv1alpha1.ReasonEtcdDataLost, avail.Reason)
+
+		st.settle(t, ctx, &c, 5)
+		assert.Equal(t, calls, machines["node-1"].BootstrapCalls(), "no pass may bootstrap a cluster that was bootstrapped before")
+
+		// The remembered fact cannot be dropped by a status write.
+		c, _ = clusterCondition("lab", osv1alpha1.ConditionBootstrapped)
+		c.Status.BootstrappedAt = nil
+		err := cl.Status().Update(ctx, &c)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "bootstrappedAt is write-once")
 	})
 }

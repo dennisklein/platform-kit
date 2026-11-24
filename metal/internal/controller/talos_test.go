@@ -3,6 +3,7 @@ package controller
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -60,4 +61,23 @@ func TestReferencesOutsideTheOperatorNamespaceDoNotResolve(t *testing.T) {
 		require.NoError(t, err, "the same reference resolves when it is the operator's namespace")
 		assert.Equal(t, "machine: {}", got)
 	})
+}
+
+// A cluster an older operator saw bootstrapped carries only Bootstrapped=True;
+// the upgrade must not forget it, or the first loss after the upgrade would
+// be bootstrapped over.
+func TestRememberedBootstrapBackfillsFromTheCondition(t *testing.T) {
+	at := metav1.NewTime(time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC))
+	c := &osv1alpha1.TalosCluster{Status: osv1alpha1.TalosClusterStatus{Conditions: []metav1.Condition{{
+		Type: osv1alpha1.ConditionBootstrapped, Status: metav1.ConditionTrue, LastTransitionTime: at,
+	}}}}
+	assert.Equal(t, at.Time, rememberedBootstrap(c))
+	require.NotNil(t, c.Status.BootstrappedAt)
+	assert.Equal(t, at.Time, c.Status.BootstrappedAt.Time)
+
+	never := &osv1alpha1.TalosCluster{Status: osv1alpha1.TalosClusterStatus{Conditions: []metav1.Condition{{
+		Type: osv1alpha1.ConditionBootstrapped, Status: metav1.ConditionFalse, LastTransitionTime: at,
+	}}}}
+	assert.True(t, rememberedBootstrap(never).IsZero())
+	assert.Nil(t, never.Status.BootstrappedAt)
 }

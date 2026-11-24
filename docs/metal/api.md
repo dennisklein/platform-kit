@@ -2342,6 +2342,7 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
+| `bootstrappedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | BootstrappedAt is when the operator first observed this cluster's etcd<br />running (or its Kubernetes API answering). It is the one remembered<br />fact in this status: once set the operator never bootstraps the<br />cluster again, so that a cluster whose control planes all lost their<br />etcd data is restored by a person instead of silently started empty<br />(Bootstrapped=False, reason EtcdDataLost). Write-once; starting over<br />means deleting and re-creating the TalosCluster. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions: Bootstrapped and Available. |  | Optional: \{\} <br /> |
 | `controlPlanes` _integer_ | ControlPlanes and Workers count the TalosNodes that name this cluster;<br />the Ready counts are the ones whose Ready condition is True. |  | Optional: \{\} <br /> |
 | `readyControlPlanes` _integer_ |  |  | Optional: \{\} <br /> |

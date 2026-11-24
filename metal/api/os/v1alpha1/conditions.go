@@ -19,9 +19,10 @@ const (
 	// machine.
 	ConditionMachineReachable = "MachineReachable"
 
-	// ConditionBootstrapped: a TalosCluster's etcd exists. Observed, never
-	// remembered: True when a control-plane member reports etcd members or
-	// the Kubernetes API answers.
+	// ConditionBootstrapped: a TalosCluster's etcd exists. Observed: True
+	// when a control-plane member reports etcd members or the Kubernetes API
+	// answers. The first True is also remembered, as status.bootstrappedAt,
+	// so that a cluster whose etcd data is lost is never bootstrapped again.
 	ConditionBootstrapped = "Bootstrapped"
 
 	// ConditionAvailable: a TalosCluster's Kubernetes API answers and every
@@ -130,6 +131,20 @@ const (
 	// ReasonBootstrapRefused on Bootstrapped=False: the member refused the
 	// bootstrap call (the message carries why; it is retried).
 	ReasonBootstrapRefused = "BootstrapRefused"
+	// ReasonEtcdDataLost on Bootstrapped=False: the cluster was bootstrapped
+	// before (status.bootstrappedAt), and now every control plane answers
+	// and none runs etcd. The operator never bootstraps such a cluster
+	// again; a person restores etcd or starts over.
+	ReasonEtcdDataLost = "EtcdDataLost"
+	// ReasonEtcdUnavailable on Bootstrapped=False: the cluster was
+	// bootstrapped before, and no member lists etcd members now, while some
+	// do not answer or run etcd without a quorum. It may come back.
+	ReasonEtcdUnavailable = "EtcdUnavailable"
+	// ReasonEtcdDataPresent on Bootstrapped=False: a cluster not yet
+	// bootstrapped has a member whose etcd runs but lists no members, data
+	// from an etcd that lost its quorum. Bootstrap is refused until a person
+	// restores or resets it.
+	ReasonEtcdDataPresent = "EtcdDataPresent"
 	// ReasonClusterAvailable on Available=True.
 	ReasonClusterAvailable = "ClusterAvailable"
 	// ReasonKubernetesUnreachable on Available=False: the Kubernetes API does

@@ -91,6 +91,23 @@ func (r *TalosClusterReconciler) outstandingRequest(cluster *osv1alpha1.TalosClu
 	return at
 }
 
+// rememberedBootstrap is when the cluster was first seen bootstrapped. A cluster
+// that an operator without status.bootstrappedAt saw bootstrapped carries
+// only Bootstrapped=True; its transition time stands in, and is written into
+// the status here, so the upgrade to this operator does not forget what the
+// old one knew.
+func rememberedBootstrap(cluster *osv1alpha1.TalosCluster) time.Time {
+	if at := cluster.Status.BootstrappedAt; at != nil {
+		return at.Time
+	}
+	if c := meta.FindStatusCondition(cluster.Status.Conditions, osv1alpha1.ConditionBootstrapped); c != nil &&
+		c.Status == metav1.ConditionTrue {
+		cluster.Status.BootstrappedAt = &metav1.Time{Time: c.LastTransitionTime.Time}
+		return c.LastTransitionTime.Time
+	}
+	return time.Time{}
+}
+
 // +kubebuilder:rbac:groups=os.pk.io,resources=talosclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=os.pk.io,resources=talosclusters/status,verbs=update
 // +kubebuilder:rbac:groups=os.pk.io,resources=talosclusters/finalizers,verbs=update
@@ -183,11 +200,18 @@ func (r *TalosClusterReconciler) reconcile(ctx context.Context, cluster *osv1alp
 	requestedAt := r.outstandingRequest(cluster)
 	b := bootstrap.Ensure(ctx, r.Dial, talosconfig, members, bootstrap.Observation{
 		KubernetesAnswers: kerr == nil, RequestedAt: requestedAt, Grace: r.BootstrapGrace,
+		BootstrappedAt: rememberedBootstrap(cluster),
 	})
 	switch {
 	case b.Bootstrapped:
 		r.requests.Delete(cluster.UID)
 		set(osv1alpha1.ConditionBootstrapped, metav1.ConditionTrue, b.Reason, b.Message)
+		if st.BootstrappedAt == nil {
+			// Remembered the first time it is seen, so that a later loss of
+			// every member's etcd data reads as a loss, not as a new cluster.
+			st.BootstrappedAt = ptrTime(metav1.Now())
+			logf.FromContext(ctx).Info("cluster bootstrapped", "cluster", cluster.Name, "detail", b.Message)
+		}
 	case b.Reason == osv1alpha1.ReasonBootstrapRequested:
 		if !b.RequestedAt.Equal(requestedAt) {
 			// A new request: restart the condition so its transition time is
@@ -209,6 +233,8 @@ func (r *TalosClusterReconciler) reconcile(ctx context.Context, cluster *osv1alp
 	}
 
 	switch {
+	case !b.Bootstrapped && st.BootstrappedAt != nil:
+		set(osv1alpha1.ConditionAvailable, metav1.ConditionFalse, b.Reason, b.Message)
 	case !b.Bootstrapped:
 		set(osv1alpha1.ConditionAvailable, metav1.ConditionFalse, osv1alpha1.ReasonNotBootstrapped, "etcd is not bootstrapped")
 	case kerr != nil:

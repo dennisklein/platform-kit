@@ -207,6 +207,10 @@ spec:
             status:
               description: 'TalosClusterStatus is observed: whether etcd was bootstrapped, whether the Kubernetes API answers, how many members are Ready, and where the admin credentials derived from the secrets bundle were published.'
               properties:
+                bootstrappedAt:
+                  description: 'BootstrappedAt is when the operator first observed this cluster''s etcd running (or its Kubernetes API answering). It is the one remembered fact in this status: once set the operator never bootstraps the cluster again, so that a cluster whose control planes all lost their etcd data is restored by a person instead of silently started empty (Bootstrapped=False, reason EtcdDataLost). Write-once; starting over means deleting and re-creating the TalosCluster.'
+                  format: date-time
+                  type: string
                 conditions:
                   description: 'Conditions: Bootstrapped and Available.'
                   items:
@@ -293,6 +297,9 @@ spec:
                   format: int32
                   type: integer
               type: object
+              x-kubernetes-validations:
+                - message: 'bootstrappedAt is write-once: a cluster that was bootstrapped stays bootstrapped'
+                  rule: '!has(oldSelf.bootstrappedAt) || (has(self.bootstrappedAt) && self.bootstrappedAt == oldSelf.bootstrappedAt)'
           required:
             - spec
           type: object

@@ -13,6 +13,19 @@
 // itself refuses a second bootstrap on a node with etcd data (AlreadyExists),
 // which Ensure reads as "bootstrapped".
 //
+// Whether a cluster WAS bootstrapped is the one fact that must be remembered.
+// After every control plane is reinstalled or reset, all of them answer and
+// none runs etcd, which is exactly what a cluster that was never bootstrapped
+// looks like; bootstrapping it then starts an empty etcd and throws away the
+// chance to restore the old one. So the caller passes when the cluster was
+// first observed bootstrapped (Observation.BootstrappedAt, kept by the
+// TalosCluster reconciler in status.bootstrappedAt), and once that is set
+// Ensure never calls Bootstrap: it reports EtcdDataLost and points at the
+// restore procedure. And even a first bootstrap is refused while any member
+// runs an etcd that lists no members (EtcdDataPresent): that etcd holds data
+// of a cluster that lost its quorum, and a bootstrap would start a second one
+// beside it.
+//
 // The one thing a caller does carry between rounds is when a request was
 // accepted. etcd starts some time after the call returns, and in that time an
 // observer that asks etcd sees exactly what it saw before the call; without
@@ -69,6 +82,10 @@ type Observation struct {
 	// RequestedAt is when a bootstrap request was last accepted, as the
 	// caller recorded it from an earlier Result; zero if never.
 	RequestedAt time.Time
+	// BootstrappedAt is when the cluster was first observed bootstrapped,
+	// as the caller recorded it; zero if never. Once set, Ensure only
+	// observes: it never bootstraps the cluster again.
+	BootstrappedAt time.Time
 	// Now defaults to time.Now; Grace to RequestGrace.
 	Now   time.Time
 	Grace time.Duration
@@ -95,7 +112,7 @@ func Ensure(ctx context.Context, dial talos.Dialer, talosconfig []byte, members 
 	members = slices.Clone(members)
 	slices.SortFunc(members, func(a, b Member) int { return strings.Compare(a.Name, b.Name) })
 
-	var silent []string
+	var silent, holders []string
 	for _, m := range members {
 		etcd, err := etcdMembers(ctx, dial, talosconfig, m.Endpoint)
 		switch {
@@ -104,11 +121,16 @@ func Ensure(ctx context.Context, dial talos.Dialer, talosconfig []byte, members 
 				Message: fmt.Sprintf("%s lists etcd members %s", m.Name, strings.Join(etcd, ", "))}
 		case errors.Is(err, errUnreachable):
 			silent = append(silent, m.Name)
+		case errors.Is(err, errEtcdWithoutMembers):
+			holders = append(holders, m.Name)
 		}
 	}
 	if obs.KubernetesAnswers {
 		return Result{Bootstrapped: true, Reason: osv1alpha1.ReasonKubernetesAnswers,
 			Message: "the Kubernetes API answers"}
+	}
+	if !obs.BootstrappedAt.IsZero() {
+		return lost(obs.BootstrappedAt, silent, holders)
 	}
 	if !obs.RequestedAt.IsZero() && now.Sub(obs.RequestedAt) < grace {
 		msg := fmt.Sprintf("bootstrap requested at %s; waiting for etcd on %s",
@@ -117,6 +139,12 @@ func Ensure(ctx context.Context, dial talos.Dialer, talosconfig []byte, members 
 			msg += "; not answering: " + strings.Join(silent, ", ")
 		}
 		return Result{Reason: osv1alpha1.ReasonBootstrapRequested, Message: msg, RequestedAt: obs.RequestedAt}
+	}
+	if len(holders) > 0 {
+		return Result{Reason: osv1alpha1.ReasonEtcdDataPresent, Message: fmt.Sprintf(
+			"%s run etcd but list no members: they hold the data of an etcd that lost its quorum, and a bootstrap "+
+				"would start a second, empty etcd beside it. Restore that etcd (%s), or reset the EPHEMERAL "+
+				"partition of those members if the data is not wanted", strings.Join(holders, ", "), RestoreProcedure)}
 	}
 	if len(silent) > 0 {
 		return Result{Reason: osv1alpha1.ReasonAwaitingControlPlane,
@@ -140,10 +168,44 @@ func Ensure(ctx context.Context, dial talos.Dialer, talosconfig []byte, members 
 		RequestedAt: now}
 }
 
-var errUnreachable = errors.New("authenticated API does not answer")
+// RestoreProcedure is where a person reads how to restore etcd; every
+// refusal to bootstrap names it.
+const RestoreProcedure = "docs/metal/disaster-recovery.md"
+
+// lost is the result for a cluster that was bootstrapped before and shows no
+// etcd now. It never asks for a bootstrap: with every member answering and
+// none running etcd the data is gone, and only a person can decide between
+// a restore and starting over.
+func lost(at time.Time, silent, holders []string) Result {
+	since := at.UTC().Format(time.RFC3339)
+	if len(silent) == 0 && len(holders) == 0 {
+		return Result{Reason: osv1alpha1.ReasonEtcdDataLost, Message: fmt.Sprintf(
+			"this cluster was bootstrapped at %s, and now every control plane answers and none runs etcd: its "+
+				"etcd data is gone. The operator does not bootstrap it again, which would start an empty cluster. "+
+				"Restore etcd from a snapshot (%s); to start over with an empty cluster instead, delete and "+
+				"re-create the TalosCluster", since, RestoreProcedure)}
+	}
+	msg := fmt.Sprintf("this cluster was bootstrapped at %s and no member lists etcd members now", since)
+	if len(holders) > 0 {
+		msg += "; etcd runs without a member list (quorum lost?) on " + strings.Join(holders, ", ")
+	}
+	if len(silent) > 0 {
+		msg += "; not answering: " + strings.Join(silent, ", ")
+	}
+	return Result{Reason: osv1alpha1.ReasonEtcdUnavailable,
+		Message: msg + ". The operator never bootstraps it again; see " + RestoreProcedure + " if it does not come back"}
+}
+
+var (
+	errUnreachable = errors.New("authenticated API does not answer")
+	// errEtcdWithoutMembers: etcd runs (its status answers) but lists no
+	// members, which is how a member whose cluster lost quorum answers.
+	errEtcdWithoutMembers = errors.New("etcd runs but lists no members")
+)
 
 // etcdMembers asks one member for its etcd members. A dial or version failure
-// is errUnreachable; an etcd that is not running yet is another error.
+// is errUnreachable; an etcd whose status answers while its member list does
+// not is errEtcdWithoutMembers; an etcd that is not running is another error.
 func etcdMembers(ctx context.Context, dial talos.Dialer, talosconfig []byte, endpoint string) ([]string, error) {
 	var (
 		members []string
@@ -157,6 +219,13 @@ func etcdMembers(ctx context.Context, dial talos.Dialer, talosconfig []byte, end
 		listed, etcdErr = c.EtcdMembers(ctx)
 		for _, m := range listed {
 			members = append(members, m.Hostname)
+		}
+		if etcdErr != nil {
+			// The status is served by the member alone: it answers where
+			// the member list, which needs the cluster, does not.
+			if _, err := c.EtcdStatus(ctx); err == nil {
+				etcdErr = fmt.Errorf("%w: %w", errEtcdWithoutMembers, etcdErr)
+			}
 		}
 		return nil
 	}); err != nil {

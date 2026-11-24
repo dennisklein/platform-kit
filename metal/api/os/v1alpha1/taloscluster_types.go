@@ -136,7 +136,19 @@ type RegistryMirror struct {
 // TalosClusterStatus is observed: whether etcd was bootstrapped, whether the
 // Kubernetes API answers, how many members are Ready, and where the admin
 // credentials derived from the secrets bundle were published.
+//
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.bootstrappedAt) || (has(self.bootstrappedAt) && self.bootstrappedAt == oldSelf.bootstrappedAt)",message="bootstrappedAt is write-once: a cluster that was bootstrapped stays bootstrapped"
 type TalosClusterStatus struct {
+	// BootstrappedAt is when the operator first observed this cluster's etcd
+	// running (or its Kubernetes API answering). It is the one remembered
+	// fact in this status: once set the operator never bootstraps the
+	// cluster again, so that a cluster whose control planes all lost their
+	// etcd data is restored by a person instead of silently started empty
+	// (Bootstrapped=False, reason EtcdDataLost). Write-once; starting over
+	// means deleting and re-creating the TalosCluster.
+	// +optional
+	BootstrappedAt *metav1.Time `json:"bootstrappedAt,omitempty"`
+
 	// Conditions: Bootstrapped and Available.
 	// +optional
 	// +listType=map
