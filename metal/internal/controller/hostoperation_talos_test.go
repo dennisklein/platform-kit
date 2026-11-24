@@ -83,7 +83,7 @@ func newTalosLab(t *testing.T, objs ...client.Object) *talosLab {
 	for _, n := range labNodes {
 		node := &osv1alpha1.TalosNode{
 			ObjectMeta: metav1.ObjectMeta{Name: n.name},
-			Spec: osv1alpha1.TalosNodeSpec{ClusterRef: osv1alpha1.Reference{Name: "lab"}, Role: n.role, Address: n.addr},
+			Spec:       osv1alpha1.TalosNodeSpec{ClusterRef: osv1alpha1.Reference{Name: "lab"}, Role: n.role, Address: n.addr},
 		}
 		host := &metalv1alpha1.Host{
 			ObjectMeta: metav1.ObjectMeta{Name: "host-" + n.name},
@@ -361,7 +361,6 @@ func TestEtcdLeaveAndRemoveMember(t *testing.T) {
 		assert.Equal(t, []uint64{id}, lab.machines["cp-2"].RemovedByID())
 	})
 }
-
 
 func TestTalosResetAndShutdown(t *testing.T) {
 	t.Run("reset leaves etcd and wipes", func(t *testing.T) {
