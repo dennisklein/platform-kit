@@ -1,0 +1,98 @@
+# A Huawei FusionServer 2288H V5 with an iBMC on firmware 6.72: the Redfish
+# dialect, the OEM extensions and the quirks this BMC shows. The shapes follow
+# what the real BMC serves; every identity value (serials, MACs, host names,
+# addresses) is synthetic or redacted.
+name: huawei-2288h-v5
+vendor: Huawei
+manager:
+  firmware: "6.72"
+  hostname: "SIMHW2288V5000391" # iBMC reports the chassis serial here
+  mac: "02:00:48:0b:74:60"
+  # No last_reset_time: the iBMC serves no Manager LastResetTime (as served by the real BMC).
+ntp:
+  # NetworkProtocol serves NO NTP key; time
+  # sources live in the OEM HwNtpService (three slots), shipped disabled.
+  oem_service: true
+  enabled: false
+identity:
+  # SecurityService HttpsCert with GenerateCSR
+  # (SubjectAltName real on 6.72) and ImportServerCertificate — csr-native,
+  # the key never leaves the manager.
+  csr_native: true
+protocol:
+  # The iBMC names its maker only through the Oem block on the Manager, which
+  # is also where its OEM services are linked.
+  oem_vendor_key: true
+layout:
+  virtual_media: manager
+  drives: chassis
+  # NetworkAdapters carry NetworkPorts, each with AssociatedNetworkAddresses —
+  # the deprecated shape; no NetworkDeviceFunctions.
+  adapter_macs: network-ports
+update:
+  # SimpleUpdate only — no multipart push URI. The
+  # SimpleUpdate transport is advertised but unproven on hardware, so the client
+  # refuses to flash here (dialect discovered, strategy withheld).
+  simple_update: true
+  inventory:
+    - { id: ActiveBMC, bmc: true, updateable: true }
+    - { id: BackupBMC, version: "6.72", updateable: true }
+    - { id: Bios, version: "7.79", updateable: true }
+bios:
+  settings_id: Settings # the pending object lives at Systems/1/Bios/Settings on the iBMC
+  # Registry identity as served: the Bios resource advertises
+  # 7.6.2, the member id spells it v7_6_2, and the member's Registry field is
+  # truncated to 7.6 — normalise, never exact-match.
+  registry: BiosAttributeRegistry.7.6.2
+  registry_id: BiosAttributeRegistry.v7_6_2
+  registry_name: BiosAttributeRegistry.7.6
+  registry_uri: /redfish/v1/RegistryStore/AttributeRegistries/en/BiosAttributeRegistry.v7_6_2.json
+  # Attribute names and values as the real BMC serves them (590 attrs; this is
+  # the slice the convergence paths exercise — enum, integer).
+  attributes:
+    BootType: UEFIBoot
+    QuickBoot: Enabled
+    QuietBoot: Disabled
+    PCIeSRIOVSupport: Enabled
+    FreqSelect: 40
+  # From the served registry (RegistryStore, 596 entries): types and allowed values verbatim.
+  schema:
+    - { name: BootType, type: Enumeration, allowed_values: [LegacyBoot, UEFIBoot] }
+    - { name: QuickBoot, type: Enumeration, allowed_values: [Enabled, Disabled] }
+    - { name: QuietBoot, type: Enumeration, allowed_values: [Enabled, Disabled] }
+    - { name: PCIeSRIOVSupport, type: Enumeration, allowed_values: [Enabled, Disabled, PerIioPort] }
+    - { name: FreqSelect, type: Integer } # bounds 12..40 step 1 in the registry; Value served null
+chassis:
+  board_serial: "SIMHW2288V5000391"
+  model: "2288H V5"
+  adapters:
+    - { model: "X722", port_macs: ["02:00:48:0b:74:63", "02:00:48:0b:74:64", "02:00:48:0b:74:65", "02:00:48:0b:74:66"] }
+    # Two CX6 entries: a powered-on inventory enumerates both ports as
+    # separate adapters, each with the iBMC's "?" MAC placeholder.
+    - { model: "CX6", port_macs: ["?"] }
+    - { model: "CX6", port_macs: ["?"] }
+virtualmedia:
+  # iBMC exposes NO standard InsertMedia on any slot — OEM VmmControl only (CD), and the
+  # USBStick slot advertises no actions at all.
+  - { id: CD, media_types: [], insert_standard: false, oem_actions: ["#VirtualMedia.VmmControl"] }
+  - { id: USBStick, media_types: [USBStick], insert_standard: false, oem_actions: [] }
+systems:
+  - id: "1"
+    uuid: "5A1B0001-0000-4000-8000-000000000391"
+    serial: "SIMHW2288V5000391" # chassis serial ON the ComputerSystem — the Huawei anchor
+    manufacturer: Huawei
+    model: "2288H V5"
+    power: "On"
+    boot_mode: UEFI # the Boot object serves BootSourceOverrideMode
+    memory_gib: 192
+    cpu_model: "Intel(R) Xeon(R) Gold 6248R CPU @ 3.00GHz"
+    cpu_count: 2
+    boot_targets: [None, Pxe, Floppy, Cd, Hdd, BiosSetup] # no UsbCd — the Supermicro quirk is absent
+    nics:
+      - { id: mainboardLOMPort1, mac: "02:00:48:0b:74:63" }
+      - { id: mainboardLOMPort2, mac: "02:00:48:0b:74:64" }
+      - { id: mainboardLOMPort3, mac: "02:00:48:0b:74:65" }
+      - { id: mainboardLOMPort4, mac: "02:00:48:0b:74:66" }
+    drives:
+      - { model: "INTEL SSDPE2KE016T8", serial: "SIMNVME00000001", capacity_gib: 1490, media: "SSD", protocol: "PCIe" }
+      - { model: "INTEL SSDPE2KE016T8", serial: "SIMNVME00000002", capacity_gib: 1490, media: "SSD", protocol: "PCIe" }

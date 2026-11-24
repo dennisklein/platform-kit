@@ -66,3 +66,8 @@ if [ -n "$drift" ]; then
 fi
 echo "generate:check: clean"
 '''
+
+[tasks."sim:demo"]
+description = "Curl walk over two generic simulated BMCs: service root, media, boot override, reset, task monitor"
+dir = "metal"
+run = "hack/sim-demo.sh"

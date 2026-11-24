@@ -1,0 +1,102 @@
+# A BMC that follows the DMTF Redfish specification (DSP0266 1.21, schema bundle
+# 2024.4) for a generic x86 server, with no OEM extensions. Not a capture of any
+# product: every shape here is the one the specification describes, and every
+# identity value is synthetic. It is the lab's default machine; `pk-metal sim
+# fleet` stamps a serial, UUID and MACs per machine over the ones below.
+name: generic
+vendor: Generic
+product: Generic Redfish BMC
+redfish_version: "1.21.0"
+protocol:
+  # The vendor is named by ServiceRoot.Vendor; there is no Oem block anywhere.
+  root_vendor: true
+  # Every resource carries an ETag, and a PATCH must present it: If-Match is
+  # required (428 without, 412 when stale) — the strictest behaviour the
+  # specification allows, so a client that passes here passes everywhere.
+  etags: true
+  require_if_match: true
+  # SessionService logins (X-Auth-Token) next to Basic authentication.
+  sessions: true
+  # Asynchronous operations take this long: their task goes New → Running →
+  # Completed and the effect lands at completion.
+  task_duration: 300ms
+layout:
+  # The collection lives under the ComputerSystem — the location that
+  # deprecates Managers/{id}/VirtualMedia.
+  virtual_media: system
+  drives: storage
+  adapter_macs: device-functions
+manager:
+  firmware: "2.14.0"
+  hostname: bmc-gen0000001
+  mac: "02:00:00:00:00:01"
+  model: Generic BMC
+  last_reset_time: 2026-01-01T00:00:00Z
+  active_software_image: true
+# Eight fixed account slots, the first holding the factory administrator. A new
+# account is a PATCH of a vacant slot; POST to the collection answers 405.
+account_slots: 8
+accounts:
+  - { id: "1", username: admin, password: admin-pass, role: Administrator, enabled: true }
+ntp:
+  standard: true
+  enabled: false
+  servers: []
+identity:
+  certificate_service: true
+update:
+  multipart_push: true
+  # System firmware (BIOS, the NIC, the RAID controller) is staged with apply
+  # time OnReset and installs at the next boot of the system.
+  on_reset: true
+  inventory:
+    - { id: BMC, bmc: true, updateable: true }
+    - { id: BIOS, version: "1.8.2", updateable: true }
+    - { id: NIC.Slot.1, version: "22.31.6", updateable: true }
+    - { id: RAID.Integrated.1, version: "52.16.1", updateable: true }
+bios:
+  settings_id: Settings
+  registry: BiosAttributeRegistry.v1_0_0
+  attributes:
+    SriovGlobalEnable: Enabled
+    BootMode: Uefi
+    SecureBoot: Disabled
+    QuietBoot: true
+    PxeRetryCount: 3
+  schema:
+    - { name: SriovGlobalEnable, type: Enumeration, allowed_values: [Enabled, Disabled] }
+    - { name: BootMode, type: Enumeration, allowed_values: [Uefi, Bios] }
+    - { name: SecureBoot, type: Enumeration, allowed_values: [Enabled, Disabled] }
+    - { name: QuietBoot, type: Boolean }
+    - { name: PxeRetryCount, type: Integer }
+chassis:
+  board_serial: GEN0000001
+  model: Generic 1U Server
+  adapters:
+    - { model: Generic 2-Port Ethernet Adapter, port_macs: ["52:54:00:00:00:01", "52:54:00:00:00:02"] }
+virtualmedia:
+  # Deliberately not optical-first: the first slot is a removable disk, the
+  # second the CD/DVD drive. A client has to choose by MediaTypes, not position.
+  - { id: "1", media_types: [USBStick], insert_standard: true, oem_actions: [] }
+  - { id: "2", media_types: [CD, DVD], insert_standard: true, oem_actions: [] }
+systems:
+  - id: "1"
+    uuid: "9b1c0000-0000-4000-8000-000000000001"
+    serial: GEN0000001
+    manufacturer: Generic
+    model: Generic 1U Server
+    sku: GEN-1U-X86
+    power: "Off"
+    last_reset_time: 2026-01-01T00:00:00Z
+    memory_gib: 64
+    cpu_model: Generic x86-64 Processor
+    cpu_count: 2
+    boot_targets: [None, Pxe, Cd, Usb, Hdd, UefiHttp, BiosSetup]
+    boot_mode: UEFI
+    reset_types: [On, ForceOff, GracefulShutdown, ForceRestart, GracefulRestart, PowerCycle]
+    boot_progress: true
+    nics:
+      - { id: "1", mac: "52:54:00:00:00:01" }
+      - { id: "2", mac: "52:54:00:00:00:02" }
+    drives:
+      - { model: Generic NVMe SSD, serial: GENDISK0001, capacity_gib: 480, media: SSD, protocol: NVMe }

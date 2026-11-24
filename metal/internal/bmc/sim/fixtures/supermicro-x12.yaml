@@ -1,0 +1,111 @@
+# A Supermicro X12 board with its BMC on firmware 01.07.09 and the out-of-band
+# license: the Redfish dialect, the OEM extensions and the quirks this BMC
+# shows. The shapes follow what the real BMC serves; every identity value
+# (serials, MACs, host names, addresses) is synthetic or redacted.
+name: supermicro-x12
+vendor: Supermicro
+manager:
+  firmware: "01.07.09"
+  hostname: "?"
+  mac: "02:00:5a:3a:cc:18"
+  # The X12 serves the manager's own LastResetTime (the iBMC doesn't) — the
+  # flash-completion observable a firmware update waits on.
+  last_reset_time: 2026-07-18T14:57:09+01:00
+ntp:
+  # The standard NetworkProtocol NTP block,
+  # enabled, the site time server doubled into both slots.
+  standard: true
+  enabled: true
+  servers: ["ntp.example.org", "ntp.example.org"]
+identity:
+  # The OEM SmcSSLCert.Upload action (multipart
+  # cert_file + key_file, leaf-only) — key-upload, the key is generated
+  # off-manager.
+  key_upload: true
+protocol:
+  # ServiceRoot.Vendor is served, and the Manager carries an Oem block too.
+  oem_vendor_key: true
+  root_vendor: true
+layout:
+  virtual_media: manager
+  drives: chassis
+  # NetworkAdapters link NetworkDeviceFunctions; the collection is empty on
+  # this box.
+  adapter_macs: device-functions
+update:
+  # MultipartHttpPushUri AND SimpleUpdate advertised;
+  # push is the proven direction (works even when the BMC cannot route off-link).
+  multipart_push: true
+  push_uri: /redfish/v1/UpdateService/upload
+  simple_update: true
+  # The recorded flash behaviour: staging wedges the BMC, StartUpdate rejects
+  # every body (see firmware.go).
+  wedge: true
+  inventory:
+    - { id: BMC, bmc: true, updateable: true }
+    - { id: Backup_BMC, version: "01.05.25", updateable: true }
+    - { id: Golden_BMC, version: "01.04.04", updateable: true }
+    - { id: Staging_BMC, staging: true, updateable: true }
+    - { id: BIOS, version: "BIOS Date: 02/07/2024 Ver 1.9", updateable: true }
+bios:
+  settings_id: SD # the pending object lives at Systems/1/Bios/SD on the X12
+  # The registry-identity chaos, as served: the Bios resource
+  # advertises v1_0_0, the collection member is bare, its Registry field is
+  # 1.0.0-dotted, and the file lives OUTSIDE the Redfish tree. Clients must
+  # normalise, never exact-match.
+  registry: BiosAttributeRegistry.v1_0_0
+  registry_id: BiosAttributeRegistry
+  registry_name: BiosAttributeRegistry.1.0.0
+  registry_uri: /registries/BiosAttributeRegistry.1.0.0.json
+  # Attribute names and values as the real BMC serves them (290 attrs; this is the
+  # slice the convergence paths exercise — enum, boolean, integer).
+  attributes:
+    BootModeSelect: UEFI
+    QuietBoot: true
+    CSMSupport: Disabled
+    Above4GDecoding: Enabled
+    CorrectableErrorThreshold: 512
+  # From the served registry (428 entries): types and allowed values verbatim, order as served.
+  schema:
+    - { name: BootModeSelect, type: Enumeration, allowed_values: [Legacy, UEFI, Dual] }
+    - { name: QuietBoot, type: Boolean }
+    - { name: CSMSupport, type: Enumeration, allowed_values: [Disabled, Enabled] }
+    - { name: Above4GDecoding, type: Enumeration, allowed_values: [Disabled, Enabled] }
+    - { name: CorrectableErrorThreshold, type: Integer } # bounds 0..32767 step 1 in the registry
+chassis:
+  board_serial: "SIMX12B000001" # Systems/1 exposes NO serial — the board serial is the anchor
+  model: "X12DPi-N6"
+  oem_board_serial: true # lives in Oem.Supermicro.BoardSerialNumber, plain SerialNumber empty
+  adapters:
+    - { model: "MCX653106A-ECAT", port_macs: [] }
+virtualmedia:
+  # Standard DMTF InsertMedia on all three slots (SFT-OOB-LIC unlocks it over HTTP).
+  # All slots advertise the full set since fw 01.07.09 (VirtualMedia1 was CD/DVD-only on 01.05.25).
+  - { id: VirtualMedia1, media_types: [CD, DVD, Floppy, USBStick], insert_standard: true, oem_actions: [] }
+  - { id: VirtualMedia2, media_types: [CD, DVD, Floppy, USBStick], insert_standard: true, oem_actions: [] }
+  - { id: VirtualMedia3, media_types: [CD, DVD, Floppy, USBStick], insert_standard: true, oem_actions: [] }
+systems:
+  - id: "1"
+    uuid: "5A1B0002-0000-4000-8000-000000000001"
+    serial: "" # the X12 blind spot: ComputerSystem carries no serial
+    manufacturer: Supermicro
+    model: "Super Server"
+    power: "On"
+    # The Boot object reports Legacy on this UEFI-booting machine; an override
+    # that leaves the mode alone asks for a legacy one-time boot.
+    boot_mode: Legacy
+    # The X12 serves LastResetTime (the iBMC doesn't).
+    last_reset_time: 2026-07-18T14:57:09+01:00
+    memory_gib: 512
+    cpu_model: "Intel(R) Xeon(R) processor"
+    cpu_count: 2
+    # UsbCd present AND load-bearing: virtual media presents as USB CD; selecting Cd boots
+    # nothing (the quirk sushy hardcodes, encoded here so bmctest regression-covers it).
+    boot_targets: [None, Pxe, Hdd, Cd, UsbCd, BiosSetup]
+    nics:
+      - { id: "1", mac: "02:00:7c:7d:bb:f2" }
+      - { id: "2", mac: "02:00:7c:7d:bb:f3" }
+      # The BMC pass-through interface, zero MAC and all — real-world noise the
+      # identity/inventory paths must shrug off.
+      - { id: "ToManager", mac: "00:00:00:00:00:00" }
+    drives: []
