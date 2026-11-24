@@ -134,6 +134,10 @@ jobs:
       - name: golangci-lint
         if: always()
         run: mise run lint:go
+      # promtool checks the alerting rules and runs their unit tests.
+      - name: Alerting rules
+        if: always()
+        run: mise run metrics:rules
 
   generate:
     name: generated files are current
