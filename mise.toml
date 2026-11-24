@@ -1,0 +1,33 @@
+# Toolchain and tasks for platform-kit. `mise install` puts every CLI on $PATH at a known
+# version; `mise run <task>` (or `mise tasks` for the list) runs the build and test
+# flows. https://mise.jdx.dev
+#
+# Pinning policy: the minor is pinned, the patch floats. Versions that must match a
+# running system (Talos, Kubernetes) are noted next to their pin.
+
+[tools]
+go = "1.26"
+# Talos 1.14 — the release the os.pk.io kinds render for (metal/go.mod pins machinery).
+talosctl = "1.14"
+# Kubernetes 1.36 — the k8s.io/* modules in metal/go.mod and the kind node image.
+kubectl = "1.36"
+kind = "0.32"
+golangci-lint = "2"
+jq = "1"
+yq = "4"
+
+[env]
+GOTOOLCHAIN = "local"
+
+[tasks.test]
+description = "Unit tests"
+dir = "metal"
+run = "go test ./..."
+
+[tasks.lint]
+description = "golangci-lint"
+depends = ["lint:go"]
+
+[tasks."lint:go"]
+dir = "metal"
+run = "golangci-lint run"

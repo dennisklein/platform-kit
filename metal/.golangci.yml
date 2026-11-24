@@ -1,0 +1,9 @@
+# golangci-lint v2 with its standard linter set. The two exclusion presets drop
+# the findings that the Go community does not treat as defects: unchecked
+# Close on a read path and unchecked fmt.Fprint* to a writer.
+version: "2"
+linters:
+  exclusions:
+    presets:
+      - std-error-handling
+      - common-false-positives

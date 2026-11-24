@@ -1,0 +1,13 @@
+metal/bin/
+metal/.cache/
+.claude/
+mise.local.toml
+.lab/
+/metal/manager
+/metal/pk-metal
+docs/node_modules/
+docs/dist/
+docs/.astro/
+docs/.shots/
+/metal/cmd/pk-metal/pk-metal
+/metal/cmd/manager/manager
