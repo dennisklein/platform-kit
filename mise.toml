@@ -203,6 +203,11 @@ description = "Unattended: move the operator from kind onto the first Talos clus
 depends = ["build"]
 run = "lab/lab.sh pivot"
 
+[tasks."lab:backup-restore"]
+description = "Unattended day 2: back up the first cluster's etcd, wipe it on every control plane, and restore it through pk-metal restore"
+depends = ["build"]
+run = "lab/lab.sh backup-restore"
+
 [tasks."lab:collect"]
 description = "Write logs and object dumps of the lab to .lab/diagnostics"
 run = "lab/lab.sh collect"
