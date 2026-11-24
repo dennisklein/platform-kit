@@ -23,7 +23,7 @@ You write four objects. The operator writes the others, and it changes the machi
 ## Steps
 
 1. Connect the BMC to the network and add its MAC address to the [ledger](concept:ledger).
-2. Write an [](kind:Asset) and its credentials Secret. Follow [](howto:enrol-hosts).
+2. Write an [](kind:Asset) and its credentials Secret. Follow [](howto:enroll-hosts).
 3. The [](ctrl:asset) makes a [](kind:ManagementEndpoint). The [](ctrl:managementendpoint) reads the BMC over Redfish.
 4. The operator makes a [](kind:Host). The serial numbers must agree, see [](concept:identity).
 5. Write a [](kind:TalosCluster) and a [](kind:TalosNode). The [](ctrl:talosnode) renders the machine config, see [](concept:talos-rendering).
@@ -37,7 +37,7 @@ You write four objects. The operator writes the others, and it changes the machi
 
 | Step | Object | Written by | Your action |
 | --- | --- | --- | --- |
-| Enrol | Asset, Secret | You | `kubectl apply` |
+| Enroll | Asset, Secret | You | `kubectl apply` |
 | Find the BMC | ManagementEndpoint | [](ctrl:asset) | None |
 | Read the machine | Host | [](ctrl:host) | Read [](cli:status) |
 | Configure the node | TalosCluster, TalosNode | You | `kubectl apply` |
@@ -66,7 +66,7 @@ The install overwrites the first disk that agrees with the selector.
 
 ## Try it in the lab
 
-- Start the lab with [](lab:up). It makes simulated BMCs and enrols them.
+- Start the lab with [](lab:up). It makes simulated BMCs and enrolls them.
 - Approve the installs with [](lab:approve).
 - Follow [](tut:lab-first-cluster) for all steps.
 

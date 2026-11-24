@@ -102,7 +102,7 @@ The controller applies only its share of the status. It leaves out the `Configur
 | You see | Cause | Do this |
 | --- | --- | --- |
 | `Reachable=False`, `DialError` | No route to the BMC, wrong address, or TLS failure. | Use [](rb:bmc-unreachable). |
-| `Reachable=False`, `CredentialsMissing` | The credentials Secret is missing or has no `username` and `password`. | Correct the Secret. See [](howto:enrol-hosts). |
+| `Reachable=False`, `CredentialsMissing` | The credentials Secret is missing or has no `username` and `password`. | Correct the Secret. See [](howto:enroll-hosts). |
 | `Verified=False`, `SerialMismatch` | The Asset and the machine do not agree. | Use [](rb:host-mismatch). |
 
 ## Permissions

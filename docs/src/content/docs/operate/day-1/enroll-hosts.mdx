@@ -1,9 +1,13 @@
 ---
-title: Enrol hosts
+title: Enroll hosts
 description: Write an Asset, a credentials Secret and a ledger line for each machine.
 type: howto
 day: 1
-xref: { cat: howto, id: enrol-hosts }
+xref: { cat: howto, id: enroll-hosts }
+# The old id of this page. Pages that still use it go to the same place.
+anchors:
+  howto:
+    enrol-hosts: { anchor: goal, title: Enroll hosts }
 sidebar:
   order: 3
 sources:
@@ -109,4 +113,4 @@ simhw2288v5000397   sim-0001   SIMHW2288V5000397   Huawei   Available           
 - [](kind:Asset), [](kind:ManagementEndpoint), [](kind:Host)
 - [](ctrl:asset), [](ctrl:managementendpoint), [](ctrl:host)
 - [](concept:identity) and [](concept:ledger)
-- [](howto:rotate-bmc-credentials) replaces the factory password after the enrolment.
+- [](howto:rotate-bmc-credentials) replaces the factory password after the enrollment.

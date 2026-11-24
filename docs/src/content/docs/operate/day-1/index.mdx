@@ -18,7 +18,7 @@ Day 1 is the install. A machine goes from the rack to a `Ready` node in a Talos 
 Each task below is one page. Do them in this order.
 
 <Figure
-  title="The day-1 path: network, check a BMC, enrol, define the cluster, install, then pivot."
+  title="The day-1 path: network, check a BMC, enroll, define the cluster, install, then pivot."
   caption="The day-1 path. The dashed boxes are optional."
   width={760}
   height={200}
@@ -27,7 +27,7 @@ Each task below is one page. Do them in this order.
   <Zone x={6} y={8} w={748} h={92} label="every site" />
   <Box x={16} y={36} w={136} h={50} label="Network" sub="checklist" cat="howto" href="/operate/day-1/network-checklist/" />
   <Box x={164} y={36} w={136} h={50} label="Check a BMC" sub="pk-metal check" cat="howto" href="/operate/day-1/check-a-bmc/" />
-  <Box x={312} y={36} w={136} h={50} label="Enrol hosts" sub="Asset + Secret" cat="howto" href="/operate/day-1/enrol-hosts/" />
+  <Box x={312} y={36} w={136} h={50} label="Enroll hosts" sub="Asset + Secret" cat="howto" href="/operate/day-1/enroll-hosts/" />
   <Box x={460} y={36} w={136} h={50} label="Define cluster" sub="TalosCluster" cat="howto" href="/operate/day-1/define-a-cluster/" />
   <Box x={608} y={36} w={136} h={50} label="Install hosts" sub="HostClaim" variant="ok" cat="howto" href="/operate/day-1/install-hosts/" />
   <Edge points={[[152, 61], [164, 61]]} />
@@ -47,7 +47,7 @@ Each task below is one page. Do them in this order.
 | --- | --- | --- | --- |
 | 1 | [](howto:network-checklist) | Firewall rules, DHCP reservations | Nothing |
 | 2 | [](howto:check-a-bmc) | Nothing | Nothing. The check reads only. |
-| 3 | [](howto:enrol-hosts) | [](kind:Asset), credentials Secret, ledger line | [](kind:ManagementEndpoint), [](kind:Host) |
+| 3 | [](howto:enroll-hosts) | [](kind:Asset), credentials Secret, ledger line | [](kind:ManagementEndpoint), [](kind:Host) |
 | 4 | [](howto:define-a-cluster) | [](kind:TalosCluster), [](kind:TalosNode), secrets bundle | Rendered machine config |
 | 5 | [](howto:install-hosts) | [](kind:HostClaim), your approval | [](kind:HostOperation) |
 | 6 | [](howto:pivot) | Nothing | A copy of all objects on the new cluster |
