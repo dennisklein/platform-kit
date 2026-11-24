@@ -114,6 +114,7 @@ root on that machine; on a shared workstation, decide that on purpose.
 | `mise run lab:render` | Renders `lab/lab.yaml` into `.lab/generated/`, to read before `lab:up`. |
 | `mise run lab:up` | Render, network, kind cluster, operator, fleet, manifests. Safe to rerun. |
 | `mise run lab:status` | The rack as the operator sees it, then every object. |
+| `mise run lab:top` | Live view of every machine. Keys approve, hold and retry. |
 | `mise run lab:approve` | Approves every operation that waits for a person. |
 | `mise run lab:apply [path...]` | `kubectl apply` as a member of the admin group. Default: `.lab/generated/manifests/`. |
 | `mise run lab:kubeconfig` | Writes `.lab/workload.kubeconfig` and `.lab/talosconfig`. |
@@ -149,6 +150,50 @@ a machine before somebody else approves it. `lab:approve` is that somebody: it
 runs `pk-metal approve` as the kind cluster's admin. The operator's own
 ServiceAccount has no permission to approve, and the admission policy would
 refuse it if it had.
+
+### Watch the lab live
+
+`mise run lab:top` runs `pk-metal top` against the lab: one tile per machine,
+updated as the cluster changes. A tile follows the machine from left to right:
+the simulated BMC (power, boot override, mounted media, its last Redfish
+call), the VM behind it, the Host and its claim, the operation that runs now
+(step 7 of 9, and who approved it), and the Talos node. The marks mean `●` as
+it should be, `◐` on its way or waiting for you, `✗` failed or stuck, `○` off
+or nothing yet. The last console lines of each VM are at the bottom.
+
+```text
+pk-metal top   TalosNodes Ready 1/2   Kubernetes nodes Ready 1/1   needs a person: 0
+cluster lab: ● Bootstrapped  ✗ Available (NodesNotReady)  control planes 1/1, workers 0/1
+fleet http://127.0.0.1:8440/state
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓╭────────────────────────────────────────────────╮
+┃ pklab0001 · node-1 generic                     ┃│ pklab0002 · node-2 generic                     │
+┃ BMC ● ─▶ media ○ ─▶ VM ● ─▶ node ●             ┃│ BMC ● ─▶ media ● ─▶ VM ✗ ─▶ node ◐             │
+┃ BMC   10.77.0.1:8441  power on  boot none      ┃│ BMC   10.77.0.1:8442  power on  boot Cd/Once   │
+┃ media none                                     ┃│ media CD: metal-amd64.iso                      │
+┃ last  GET /Systems/1 200                       ┃│       USBStick: node-2-config.iso              │
+┃ VM    ● running OSRunning                      ┃│ last  POST /Systems/1/ComputerSystem.Reset 204 │
+┃ host  Provisioned                              ┃│ VM    ◐ running OSBootStarted · hang-cycled 1× │
+┃ claim default/node-1                           ┃│ host  Provisioning                             │
+┃ op    -                                        ┃│ claim default/node-2                           │
+┃ node  node-1 10.77.0.11                        ┃│ op    7/9 awaitCheckIn, approved by alice      │
+┃       ● Talos ready  ● kubelet Ready           ┃│       pk-metal/provision-node2-1a2b3c4d        │
+┃ console .lab/state/node-1/console.log          ┃│ node  node-2 10.77.0.12                        │
+┃ │ [talos] task startAllServices (1/1): done    ┃│       ◐ Talos MaintenanceMode                  │
+┃ │ [talos] service[kubelet](Running): Health c… ┃│ console .lab/state/node-2/console.log          │
+┃ │                                              ┃│ │ BdsDxe: loading Boot0002 "UEFI QEMU DVD-ROM… │
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛│ │ [    0.000000] Linux version 6.12.40-talos   │
+                                                  │ │                                              │
+                                                  ╰────────────────────────────────────────────────╯
+tab select  a approve  h hold/unhold  r retry  q quit
+```
+
+Keys: `tab` (or the arrows) selects a machine. `a` shows the plan of its
+operation that waits for approval, the same text `pk-metal approve` prints,
+and approves it only when you answer `y`. `h` puts the machine's claim on hold
+or removes the hold. `r` retries a failed operation. `q` quits.
+
+`pk-metal top` works the same against real hardware: leave out `--fleet` and
+the simulator lines (media, last call, VM, console) are not shown.
 
 To look at the management cluster yourself, point kubectl at the lab's
 kubeconfig: `export KUBECONFIG=$PWD/.lab/kubeconfig`. Then `kubectl get metal`

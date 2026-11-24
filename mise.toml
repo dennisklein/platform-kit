@@ -164,6 +164,20 @@ run = "lab/lab.sh deploy"
 description = "The rack as the operator sees it, then every kind"
 run = "lab/lab.sh status"
 
+[tasks."lab:top"]
+description = "Live view of the lab: each machine's BMC, VM, operation and node; keys approve, hold and retry"
+depends = ["build"]
+# The fleet serves its state on loopback (pk-metal sim fleet --state-listen). The
+# workload cluster's kubeconfig exists once lab:kubeconfig ran; top shows the
+# kubelets' Ready state only then.
+run = '''
+lab=${PK_LAB_DIR:-.lab}
+[ -s "$lab/kubeconfig" ] || { echo "lab:top: $lab/kubeconfig is missing. Bring the lab up: mise run lab:up" >&2; exit 1; }
+set -- --kubeconfig "$lab/kubeconfig" top --fleet http://127.0.0.1:8440/state
+[ -s "$lab/workload.kubeconfig" ] && set -- "$@" --workload-kubeconfig "$lab/workload.kubeconfig"
+exec metal/bin/pk-metal "$@"
+'''
+
 [tasks."lab:approve"]
 description = "Approve every operation that waits for a person"
 run = "lab/lab.sh approve"

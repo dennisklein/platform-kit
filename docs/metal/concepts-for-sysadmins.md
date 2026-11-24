@@ -60,6 +60,7 @@ Commands to look at it, with the management cluster's kubeconfig:
 ```sh
 kubectl get metal                       # every pk-metal object, all kinds
 pk-metal status                         # the rack: hosts, operations, endpoints, claims
+pk-metal top                            # the same, live, one tile per machine (q quits)
 kubectl describe host pklab0001         # conditions: why a machine waits
 kubectl get hostoperations -n pk-metal  # what was proposed, approved, done
 kubectl get events -n pk-metal --sort-by=.lastTimestamp
