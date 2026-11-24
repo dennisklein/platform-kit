@@ -51,11 +51,6 @@ const steps = [
 <Explainer title="Install one machine" steps={steps as any} start={start}>
   <svg viewBox="0 0 720 280" role="img" aria-labelledby="ex-prov-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
     <title id="ex-prov-t">A HostClaim binds a Host. A HostOperation, after approval, boots the machine through its BMC with virtual media.</title>
-    <defs>
-      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
-      </marker>
-    </defs>
     <Box node="you" x={290} y={6} w={140} h={30} label="You" variant="soft" />
     <Box node="claim" x={20} y={62} w={170} h={56} label="HostClaim" sub="Pending" text="claim-ph" cat="kind" href="/reference/kinds/hostclaim/" />
     <Box node="op" x={275} y={62} w={170} h={56} label="HostOperation" sub="-" text="op-ph" cat="kind" href="/reference/kinds/hostoperation/" />

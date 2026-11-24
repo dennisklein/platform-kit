@@ -59,11 +59,6 @@ const steps = [
 <Explainer title="Approve one operation" steps={steps as any}>
   <svg viewBox="0 0 720 250" role="img" aria-labelledby="ex-approve-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
     <title id="ex-approve-t">pk-metal approve reads the operation, shows the plan, asks, reads the operation again and writes the approval. Then the operator starts the operation.</title>
-    <defs>
-      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
-      </marker>
-    </defs>
     <Box node="you" x={20} y={30} w={150} h={56} label="You" sub="approver" variant="soft" />
     <Box node="cli" x={275} y={30} w={170} h={56} label="pk-metal approve" sub="reads" text="cli-s" mono />
     <Box node="op" x={530} y={30} w={170} h={56} label="HostOperation" sub="AwaitingApproval" text="op-s" cat="kind" href="/reference/kinds/hostoperation/" />

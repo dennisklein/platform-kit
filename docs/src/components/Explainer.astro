@@ -6,6 +6,8 @@
 // step does not name go back to rest. `text` sets the second line of a Box by its
 // `text` name. Arrow keys step when the explainer has focus. With reduced motion,
 // play is off and edges do not move; the steps still work.
+import { dropSharedDefs, linkRole } from '../lib/svg';
+
 interface Step {
   title: string;
   caption: string;
@@ -20,6 +22,8 @@ interface Props {
 }
 const { title, steps, start = 0 } = Astro.props;
 const first = steps[start];
+// The stage: shared defs removed, and a stage with links is a group, not an image.
+const stage = linkRole(dropSharedDefs(await Astro.slots.render('default')));
 ---
 
 <section class="pk-ex not-content" aria-label={title} tabindex="0" data-steps={JSON.stringify(steps)} data-start={start}>
@@ -27,7 +31,7 @@ const first = steps[start];
     <p class="pk-ex-title">{title}</p>
     <p class="pk-ex-count"><span data-ex="n">{start + 1}</span> / {steps.length}</p>
   </header>
-  <div class="pk-ex-stage"><slot /></div>
+  <div class="pk-ex-stage"><Fragment set:html={stage} /></div>
   <div class="pk-ex-text">
     <p class="pk-ex-step" data-ex="title">{first.title}</p>
     <p class="pk-ex-caption" aria-live="polite" data-ex="caption">{first.caption}</p>

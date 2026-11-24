@@ -75,11 +75,6 @@ const k = (p: string) => `/reference/kinds/${p}/`;
 <Explainer title="Back up and restore etcd" steps={steps as any} start={start}>
   <svg viewBox="0 0 720 260" role="img" aria-labelledby="ex-dr-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
     <title id="ex-dr-t">The operator takes encrypted etcd snapshots into a sink. After a loss, approved operations reset the stuck members, and a person uploads the decrypted snapshot to one control plane.</title>
-    <defs>
-      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
-      </marker>
-    </defs>
     <Box node="pol" x={15} y={20} w={170} h={54} label="EtcdBackupPolicy" sub="interval, sink, keys" cat="kind" href={k('etcdbackuppolicy')} />
     <Box node="op" x={275} y={20} w={170} h={54} label="Operator" sub="age encrypt" />
     <Box node="sink" x={535} y={20} w={170} h={54} label="Sink" sub="-" text="sink-ph" />

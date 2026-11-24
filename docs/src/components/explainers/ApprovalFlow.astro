@@ -68,11 +68,6 @@ const k = (p: string) => `/reference/kinds/${p}/`;
 <Explainer title="Approval gate" steps={steps as any} start={start}>
   <svg viewBox="0 0 720 290" role="img" aria-labelledby="ex-appr-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
     <title id="ex-appr-t">A controller proposes a HostOperation. A person approves it through the admission policy. The executor checks the gates, then runs the actions on the machine.</title>
-    <defs>
-      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
-      </marker>
-    </defs>
     <Box node="ctrl" x={15} y={20} w={170} h={54} label="Controller" sub="proposer" cat="ctrl" href="/reference/controllers/" />
     <Box node="op" x={275} y={20} w={170} h={54} label="HostOperation" sub="-" text="op-ph" cat="kind" href={k('hostoperation')} />
     <Box node="you" x={535} y={20} w={170} h={54} label="You" sub="approver" variant="soft" />

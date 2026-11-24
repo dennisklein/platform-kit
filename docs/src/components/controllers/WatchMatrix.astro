@@ -2,6 +2,8 @@
 // "Who watches what": one row for each named controller of the manager, one column
 // for each kind it reads events of. Source: the SetupWithManager function of each
 // reconciler in metal/internal/controller (For, Owns, Watches).
+import { stableId } from '../../lib/svg';
+
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
 type Mark = 'for' | 'owns' | 'watches' | 'gen';
@@ -43,11 +45,11 @@ const W = gx + cols.length * cw + 10;
 const H = gy + rows.length * rh + 46;
 const colX = (i: number) => gx + i * cw + cw / 2;
 const rowY = (j: number) => gy + j * rh + rh / 2;
-const id = `wm-${Math.random().toString(36).slice(2, 8)}`;
+const id = stableId('wm', JSON.stringify(Astro.props));
 ---
 
 <figure class="pk-fig wide not-content pk-wm">
-  <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-labelledby={id} xmlns="http://www.w3.org/2000/svg">
+  <svg viewBox={`0 0 ${W} ${H}`} role="group" aria-labelledby={id} xmlns="http://www.w3.org/2000/svg">
     <title id={id}>A matrix. Each row is a controller of the manager. Each column is a kind. A mark shows that the controller reconciles the kind, owns objects of it, or watches it.</title>
     {rows.map((_, j) => j % 2 === 0 && <rect class="wm-band" x={lx - 4} y={gy + j * rh} width={W - lx} height={rh}></rect>)}
     {cols.map((c, i) => (

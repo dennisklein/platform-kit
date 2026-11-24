@@ -1,8 +1,10 @@
 ---
-// A diagram: an inline SVG with a title for screen readers, the shared arrow marker
-// and a caption. Put Zone, Box, Edge and Label inside. The class vocabulary is
-// zone, box, box-accent, box-soft, box-ok, box-warn, box-err, edge, edge-accent,
+// A diagram: an inline SVG with a title for screen readers and a caption. The arrow
+// marker and the hatch pattern are shared (SvgDefs.astro). Put Zone, Box, Edge and
+// Label inside. The class vocabulary is zone, box, box-accent, box-soft, box-ok, box-warn, box-err, edge, edge-accent,
 // edge-muted, t-title, t-small, t-muted, t-mono; the theme CSS styles them.
+import { dropSharedDefs, stableId } from '../../lib/svg';
+
 interface Props {
   title: string;
   caption?: string;
@@ -12,21 +14,17 @@ interface Props {
   class?: string;
 }
 const { title, caption, width, height, wide, class: cls } = Astro.props;
-const id = `fig-${Math.random().toString(36).slice(2, 8)}`;
+const id = stableId('fig', title);
+const body = dropSharedDefs(await Astro.slots.render('default'));
+// The role "img" hides the children from screen readers. A diagram with links is a
+// group, so that each link (a Box with href) is announced.
+const role = /<a\s/.test(body) ? 'group' : 'img';
 ---
 
 <figure class:list={['pk-fig', 'not-content', { wide }, cls]}>
-  <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-labelledby={id} xmlns="http://www.w3.org/2000/svg">
+  <svg viewBox={`0 0 ${width} ${height}`} role={role} aria-labelledby={id} xmlns="http://www.w3.org/2000/svg">
     <title id={id}>{title}</title>
-    <defs>
-      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
-      </marker>
-      <pattern id="pk-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-        <line x1="0" y1="0" x2="0" y2="6" class="hatch"></line>
-      </pattern>
-    </defs>
-    <slot />
+    <Fragment set:html={body} />
   </svg>
   {caption && <figcaption>{caption}</figcaption>}
 </figure>

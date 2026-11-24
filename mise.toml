@@ -315,10 +315,10 @@ env = { ASTRO_TELEMETRY_DISABLED = "1" }
 run = "npx astro preview"
 
 [tasks."docs:links"]
-description = "Check the category links and their anchors in docs/dist"
+description = "Check the category links and their anchors in docs/dist, and the pages for links hidden in SVG images and for duplicate ids"
 dir = "docs"
 depends = ["docs:build"]
-run = "node scripts/check-xrefs.mjs dist"
+run = ["node scripts/check-xrefs.mjs dist", "node scripts/check-html.mjs dist"]
 
 [tasks."docs:check"]
 description = "The documentation gate of CI: build, internal links, category links, the STE lint of the pages and the glossary (errors fail)"

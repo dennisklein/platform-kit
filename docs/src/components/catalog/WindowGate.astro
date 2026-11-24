@@ -51,11 +51,6 @@ const steps = [
 <Explainer title="An operation and its maintenance window" steps={steps as any}>
   <svg viewBox="0 0 720 200" role="img" aria-labelledby="ex-win-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
     <title id="ex-win-t">An approved HostOperation waits until a MaintenanceWindow opens. Then it starts, and it continues after the window closes.</title>
-    <defs>
-      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
-      </marker>
-    </defs>
     <Box node="you" x={45} y={6} w={140} h={30} label="You" variant="soft" />
     <Box node="op" x={20} y={84} w={190} h={56} label="HostOperation" sub="AwaitingApproval" text="op-ph" cat="kind" href="/reference/kinds/hostoperation/" />
     <Box node="win" x={265} y={84} w={190} h={56} label="MaintenanceWindow" sub="closed" text="win-ph" cat="kind" href="/reference/kinds/maintenancewindow/" />

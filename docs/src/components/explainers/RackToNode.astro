@@ -75,11 +75,6 @@ const k = (p: string) => `/reference/kinds/${p}/`;
 <Explainer title="Rack to running node" steps={steps as any} start={start}>
   <svg viewBox="0 0 720 300" role="img" aria-labelledby="ex-r2n-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
     <title id="ex-r2n-t">An Asset leads through the ledger to a ManagementEndpoint and a Host. A HostClaim binds the Host and proposes a HostOperation. After approval, the operation boots the machine from virtual media.</title>
-    <defs>
-      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
-      </marker>
-    </defs>
     <Box node="asset" x={15} y={20} w={150} h={54} label="Asset" sub="you write" cat="kind" href={k('asset')} />
     <Box node="ledger" x={195} y={20} w={150} h={54} label="Ledger" sub="MAC → address" />
     <Box node="me" x={375} y={20} w={150} h={54} label="ManagementEndpoint" sub="-" text="me-ph" cat="kind" href={k('managementendpoint')} />

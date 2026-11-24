@@ -75,11 +75,6 @@ const steps = [
 <Explainer title="Move the operator (pivot)" steps={steps as any} start={start}>
   <svg viewBox="0 0 720 270" role="img" aria-labelledby="ex-piv-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
     <title id="ex-piv-t">pk-metal pivot pauses the operator in the source cluster, installs it on the target cluster, copies the objects, starts the target manager and watches it.</title>
-    <defs>
-      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
-      </marker>
-    </defs>
     <Zone x={10} y={10} w={250} h={150} label="bootstrap cluster (kind)" />
     <Zone x={460} y={10} w={250} h={150} label="Talos cluster mgmt" />
     <Box node="src" x={35} y={40} w={200} h={50} label="Operator" sub="-" text="src-ph" />

@@ -74,11 +74,6 @@ const k = (p: string) => `/reference/kinds/${p}/`;
 <Explainer title="Add and remove control planes" steps={steps as any} start={start}>
   <svg viewBox="0 0 720 260" role="img" aria-labelledby="ex-scale-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
     <title id="ex-scale-t">pk-metal scale writes HostClaims. Control planes join etcd one at a time, as a learner first. They leave one at a time, and the leader leaves last.</title>
-    <defs>
-      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
-      </marker>
-    </defs>
     <Box node="you" x={15} y={20} w={170} h={54} label="You" sub="pk-metal scale" variant="soft" />
     <Box node="claims" x={275} y={20} w={170} h={54} label="HostClaims" sub="one per node" cat="kind" href={k('hostclaim')} />
     <Box node="etcd" x={535} y={20} w={170} h={54} label="etcd" sub="-" text="etcd-ph" />

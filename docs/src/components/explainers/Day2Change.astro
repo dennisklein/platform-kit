@@ -84,11 +84,6 @@ const nodes = [
 <Explainer title="Roll a change through a cluster" steps={steps as any} start={start}>
   <svg viewBox="0 0 720 250" role="img" aria-labelledby="ex-d2c-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
     <title id="ex-d2c-t">A change to the TalosCluster gives a TalosRollout. After approval, the rollout changes one node at a time: control planes first, the etcd leader last, then the workers.</title>
-    <defs>
-      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
-      </marker>
-    </defs>
     <Box node="tc" x={15} y={20} w={190} h={54} label="TalosCluster" sub="spec.talosVersion" cat="kind" href={k('taloscluster')} />
     <Box node="ro" x={265} y={20} w={190} h={54} label="TalosRollout" sub="-" text="ro-ph" cat="kind" href={k('talosrollout')} />
     <Box node="you" x={515} y={20} w={190} h={54} label="You" sub="ask, approve, resume" variant="soft" />

@@ -21,6 +21,9 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const cx = x + w / 2;
 const ty = sub ? y + h / 2 - 4 : y + h / 2 + 5;
 const Tag = href ? 'a' : 'g';
+// A link names its target for screen readers: the title, and the second line when
+// no Explainer step changes it.
+const name = href ? [label, text ? undefined : sub].filter((t) => t && t !== '-').join(', ') : undefined;
 ---
 
 <Tag
@@ -28,6 +31,7 @@ const Tag = href ? 'a' : 'g';
   data-node={node}
   data-cat={cat}
   href={href ? `${base}${href}` : undefined}
+  aria-label={name}
 >
   <rect class:list={['box', variant && `box-${variant}`]} x={x} y={y} width={w} height={h}></rect>
   {cat && <rect class="box-band" x={x} y={y} width="4" height={h}></rect>}

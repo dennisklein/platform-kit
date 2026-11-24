@@ -72,11 +72,6 @@ const steps = [
 <Explainer title="Roll a Talos upgrade through a cluster" steps={steps as any}>
   <svg viewBox="0 0 760 300" role="img" aria-labelledby="ex-roll-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
     <title id="ex-roll-t">A TalosRollout upgrades three control planes one at a time with the etcd leader last, pauses after the first node, then upgrades the workers two at a time.</title>
-    <defs>
-      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
-      </marker>
-    </defs>
     <Box node="ro" x={20} y={14} w={220} h={52} label="TalosRollout" sub="-" text="ro-ph" cat="kind" href="/reference/kinds/talosrollout/" />
     <Box node="you" x={300} y={14} w={150} h={52} label="You" sub="approve, resume" variant="soft" />
     <Box node="gate" x={520} y={14} w={220} h={52} label="Health gate" sub="etcd healthy, Nodes Ready" />

@@ -74,11 +74,6 @@ const k = (p: string) => `/reference/kinds/${p}/`;
 <Explainer title="Release and reuse a machine" steps={steps as any} start={start}>
   <svg viewBox="0 0 720 270" role="img" aria-labelledby="ex-rel-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
     <title id="ex-rel-t">A deleted HostClaim gives a release operation. It drains the node, takes it out of etcd, resets it and turns the machine off. A machine that kept its install needs a wipe first.</title>
-    <defs>
-      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
-      </marker>
-    </defs>
     <Box node="you" x={15} y={20} w={160} h={54} label="You" variant="soft" />
     <Box node="claim" x={15} y={118} w={160} h={54} label="HostClaim" sub="-" text="cl-ph" cat="kind" href={k('hostclaim')} />
     <Box node="op" x={250} y={118} w={170} h={54} label="Release operation" sub="-" text="op-ph" cat="kind" href={k('hostoperation')} />

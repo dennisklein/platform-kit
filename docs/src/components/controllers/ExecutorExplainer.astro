@@ -127,11 +127,6 @@ const gx = (i: number) => 8 + i * 79;
 <Explainer title="The executor: start gates and step loop" steps={steps as any} start={start}>
   <svg viewBox="0 0 720 320" role="img" aria-labelledby="ex-exec-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
     <title id="ex-exec-t">Nine start gates in a row, then the baseline, then a loop of four boxes: next step, cluster guard, run step and record. A pass leaves the loop to wait, to fail or to succeed.</title>
-    <defs>
-      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
-      </marker>
-    </defs>
     <text class="t-small t-zone" x={8} y={14}>Start gates, in order</text>
     <line class="edge" x1={8} y1={44} x2={712} y2={44}></line>
     {gates.map(([id, label, sub], i) => (

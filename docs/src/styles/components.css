@@ -443,6 +443,10 @@ a.gl abbr {
   stroke: var(--pk-fig-line);
   stroke-dasharray: 3 3;
 }
+.pk-svgdefs {
+  position: absolute;
+  overflow: hidden;
+}
 .hatch {
   stroke: var(--pk-rule);
   stroke-width: 1;
