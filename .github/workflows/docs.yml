@@ -1,0 +1,67 @@
+# The documentation site (docs/): build and check it on every pull request that
+# touches it, and deploy it to GitHub Pages from the metal branch only.
+#
+# The jobs run the same `mise run` tasks a person runs locally, with the node
+# version pinned in mise.toml. Actions are pinned to a commit; the tag is in the
+# comment next to it.
+#
+# One-time setup in the repository settings: Pages -> Source "GitHub Actions";
+# Environments -> github-pages -> allow the branch metal.
+name: docs
+
+on:
+  push:
+    branches: [metal]
+    paths: [docs/**, metal/api/**, metal/config/**, metal/cmd/pk-metal/**, mise.toml, .github/workflows/docs.yml]
+  pull_request:
+    paths: [docs/**, metal/api/**, metal/config/**, metal/cmd/pk-metal/**, mise.toml, .github/workflows/docs.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build and check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # "last updated" dates come from git
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
+        with:
+          install_args: node # the site needs node only
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('docs/package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+      - name: Build and check the site
+        run: mise run docs:check
+      - if: github.event_name != 'pull_request' && github.ref == 'refs/heads/metal'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: docs/dist
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/metal'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
