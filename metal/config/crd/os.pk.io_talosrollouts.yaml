@@ -82,7 +82,7 @@ spec:
                   type: object
                 drainTimeoutSeconds:
                   default: 900
-                  description: DrainTimeoutSeconds bounds the drain of each node that is drained (an upgrade, a reboot, a config that needs a reboot).
+                  description: DrainTimeoutSeconds bounds the drain of each node that is drained (an upgrade, a reboot, a config that needs a reboot). It is part of what is approved, so it is frozen after creation.
                   format: int32
                   maximum: 86400
                   minimum: 30
@@ -145,6 +145,8 @@ spec:
                   rule: '!has(oldSelf.abort) || !oldSelf.abort || (has(self.abort) && self.abort)'
                 - message: maxUnavailableWorkers is frozen after creation
                   rule: '(has(self.maxUnavailableWorkers) ? self.maxUnavailableWorkers : 1) == (has(oldSelf.maxUnavailableWorkers) ? oldSelf.maxUnavailableWorkers : 1)'
+                - message: drainTimeoutSeconds is frozen after creation
+                  rule: '(has(self.drainTimeoutSeconds) ? self.drainTimeoutSeconds : 900) == (has(oldSelf.drainTimeoutSeconds) ? oldSelf.drainTimeoutSeconds : 900)'
             status:
               description: TalosRolloutStatus is the plan and how far it got.
               properties:

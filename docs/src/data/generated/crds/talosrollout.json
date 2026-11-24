@@ -86,6 +86,10 @@
         {
           "rule": "(has(self.maxUnavailableWorkers) ? self.maxUnavailableWorkers : 1) == (has(oldSelf.maxUnavailableWorkers) ? oldSelf.maxUnavailableWorkers : 1)",
           "message": "maxUnavailableWorkers is frozen after creation"
+        },
+        {
+          "rule": "(has(self.drainTimeoutSeconds) ? self.drainTimeoutSeconds : 900) == (has(oldSelf.drainTimeoutSeconds) ? oldSelf.drainTimeoutSeconds : 900)",
+          "message": "drainTimeoutSeconds is frozen after creation"
         }
       ]
     },
@@ -161,7 +165,7 @@
       "default": 900,
       "minimum": 30,
       "maximum": 86400,
-      "description": "DrainTimeoutSeconds bounds the drain of each node that is drained (an upgrade, a reboot, a config that needs a reboot)."
+      "description": "DrainTimeoutSeconds bounds the drain of each node that is drained (an upgrade, a reboot, a config that needs a reboot). It is part of what is approved, so it is frozen after creation."
     },
     {
       "path": "spec.kind",

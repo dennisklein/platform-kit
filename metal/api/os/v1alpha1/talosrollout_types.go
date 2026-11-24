@@ -51,6 +51,7 @@ const LabelRollout = "os.pk.io/rollout"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.proposedBy) || (has(self.proposedBy) && self.proposedBy == oldSelf.proposedBy)",message="proposedBy is frozen after creation"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.abort) || !oldSelf.abort || (has(self.abort) && self.abort)",message="an abort cannot be taken back"
 // +kubebuilder:validation:XValidation:rule="(has(self.maxUnavailableWorkers) ? self.maxUnavailableWorkers : 1) == (has(oldSelf.maxUnavailableWorkers) ? oldSelf.maxUnavailableWorkers : 1)",message="maxUnavailableWorkers is frozen after creation"
+// +kubebuilder:validation:XValidation:rule="(has(self.drainTimeoutSeconds) ? self.drainTimeoutSeconds : 900) == (has(oldSelf.drainTimeoutSeconds) ? oldSelf.drainTimeoutSeconds : 900)",message="drainTimeoutSeconds is frozen after creation"
 type TalosRolloutSpec struct {
 	// ClusterRef names the TalosCluster whose nodes this rollout changes.
 	ClusterRef Reference `json:"clusterRef"`
@@ -81,7 +82,8 @@ type TalosRolloutSpec struct {
 	MaxUnavailableWorkers int32 `json:"maxUnavailableWorkers,omitempty"`
 
 	// DrainTimeoutSeconds bounds the drain of each node that is drained
-	// (an upgrade, a reboot, a config that needs a reboot).
+	// (an upgrade, a reboot, a config that needs a reboot). It is part of
+	// what is approved, so it is frozen after creation.
 	// +kubebuilder:validation:Minimum=30
 	// +kubebuilder:validation:Maximum=86400
 	// +kubebuilder:default=900
