@@ -16,18 +16,14 @@ type ntpSurface struct {
 }
 
 func (c *client) discoverNTP() (ntpSurface, error) {
-	m, err := c.manager()
-	if err != nil {
-		return ntpSurface{}, err
-	}
 	var doc struct {
 		NetworkProtocol ref `json:"NetworkProtocol"`
 		Oem             map[string]struct {
 			NtpService ref `json:"NtpService"`
 		} `json:"Oem"`
 	}
-	if _, err := c.getJSON(m.ODataID, &doc); err != nil {
-		return ntpSurface{}, fmt.Errorf("bmc: manager: %w", err)
+	if err := c.managerDoc(&doc); err != nil {
+		return ntpSurface{}, err
 	}
 	for _, oem := range doc.Oem {
 		if oem.NtpService.ODataID != "" {

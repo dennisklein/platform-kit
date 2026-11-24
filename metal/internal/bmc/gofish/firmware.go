@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/stmcginnis/gofish/schemas"
+
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 )
 
@@ -32,10 +34,19 @@ type updateService struct {
 			Target string `json:"target"`
 		} `json:"#UpdateService.SimpleUpdate"`
 	} `json:"Actions"`
-	oem map[string]string
+	oem   map[string]string
+	typed *schemas.UpdateService
 }
 
+// updateService reads the UpdateService once per session: its push URI,
+// apply times and actions do not change while the session lasts.
 func (c *client) updateService() (*updateService, error) {
+	c.memo.Lock()
+	cached := c.memo.update
+	c.memo.Unlock()
+	if cached != nil {
+		return cached, nil
+	}
 	us, err := c.svc.UpdateService()
 	if err != nil {
 		return nil, fmt.Errorf("bmc: update service: %w", err)
@@ -43,15 +54,14 @@ func (c *client) updateService() (*updateService, error) {
 	if us == nil || us.ODataID == "" {
 		return nil, fmt.Errorf("bmc: endpoint exposes no update service")
 	}
-	body, _, err := c.getRaw(us.ODataID)
-	if err != nil {
+	doc := updateService{typed: us}
+	if err := json.Unmarshal(us.RawData, &doc); err != nil {
 		return nil, fmt.Errorf("bmc: update service: %w", err)
 	}
-	var doc updateService
-	if err := json.Unmarshal(body, &doc); err != nil {
-		return nil, fmt.Errorf("bmc: update service: %w", err)
-	}
-	doc.oem = oemActions(body)
+	doc.oem = oemActions(us.RawData)
+	c.memo.Lock()
+	c.memo.update = &doc
+	c.memo.Unlock()
 	return &doc, nil
 }
 
@@ -73,11 +83,11 @@ func (c *client) updateDialect() bmc.UpdateDialect {
 }
 
 func (c *client) FirmwareInventory(ctx context.Context) ([]bmc.Firmware, error) {
-	us, err := c.svc.UpdateService()
+	us, err := c.updateService()
 	if err != nil {
-		return nil, fmt.Errorf("bmc: update service: %w", err)
+		return nil, err
 	}
-	inv, err := us.FirmwareInventory()
+	inv, err := us.typed.FirmwareInventory()
 	if err != nil {
 		return nil, fmt.Errorf("bmc: firmware inventory: %w", err)
 	}
@@ -194,13 +204,13 @@ func (c *client) StageFirmware(_ context.Context, image []byte, entryID string) 
 
 // updateParameters builds the UpdateParameters part for this endpoint.
 func (c *client) updateParameters(us *updateService) ([]byte, error) {
-	m, err := c.manager()
+	mgr, err := c.managerURI()
 	if err != nil {
 		return nil, err
 	}
 	if us.oem[smcInstallAction] != "" {
 		return json.Marshal(map[string]any{
-			"Targets":                     []string{m.ODataID},
+			"Targets":                     []string{mgr},
 			"@Redfish.OperationApplyTime": "Immediate",
 			"Oem": map[string]any{"Supermicro": map[string]any{"BMC": map[string]any{
 				"PreserveCfg": true, "PreserveSdr": true, "PreserveSsl": true, "BackupBMC": true,
@@ -215,8 +225,8 @@ func (c *client) updateParameters(us *updateService) ([]byte, error) {
 			ActiveSoftwareImage ref `json:"ActiveSoftwareImage"`
 		} `json:"Links"`
 	}
-	if _, err := c.getJSON(m.ODataID, &doc); err != nil {
-		return nil, fmt.Errorf("bmc: manager: %w", err)
+	if err := c.managerDoc(&doc); err != nil {
+		return nil, err
 	}
 	if target := doc.Links.ActiveSoftwareImage.ODataID; target != "" {
 		params["Targets"] = []string{target}

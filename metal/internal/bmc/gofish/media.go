@@ -21,16 +21,31 @@ const vmmControlAction = "#VirtualMedia.VmmControl"
 // proven on them (the X12 serves the System link as well). An endpoint whose
 // Manager has no such link keeps the collection under the ComputerSystem —
 // where the specification moved it.
+//
+// The answer is kept for the session.
 func (c *client) mediaCollection() (string, error) {
-	m, err := c.manager()
+	c.memo.Lock()
+	coll := c.memo.mediaColl
+	c.memo.Unlock()
+	if coll != nil {
+		return *coll, nil
+	}
+	uri, err := c.findMediaCollection()
 	if err != nil {
 		return "", err
 	}
+	c.memo.Lock()
+	c.memo.mediaColl = &uri
+	c.memo.Unlock()
+	return uri, nil
+}
+
+func (c *client) findMediaCollection() (string, error) {
 	var doc struct {
 		VirtualMedia ref `json:"VirtualMedia"`
 	}
-	if _, err := c.getJSON(m.ODataID, &doc); err != nil {
-		return "", fmt.Errorf("bmc: manager: %w", err)
+	if err := c.managerDoc(&doc); err != nil {
+		return "", err
 	}
 	if doc.VirtualMedia.ODataID != "" {
 		return doc.VirtualMedia.ODataID, nil

@@ -44,17 +44,13 @@ func (c *client) identityDialect() bmc.IdentityDialect {
 // httpsCertURI resolves Manager Oem.<vendor>.SecurityService → Links.HttpsCert
 // (the iBMC chain).
 func (c *client) httpsCertURI() (string, error) {
-	m, err := c.manager()
-	if err != nil {
-		return "", err
-	}
 	var doc struct {
 		Oem map[string]struct {
 			SecurityService ref `json:"SecurityService"`
 		} `json:"Oem"`
 	}
-	if _, err := c.getJSON(m.ODataID, &doc); err != nil {
-		return "", fmt.Errorf("bmc: manager: %w", err)
+	if err := c.managerDoc(&doc); err != nil {
+		return "", err
 	}
 	for _, oem := range doc.Oem {
 		if oem.SecurityService.ODataID == "" {
@@ -97,11 +93,9 @@ type certService struct {
 // does not offer the whole of it. The HTTPS certificate collection is the one
 // the Manager's NetworkProtocol links.
 func (c *client) certificateService() (*certService, error) {
-	var root struct {
-		CertificateService ref `json:"CertificateService"`
-	}
-	if _, err := c.getJSON(c.svc.ODataID, &root); err != nil {
-		return nil, fmt.Errorf("bmc: service root: %w", err)
+	root, err := c.root()
+	if err != nil {
+		return nil, err
 	}
 	if root.CertificateService.ODataID == "" {
 		return nil, nil
@@ -122,15 +116,11 @@ func (c *client) certificateService() (*certService, error) {
 	if doc.Actions.GenerateCSR.Target == "" || doc.Actions.ReplaceCertificate.Target == "" {
 		return nil, nil
 	}
-	m, err := c.manager()
-	if err != nil {
-		return nil, err
-	}
 	var mdoc struct {
 		NetworkProtocol ref `json:"NetworkProtocol"`
 	}
-	if _, err := c.getJSON(m.ODataID, &mdoc); err != nil {
-		return nil, fmt.Errorf("bmc: manager: %w", err)
+	if err := c.managerDoc(&mdoc); err != nil {
+		return nil, err
 	}
 	if mdoc.NetworkProtocol.ODataID == "" {
 		return nil, nil

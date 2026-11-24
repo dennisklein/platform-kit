@@ -24,10 +24,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	gf "github.com/stmcginnis/gofish"
@@ -70,6 +73,45 @@ type client struct {
 	api      *gf.APIClient
 	svc      *gf.Service
 	readOnly bool
+
+	// Where the manager, the chassis and the services live does not change
+	// while a session lasts, so each is looked up once per session. The
+	// resources themselves are read fresh on each call.
+	memo struct {
+		sync.Mutex
+		root       *rootLinks
+		managerURI string
+		managerDoc []byte // the manager as first read: links only are taken from it
+		chassisURI string
+		update     *updateService
+		mediaColl  *string
+	}
+}
+
+// rootLinks are the service root's links this package follows.
+type rootLinks struct {
+	Chassis            ref `json:"Chassis"`
+	Managers           ref `json:"Managers"`
+	Systems            ref `json:"Systems"`
+	CertificateService ref `json:"CertificateService"`
+}
+
+// root reads the service root's links, once per session.
+func (c *client) root() (rootLinks, error) {
+	c.memo.Lock()
+	r := c.memo.root
+	c.memo.Unlock()
+	if r != nil {
+		return *r, nil
+	}
+	r = &rootLinks{}
+	if _, err := c.getJSON(c.svc.ODataID, r); err != nil {
+		return rootLinks{}, fmt.Errorf("bmc: service root: %w", err)
+	}
+	c.memo.Lock()
+	c.memo.root = r
+	c.memo.Unlock()
+	return *r, nil
 }
 
 var errReadOnly = fmt.Errorf("bmc: mutating call refused (read-only client)")
@@ -217,7 +259,9 @@ func (g guard) RoundTrip(req *http.Request) (*http.Response, error) {
 // explain names the request timeout when it, and not the caller, ended the
 // request.
 func (guard) explain(ctx context.Context, req *http.Request, timeout time.Duration, err error) error {
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) && req.Context().Err() == nil {
+	var ne net.Error
+	timedOut := errors.Is(ctx.Err(), context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout())
+	if timedOut && req.Context().Err() == nil {
 		return fmt.Errorf("no answer within %s: %w", timeout, err)
 	}
 	return err
@@ -426,15 +470,93 @@ func (c *client) followTask(ctx context.Context, info *schemas.TaskMonitorInfo) 
 	return c.pollTask(ctx, info.TaskMonitor)
 }
 
-func (c *client) manager() (*schemas.Manager, error) {
-	managers, err := c.svc.Managers()
+// firstReadable walks the candidates and then the members of a collection,
+// in the order the service lists them, and returns the first one that read
+// accepts. A member that fails to read is skipped, so one broken member does
+// not hide a good one; the first failure is the error when none reads.
+func (c *client) firstReadable(what, coll string, prefer []string, read func(uri string) error) (string, error) {
+	uris := slices.Clone(prefer)
+	if coll != "" {
+		members, err := c.members(coll)
+		if err != nil && len(uris) == 0 {
+			return "", fmt.Errorf("bmc: %s: %w", what, err)
+		}
+		uris = append(uris, members...)
+	}
+	var first error
+	for _, uri := range uris {
+		if uri == "" {
+			continue
+		}
+		err := read(uri)
+		if err == nil {
+			return uri, nil
+		}
+		if first == nil {
+			first = err
+		}
+	}
+	if first != nil {
+		return "", fmt.Errorf("bmc: %s: %w", what, first)
+	}
+	return "", fmt.Errorf("bmc: endpoint exposes no %s", what)
+}
+
+// managerURI finds the manager once per session: the first member of the
+// Managers collection that reads.
+func (c *client) managerURI() (string, error) {
+	c.memo.Lock()
+	uri := c.memo.managerURI
+	c.memo.Unlock()
+	if uri != "" {
+		return uri, nil
+	}
+	root, err := c.root()
 	if err != nil {
-		return nil, fmt.Errorf("bmc: managers: %w", err)
+		return "", err
 	}
-	if len(managers) == 0 {
-		return nil, fmt.Errorf("bmc: endpoint exposes no managers")
+	var body []byte
+	uri, err = c.firstReadable("managers", root.Managers.ODataID, nil, func(uri string) (err error) {
+		body, _, err = c.getRaw(uri)
+		return err
+	})
+	if err != nil {
+		return "", err
 	}
-	return managers[0], nil
+	c.memo.Lock()
+	c.memo.managerURI, c.memo.managerDoc = uri, body
+	c.memo.Unlock()
+	return uri, nil
+}
+
+// manager reads the manager, fresh.
+func (c *client) manager() (*schemas.Manager, error) {
+	uri, err := c.managerURI()
+	if err != nil {
+		return nil, err
+	}
+	m, err := schemas.GetManager(c.api, uri)
+	if err != nil {
+		return nil, fmt.Errorf("bmc: manager: %w", err)
+	}
+	return m, nil
+}
+
+// managerDoc decodes the manager resource, as read once per session, into
+// v. It is for the links of the manager (to the media collection, the
+// network protocol, the OEM services), which do not change while a session
+// lasts; a property that does is read with manager.
+func (c *client) managerDoc(v any) error {
+	if _, err := c.managerURI(); err != nil {
+		return err
+	}
+	c.memo.Lock()
+	body := c.memo.managerDoc
+	c.memo.Unlock()
+	if err := json.Unmarshal(body, v); err != nil {
+		return fmt.Errorf("bmc: manager: %w", err)
+	}
+	return nil
 }
 
 func (c *client) Manager(ctx context.Context) (bmc.Manager, error) {
@@ -488,15 +610,71 @@ func (c *client) managerHostname(m *schemas.Manager) string {
 	return ""
 }
 
+// chassisURI finds the chassis once per session. A BMC can serve more than
+// one (a board and a storage enclosure), and their order in the collection
+// is not a fact about the machine, so the chassis the first system links
+// comes first. The members of the Chassis collection, in the order the
+// service lists them, follow.
+func (c *client) chassisURI() (string, error) {
+	c.memo.Lock()
+	uri := c.memo.chassisURI
+	c.memo.Unlock()
+	if uri != "" {
+		return uri, nil
+	}
+	root, err := c.root()
+	if err != nil {
+		return "", err
+	}
+	uri, err = c.firstReadable("chassis", root.Chassis.ODataID, c.systemChassisLinks(root), func(uri string) error {
+		_, err := c.getJSON(uri, nil)
+		return err
+	})
+	if err != nil {
+		return "", err
+	}
+	c.memo.Lock()
+	c.memo.chassisURI = uri
+	c.memo.Unlock()
+	return uri, nil
+}
+
+// systemChassisLinks lists the chassis the first system names in
+// Links.Chassis; none when that cannot be read.
+func (c *client) systemChassisLinks(root rootLinks) []string {
+	if root.Systems.ODataID == "" {
+		return nil
+	}
+	systems, err := c.members(root.Systems.ODataID)
+	if err != nil || len(systems) == 0 {
+		return nil
+	}
+	var doc struct {
+		Links struct {
+			Chassis []ref `json:"Chassis"`
+		} `json:"Links"`
+	}
+	if _, err := c.getJSON(systems[0], &doc); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(doc.Links.Chassis))
+	for _, r := range doc.Links.Chassis {
+		out = append(out, r.ODataID)
+	}
+	return out
+}
+
+// chassis reads the chassis, fresh.
 func (c *client) chassis() (*schemas.Chassis, error) {
-	chs, err := c.svc.Chassis()
+	uri, err := c.chassisURI()
+	if err != nil {
+		return nil, err
+	}
+	ch, err := schemas.GetChassis(c.api, uri)
 	if err != nil {
 		return nil, fmt.Errorf("bmc: chassis: %w", err)
 	}
-	if len(chs) == 0 {
-		return nil, fmt.Errorf("bmc: endpoint exposes no chassis")
-	}
-	return chs[0], nil
+	return ch, nil
 }
 
 func (c *client) Chassis(ctx context.Context) (bmc.Chassis, error) {
@@ -599,15 +777,21 @@ func (c *client) Systems(ctx context.Context) ([]bmc.System, error) {
 
 // sweepDrives collects drives from both places they live: the system's Storage
 // subsystems first (the specified location), then the chassis (where the
-// captured vendors keep direct-attach NVMe), deduped by serial.
+// captured vendors keep direct-attach NVMe). A drive seen in both places is
+// kept once: the same resource, or the same serial number. A drive with no
+// serial number (a virtual disk, a drive of a machine that is off) is told
+// apart by its resource alone, so two such drives stay two.
 func (c *client) sweepDrives(s *schemas.ComputerSystem) []bmc.Drive {
-	seen := map[string]bool{}
+	seenID, seenSerial := map[string]bool{}, map[string]bool{}
 	var out []bmc.Drive
 	add := func(d *schemas.Drive) {
-		if d == nil || seen[d.SerialNumber] {
+		if d == nil || seenID[d.ODataID] || (d.SerialNumber != "" && seenSerial[d.SerialNumber]) {
 			return
 		}
-		seen[d.SerialNumber] = true
+		seenID[d.ODataID] = true
+		if d.SerialNumber != "" {
+			seenSerial[d.SerialNumber] = true
+		}
 		out = append(out, bmc.Drive{
 			Model:       d.Model,
 			Serial:      d.SerialNumber,
@@ -658,17 +842,43 @@ func (c *client) Capabilities(ctx context.Context) (bmc.Capabilities, error) {
 	return caps, nil
 }
 
+// systemByID reads one system. The member whose URI ends in the id is asked
+// first, as that is where services put it; the others follow in the order
+// the service lists them. A member that fails to read is skipped.
 func (c *client) systemByID(id string) (*schemas.ComputerSystem, error) {
-	systems, err := c.svc.Systems()
+	root, err := c.root()
+	if err != nil {
+		return nil, err
+	}
+	members, err := c.members(root.Systems.ODataID)
 	if err != nil {
 		return nil, fmt.Errorf("bmc: systems: %w", err)
 	}
-	for _, s := range systems {
+	slices.SortStableFunc(members, func(a, b string) int {
+		return boolRank(path.Base(b) == id) - boolRank(path.Base(a) == id)
+	})
+	var first error
+	for _, uri := range members {
+		s, err := schemas.GetComputerSystem(c.api, uri)
+		if err != nil {
+			first = cmp.Or(first, err)
+			continue
+		}
 		if s.ID == id {
 			return s, nil
 		}
 	}
+	if first != nil {
+		return nil, fmt.Errorf("bmc: no system %q: %w", id, first)
+	}
 	return nil, fmt.Errorf("bmc: no system %q", id)
+}
+
+func boolRank(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 func (c *client) Power(ctx context.Context, systemID string) (bmc.PowerState, error) {
