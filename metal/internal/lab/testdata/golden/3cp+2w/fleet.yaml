@@ -1,0 +1,67 @@
+# Generated from lab/lab.yaml. Do not edit: change the spec and run mise run lab:up.
+#
+# The machines of the virtual lab, as `pk-metal sim fleet --config` serves them:
+# one simulated BMC per entry, each driving one QEMU machine. All values are
+# synthetic and derived from the machine's index: the MACs are locally
+# administered, the addresses are the lab bridge's, and the credentials open
+# nothing but a simulator.
+#
+# Relative paths are relative to the repository root.
+stateDir: .lab/state # per machine: disk, UEFI variables, console log
+mediaCache: .lab/cache # downloaded installer images, kept across lab:down
+machines:
+  - name: node-1 # controlplane
+    listen: 10.77.0.1:8441
+    personality: generic
+    credentials: { username: admin, password: admin-pass }
+    identity:
+      serial: PKLAB0001
+      uuid: 9b1c0001-0000-4000-8000-000000000001
+      bmcMAC: "02:77:00:00:01:01"
+      nicMACs: ["52:54:00:77:00:11"]
+    backend: qemu
+    qemu: { tap: pktap1, memoryMiB: 4096, cpus: 2, diskGiB: 20, diskSerial: pklab-disk-1 }
+  - name: node-2 # controlplane
+    listen: 10.77.0.1:8442
+    personality: generic
+    credentials: { username: admin, password: admin-pass }
+    identity:
+      serial: PKLAB0002
+      uuid: 9b1c0002-0000-4000-8000-000000000002
+      bmcMAC: "02:77:00:00:01:02"
+      nicMACs: ["52:54:00:77:00:12"]
+    backend: qemu
+    qemu: { tap: pktap2, memoryMiB: 4096, cpus: 2, diskGiB: 20, diskSerial: pklab-disk-2 }
+  - name: node-3 # controlplane
+    listen: 10.77.0.1:8443
+    personality: supermicro-x12
+    credentials: { username: admin, password: admin-pass }
+    identity:
+      serial: PKLAB0003
+      uuid: 9b1c0003-0000-4000-8000-000000000003
+      bmcMAC: "02:77:00:00:01:03"
+      nicMACs: ["52:54:00:77:00:13"]
+    backend: qemu
+    qemu: { tap: pktap3, memoryMiB: 4096, cpus: 2, diskGiB: 20, diskSerial: pklab-disk-3 }
+  - name: node-4 # worker
+    listen: 10.77.0.1:8444
+    personality: generic
+    credentials: { username: admin, password: admin-pass }
+    identity:
+      serial: PKLAB0004
+      uuid: 9b1c0004-0000-4000-8000-000000000004
+      bmcMAC: "02:77:00:00:01:04"
+      nicMACs: ["52:54:00:77:00:14"]
+    backend: qemu
+    qemu: { tap: pktap4, memoryMiB: 2048, cpus: 2, diskGiB: 20, diskSerial: pklab-disk-4 }
+  - name: node-5 # worker
+    listen: 10.77.0.1:8445
+    personality: generic
+    credentials: { username: admin, password: admin-pass }
+    identity:
+      serial: PKLAB0005
+      uuid: 9b1c0005-0000-4000-8000-000000000005
+      bmcMAC: "02:77:00:00:01:05"
+      nicMACs: ["52:54:00:77:00:15"]
+    backend: qemu
+    qemu: { tap: pktap5, memoryMiB: 2048, cpus: 2, diskGiB: 20, diskSerial: pklab-disk-5 }

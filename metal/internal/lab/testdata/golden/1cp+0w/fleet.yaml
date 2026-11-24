@@ -1,0 +1,23 @@
+# Generated from lab/lab.yaml. Do not edit: change the spec and run mise run lab:up.
+#
+# The machines of the virtual lab, as `pk-metal sim fleet --config` serves them:
+# one simulated BMC per entry, each driving one QEMU machine. All values are
+# synthetic and derived from the machine's index: the MACs are locally
+# administered, the addresses are the lab bridge's, and the credentials open
+# nothing but a simulator.
+#
+# Relative paths are relative to the repository root.
+stateDir: .lab/state # per machine: disk, UEFI variables, console log
+mediaCache: .lab/cache # downloaded installer images, kept across lab:down
+machines:
+  - name: node-1 # controlplane
+    listen: 10.77.0.1:8441
+    personality: generic
+    credentials: { username: admin, password: admin-pass }
+    identity:
+      serial: PKLAB0001
+      uuid: 9b1c0001-0000-4000-8000-000000000001
+      bmcMAC: "02:77:00:00:01:01"
+      nicMACs: ["52:54:00:77:00:11"]
+    backend: qemu
+    qemu: { tap: pktap1, memoryMiB: 4096, cpus: 2, diskGiB: 20, diskSerial: pklab-disk-1 }
