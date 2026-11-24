@@ -122,16 +122,24 @@ func (r *relay) handleTunnel(c net.Conn) {
 }
 
 func (r *relay) register(c net.Conn) {
-	if _, err := fmt.Fprintf(c, "OK front=%s\n", r.advertise); err != nil {
-		_ = c.Close()
-		return
-	}
+	// Take the control slot before answering OK, so registrations win in the
+	// order their OKs were sent. Answering first let an earlier operator,
+	// whose goroutine ran late, displace a later one that already had its OK.
 	r.mu.Lock()
 	if r.control != nil {
 		_ = r.control.Close() // last registration wins — a restarted operator must not strand the relay
 	}
 	r.control = c
 	r.mu.Unlock()
+	if _, err := fmt.Fprintf(c, "OK front=%s\n", r.advertise); err != nil {
+		r.mu.Lock()
+		if r.control == c {
+			r.control = nil
+		}
+		r.mu.Unlock()
+		_ = c.Close()
+		return
+	}
 
 	// The operator sends nothing further on the control connection; this read
 	// exists purely to notice it vanishing.
