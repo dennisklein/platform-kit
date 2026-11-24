@@ -267,7 +267,7 @@ The step ends when the node reports the new version. A node that comes back on t
 | `nodeRef` | object | — | The TalosNode to upgrade. |
 | `image` | OCI reference with `@sha256:` | — | The installer image, pinned by digest. |
 | `version` | `vX.Y.Z` | — | The version that the node must report after the upgrade. |
-| `stage` | boolean | `false` | Writes the image now and upgrades at the next reboot. |
+| `stage` | boolean | `false` | Writes the image and reboots the node at once. The upgrade runs early in the next boot. Talos does not cordon or drain the node in this mode. Use it when open files block a normal upgrade. |
 | `preserve` | boolean | `true` | Keeps the EPHEMERAL partition. Talos 1.8 and later always keep it. |
 | `force` | boolean | `false` | Skips the etcd health check of Talos on a control plane. |
 | `rebootMode` | `Default`, `PowerCycle` | `Default` | How the reboot into the new image ends. |
@@ -284,7 +284,7 @@ If it does not agree, the step sends nothing and fails.
 | `nodeRef` | object | — | The TalosNode of the config. |
 | `configSecretRef` | object | — | The Secret in the operator namespace with the config. |
 | `digest` | `sha256:<hex>` | — | The digest of the config bytes. |
-| `mode` | `Auto`, `NoReboot`, `Reboot`, `Staged`, `Try` | `NoReboot` | `NoReboot` fails if the change needs a reboot. `Staged` applies at the next boot. `Try` rolls back after `tryTimeoutSeconds` unless confirmed. |
+| `mode` | `Auto`, `NoReboot`, `Reboot`, `Staged`, `Try` | `NoReboot` | `NoReboot` fails if the change needs a reboot. `Staged` applies at the next boot. `Try` applies the config for `tryTimeoutSeconds`. When the node is healthy, the step sends the same config again in `NoReboot` mode to keep it. If the step stops before that, Talos rolls the config back. |
 | `tryTimeoutSeconds` | integer, 10 to 3600 | node default | The time for `Try` mode. |
 
 ### TalosReset
@@ -298,11 +298,15 @@ Wipes the node through Talos. A node that does not answer cannot do a reset: ins
 | `nodeRef` | object | — | The TalosNode to reset. |
 | `graceful` | boolean | `true` | Leaves etcd, cordons and drains first. A node that cannot reach its peers needs `false`. |
 | `reboot` | boolean | `false` | Boots into maintenance mode after the wipe. `false` leaves the node off. |
-| `mode` | `All`, `SystemDisk`, `UserDisks` | `All` | The disks to wipe. |
+| `mode` | `All`, `SystemDisk`, `UserDisks` | `All` | The disks to wipe. See the note below. |
 | `systemPartitions` | list, up to 3 | all | Wipes only these system partitions. STATE holds the machine config. EPHEMERAL holds pod data and etcd. |
 
 <Callout type="warning">
 Do not approve a `talosReset` on a node whose data you must keep. The reset erases the disks that `mode` names.
+</Callout>
+
+<Callout type="note">
+Talos wipes a user disk only when the reset names it. The action has no field for user disks yet. Thus `All` wipes only the system disk, and `UserDisks` wipes no disk. Data on other disks stays after a reset.
 </Callout>
 
 ## etcd
