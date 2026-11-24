@@ -60,8 +60,15 @@ func startTestRelay(t testing.TB, rendezvous time.Duration) *testRelay {
 	r.rendezvousTimeout = rendezvous
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
+	loops := goroutinesIn("relay.acceptLoop(")
 	go func() { _ = r.serve(ctx, tunnel, front); close(done) }()
 	t.Cleanup(func() { cancel(); <-done })
+	// Wait for both accept loops: a leak check that takes its baseline
+	// before they run would count them as leaked.
+	deadline := time.Now().Add(5 * time.Second)
+	for goroutinesIn("relay.acceptLoop(") < loops+2 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
 	return &testRelay{relay: r, tunnel: tunnel.Addr().String(), front: front.Addr().String(), dials: d}
 }
 
@@ -301,6 +308,11 @@ func TestSecondRegisterClosesFirst(t *testing.T) {
 // relayGoroutines counts the goroutines whose stack runs code of the relay
 // package, the test's own included (that one is the same before and after).
 func relayGoroutines() int {
+	return goroutinesIn("metal/internal/relay.")
+}
+
+// goroutinesIn counts the goroutines whose stack mentions frame.
+func goroutinesIn(frame string) int {
 	buf := make([]byte, 1<<20)
 	for {
 		n := runtime.Stack(buf, true)
@@ -312,7 +324,7 @@ func relayGoroutines() int {
 	}
 	count := 0
 	for _, g := range strings.Split(string(buf), "\n\n") {
-		if strings.Contains(g, "metal/internal/relay.") {
+		if strings.Contains(g, frame) {
 			count++
 		}
 	}
