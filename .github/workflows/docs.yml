@@ -35,7 +35,7 @@ jobs:
           fetch-depth: 0 # "last updated" dates come from git
       - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
         with:
-          install_args: node # the site needs node only
+          install_args: node vale yq # the site needs node; the STE lint needs vale and yq
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.npm

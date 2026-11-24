@@ -321,8 +321,8 @@ depends = ["docs:build"]
 run = "node scripts/check-xrefs.mjs dist"
 
 [tasks."docs:check"]
-description = "The documentation gate of CI: build, internal links, category links"
-depends = ["docs:links"]
+description = "The documentation gate of CI: build, internal links, category links, the STE lint of the pages and the glossary (errors fail)"
+depends = ["docs:links", "docs:lint", "docs:lint:glossary"]
 
 [tasks."docs:shots"]
 description = "Take screenshots of representative pages (light, dark, phone) into docs/.shots (needs Playwright with Chromium; set NODE_PATH to it)"
