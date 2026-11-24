@@ -1,0 +1,6 @@
+# Management-controller MAC -> the https base URL it answers at (the --ledger input).
+# A projection of the site's address reservations, never a source of truth: the
+# operator joins an Asset's bmcMac against it and invents no address. The base
+# ships it empty; an overlay replaces it (the virtual lab derives its ledger from
+# lab/lab.yaml).
+{}

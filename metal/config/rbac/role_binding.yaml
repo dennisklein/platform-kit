@@ -1,0 +1,31 @@
+# Binds the generated roles (role.yaml, from the +kubebuilder:rbac markers on the
+# reconcilers) to the manager's service account. The ClusterRole covers the
+# cluster-scoped kinds and the claims and operations that live in any namespace;
+# the Role covers what stays inside the operator's namespace: Secrets, the
+# leader-election Lease, cert-manager requests.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pk-metal-manager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: pk-metal-manager
+subjects:
+  - kind: ServiceAccount
+    name: pk-metal-manager
+    namespace: pk-metal
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pk-metal-manager
+  namespace: pk-metal
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pk-metal-manager
+subjects:
+  - kind: ServiceAccount
+    name: pk-metal-manager
+    namespace: pk-metal

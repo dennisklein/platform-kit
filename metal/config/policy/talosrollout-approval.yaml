@@ -1,0 +1,91 @@
+# The TalosRollout human gate: one approval covers every node of a rollout's
+# plan, so it gets the same rules as a HostOperation's approval
+# (hostoperation-approval.yaml), plus one: the approval names the planHash the
+# person saw, and the operator runs the rollout only while that is the plan.
+# What the rollout changes, where, and how (kind, cluster, target, nodes) are
+# frozen in the CRD schema, as is the abort; this policy checks what needs
+# request.userInfo.
+#
+# The rules, in order:
+#   - nobody creates a rollout pre-approved;
+#   - the creator records themselves in spec.proposedBy;
+#   - the approval (approvedBy and planHash) is write-once and stamped as
+#     yourself;
+#   - a person never approves their own proposal, and the operator never
+#     approves anything.
+#
+# The params are the hostoperation-approval ConfigMap: one place says who the
+# operator is. A missing ConfigMap denies every create and update.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: talosrollout-approval
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["os.pk.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["talosrollouts"]
+  variables:
+    - name: newApprover
+      expression: >-
+        has(object.spec.approval) && has(object.spec.approval.approvedBy)
+        ? object.spec.approval.approvedBy : ''
+    - name: oldApprover
+      expression: >-
+        request.operation == 'UPDATE'
+        && has(oldObject.spec.approval) && has(oldObject.spec.approval.approvedBy)
+        ? oldObject.spec.approval.approvedBy : ''
+    - name: newPlan
+      expression: >-
+        has(object.spec.approval) && has(object.spec.approval.planHash)
+        ? object.spec.approval.planHash : ''
+    - name: oldPlan
+      expression: >-
+        request.operation == 'UPDATE'
+        && has(oldObject.spec.approval) && has(oldObject.spec.approval.planHash)
+        ? oldObject.spec.approval.planHash : ''
+    - name: proposer
+      expression: "has(object.spec.proposedBy) ? object.spec.proposedBy : ''"
+    - name: operator
+      expression: "has(params.data) && has(params.data.operator) ? params.data.operator : ''"
+  validations:
+    - expression: "request.operation != 'CREATE' || (variables.newApprover == '' && variables.newPlan == '')"
+      message: a rollout cannot be created pre-approved
+      reason: Forbidden
+    - expression: "request.operation != 'CREATE' || variables.proposer == request.userInfo.username"
+      messageExpression: >-
+        'spec.proposedBy must name you: set it to ' + request.userInfo.username
+      reason: Forbidden
+    - expression: >-
+        (variables.oldApprover == '' || variables.newApprover == variables.oldApprover)
+        && (variables.oldPlan == '' || variables.newPlan == variables.oldPlan)
+      message: approval is write-once
+      reason: Forbidden
+    - expression: >-
+        variables.newApprover == variables.oldApprover
+        || variables.newApprover == request.userInfo.username
+      message: you may only approve as yourself (approvedBy must equal your username)
+      reason: Forbidden
+    - expression: >-
+        variables.newApprover == variables.oldApprover
+        || (variables.newApprover != variables.proposer && variables.newApprover != variables.operator)
+      message: you may not approve your own proposal, and the operator approves nothing — another person must
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: talosrollout-approval
+spec:
+  policyName: talosrollout-approval
+  validationActions: ["Deny"]
+  paramRef:
+    name: hostoperation-approval
+    namespace: pk-metal
+    parameterNotFoundAction: Deny

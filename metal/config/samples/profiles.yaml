@@ -1,0 +1,93 @@
+# Two profiles over the two label axes. The baseline selects on what a machine IS
+# (a discovered fact, present even while unclaimed); the role profile selects on
+# what it is FOR (a label copied from the claim on bind, gone on release).
+#
+# Both matching one machine is the normal case. They merge by layer and a higher
+# layer deliberately overrides a lower one; two profiles at the SAME layer setting
+# one key differently is a hold, not a guess. The merged result is the machine's
+# BiosSettings, which records where each value came from.
+apiVersion: metal.pk.io/v1alpha1
+kind: BiosProfile
+metadata:
+  name: x12-baseline
+spec:
+  match:
+    matchLabels:
+      metal.pk.io/model: X12DPi-N6
+  attributes:
+    CSMSupport: Disabled
+    Above4GDecoding: Enabled
+---
+apiVersion: metal.pk.io/v1alpha1
+kind: BiosProfile
+metadata:
+  name: role-worker
+spec:
+  match:
+    matchLabels:
+      role: worker
+  layer: 10
+  attributes:
+    QuietBoot: true
+---
+# Endpoint desired state: the operator's own account and honest clocks on
+# every management endpoint of the server vlan. No operation gate — merging
+# this is the approval; the factory account stays untouched as standing
+# break-glass. A skewed BMC clock rejects freshly-issued certificates, so the
+# time sources converge here, before any identity work.
+apiVersion: metal.pk.io/v1alpha1
+kind: EndpointProfile
+metadata:
+  name: managed-bmcs
+spec:
+  match:
+    matchLabels:
+      metal.pk.io/vlan: "1034"
+  credentials:
+    username: pk-metal
+    maxAge: 2160h
+  ntp:
+    servers: ["ntp.example.org"]
+  tls:
+    issuerRef:
+      name: internal-ca
+    subject:
+      country: DE
+      organization: Example Org
+      organizationalUnit: Metal
+---
+# Firmware desired state: version is the convergence observable, the image a
+# digest-pinned single-layer artifact in the internal registry. Drift proposes
+# a flashFirmware HostOperation (multipart-push endpoints only) that a human
+# still approves.
+apiVersion: metal.pk.io/v1alpha1
+kind: FirmwareProfile
+metadata:
+  name: x12-bmc
+spec:
+  match:
+    matchLabels:
+      metal.pk.io/model: X12DPi-N6
+  manager:
+    version: "01.07.09"
+    image: registry.pk.internal:5000/firmware/x12-bmc@sha256:0000000000000000000000000000000000000000000000000000000000000000
+---
+# System firmware: BIOS/UEFI, network cards, RAID controllers, as the BMC's
+# FirmwareInventory names them (kubectl describe managementendpoint lists
+# them). Each image is staged to install at the next reset; on a machine that
+# runs a node the proposal drains it first and waits for it after.
+apiVersion: metal.pk.io/v1alpha1
+kind: FirmwareProfile
+metadata:
+  name: compute-system-firmware
+spec:
+  match:
+    matchLabels:
+      metal.pk.io/vendor: Generic
+  system:
+    - component: BIOS
+      version: "1.9.0"
+      image: registry.pk.internal:5000/firmware/generic-bios@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    - component: NIC\.Slot\.[0-9]+
+      version: "22.31.6"
+      image: registry.pk.internal:5000/firmware/generic-nic@sha256:0000000000000000000000000000000000000000000000000000000000000000

@@ -1,0 +1,17 @@
+# One etcd snapshot of a small cluster is tens of MiB. A policy keeps 14 by
+# default, so 5 GiB covers a handful of clusters. ReadWriteOnce is enough: only
+# the manager writes, and a person reads a snapshot off it through a helper pod
+# (docs site: operate/day-2/back-up-etcd).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pk-metal-etcd-backups
+  namespace: pk-metal
+  labels:
+    app.kubernetes.io/name: pk-metal
+    app.kubernetes.io/component: etcd-backup
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi

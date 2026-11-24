@@ -1,0 +1,11 @@
+# The whole operator: CRDs, the approval policy, RBAC and the manager. It renders,
+# but it is a base, not a deployment: an overlay supplies what only a site knows,
+# which is the image, the ledger, --media-url and the TLS policy towards the
+# BMCs. ../lab is the worked example.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../crd
+  - ../policy
+  - ../rbac
+  - ../manager

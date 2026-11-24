@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pk-metal-manager
+  namespace: pk-metal
+  labels:
+    app.kubernetes.io/name: pk-metal
+    app.kubernetes.io/component: manager
+spec:
+  replicas: 1
+  # Media grants live in the memory of the process that issued them. During a
+  # rolling update two pods would sit behind the media Service, and a BMC's
+  # fetch could land on the one that never issued the grant, so the old pod goes
+  # first. Leader election stays on regardless: it is what keeps a second
+  # manager (a `go run` against the same cluster) from acting.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pk-metal
+      app.kubernetes.io/component: manager
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pk-metal
+        app.kubernetes.io/component: manager
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+    spec:
+      serviceAccountName: pk-metal-manager
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: manager
+          # A placeholder: every overlay sets name and tag through the images
+          # transformer (the lab sets the tag it just built). It carries a tag
+          # on purpose, so a forgotten override fails the pull instead of
+          # quietly running whatever :latest happens to be.
+          image: pk-metal:unset
+          command: ["/manager"]
+          args:
+            - --ledger=/etc/pk-metal/ledger.yaml
+            - --credentials-namespace=pk-metal
+            - --leader-elect
+            - --health-probe-bind-address=:8081
+            - --metrics-bind-address=:8080
+            - --media-listen=:8443
+          env:
+            # The node this pod runs on. The manager will not reboot the
+            # machine under it, nor a control plane of its own cluster,
+            # without a person's say (metal.pk.io/allow-self-disruption).
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          ports:
+            - name: media
+              containerPort: 8443
+            - name: metrics
+              containerPort: 8080
+            - name: health
+              containerPort: 8081
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              # Firmware images and boot artifacts pass through memory on their
+              # way to a BMC; the limit leaves room for one at a time.
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: ledger
+              mountPath: /etc/pk-metal
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: ledger
+          configMap:
+            name: pk-metal-ledger
+        - name: tmp
+          emptyDir: {}

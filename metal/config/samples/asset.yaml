@@ -1,0 +1,16 @@
+# One machine as the organization asserts it: what it was bought as, and how to
+# reach the controller that fronts it. Nothing here is discovered — the serial and
+# MAC are checked against what the machine reports, and a disagreement holds rather
+# than resolving itself. Real Assets are authored in git; this one exists so a dev
+# cluster has something to apply.
+apiVersion: metal.pk.io/v1alpha1
+kind: Asset
+metadata:
+  name: ci-00397
+spec:
+  cid: "CI-00397"
+  serial: "SIMHW2288V5000397"
+  bmcMac: "02:00:48:0b:74:83"
+  vlan: 1034
+  credentialsRef:
+    name: ibmc-factory

@@ -1,0 +1,12 @@
+# The operator's own namespace: the manager, its Lease, and every Secret it
+# reads or writes (endpoint credentials, the cluster secrets bundle, rendered
+# machine configurations, boot artifacts). The manager's Secret permissions are
+# a Role in this namespace and nowhere else.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pk-metal
+  labels:
+    # The manager runs non-root, without capabilities and on a read-only root
+    # filesystem, so the namespace can hold itself to the strictest profile.
+    pod-security.kubernetes.io/enforce: restricted

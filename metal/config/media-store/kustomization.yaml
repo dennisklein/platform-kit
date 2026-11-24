@@ -1,0 +1,27 @@
+# The media store: a volume for boot media too large for a Secret. A machine
+# whose BMC holds only one virtual medium (a Huawei iBMC, for example) cannot
+# take the install image and the config medium side by side, so it gets one
+# install image per machine with that machine's config built in. The Talos
+# imager builds it in a Job and writes it here; the manager serves it to the
+# BMC under a grant, like the config medium.
+#
+# The images carry the machine config, so the volume holds secrets: it lives in
+# the operator's namespace next to the config Secrets, and only pods there can
+# mount it. If your cluster encrypts Secrets at rest, give the claim a storage
+# class that encrypts too.
+#
+# Add it to an overlay with:
+#
+#   components:
+#     - ../media-store
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - pvc.yaml
+patches:
+  - path: manager.yaml
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: pk-metal-manager

@@ -1,0 +1,42 @@
+# Mounts the media store into the manager and tells it where the store is and
+# which claim the imager Jobs mount. fsGroup makes the volume writable for the
+# manager's user on storage that honours it; the imager Jobs run as the same
+# user, so the manager can import and remove what they write. POD_NAME and
+# POD_NAMESPACE let the manager find its own image: the imager Jobs run a copy
+# of the manager binary, which keeps the machine config out of their log.
+- op: add
+  path: /spec/template/spec/securityContext/fsGroup
+  value: 65532
+- op: add
+  path: /spec/template/spec/volumes/-
+  value:
+    name: media-store
+    persistentVolumeClaim:
+      claimName: pk-metal-media-store
+- op: add
+  path: /spec/template/spec/containers/0/volumeMounts/-
+  value:
+    name: media-store
+    mountPath: /var/lib/pk-metal/media
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --media-store=/var/lib/pk-metal/media
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --media-store-claim=pk-metal-media-store
+# Each variable is appended: an add on .../env itself would replace the base's
+# list and drop NODE_NAME, which the manager's self-protection needs.
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: POD_NAME
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.name
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: POD_NAMESPACE
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.namespace

@@ -1,0 +1,102 @@
+# The virtual lab's cluster: one control-plane node and two workers on the lab
+# bridge (10.77.0.0/24, gateway 10.77.0.1), the Kubernetes API on the VIP
+# 10.77.0.10. Each node's link is picked by the MAC address its VM gets, and
+# Talos installs onto the disk carrying the VM's disk serial.
+#
+# The secrets bundle is not here: generate it once with `talosctl gen secrets`
+# and create the Secret from that file (key secrets.yaml), sealed in git. The
+# operator only ever reads it.
+apiVersion: os.pk.io/v1alpha1
+kind: TalosCluster
+metadata:
+  name: lab
+spec:
+  talosVersion: v1.14.6
+  kubernetesVersion: v1.36.2
+  endpoint: https://10.77.0.10:6443
+  controlPlane:
+    vip: 10.77.0.10
+  network:
+    cni:
+      name: flannel
+  secretsRef:
+    namespace: pk-metal
+    name: lab-talos-secrets
+  # Kernel arguments of the installed system and of the boot medium. The
+  # serial console is what the BMC's serial-over-LAN and the VM's console log
+  # show: ttyS0 under QEMU; on real hardware the port your BMC's SOL
+  # redirects (often ttyS1,115200n8). The operator itself adds
+  # talos.config=metal-iso to the boot medium only, so that it reads its
+  # config off the second virtual CD; it does not belong here.
+  schematic:
+    customization:
+      extraKernelArgs:
+        - console=ttyS0
+  patches:
+    - inline: |
+        apiVersion: v1alpha1
+        kind: TimeSyncConfig
+        ntp:
+          servers:
+            - time.cloudflare.com
+---
+apiVersion: os.pk.io/v1alpha1
+kind: TalosNode
+metadata:
+  name: node-1
+spec:
+  clusterRef:
+    name: lab
+  role: controlplane
+  installDiskSelector:
+    serial: pklab-disk-1
+  network:
+    links:
+      - name: lan
+        hardwareAddr: "52:54:00:77:00:11"
+        addresses:
+          - 10.77.0.11/24
+        routes:
+          - gateway: 10.77.0.1
+---
+apiVersion: os.pk.io/v1alpha1
+kind: TalosNode
+metadata:
+  name: node-2
+spec:
+  clusterRef:
+    name: lab
+  role: worker
+  installDiskSelector:
+    serial: pklab-disk-2
+  network:
+    links:
+      - name: lan
+        hardwareAddr: "52:54:00:77:00:12"
+        addresses:
+          - 10.77.0.12/24
+        routes:
+          - gateway: 10.77.0.1
+  labels:
+    pk.io/pool: general
+---
+apiVersion: os.pk.io/v1alpha1
+kind: TalosNode
+metadata:
+  name: node-3
+spec:
+  clusterRef:
+    name: lab
+  role: worker
+  installDiskSelector:
+    serial: pklab-disk-3
+  network:
+    links:
+      - name: lan
+        hardwareAddr: "52:54:00:77:00:13"
+        addresses:
+          - 10.77.0.13/24
+        routes:
+          - gateway: 10.77.0.1
+  labels:
+    pk.io/pool: general

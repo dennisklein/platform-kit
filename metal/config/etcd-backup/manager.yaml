@@ -1,0 +1,23 @@
+# Mounts the etcd backup volume into the manager and tells it where the volume
+# is and what to call it in snapshot locations (pvc://<claim>/<key>). fsGroup
+# makes the volume writable for the manager's user on storage that honours it.
+- op: add
+  path: /spec/template/spec/securityContext/fsGroup
+  value: 65532
+- op: add
+  path: /spec/template/spec/volumes/-
+  value:
+    name: etcd-backups
+    persistentVolumeClaim:
+      claimName: pk-metal-etcd-backups
+- op: add
+  path: /spec/template/spec/containers/0/volumeMounts/-
+  value:
+    name: etcd-backups
+    mountPath: /var/lib/pk-metal/etcd-backups
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --etcd-backup-dir=/var/lib/pk-metal/etcd-backups
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --etcd-backup-claim=pk-metal-etcd-backups
