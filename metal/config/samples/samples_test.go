@@ -28,7 +28,9 @@ func TestClaimSample(t *testing.T) {
 	claim := &metalv1alpha1.HostClaim{}
 	decode(t, "claim.yaml", claim)
 	require.Equal(t, "HostClaim", claim.Kind)
-	require.NotEmpty(t, claim.Spec.AssetRef.Name)
+	asset := &metalv1alpha1.Asset{}
+	decode(t, "asset.yaml", asset)
+	require.Equal(t, asset.Name, claim.Spec.AssetRef.Name, "the claim names the Asset in asset.yaml")
 	require.NotNil(t, claim.Spec.OS, "the sample installs a node")
 	require.Equal(t, "node-1", claim.Spec.OS.NodeRef.Name, "the node is in talos.yaml")
 }

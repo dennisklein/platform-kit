@@ -168,3 +168,5 @@ jobs:
         run: |
           kubectl kustomize metal/config/default > /dev/null
           kubectl kustomize metal/config/lab > /dev/null
+          kubectl kustomize metal/config/samples > /dev/null
+          kubectl kustomize metal/config/samples/site-overlay > /dev/null

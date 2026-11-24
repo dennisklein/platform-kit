@@ -26,9 +26,9 @@ func TestAPI(t *testing.T) {
 
 	st.run(t, "asset round-trip and validation", func(t *testing.T) {
 		asset := &metalv1alpha1.Asset{
-			ObjectMeta: metav1.ObjectMeta{Name: "asset-00397"},
+			ObjectMeta: metav1.ObjectMeta{Name: "asset-07"},
 			Spec: metalv1alpha1.AssetSpec{
-				CID:            "ASSET-00397",
+				CID:            "ASSET-07",
 				Serial:         "SIMHW2288V5000397",
 				BMCMac:         "02:00:48:0b:74:83",
 				VLAN:           100,
@@ -37,7 +37,7 @@ func TestAPI(t *testing.T) {
 		}
 		require.NoError(t, cl.Create(ctx, asset))
 		got := &metalv1alpha1.Asset{}
-		require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: "asset-00397"}, got))
+		require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: "asset-07"}, got))
 		assert.Equal(t, asset.Spec, got.Spec)
 
 		missingCID := &metalv1alpha1.Asset{
@@ -66,9 +66,9 @@ func TestAPI(t *testing.T) {
 
 	st.run(t, "endpoint status subresource and phase enum", func(t *testing.T) {
 		ep := &metalv1alpha1.ManagementEndpoint{
-			ObjectMeta: metav1.ObjectMeta{Name: "asset-00397"},
+			ObjectMeta: metav1.ObjectMeta{Name: "asset-07"},
 			Spec: metalv1alpha1.ManagementEndpointSpec{
-				AssetRef: metalv1alpha1.Reference{Name: "asset-00397"},
+				AssetRef: metalv1alpha1.Reference{Name: "asset-07"},
 				Address:  "https://[2001:db8:0:100::14]",
 			},
 		}
@@ -77,7 +77,7 @@ func TestAPI(t *testing.T) {
 		plainHTTP := &metalv1alpha1.ManagementEndpoint{
 			ObjectMeta: metav1.ObjectMeta{Name: "plain-http"},
 			Spec: metalv1alpha1.ManagementEndpointSpec{
-				AssetRef: metalv1alpha1.Reference{Name: "asset-00397"},
+				AssetRef: metalv1alpha1.Reference{Name: "asset-07"},
 				Address:  "http://[2001:db8:0:100::14]",
 			},
 		}
@@ -92,7 +92,7 @@ func TestAPI(t *testing.T) {
 		require.NoError(t, cl.Status().Update(ctx, ep))
 
 		got := &metalv1alpha1.ManagementEndpoint{}
-		require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: "asset-00397"}, got))
+		require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: "asset-07"}, got))
 		assert.Equal(t, metalv1alpha1.EndpointInventorying, got.Status.Phase)
 		assert.Equal(t, "Huawei", got.Status.Vendor)
 
@@ -111,7 +111,7 @@ func TestAPI(t *testing.T) {
 				Vendor: "Huawei",
 			},
 			ManagedBy: []metalv1alpha1.ManagementPath{{
-				EndpointRef: metalv1alpha1.Reference{Name: "asset-00397"},
+				EndpointRef: metalv1alpha1.Reference{Name: "asset-07"},
 				SystemID:    "1",
 				Reachable:   true,
 			}},
@@ -127,7 +127,7 @@ func TestAPI(t *testing.T) {
 		require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: "node-2288h"}, got))
 		assert.Equal(t, metalv1alpha1.HostInspecting, got.Status.Phase)
 		require.Len(t, got.Status.ManagedBy, 1)
-		assert.Equal(t, "asset-00397", got.Status.ManagedBy[0].EndpointRef.Name)
+		assert.Equal(t, "asset-07", got.Status.ManagedBy[0].EndpointRef.Name)
 		require.NotNil(t, got.Status.Identity)
 		assert.Equal(t, "SIMHW2288V5000397", got.Status.Identity.Serial)
 	})
