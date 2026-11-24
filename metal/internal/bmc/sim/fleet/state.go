@@ -72,6 +72,9 @@ type BackendInfo struct {
 	Kind         string `json:"kind"` // none | qemu | docker
 	Running      bool   `json:"running"`
 	BootProgress string `json:"bootProgress"`
+	// HangCycles counts the power cycles the firmware-hang guard did: a VM
+	// that stayed in its firmware after a power-on (qemu only).
+	HangCycles int `json:"hangCycles"`
 }
 
 // requestLog keeps the last answered requests of one BMC.
@@ -152,6 +155,7 @@ func (f *Fleet) State(ctx context.Context) State {
 		case *qemu.Machine:
 			s := b.Status(ctx)
 			ms.Backend.Running, ms.Backend.BootProgress = s.Running, s.BootProgress
+			ms.Backend.HangCycles = s.HangCycles
 			ms.ConsoleLog = s.ConsoleLog
 		case *docker.Machine:
 			ms.Backend.Running, _ = b.Running(ctx)

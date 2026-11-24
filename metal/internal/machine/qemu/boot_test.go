@@ -190,7 +190,7 @@ func TestSetMediaResolvesRelativePaths(t *testing.T) {
 
 func TestRestartAppliesAOneTimeBootSource(t *testing.T) {
 	ctx := context.Background()
-	m := New(Options{Dir: t.TempDir()})
+	m := New(Options{Dir: t.TempDir(), HangTimeout: -1}) // no qemu runs to be guarded
 	qmp := serveRecordingQMP(t, m.sockPath())
 	running(m, devDisk, "cd0", devNIC)
 

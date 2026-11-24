@@ -28,6 +28,11 @@ type Options struct {
 	// RequestHistory is how many Redfish requests per machine the state
 	// endpoint shows; zero is DefaultRequestHistory.
 	RequestHistory int
+	// HangTimeout is the qemu backend's firmware-hang guard: how long a VM
+	// may show only screen control sequences on its console after a
+	// power-on before it is power-cycled, once. Zero is
+	// qemu.DefaultHangTimeout; negative turns the guard off.
+	HangTimeout time.Duration
 }
 
 // Endpoint is one BMC of a running fleet.
@@ -117,7 +122,7 @@ func Start(ctx context.Context, cfg *Config, o Options) (_ *Fleet, err error) {
 		st := sim.NewState(fx)
 		st.SetMediaCache(cache)
 
-		backend, err := newBackend(ctx, cfg, m)
+		backend, err := newBackend(ctx, cfg, m, o)
 		if err != nil {
 			return nil, fmt.Errorf("machine %q: %w", m.Name, err)
 		}
@@ -191,10 +196,10 @@ func Start(ctx context.Context, cfg *Config, o Options) (_ *Fleet, err error) {
 }
 
 // newBackend prepares the machine behind one BMC; nil for the none backend.
-func newBackend(ctx context.Context, cfg *Config, m Machine) (sim.Machine, error) {
+func newBackend(ctx context.Context, cfg *Config, m Machine, fo Options) (sim.Machine, error) {
 	switch m.Backend {
 	case BackendQemu:
-		o := qemu.Options{Name: m.Name, Dir: filepath.Join(cfg.StateDir, m.Name)}
+		o := qemu.Options{Name: m.Name, Dir: filepath.Join(cfg.StateDir, m.Name), HangTimeout: fo.HangTimeout}
 		// The VM's NIC carries the address the BMC's inventory reports.
 		if len(m.Identity.NICMACs) > 0 {
 			o.MAC = m.Identity.NICMACs[0]

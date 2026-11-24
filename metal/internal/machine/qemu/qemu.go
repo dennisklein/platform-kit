@@ -35,6 +35,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -84,6 +85,13 @@ type Options struct {
 	// MAC is the NIC's address — required with Tap, where the DHCP lease and
 	// the inventory hang on it; empty leaves it to qemu in user mode.
 	MAC string
+	// HangTimeout is how long the console may show nothing but screen
+	// control sequences after a power-on before the VM is power-cycled, once
+	// (see hang.go). Zero is DefaultHangTimeout; negative turns the guard off.
+	HangTimeout time.Duration
+	// Logf receives what the machine does on its own, such as the guard's
+	// power cycle; nil is log.Printf.
+	Logf func(format string, args ...any)
 }
 
 // Machine is one VM. Zero value is not usable — New fills the invariants.
@@ -109,6 +117,21 @@ type Machine struct {
 	order   string
 	// console tracks how far the current boot got on the serial console.
 	console consoleScan
+
+	// The firmware-hang guard (hang.go): the cancel of the running one, a
+	// generation that tells a stale guard from the current one, whether the
+	// guard's own power cycle runs, and how many it did.
+	guardCancel context.CancelFunc
+	guardGen    int
+	cycling     bool
+	hangCycles  int
+	// intent is the boot source of the last power-on, for the guard's retry.
+	intent bootIntent
+	// Seams for the guard's tests; New sets the real ones.
+	now        func() time.Time
+	ticker     func() (<-chan time.Time, func())
+	powerCycle func(context.Context) error
+	logf       func(format string, args ...any)
 }
 
 func New(o Options) *Machine {
@@ -132,7 +155,12 @@ func New(o Options) *Machine {
 	if abs, err := filepath.Abs(o.Dir); err == nil {
 		o.Dir = abs
 	}
-	return &Machine{o: o}
+	m := &Machine{o: o, now: time.Now, ticker: realTicker, logf: o.Logf}
+	if m.logf == nil {
+		m.logf = log.Printf
+	}
+	m.powerCycle = m.coldCycle
+	return m
 }
 
 // Ensure prepares the VM's world: the working directory, the firmware pair,
@@ -273,6 +301,7 @@ func (m *Machine) Start(ctx context.Context) error {
 	// the boot source its boot order was laid out for. qemu truncates the
 	// console capture on spawn, so the scan starts over.
 	m.devices, m.spawned, m.order = devices, slices.Clone(m.media), m.source
+	m.intent = bootIntent{m.source, m.once}
 	m.console = consoleScan{}
 	m.mu.Unlock()
 
@@ -299,6 +328,11 @@ func (m *Machine) Start(ctx context.Context) error {
 	if err == nil {
 		err = m.afterBoot(ctx)
 	}
+	if err == nil {
+		// qemu truncated the console capture at spawn: this power-on's
+		// output starts at the beginning.
+		m.armGuard(0)
+	}
 	if err != nil && !exited {
 		// A process that already exited has nothing left to stop.
 		_ = m.Stop(context.WithoutCancel(ctx))
@@ -310,6 +344,7 @@ func (m *Machine) Start(ctx context.Context) error {
 // ignores the polite quit is killed.
 func (m *Machine) Stop(ctx context.Context) error {
 	m.mu.Lock()
+	m.disarmLocked()
 	proc, done := m.proc, m.done
 	m.mu.Unlock()
 	if proc == nil {
@@ -333,9 +368,13 @@ func (m *Machine) Stop(ctx context.Context) error {
 // with, and the boot it is about to do must see the new set.
 func (m *Machine) Restart(ctx context.Context) error {
 	m.mu.Lock()
+	m.disarmLocked() // this reset is a new power-on, with a guard of its own
 	running := m.proc != nil
 	cold := running && !slices.Equal(m.media, m.spawned)
 	source := m.source
+	if running && !cold {
+		m.intent = bootIntent{m.source, m.once}
+	}
 	m.mu.Unlock()
 	if !running {
 		return m.Start(ctx)
@@ -362,6 +401,7 @@ func (m *Machine) Restart(ctx context.Context) error {
 	if err := m.qmp(ctx, "system_reset", nil); err != nil {
 		return err
 	}
+	m.armGuard(offset)
 	return m.afterBoot(ctx)
 }
 
@@ -482,12 +522,16 @@ type Status struct {
 	Running      bool
 	BootProgress string
 	ConsoleLog   string
+	// HangCycles counts the power cycles the firmware-hang guard did.
+	HangCycles int
 }
 
 // Status reads the VM's state for a dashboard. It follows the console the
 // same way BootProgress does.
 func (m *Machine) Status(ctx context.Context) Status {
-	st := Status{ConsoleLog: m.ConsoleLog()}
+	m.mu.Lock()
+	st := Status{ConsoleLog: m.ConsoleLog(), HangCycles: m.hangCycles}
+	m.mu.Unlock()
 	st.Running, _ = m.Running(ctx)
 	if st.Running {
 		st.BootProgress, _ = m.BootProgress(ctx)

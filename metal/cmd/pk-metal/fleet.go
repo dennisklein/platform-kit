@@ -10,7 +10,17 @@ import (
 	"time"
 
 	"github.com/dennisklein/platform-kit/metal/internal/bmc/sim/fleet"
+	"github.com/dennisklein/platform-kit/metal/internal/machine/qemu"
 )
+
+// guardTimeout maps the --hang-timeout flag onto the fleet option: on the
+// command line 0 means never, in the option it means the default.
+func guardTimeout(flag time.Duration) time.Duration {
+	if flag <= 0 {
+		return -1
+	}
+	return flag
+}
 
 // defaultStateListen is where `sim fleet` serves its state endpoint unless
 // told otherwise: loopback, next to the lab's BMC ports.
@@ -26,6 +36,8 @@ func simFleetCmd(args []string) {
 	verbose := fs.Bool("verbose", false, "log every request (default: only state-changing ones)")
 	stateListen := fs.String("state-listen", defaultStateListen,
 		"address of the read-only state endpoint (plain HTTP, GET "+fleet.StatePath+`; "" serves none); keep it on loopback`)
+	hangTimeout := fs.Duration("hang-timeout", qemu.DefaultHangTimeout,
+		"power-cycle a VM once when its console shows only firmware screen control for this long after a power-on (0: never)")
 	parseFlags(fs, args)
 	if *config == "" {
 		badUsage(fs, "--config is required")
@@ -39,6 +51,7 @@ func simFleetCmd(args []string) {
 	defer stop()
 	f, err := fleet.Start(ctx, cfg, fleet.Options{
 		StateListen: *stateListen,
+		HangTimeout: guardTimeout(*hangTimeout),
 		Wrap: func(machine string, h http.Handler) http.Handler {
 			return logRequests(h, "sim["+machine+"]", *verbose)
 		},
