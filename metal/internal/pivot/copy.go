@@ -262,19 +262,31 @@ func copiedSummary(kinds []movedKind, copied map[string]int) string {
 func (m *Mover) readSource(ctx context.Context) ([]sourceObject, error) {
 	var out []sourceObject
 	for _, k := range m.movedKinds() {
-		list := &unstructured.UnstructuredList{}
-		list.SetGroupVersionKind(k.gvk.GroupVersion().WithKind(k.gvk.Kind + "List"))
-		var opts []client.ListOption
+		var items []unstructured.Unstructured
+		namespaces := []string{""}
 		if k.core {
-			opts = append(opts, client.InNamespace(m.Options.Namespace))
+			namespaces = m.coreNamespaces()
 		}
-		if err := m.Source.Client.List(ctx, list, opts...); err != nil {
-			if !k.core && meta.IsNoMatchError(err) {
-				continue // an operator version without this kind: none of it to move
+		missing := false
+		for _, ns := range namespaces {
+			list := &unstructured.UnstructuredList{}
+			list.SetGroupVersionKind(k.gvk.GroupVersion().WithKind(k.gvk.Kind + "List"))
+			var opts []client.ListOption
+			if k.core {
+				opts = append(opts, client.InNamespace(ns))
 			}
-			return nil, fmt.Errorf("list %s on %s: %w", k.gvk.Kind, m.Source.Name, err)
+			if err := m.Source.Client.List(ctx, list, opts...); err != nil {
+				if !k.core && meta.IsNoMatchError(err) {
+					missing = true // an operator version without this kind: none of it to move
+					break
+				}
+				return nil, fmt.Errorf("list %s on %s: %w", k.gvk.Kind, m.Source.Name, err)
+			}
+			items = append(items, list.Items...)
 		}
-		items := list.Items
+		if missing {
+			continue
+		}
 		sort.Slice(items, func(i, j int) bool { return objectRef(&items[i]) < objectRef(&items[j]) })
 		for i := range items {
 			if k.skip != nil && k.skip(&items[i]) {
@@ -287,8 +299,16 @@ func (m *Mover) readSource(ctx context.Context) ([]sourceObject, error) {
 	return out, nil
 }
 
-// ensureNamespaces creates the namespaces the claims live in, with the
-// source's labels.
+// coreNamespaces are the namespaces whose ConfigMaps and Secrets move.
+func (m *Mover) coreNamespaces() []string {
+	if len(m.coreNS) == 0 {
+		return []string{m.Options.Namespace}
+	}
+	return m.coreNS
+}
+
+// ensureNamespaces creates the namespaces the claims and the credentials
+// live in, with the source's labels.
 func (m *Mover) ensureNamespaces(ctx context.Context, objs []sourceObject) error {
 	seen := map[string]bool{m.Options.Namespace: true}
 	for _, so := range objs {

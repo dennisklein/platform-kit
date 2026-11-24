@@ -38,9 +38,12 @@ to do.
 - **An operation waits for approval.** Approve it and let it finish, or
   delete it. With `--force-waiting` it moves as it is and waits on the new
   cluster instead.
-- **A rollout is under way.** An object that reports `Progressing` or
-  `Paused` (a TalosRollout between two nodes, say) is in the middle of work
-  its controller drives step by step. Let it finish, or stop it, first.
+- **A rollout is under way.** A TalosRollout that is approved and not yet
+  `Complete` (running, paused after its first node, or waiting for etcd
+  between two nodes), or any other object that reports `Progressing` or
+  `Paused`, is in the middle of work its controller drives step by step. Let
+  it finish, or abort it (`pk-metal rollout abort <rollout>`), first. A
+  rollout that waits for its approval is only a plan and moves as it is.
 - **An object is being deleted.** A claim that is being deleted has a release
   to finish (power off, media out). Let the operator in the bootstrap cluster
   finish it first.
@@ -98,9 +101,14 @@ First the move installs the operator on the target:
 Then it copies the operator's state. Each object keeps its name, labels,
 annotations, finalizers and status:
 
-1. ConfigMaps and Secrets in the namespace `pk-metal`: the ledger, the BMC
-   credentials (rotated passwords too), the Talos secrets bundles, the
-   rendered configurations, the published kubeconfigs and talosconfigs.
+1. ConfigMaps and Secrets in the namespace `pk-metal`, and in the manager's
+   credentials namespace when `--credentials-namespace` names another one:
+   the ledger, the BMC credentials (rotated passwords too), the Talos
+   secrets bundles and each cluster's `<cluster>-bundle-applied` record, the
+   rendered configurations (one Secret per config, named by its digest), the
+   published kubeconfigs and talosconfigs, and the backup sinks'
+   credentials. Moving the configs matters: without them the moved manager
+   would see every node's config as new.
 2. Assets, ManagementEndpoints, EndpointProfiles, BiosProfiles,
    FirmwareProfiles, BiosSchemas and BiosSettings.
 3. Hosts, with their claim reference.
@@ -113,7 +121,7 @@ annotations, finalizers and status:
    which kinds exist rather than keeping its own list, so a new kind cannot
    be left behind.
 
-What does not move: Secrets and ConfigMaps outside the namespace `pk-metal`,
+What does not move: Secrets and ConfigMaps outside those namespaces,
 Events, the leader lease, service account tokens, imager Jobs, and the files
 in the media store. Nothing of the
 workload clusters the operator installed moves either: they run on their own

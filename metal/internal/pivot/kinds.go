@@ -114,6 +114,11 @@ func inFlight(ctx context.Context, c client.Client, kinds []movedKind) ([]string
 		}
 		for i := range list.Items {
 			u := &list.Items[i]
+			if k.gvk == osGV.WithKind("TalosRollout") && rolloutRuns(u) {
+				out = append(out, fmt.Sprintf("TalosRollout %s is approved and not complete: let it finish, or abort it "+
+					"(pk-metal rollout abort %s), before moving the operator", u.GetName(), u.GetName()))
+				continue
+			}
 			conds, _, _ := unstructured.NestedSlice(u.Object, "status", "conditions")
 			for _, raw := range conds {
 				cond, _ := raw.(map[string]any)
@@ -127,4 +132,24 @@ func inFlight(ctx context.Context, c client.Client, kinds []movedKind) ([]string
 		}
 	}
 	return out, nil
+}
+
+// rolloutRuns: an approved TalosRollout whose Complete condition is not
+// decided yet. Its Progressing condition is not enough: a rollout waiting
+// for etcd's health between nodes reports it as Unknown, and the next node
+// would start under the target's manager from a plan the source's was
+// running.
+func rolloutRuns(u *unstructured.Unstructured) bool {
+	by, _, _ := unstructured.NestedString(u.Object, "spec", "approval", "approvedBy")
+	if by == "" {
+		return false
+	}
+	conds, _, _ := unstructured.NestedSlice(u.Object, "status", "conditions")
+	for _, raw := range conds {
+		cond, _ := raw.(map[string]any)
+		if cond["type"] == "Complete" {
+			return cond["status"] == string(metav1.ConditionUnknown)
+		}
+	}
+	return true
 }

@@ -27,7 +27,9 @@ import (
 	"io"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -146,6 +148,14 @@ type Mover struct {
 	sourceID, targetID string
 	// kinds is the copy list, discovered on the source (discoverKinds).
 	kinds []movedKind
+	// coreNS are the namespaces whose ConfigMaps and Secrets move: the
+	// operator's, and the manager's credentials namespace when it is
+	// another one. The credentials namespace holds the secrets bundles, the
+	// published cluster credentials, the content-addressed node configs,
+	// each cluster's <cluster>-bundle-applied record and the backup sinks'
+	// credentials; without them the moved manager could not reach a single
+	// machine, and would render every config again.
+	coreNS []string
 }
 
 // New prepares a move and tells the two clusters apart by the UID of their
@@ -162,6 +172,9 @@ func New(ctx context.Context, source, target *Cluster, o Options) (*Mover, error
 	}
 	if m.kinds, err = discoverKinds(source.Config); err != nil {
 		return nil, fmt.Errorf("cannot list the operator's kinds on %s: %w", source.Name, err)
+	}
+	if m.coreNS, err = coreNamespaces(ctx, source.Client, o); err != nil {
+		return nil, err
 	}
 	if m.sourceID == m.targetID {
 		return nil, fmt.Errorf("%s and %s are the same cluster (kube-system has UID %s in both): name another cluster with --to",
@@ -203,4 +216,29 @@ func (m *Mover) wait(ctx context.Context, what string, cond func(context.Context
 		case <-t.C:
 		}
 	}
+}
+
+// defaultCredentialsNamespace is the manager's --credentials-namespace
+// default.
+const defaultCredentialsNamespace = "pk-metal"
+
+// coreNamespaces reads the source manager's credentials namespace from its
+// Deployment. A source without the Deployment has nothing to move, which
+// Preflight says; until then the operator's namespace alone is assumed.
+func coreNamespaces(ctx context.Context, c client.Client, o Options) ([]string, error) {
+	d := &appsv1.Deployment{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: o.Namespace, Name: o.Deployment}, d); err != nil {
+		if apierrors.IsNotFound(err) {
+			return []string{o.Namespace}, nil
+		}
+		return nil, err
+	}
+	creds := argValue(d, "--credentials-namespace")
+	if creds == "" {
+		creds = defaultCredentialsNamespace
+	}
+	if creds == o.Namespace {
+		return []string{o.Namespace}, nil
+	}
+	return []string{o.Namespace, creds}, nil
 }
