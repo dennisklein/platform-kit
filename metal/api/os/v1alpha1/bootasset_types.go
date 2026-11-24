@@ -112,6 +112,21 @@ type BootAssetStatus struct {
 // BootAsset is a built boot artifact and how to fetch it: the controller produces
 // the artifact and reports readiness, digest, and — for grant-free strategies —
 // a URL.
+//
+// One-slot BMCs: a BMC with one virtual media slot cannot mount the installer
+// and a config ISO side by side. For a blank machine behind one, the operator
+// creates an embeddedInstaller BootAsset named `<node>-embedded`: an installer
+// built for that node with its machine config inside, mounted in the one slot.
+// The config is not sent to a machine in maintenance mode, which would take it
+// from anybody who reaches it; the installer reaches the BMC only through the
+// grant-protected media service, like a config ISO.
+//
+// Secrets at rest: the embedded installer holds the node's machine config in
+// plain text, keys and tokens included. It rests on the media store volume
+// (the manager's --media-store), readable by the operator's user only, and is
+// deleted with its BootAsset or when a newer build replaces it. It is not
+// encrypted: use an encrypted StorageClass for the media store where Secrets
+// are encrypted at rest.
 type BootAsset struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

@@ -119,6 +119,73 @@ are in the operator's namespace, `pk-metal`; give `-n pk-metal` to
 7. The node installs itself to disk, reboots from disk and joins the
    cluster. The Host becomes Provisioned.
 
+## BMCs with one virtual media slot
+
+Step 6 needs two virtual media: the installer and the configuration. Some
+BMCs hold one medium only (a Huawei iBMC, for example). For a blank machine
+behind such a BMC, the operator builds an installer for that one node, with
+its configuration inside, and mounts it in the one slot. It is like a
+kickstart file baked into a per-host boot ISO, instead of one served over
+the network.
+
+Why not boot the plain installer and send the configuration over the
+network? A Talos machine without a configuration (maintenance mode) accepts a
+configuration from anybody who reaches it, and the configuration holds the
+cluster's keys and tokens. The operator does not do that. The embedded
+installer travels the same way as the configuration ISO: the BMC fetches it
+from the operator's media service with a one-time grant, and the machine
+needs no network path to the operator.
+
+How it works:
+
+1. The operator creates a **BootAsset** `<node>-embedded` for the TalosNode
+   (`kubectl get bootassets`).
+2. It runs the **Talos imager** as a Job in `pk-metal`. The Job reads the
+   node's configuration from its Secret as a file. The configuration is never
+   in the Job's arguments or log. The Job runs as an ordinary user, with no
+   privileges and no loop devices.
+3. The ISO (about 370 MB) goes to the **media store**, a volume of the
+   operator. The BootAsset records its digest, and the media service checks
+   the digest each time it hands the file to a BMC.
+4. The approval plan says that the installer carries the configuration of
+   that node. After approval the operator mounts it, boots from CD,
+   power-cycles the machine, waits for the node to check in and ejects the
+   medium.
+
+A new configuration, Talos version or schematic gives a new build; the old
+ISO is deleted when the new one is ready, and all of them go with the
+TalosNode. A machine that already runs Talos from disk does not need this: its
+configuration goes in the one slot as a small ISO, as before. Talos 1.12 or
+later is needed to read an embedded configuration.
+
+What it means for secrets on disk:
+
+- **The ISO holds the node's configuration in plain text**, the same
+  content as the node's Secret. It is a file on the media store volume, owned
+  by the operator's user and readable by it only (mode 0400). It is not
+  encrypted.
+- Anybody who can read that volume, or the disk under it, can read the
+  configuration. Treat the volume like the cluster's Secret storage: if you
+  encrypt Secrets at rest, use an encrypted StorageClass for the media store.
+- Backups of the volume carry the configuration too. You do not need to back
+  it up: the operator rebuilds what is missing.
+
+To turn it on at a site:
+
+- Add the **media-store** kustomize component
+  (`metal/config/media-store`) to your overlay. It adds a 10 GiB volume
+  claim and the manager flags `--media-store` and `--media-store-claim`.
+  Without it, a blank machine behind a one-slot BMC waits, and `pk-metal status`
+  says why.
+- The management cluster pulls the imager image from
+  `ghcr.io/siderolabs/imager`, pinned by digest. The operator knows the digest
+  of the Talos release it renders for. For another release, give the manager
+  `--imager-digest=<version>=sha256:<digest>`; the BootAsset names the flag
+  when a digest is missing.
+- A failed build stops at the BootAsset (`kubectl describe bootasset
+  <node>-embedded`). Its message gives the commands to read the build log and
+  to try again.
+
 ## Approval, and how to say no
 
 Every boot and every BIOS or firmware change is a HostOperation that waits
@@ -254,6 +321,9 @@ install runs but the console stays dark.
   from inside.
 - The **operator** reaches the image factory (it registers image builds) and
   every node's Talos API on TCP 50000.
+- With one-slot BMCs, the **management cluster** pulls the Talos imager from
+  `ghcr.io`, and the imager fetches the system extensions of the schematic
+  from there too.
 - The **nodes** reach DNS, NTP, the image factory's registry (the installer
   image) and the container registries Talos and Kubernetes pull from:
   `ghcr.io`, `registry.k8s.io`, `gcr.io`, `docker.io`. `talosctl images
@@ -295,3 +365,6 @@ without it, mirror:
   the manager its CA with `--registry-ca` if it uses an internal one.
 - **The operator image** itself: build it (`mise run image`) and push it to
   your registry.
+- **The Talos imager**, for one-slot BMCs: copy `ghcr.io/siderolabs/imager`
+  at the digest you pin and give the manager `--imager-repository=<your
+  copy>`.
