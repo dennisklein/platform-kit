@@ -192,8 +192,8 @@ func newGuardedMachine(t *testing.T, timeout time.Duration) (*Machine, *fakeCloc
 	m.now = clock.now
 	m.ticker = func() (<-chan time.Time, func()) { return tick, func() {} }
 	m.powerCycle = func(context.Context) error {
-		// What Start does after the cycle: it would arm a guard, and must
-		// not, because this cycle is the guard's own.
+		// What Start does after the cycle: it arms a guard, which watches
+		// the guard's own cycle until the power-on has had its tries.
 		m.armGuard(0)
 		cycled <- struct{}{}
 		return nil
@@ -215,7 +215,7 @@ func waitCycle(t *testing.T, cycled chan struct{}) {
 	}
 }
 
-func TestMachineGuardOncePerPowerOn(t *testing.T) {
+func TestMachineGuardTriesPerPowerOn(t *testing.T) {
 	m, clock, tick, cycled := newGuardedMachine(t, 90*time.Second)
 	require.NoError(t, os.WriteFile(m.ConsoleLog(), []byte(hungScreen), 0o600))
 	var retried bootIntent
@@ -239,22 +239,32 @@ func TestMachineGuardOncePerPowerOn(t *testing.T) {
 	assert.Equal(t, bootIntent{"Cd", true}, retried, "the retry boots what the hung power-on was asked to")
 	m.mu.Unlock()
 	assert.Equal(t, 1, m.Status(context.Background()).HangCycles, "the state endpoint shows the cycle")
-	m.mu.Lock()
-	assert.Nil(t, m.guardCancel, "the guard's own power cycle arms no guard: one try per power-on")
-	m.mu.Unlock()
 
-	// The next power-on by the BMC is watched again, once the guard's cycle
-	// is over.
-	require.Eventually(t, func() bool {
+	// The boot after the guard's cycle hangs too: it is watched and cycled
+	// again, until the power-on has had its tries.
+	notCycling := func() bool {
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		return !m.cycling
-	}, 5*time.Second, time.Millisecond)
+	}
+	for try := 2; try <= hangTries; try++ {
+		require.Eventually(t, notCycling, 5*time.Second, time.Millisecond)
+		clock.advance(91 * time.Second)
+		tick <- clock.now()
+		waitCycle(t, cycled)
+		assert.Equal(t, try, m.Status(context.Background()).HangCycles)
+	}
+	require.Eventually(t, notCycling, 5*time.Second, time.Millisecond)
+	m.mu.Lock()
+	assert.Nil(t, m.guardCancel, "after its last try the guard leaves the VM for a person")
+	m.mu.Unlock()
+
+	// The next power-on by the BMC is watched again, with tries of its own.
 	m.armGuard(0)
 	clock.advance(91 * time.Second)
 	tick <- clock.now()
 	waitCycle(t, cycled)
-	assert.Equal(t, 2, m.Status(context.Background()).HangCycles)
+	assert.Equal(t, hangTries+1, m.Status(context.Background()).HangCycles)
 }
 
 func TestMachineGuardReadsOnlyItsPowerOn(t *testing.T) {

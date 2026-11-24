@@ -120,11 +120,13 @@ type Machine struct {
 
 	// The firmware-hang guard (hang.go): the cancel of the running one, a
 	// generation that tells a stale guard from the current one, whether the
-	// guard's own power cycle runs, and how many it did.
+	// guard's own power cycle runs, how many it did in all, and how many for
+	// the current power-on.
 	guardCancel context.CancelFunc
 	guardGen    int
 	cycling     bool
 	hangCycles  int
+	guardTries  int
 	// intent is the boot source of the last power-on, for the guard's retry.
 	intent bootIntent
 	// Seams for the guard's tests; New sets the real ones.

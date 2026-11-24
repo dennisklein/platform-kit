@@ -12,14 +12,19 @@ import (
 // power-on: the console showed nothing but the firmware clearing the screen,
 // no boot option was tried, and the machine sat there until someone reset it.
 // Real hardware does that too, rarely, and an admin power-cycles it. The guard
-// does the same, once: when, for HangTimeout after a power-on, the console
-// shows nothing beyond screen control sequences, the VM is power-cycled.
+// does the same: when, for HangTimeout after a power-on, the console shows
+// nothing beyond screen control sequences, the VM is power-cycled.
 //
 // It never touches a VM that wrote anything readable: the first printable
 // character on the console (a boot manager line, a kernel message) disarms it
 // for the rest of that power-on. So it cannot reset a running OS. Its own
-// power cycle arms no new guard: one try per power-on, then the VM is left
-// for a person to look at.
+// power cycle is watched again, up to hangTries cycles per power-on, then the
+// VM is left for a person to look at. One try was not enough: on a CI runner
+// that starts five VMs at once, three hung, and one of them hung again after
+// its cycle, failing the round after 30 minutes for want of a second cycle.
+
+// hangTries is how many times the guard power-cycles one power-on.
+const hangTries = 3
 
 // DefaultHangTimeout is how long a freshly powered-on VM may show nothing but
 // screen control sequences before the guard power-cycles it.
@@ -132,6 +137,7 @@ type hangGuard struct {
 	cycle   func() error
 	logf    func(format string, args ...any)
 	name    string
+	try     int // which of the power-on's hangTries this cycle would be
 }
 
 // watch reads the console at every tick (a tick carries the time) until it
@@ -163,7 +169,8 @@ func (g *hangGuard) watch(ctx context.Context, tick <-chan time.Time) bool {
 				return false
 			}
 			g.logf("qemu %s: FIRMWARE HANG: no boot output on the console %s after power-on "+
-				"(only screen control sequences); power-cycling the VM once", g.name, waited.Round(time.Second))
+				"(only screen control sequences); power-cycling the VM (try %d of %d)", g.name, waited.Round(time.Second),
+				g.try, hangTries)
 			if err := g.cycle(); err != nil {
 				g.logf("qemu %s: firmware-hang guard: the power cycle failed: %v", g.name, err)
 			}
@@ -174,7 +181,8 @@ func (g *hangGuard) watch(ctx context.Context, tick <-chan time.Time) bool {
 
 // armGuard starts watching the power-on that just happened; offset is where
 // its console output begins. A guard already running for an earlier
-// power-on is replaced. The guard's own power cycle arms nothing.
+// power-on is replaced. The guard's own power cycle is watched too, until
+// that power-on has had hangTries of them.
 func (m *Machine) armGuard(offset int64) {
 	timeout := m.o.HangTimeout
 	if timeout == 0 {
@@ -183,7 +191,12 @@ func (m *Machine) armGuard(offset int64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.disarmLocked()
-	if timeout < 0 || m.cycling {
+	if timeout < 0 {
+		return
+	}
+	if !m.cycling {
+		m.guardTries = 0 // a power-on of the BMC's own: a fresh count
+	} else if m.guardTries >= hangTries {
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -193,7 +206,7 @@ func (m *Machine) armGuard(offset int64) {
 	tail := &consoleTail{path: m.ConsoleLog(), offset: offset}
 	intent := m.intent
 	g := &hangGuard{
-		timeout: timeout, start: m.now(), read: tail.read, logf: m.logf, name: m.o.Name,
+		timeout: timeout, start: m.now(), read: tail.read, logf: m.logf, name: m.o.Name, try: m.guardTries + 1,
 		cycle: func() error { return m.hangCycle(gen, intent) },
 	}
 	go func() {
@@ -226,6 +239,7 @@ func (m *Machine) hangCycle(gen int, intent bootIntent) error {
 	}
 	m.cycling = true
 	m.hangCycles++
+	m.guardTries++
 	m.source, m.once = intent.source, intent.once
 	m.mu.Unlock()
 	defer func() {
