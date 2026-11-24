@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -60,12 +61,12 @@ func backupCmd(args []string) {
 	case "now":
 		wait := fs.Bool("wait", true, "wait until the snapshot is stored and verified")
 		timeout := fs.Duration("timeout", 35*time.Minute, "how long --wait waits")
-		parseFlags(fs, rest)
-		if fs.NArg() != 1 {
+		pos := parseAnywhere(fs, rest)
+		if len(pos) != 1 {
 			badUsage(fs, "give exactly one TalosCluster or EtcdBackupPolicy")
 		}
 		cl := mustClient()
-		name, err := backupNow(ctx, cl, fs.Arg(0), time.Now(), os.Stdout)
+		name, err := backupNow(ctx, cl, argAt(pos, 0), time.Now(), os.Stdout)
 		if err != nil {
 			die(err)
 		}
@@ -77,35 +78,35 @@ func backupCmd(args []string) {
 			}
 		}
 	case "list":
-		parseFlags(fs, rest)
-		if fs.NArg() > 1 {
+		pos := parseAnywhere(fs, rest)
+		if len(pos) > 1 {
 			badUsage(fs, "give at most one TalosCluster")
 		}
-		if err := listSnapshots(ctx, mustClient(), fs.Arg(0), time.Now(), os.Stdout); err != nil {
+		if err := listSnapshots(ctx, mustClient(), argAt(pos, 0), time.Now(), os.Stdout); err != nil {
 			die(err)
 		}
 	case "get":
 		out := fs.String("o", "", "file to write the encrypted snapshot to (required; it must not exist)")
-		parseFlags(fs, rest)
-		if fs.NArg() != 1 || *out == "" {
+		pos := parseAnywhere(fs, rest)
+		if len(pos) != 1 || *out == "" {
 			badUsage(fs, "give one snapshot and -o <file>")
 		}
-		if err := getCiphertext(ctx, mustClient(), fs.Arg(0), *out, os.Stdout); err != nil {
+		if err := getCiphertext(ctx, mustClient(), argAt(pos, 0), *out, os.Stdout); err != nil {
 			die(err)
 		}
 	case "decrypt":
 		in := fs.String("in", "", "decrypt this file instead of downloading the snapshot")
 		identity := fs.String("identity", "", "age identity file (required): the secret key, as age-keygen writes it")
 		out := fs.String("o", "", "also write the plaintext snapshot here (mode 0600; it must not exist)")
-		parseFlags(fs, rest)
-		if *identity == "" || (fs.NArg() == 1) == (*in != "") || fs.NArg() > 1 {
+		pos := parseAnywhere(fs, rest)
+		if *identity == "" || (len(pos) == 1) == (*in != "") || len(pos) > 1 {
 			badUsage(fs, "give --identity and either one snapshot or --in <file>")
 		}
 		var cl client.Client
-		if fs.NArg() == 1 {
+		if len(pos) == 1 {
 			cl = mustClient()
 		}
-		if err := decryptSnapshot(ctx, cl, fs.Arg(0), *in, *identity, *out, os.Stdout); err != nil {
+		if err := decryptSnapshot(ctx, cl, argAt(pos, 0), *in, *identity, *out, os.Stdout); err != nil {
 			die(err)
 		}
 	default:
@@ -443,4 +444,30 @@ func decryptSnapshot(ctx context.Context, cl client.Client, name, in, identity, 
 		fmt.Fprintf(w, "wrote the plaintext to %s; it holds every Secret of the cluster: delete it when done\n", out)
 	}
 	return nil
+}
+
+// parseAnywhere parses a subcommand's flags wherever they stand, before or
+// after its arguments (pk-metal restore plan lab --propose), and returns the
+// arguments. Everything after "--" is an argument.
+func parseAnywhere(fs *flag.FlagSet, args []string) []string {
+	var pos []string
+	for {
+		parseFlags(fs, args)
+		rest := fs.Args()
+		if len(rest) == 0 {
+			return pos
+		}
+		if used := len(args) - len(rest); used > 0 && args[used-1] == "--" {
+			return append(pos, rest...)
+		}
+		pos, args = append(pos, rest[0]), rest[1:]
+	}
+}
+
+// argAt is the i-th argument, or "" when there are fewer.
+func argAt(pos []string, i int) string {
+	if i < len(pos) {
+		return pos[i]
+	}
+	return ""
 }

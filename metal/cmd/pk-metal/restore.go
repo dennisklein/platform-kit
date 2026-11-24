@@ -84,12 +84,12 @@ func restoreCmd(args []string) {
 		snapshot := fs.String("snapshot", "", "EtcdSnapshot to restore (default: the cluster's newest verified one)")
 		node := fs.String("node", "", "control plane to restore on (default: the first by name that answers)")
 		propose := fs.Bool("propose", false, "create the plan's operations (each waits for approval)")
-		parseFlags(fs, rest)
-		if fs.NArg() != 1 {
+		pos := parseAnywhere(fs, rest)
+		if len(pos) != 1 {
 			badUsage(fs, "give exactly one TalosCluster")
 		}
 		cl := mustClient()
-		tc, err := talosconfigFor(ctx, cl, fs.Arg(0), *talosconfigFile)
+		tc, err := talosconfigFor(ctx, cl, argAt(pos, 0), *talosconfigFile)
 		if err != nil {
 			die(err)
 		}
@@ -100,7 +100,7 @@ func restoreCmd(args []string) {
 			}
 		}
 		p, err := planRestore(ctx, cl, machineapi.Dial, tc, restoreInput{
-			Cluster: fs.Arg(0), Snapshot: *snapshot, Node: *node, User: user, Now: time.Now()})
+			Cluster: argAt(pos, 0), Snapshot: *snapshot, Node: *node, User: user, Now: time.Now()})
 		if err != nil {
 			die(err)
 		}
@@ -111,17 +111,17 @@ func restoreCmd(args []string) {
 			}
 		} else if len(p.Ops) > 0 {
 			fmt.Printf("\nnothing was created; to propose these operations: pk-metal restore plan %s --propose%s\n",
-				fs.Arg(0), p.flags())
+				argAt(pos, 0), p.flags())
 		}
 	case "upload":
 		ns := fs.String("n", operatorNamespace, "namespace of the operation")
 		identity := fs.String("identity", "", "age identity file (required)")
 		fromFile := fs.String("from-file", "", "the encrypted snapshot as a file (needed for a pvc sink)")
-		parseFlags(fs, rest)
-		if fs.NArg() != 1 || *identity == "" {
+		pos := parseAnywhere(fs, rest)
+		if len(pos) != 1 || *identity == "" {
 			badUsage(fs, "give one operation and --identity")
 		}
-		namespace, name, err := splitRef(fs.Arg(0), *ns, flagGiven(fs, "n"))
+		namespace, name, err := splitRef(argAt(pos, 0), *ns, flagGiven(fs, "n"))
 		if err != nil {
 			badUsage(fs, err.Error())
 		}

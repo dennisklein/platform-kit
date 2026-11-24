@@ -318,3 +318,26 @@ func TestBackupDecryptChecksTheSnapshot(t *testing.T) {
 	_, err = os.Stat(dst2)
 	assert.True(t, os.IsNotExist(err))
 }
+
+// The help and the hints print flags after the cluster (pk-metal restore
+// plan lab --propose); that must parse like flags in front.
+func TestParseAnywhere(t *testing.T) {
+	for _, args := range [][]string{
+		{"lab", "--snapshot", "s1", "--propose"},
+		{"--snapshot", "s1", "lab", "--propose"},
+		{"--propose", "--snapshot=s1", "lab"},
+	} {
+		fs := newFlags("restore plan")
+		snapshot := fs.String("snapshot", "", "")
+		propose := fs.Bool("propose", false, "")
+		pos := parseAnywhere(fs, args)
+		assert.Equal(t, []string{"lab"}, pos, args)
+		assert.Equal(t, "s1", *snapshot, args)
+		assert.True(t, *propose, args)
+	}
+	fs := newFlags("backup decrypt")
+	in := fs.String("in", "", "")
+	assert.Equal(t, []string{"-weird", "x"}, parseAnywhere(fs, []string{"--in", "f", "--", "-weird", "x"}))
+	assert.Equal(t, "f", *in)
+	assert.Empty(t, argAt(nil, 0))
+}
