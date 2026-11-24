@@ -26,6 +26,8 @@ HELP="usage: $SCRIPT <verb>
   release <namespace/name>
                delete a claim, approve the shutdown it proposes, and wait until its
                Host is Available again
+  day2         on a converged lab: reboot a worker and a control plane with pk-metal
+               reboot, approved by a second user, and check each came back
   pivot        move the operator from kind onto the first Talos cluster (pk-metal
                pivot), delete kind, and install the second cluster from there;
                needs a workload section (PK_LAB_WORKLOAD) and a converged lab
@@ -47,6 +49,7 @@ environment variables:
   PK_LAB_WAIT_TIMEOUT   seconds wait gives the lab to converge (default: 2400)
   PK_LAB_RELEASE_TIMEOUT
                         seconds release gives a machine to come back (default: 900)
+  PK_LAB_DAY2_TIMEOUT   seconds day2 gives each reboot (default: 1200)
   PK_LAB_MIN_FREE_GIB   free disk doctor asks for under PK_LAB_DIR (default: 15)
   PK_LAB_KIND_CONFIG    the kind cluster definition (default: <repo>/lab/kind.yaml);
                         a copy with another node image is how a host still on
@@ -64,6 +67,7 @@ GEN=$LAB_DIR/generated
 FLEET=$GEN/fleet.yaml
 WAIT_TIMEOUT=${PK_LAB_WAIT_TIMEOUT:-2400}
 RELEASE_TIMEOUT=${PK_LAB_RELEASE_TIMEOUT:-900}
+DAY2_TIMEOUT=${PK_LAB_DAY2_TIMEOUT:-1200}
 MIN_FREE_GIB=${PK_LAB_MIN_FREE_GIB:-15}
 KIND_CONFIG=${PK_LAB_KIND_CONFIG:-$ROOT/lab/kind.yaml}
 
@@ -770,7 +774,7 @@ pending_operations() {
     .items[]
     | select(.spec.approval.required != false)
     | select((.spec.approval.approvedBy // "") == "")
-    | select((.status.phase // "") != "Succeeded" and (.status.phase // "") != "Failed")
+    | select((.status.phase // "") as $p | ["Succeeded", "Failed", "Aborted"] | index($p) | not)
     | "\(.metadata.namespace) \(.metadata.name)"'
 }
 
@@ -995,6 +999,148 @@ release() {
   or wait longer: PK_LAB_RELEASE_TIMEOUT=1800 mise run lab:release $claim"
     sleep 10
   done
+}
+
+# ---------------------------------------------------------------- day 2
+
+# Writes a kubeconfig for a second person. pk-metal reboot records its caller
+# as the proposer, and the approval policy refuses an approval by the proposer,
+# so the lab proposes as lab-proposer (the lab's admin impersonates it) and
+# approves as itself. system:masters gives the impersonated user the
+# permissions; it is not a member of the admin group, which a reboot does not
+# need.
+proposer_kubeconfig() {
+  local lab_dir=$1 file=$2
+  (umask 077 && yq '.users[].user.as = "lab-proposer"
+    | .users[].user."as-groups" = ["system:masters", "system:authenticated"]' "$lab_dir/kubeconfig" >"$file.tmp") \
+    || die "could not write $file from $lab_dir/kubeconfig. Check that yq is on the PATH: mise run lab:doctor"
+  mv "$file.tmp" "$file"
+}
+
+# Prints the name of a TalosNode of the role whose Host is Provisioned, or
+# nothing. A released machine runs no node, so it is skipped.
+running_node() {
+  local role=$1
+  local placed
+  placed=$(kubectl get hosts --output json | jq -c '
+    [.items[] | select(.status.phase == "Provisioned") | .spec.os.nodeRef.name // empty]')
+  kubectl get talosnodes --output json | jq -r --arg role "$role" --argjson placed "$placed" '
+    [.items[] | select(.spec.role == $role) | .metadata.name | select(. as $n | $placed | index($n))]
+    | sort | first // empty'
+}
+
+control_plane_count() {
+  local cluster_name=$1
+  kubectl get talosnodes --output json | jq --arg cluster "$cluster_name" '
+    [.items[] | select(.spec.clusterRef.name == $cluster and .spec.role == "controlplane")] | length'
+}
+
+# Prints the kubelet's boot ID of a workload node. It changes on every boot,
+# whoever rebooted the machine, which makes it the outcome a reboot is checked
+# against instead of the operation's own word.
+boot_id() {
+  local kube_file=$1 node=$2
+  kubectl --kubeconfig "$kube_file" --request-timeout=5s get node "$node" \
+    --output jsonpath='{.status.nodeInfo.bootID}' 2>/dev/null
+}
+
+# Succeeds when the workload node is Ready and schedulable.
+node_back() {
+  local kube_file=$1 node=$2
+  kubectl --kubeconfig "$kube_file" --request-timeout=5s get node "$node" --output json 2>/dev/null | jq -e '
+    (.spec.unschedulable // false | not)
+    and any(.status.conditions[]?; .type == "Ready" and .status == "True")' >/dev/null
+}
+
+# Reboots one node the way a person does: pk-metal reboot proposes it, a
+# second person approves it, and the operator cordons, drains, reboots and
+# uncordons. The outcome is checked on the workload cluster, not only on the
+# operation: the node's boot ID changed, and it is Ready and schedulable.
+day2_reboot_node() {
+  local root=$1 lab_dir=$2 proposer=$3 node=$4 override=$5 timeout=$6
+  local kube_file=$lab_dir/workload.kubeconfig
+  local before after ref namespace name phase message deadline=$((SECONDS + timeout))
+  before=$(boot_id "$kube_file" "$node") \
+    || die "the workload cluster does not answer for node $node. Fetch its kubeconfig: mise run lab:kubeconfig"
+  [[ -n $before ]] || die "node $node reports no boot ID. See the nodes: kubectl --kubeconfig $kube_file get nodes"
+
+  step "rebooting $node through pk-metal reboot, waiting up to ${timeout}s"
+  ref=$("$root/metal/bin/pk-metal" --kubeconfig "$proposer" reboot "$node" | tee /dev/stderr \
+    | sed -n 's/^proposed \([^:]*\):.*/\1/p')
+  [[ $ref == */* ]] || die "pk-metal reboot $node proposed no operation it named. Run it by hand to see why:
+  KUBECONFIG=$proposer metal/bin/pk-metal reboot $node"
+  namespace=${ref%%/*}
+  name=${ref#*/}
+  if [[ -n $override ]]; then
+    # A cluster with one control plane has no etcd majority without it, so
+    # the cluster guard would hold its reboot forever. This is the case the
+    # override is documented for (docs/metal/day2-actions.md).
+    kubectl -n "$namespace" annotate hostoperation "$name" "metal.pk.io/override-cluster-guard=$override" >&2
+  fi
+
+  while true; do
+    approve_pending "$root" >/dev/null || true
+    phase=$(kubectl -n "$namespace" get hostoperation "$name" --output jsonpath='{.status.phase}' 2>/dev/null) || phase=""
+    case "$phase" in
+      Succeeded)
+        after=$(boot_id "$kube_file" "$node") || after=""
+        [[ -n $after && $after != "$before" ]] || die "operation $ref succeeded, but node $node did not boot again
+  (boot ID $before before, ${after:-unknown} after). Collect the evidence: mise run lab:collect"
+        node_back "$kube_file" "$node" || die "operation $ref succeeded, but node $node is not Ready and schedulable.
+  See it: kubectl --kubeconfig $kube_file describe node $node"
+        echo "rebooted $node after $((SECONDS - (deadline - timeout)))s: boot ID $before -> $after" >&2
+        return 0
+        ;;
+      Failed | Aborted)
+        message=$(kubectl -n "$namespace" get hostoperation "$name" --output json | jq -r '
+          (.status.conditions // [])[] | select(.type == "Executed") | "\(.reason): \(.message)"')
+        die "operation $ref ended $phase: $message
+  Look at it: metal/bin/pk-metal status; collect the evidence: mise run lab:collect"
+        ;;
+    esac
+    (( SECONDS < deadline )) || die "the reboot of $node did not finish within ${timeout}s (operation $ref is ${phase:-unknown}).
+  Look at it: metal/bin/pk-metal status; or wait longer: PK_LAB_DAY2_TIMEOUT=2400 mise run lab:day2"
+    sleep 10
+  done
+}
+
+# Reboots a worker, then a control plane. A lab without workers skips the
+# first; every lab has a control plane.
+day2_reboot() {
+  local root=$1 lab_dir=$2 gen=$3 timeout=$4
+  local cluster_name proposer worker cp override=""
+  cluster_name=$(lab_value "$gen" TALOS_CLUSTER)
+  proposer=$lab_dir/proposer.kubeconfig
+  proposer_kubeconfig "$lab_dir" "$proposer"
+  worker=$(running_node worker)
+  if [[ -n $worker ]]; then
+    day2_reboot_node "$root" "$lab_dir" "$proposer" "$worker" "" "$timeout"
+  else
+    note "no running worker; only a control plane is rebooted"
+  fi
+  cp=$(running_node controlplane)
+  [[ -n $cp ]] || die "no control plane runs on a Provisioned host. See where the lab stands: mise run lab:status"
+  if (( $(control_plane_count "$cluster_name") == 1 )); then
+    override="lab: cluster $cluster_name has a single control plane"
+  fi
+  day2_reboot_node "$root" "$lab_dir" "$proposer" "$cp" "$override" "$timeout"
+}
+
+# Placeholders for the rolling upgrade and the node add and remove rounds,
+# which come with their own operations; until then they say so and pass.
+day2_rollout() { note "day2: no rolling upgrade round in this lab yet"; }
+day2_lifecycle() { note "day2: no node add and remove round in this lab yet"; }
+
+# The day-2 rounds on a converged lab, in an order where each leaves the
+# cluster whole for the next.
+day2() {
+  local root=$1 lab_dir=$2 gen=$3 timeout=$4
+  require_cluster "$lab_dir"
+  kubeconfig_fetch "$(lab_value "$gen" TALOS_CLUSTER)" "$lab_dir/workload.kubeconfig" "$lab_dir/talosconfig" \
+    || die "the workload cluster has published no kubeconfig yet. Converge the lab first: mise run lab:wait"
+  day2_reboot "$root" "$lab_dir" "$gen" "$timeout"
+  day2_rollout
+  day2_lifecycle
 }
 
 # ---------------------------------------------------------------- pivot
@@ -1277,6 +1423,10 @@ main() {
     release)
       (( $# == 2 )) || die "name one claim, e.g.: mise run lab:release default/node-3"
       release "$ROOT" "$LAB_DIR" "$2" "$RELEASE_TIMEOUT"
+      ;;
+    day2)
+      require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
+      day2 "$ROOT" "$LAB_DIR" "$GEN" "$DAY2_TIMEOUT"
       ;;
     pivot)
       require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
