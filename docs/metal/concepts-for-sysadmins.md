@@ -402,18 +402,23 @@ without it, mirror:
   and installer images are then named on your host.
 - **The container images** Talos and Kubernetes pull: `talosctl images
   default` lists them (from `ghcr.io/siderolabs`, `registry.k8s.io`,
-  `gcr.io` and others). Copy them into your registry and tell the nodes with
-  one `RegistryMirrorConfig` patch per upstream registry:
+  `gcr.io` and others). Copy them into your registry and tell the nodes in
+  the TalosCluster, one entry per upstream registry. The operator writes them
+  into every node's configuration, so they are there before the first node
+  installs:
 
   ```yaml
-      - inline: |
-          apiVersion: v1alpha1
-          kind: RegistryMirrorConfig
-          name: ghcr.io
-          endpoints:
-            - url: https://registry.example.org/v2/ghcr.io
-              overridePath: true
+  spec:
+    registryMirrors:
+      - registry: ghcr.io
+        endpoints:
+          - https://registry.example.org
   ```
+
+  The nodes ask the mirror for the same paths they would ask upstream. A
+  mirror that serves each upstream under its own path prefix needs Talos'
+  `overridePath`, which `registryMirrors` does not set: give that registry a
+  `RegistryMirrorConfig` patch instead.
 
 - **DNS and NTP**: point the nodes at your own servers (`ResolverConfig`,
   `TimeSyncConfig` patches).
