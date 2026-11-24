@@ -12,7 +12,7 @@ hero:
   tagline: A Kubernetes operator that installs Talos Linux on bare-metal servers through their BMCs. You write what must be true. The operator proposes each change. You approve it.
   actions:
     - { text: Run the lab, link: 'tut:lab-first-cluster', variant: primary }
-    - { text: Reference, link: 'kind:Host', variant: secondary }
+    - { text: Reference, link: 'kind:index', variant: secondary }
 ---
 
 import NavCards from '../../components/NavCards.astro';
@@ -35,11 +35,17 @@ Step through the install of one machine. Each box links to its reference page.
 2. The operator does nothing that disrupts a machine before a person approves it. Read [](concept:approval).
 3. Conditions are the facts. The phase is a summary for people. Read [](concept:phases-and-conditions).
 
-## Link colors
+## After the install
 
-Each link shows the category of its target with a color and an icon:
-[](kind:Host), [](ctrl:host), [](act:PowerCycle), [](cli:approve), [](lab:up),
-[](concept:approval), [](flow:rack-to-node), [](howto:install-hosts),
-[](rb:operation-failed) and [](tut:lab-first-cluster).
-A dotted line marks a [glossary](ref:glossary) term, for example BMC.
-[How to read this site](/start/how-to-read/) explains each category.
+The operator also does the day-2 work: Talos and Kubernetes upgrades, etcd backup and restore, node changes, BIOS and firmware, and maintenance windows.
+Each change is a proposal that a person approves. Read [the overview](/start/overview/#what-it-does-after-the-install).
+
+## Status and requirements
+
+- **Status.** No release yet. The API is `v1alpha1`. The automatic tests use simulated BMCs. Read [](ref:status).
+- **Hardware.** x86-64 servers in UEFI mode, with a Redfish BMC that can mount virtual media. Read [](ref:hardware).
+- **Versions.** Talos v1.14.0 or later. Read [](ref:versions).
+- **The lab.** A Linux workstation with KVM, Docker Engine and 12 GiB of free memory. Read [](lab:page/prerequisites).
+- **Real hardware.** Start with [](tut:first-real-server). System administrators: read [For system administrators](/start/for-sysadmins/).
+
+The color and the icon of a link show the type of page that it opens. [How to read this site](/start/how-to-read/) explains each one.

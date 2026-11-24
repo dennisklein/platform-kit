@@ -6,16 +6,44 @@ sidebar:
   order: 1
 ---
 
+import Callout from '../../../components/Callout.astro';
+
 pk-metal is a Kubernetes operator. It runs in a small management cluster.
 It reads the objects that you write, and it changes the machines to agree with them.
 
-## What it does
+<Callout type="note">
+pk-metal has no release yet, and the automatic tests use simulated BMCs. Read [](ref:status) before you plan with it.
+</Callout>
+
+## What it does on day 1
 
 1. It finds each BMC from the MAC address in your Asset.
 2. It reads the machine through Redfish and makes a [](kind:Host).
 3. It compares the serial number from the BMC with the serial number in your Asset.
 4. When you claim a Host, it proposes an install. You approve the install.
 5. It boots the installer from virtual media and installs Talos Linux.
+
+[](howto:day-1) has the tasks.
+
+## What it does after the install
+
+| Task | How | Read |
+| --- | --- | --- |
+| Upgrade Talos or Kubernetes, change the configuration, reboot | A rollout goes through the nodes one at a time. A person approves the plan. | [](concept:rollouts) |
+| Back up and restore etcd | Encrypted snapshots on a schedule. A restore is an approved operation. | [](concept:etcd-backup) |
+| Add, remove and replace nodes | You give the size or the new machine. The operator keeps the etcd majority. | [](concept:node-lifecycle) |
+| Release a machine | You delete the claim. The operator wipes the disk and frees the machine. | [](concept:release-and-wipe) |
+| BIOS settings, firmware, BMC accounts and certificates | Profiles for sets of machines. | [](concept:convergence) |
+| Limit changes to a schedule | Maintenance windows hold approved operations. | [](concept:maintenance-windows) |
+| Move the operator onto a cluster that it built | One command copies the objects. No machine changes. | [](concept:pivot-model) |
+| Watch the fleet | Metrics, alert rules, a status command and a live view. | [](concept:observability) |
+
+[](howto:day-2) has the tasks.
+
+## How many approvals
+
+One install is one approval. One rollout is one approval for all its nodes.
+A second person approves what the first person proposed. [](concept:approval) has the rules.
 
 ## Who writes what
 
@@ -26,9 +54,26 @@ It reads the objects that you write, and it changes the machines to agree with t
 | [](kind:ManagementEndpoint), [](kind:Host) | The operator | What it finds |
 | [](kind:HostOperation) | The operator; you approve it | What it plans |
 
+## Limits
+
+| Topic | Limit |
+| --- | --- |
+| Operating system | Talos Linux only, v1.14.0 or later. See [](ref:versions). |
+| Architecture | x86-64 machines in UEFI boot mode. |
+| BMC | Redfish with virtual media. No IPMI, no PXE. See [](ref:hardware). |
+| Tested hardware | Simulated BMCs only. See [](ref:status). |
+| Machine selection | You name each machine. No replica count and no autoscaler. |
+| Workloads | The operator installs the cluster. It does not install add-ons or applications. |
+| Operator replicas | One manager. See [Scale and sizing](concept:architecture#scale-and-sizing). |
+| Tested size | One cluster of five virtual machines. |
+| Release | None yet. The API is `v1alpha1` and can change. |
+
+[Compared with other tools](/start/compared-with/) maps pk-metal to tools that you possibly know.
+
 ## Next
 
 - Make a cluster in the lab: [](tut:lab-first-cluster).
 - Follow one machine from the rack to a node: [](flow:rack-to-node).
+- Install one real machine: [](tut:first-real-server).
 - Install machines: [](howto:day-1).
 - Operate the cluster: [](howto:day-2). If something fails, start at the [](rb:index).

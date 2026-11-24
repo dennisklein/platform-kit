@@ -67,6 +67,42 @@ It reads the objects that you write and changes the machines through their BMCs.
 3. The operator boots from virtual media, not from PXE. See [](concept:virtual-media-boot).
 4. The operator does not take down the cluster that it runs on. See [](concept:self-protection).
 
+## Scale and sizing
+
+### The management cluster
+
+| Topic | Value | Source |
+| --- | --- | --- |
+| Manager pod | Requests 50m CPU and 128 Mi memory. Memory limit 1 Gi. | `metal/config/manager/deployment.yaml` |
+| Replicas | One. The Deployment replaces the pod, it does not roll. | The media grants are in the memory of one process. |
+| Leader election | On in the Deployment. It stops a second manager that someone starts by accident. | It does not make two replicas a supported setup. |
+| Media store | A 10 Gi volume, only for BMCs with one media slot. About 400 MiB for each such machine. | `metal/config/media-store/pvc.yaml` |
+| Size of the cluster | One node is enough. The lab uses one kind node. | No test uses a larger management cluster. |
+
+### When the manager does not run
+
+- The installed nodes and their workloads continue to run. No node needs the manager to stay up.
+- Nothing is proposed, approved operations do not start, and a rollout does not continue.
+- An operation that ran continues with its next step when the manager starts again. Each step first reads the state of the machine.
+- A BMC cannot download media. An install that waits for a download fails or waits.
+- The state is the objects in the management cluster. If you lose that cluster, see [](rb:management-cluster-lost).
+
+### What limits the speed
+
+| Limit | Value | Can you change it |
+| --- | --- | --- |
+| Operations that the manager works on at the same moment | 4. A long step, for example a firmware flash, holds one of the four. | No flag |
+| Rollouts on one cluster | One at a time | No |
+| Control planes in a rollout | One at a time, and only while etcd is healthy | No |
+| Workers in a rollout | `spec.maxUnavailableWorkers`, default 1 | Yes, on the [](kind:TalosRollout) |
+| Read of each BMC | Each 5 minutes | `--poll-interval` |
+| Approvals | One for each install, one for each rollout plan | See [](concept:approval) |
+
+### What is tested
+
+The largest shape in the tests is one cluster of five virtual machines. No test measures a fleet of tens or hundreds of machines.
+The numbers above are the design. They are not results of a load test. See [](ref:status).
+
 ## In the reference
 
 - [](kind:index) and [](ctrl:index)

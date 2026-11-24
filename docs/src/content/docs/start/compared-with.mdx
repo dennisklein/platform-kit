@@ -1,0 +1,88 @@
+---
+title: Compared with other tools
+description: How the objects of pk-metal map to Cluster API with Metal3, Tinkerbell and Sidero Omni, and what pk-metal does not do.
+type: start
+sidebar:
+  order: 4
+---
+
+import Callout from '../../../components/Callout.astro';
+
+This page is for people who know a different tool for bare metal and Kubernetes.
+It maps the words that you know to the objects of pk-metal, and it says where the model is different.
+
+<Callout type="note">
+The statements about the other projects are from their public documentation in November 2026. They are a summary, not a test.
+The other projects change. Read their documentation before you decide.
+</Callout>
+
+## The main differences
+
+| Topic | pk-metal | What you possibly expect |
+| --- | --- | --- |
+| Scale by a number | No. One [](kind:TalosNode) and one [](kind:HostClaim) for each machine. You name the machine. | A replica count that selects free machines. |
+| Approval | A person approves each change that disrupts a machine. A second person approves what the first proposed. | The controller acts when the object changes. |
+| Boot path | Redfish virtual media only. No PXE, no TFTP, no DHCP for the install. | PXE or iPXE, sometimes virtual media. |
+| Operating system | Talos Linux only. | An image of your choice. |
+| State | Kubernetes objects in one management cluster. No other database. | The same for most tools. |
+| Maturity | Before the first release. See [](ref:status). | Released projects with users in production. |
+
+## Cluster API with Metal3
+
+[Metal3](https://metal3.io/) is the bare-metal provider of [Cluster API](https://cluster-api.sigs.k8s.io/). It uses Ironic to control the machines.
+
+| Cluster API and Metal3 | pk-metal | Difference |
+| --- | --- | --- |
+| `BareMetalHost` | [](kind:Asset) (what you assert) and [](kind:Host) (what the operator found) | Two objects. A difference between them stops the work. See [](concept:assert-vs-observe). |
+| BMC address in the `BareMetalHost` | The [ledger](concept:ledger) and a [](kind:ManagementEndpoint) | The address comes from a file of your site, by BMC MAC. |
+| `Metal3Machine` selects a free host | [](kind:HostClaim) names one Asset | You select the machine. |
+| `Machine` | [](kind:TalosNode) | Written by you, one for each machine. |
+| `MachineDeployment`, `KubeadmControlPlane` with replicas | No equivalent | [](cli:scale) makes or deletes claims for a size that you give. |
+| Rolling update of a `MachineDeployment` | [](kind:TalosRollout) | The nodes are upgraded in place. No machine is installed again. A person approves the plan. |
+| `clusterctl move` | [](cli:pivot) | See [](concept:pivot-model). |
+| Ironic, with PXE or virtual media | The operator speaks Redfish itself | No Ironic, no deploy image, no DHCP service. |
+| Bootstrap provider for kubeadm or Talos | The operator renders the Talos configuration | See [](concept:talos-rendering). |
+
+pk-metal is not a Cluster API provider. It has no `Cluster` or `Machine` objects of Cluster API, and Cluster API tools do not read its objects.
+
+## Tinkerbell
+
+[Tinkerbell](https://tinkerbell.org/) boots machines from the network and runs a workflow of actions on each one.
+
+| Tinkerbell | pk-metal | Difference |
+| --- | --- | --- |
+| `Hardware` | [](kind:Asset) and [](kind:Host) | |
+| `Template` and `Workflow` | [](kind:HostOperation) | The operator writes the list of actions. You do not write actions of your own. |
+| DHCP and network boot services | None | The machine boots an ISO that the BMC mounts. |
+| BMC control for power and boot device | The Redfish client of the operator | Redfish only. No IPMI. |
+| An OS image of your choice | Talos Linux | |
+
+## Sidero Omni
+
+[Omni](https://www.siderolabs.com/omni/) by Sidero Labs manages Talos clusters as a service, or installed at your site.
+
+| Omni | pk-metal | Difference |
+| --- | --- | --- |
+| A machine boots an Omni image and registers itself | The operator finds the machine through its BMC, from your Asset | No agent and no registration. The BMC network is the only path before the install. |
+| Cluster templates and machine classes | [](kind:TalosCluster), [](kind:TalosNode), [](kind:HostClaim) | You name each machine. |
+| Web interface, user management | `kubectl`, [](cli:top), Kubernetes RBAC | No web interface. |
+| Talos and Kubernetes upgrades | [](kind:TalosRollout) | A person approves each plan. |
+| etcd backups | [](kind:EtcdBackupPolicy) | |
+| The same company makes Talos | A separate project that uses the Talos libraries | See [](ref:versions) for the releases that it accepts. |
+
+## What pk-metal does not do
+
+- It does not select machines for you. No replica count, no autoscaler.
+- It does not install an operating system other than Talos Linux.
+- It does not use PXE, and it does not use IPMI.
+- It does not install add-ons or workloads. For the pod network, Talos installs Flannel, or the manifests from the URLs that you give in the TalosCluster.
+- It does not act without a person, except where you set automatic approval.
+- It has no web interface.
+
+[Limits](/start/overview/#limits) has the technical limits.
+
+## Related
+
+- [](ref:status) says how mature the project is.
+- [For system administrators](/start/for-sysadmins/) maps PXE and kickstart words.
+- [](concept:architecture)
