@@ -1,5 +1,7 @@
 # Day-2 steps: what each one does to a running node
 
+One of the [day-2 pages](day2.md).
+
 A HostOperation is a list of steps that one host runs in order, after another
 person has approved them. The [concepts page](concepts-for-sysadmins.md)
 covers the install steps, which go through the BMC (power, virtual media,

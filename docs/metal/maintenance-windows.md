@@ -1,5 +1,7 @@
 # Maintenance windows
 
+One of the [day-2 pages](day2.md).
+
 A maintenance window says when disruptive work may start on a set of
 machines: "the compute racks on Saturday night", "the storage nodes on the
 first Tuesday morning, one off date for the controller swap". pk-metal still

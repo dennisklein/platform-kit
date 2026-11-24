@@ -1,5 +1,7 @@
 # Upgrades, config changes and rolling reboots
 
+One of the [day-2 pages](day2.md).
+
 Once a Talos cluster runs, most changes to it reach the machines one node
 at a time. A Talos upgrade, a Kubernetes upgrade, a changed machine config
 and a rolling reboot all work this way. This page explains how the operator

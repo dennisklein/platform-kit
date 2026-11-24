@@ -1,5 +1,7 @@
 # Add, remove, replace and reinstall nodes
 
+One of the [day-2 pages](day2.md).
+
 A Talos cluster's size is the set of its TalosNodes that hold a machine
 through a HostClaim. This page says how to change that set without breaking
 the cluster: which order is safe, what the operator refuses, and what it does

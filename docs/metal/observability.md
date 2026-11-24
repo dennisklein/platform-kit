@@ -1,5 +1,7 @@
 # Observability
 
+One of the [day-2 pages](day2.md).
+
 Three ways to see what pk-metal and the machines are doing, from the quick
 look to the pager:
 

@@ -10,7 +10,9 @@ lab" for more.
 New to Kubernetes, or coming from PXE, kickstart, Foreman or xCAT? Read
 [Concepts for system administrators](../docs/metal/concepts-for-sysadmins.md)
 first. It maps the objects here to the tools you know, says where each piece
-of state lives, and lists what is destructive.
+of state lives, and lists what is destructive. All the documentation is
+indexed in [docs/metal](../docs/metal/README.md); the day-2 rounds below
+follow [Day 2](../docs/metal/day2.md).
 
 ## Before you start: what changes a machine
 

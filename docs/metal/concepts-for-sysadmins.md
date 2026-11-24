@@ -8,7 +8,9 @@ every step that changes a machine.
 
 The reference for every field is the generated [API reference](api.md). The
 [virtual lab](../../lab/README.md) runs everything on this page on one
-workstation.
+workstation. What comes after the install (reboots, upgrades, backups,
+adding and removing nodes) is in [Day 2](day2.md); every page is listed in
+the [index](README.md).
 
 ## The short version
 

@@ -1,5 +1,7 @@
 # Back up and restore etcd (disaster recovery)
 
+One of the [day-2 pages](day2.md).
+
 A Talos cluster keeps all of its Kubernetes state in etcd, which runs on the
 control-plane nodes. Each control plane keeps its etcd data in its
 EPHEMERAL partition. If one control plane loses that data, the others still
