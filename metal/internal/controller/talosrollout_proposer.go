@@ -21,7 +21,8 @@ import (
 // a TalosUpgrade when a machine runs another Talos version than the spec
 // asks for, then a KubernetesUpgrade when the API runs another Kubernetes
 // version, then a Config rollout for the nodes whose dry run reports drift.
-// One rollout per cluster at a time: while one is unfinished nothing new is
+// While the cluster's secrets bundle is held (SecretsBundleHeld=True) it
+// proposes no rollout that applies configs. One rollout per cluster at a time: while one is unfinished nothing new is
 // proposed. A proposal is named after what it proposes, so the same need
 // never spawns twice; a failed or aborted rollout stays until a person
 // deletes it, which is how they ask for the proposal again.
@@ -133,10 +134,17 @@ func needed(cluster *osv1alpha1.TalosCluster, members []osv1alpha1.TalosNode, ho
 			Spec: osv1alpha1.TalosRolloutSpec{ClusterRef: osv1alpha1.Reference{Name: cluster.Name}, Kind: kind, Target: target},
 		}
 	}
+	// While the secrets bundle is held, the operator renders with the copy
+	// of the old bundle. A person is rotating a CA by hand, and the drift the
+	// dry run reports is that rotation: a rollout that applies configs (Config,
+	// KubernetesUpgrade) would push the old CA back onto the machines.
+	held := meta.IsStatusConditionTrue(cluster.Status.Conditions, osv1alpha1.ConditionSecretsBundleHeld)
 	switch {
 	case len(skewed) > 0:
 		return mk(osv1alpha1.RolloutTalosUpgrade, &osv1alpha1.RolloutTarget{TalosVersion: cluster.Spec.TalosVersion},
 			cluster.Spec.TalosVersion)
+	case held:
+		return nil
 	case cluster.Status.KubernetesVersion != "" && cluster.Status.KubernetesVersion != cluster.Spec.KubernetesVersion:
 		return mk(osv1alpha1.RolloutKubernetesUpgrade, &osv1alpha1.RolloutTarget{KubernetesVersion: cluster.Spec.KubernetesVersion},
 			cluster.Spec.KubernetesVersion)

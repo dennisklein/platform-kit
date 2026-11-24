@@ -753,6 +753,14 @@ func (r *TalosRolloutReconciler) plan(ctx context.Context, ro *osv1alpha1.TalosR
 		}
 	}
 
+	if ro.Spec.Kind != osv1alpha1.RolloutTalosUpgrade && ro.Spec.Kind != osv1alpha1.RolloutReboot &&
+		meta.IsStatusConditionTrue(cluster.Status.Conditions, osv1alpha1.ConditionSecretsBundleHeld) {
+		// The configs render from the copy of the old bundle while a CA
+		// rotation by hand is under way: applying one reverts the rotation.
+		return nil, "the secrets bundle of cluster " + cluster.Name + " is held (SecretsBundleHeld=True): a config " +
+			"rendered now carries the old CA. Finish the rotation first", nil
+	}
+
 	var bundle *secrets.Bundle // only for the leader lookup
 	if r.Dial != nil {
 		bundle, _ = loadBundle(ctx, r.Client, r.Namespace, cluster)
