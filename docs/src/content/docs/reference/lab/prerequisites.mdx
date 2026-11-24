@@ -42,7 +42,7 @@ The virtual lab runs on a Linux workstation or a CI runner.
 
 | System | Result | Reason |
 | --- | --- | --- |
-| Linux on x86-64, with `/dev/kvm` | Works | The lab is built and tested on it. |
+| Linux on x86-64, with `/dev/kvm` | Works | The project builds and tests the lab on it. |
 | Linux on ARM64 | Not supported | The machines are x86-64 QEMU machines. KVM runs them only on an x86-64 host. |
 | macOS | Does not work | There is no KVM, and Docker Desktop cannot get to the lab bridge. A Linux virtual machine with nested virtualization can work. Nobody tested it. |
 | Windows with WSL2 | Not tested | WSL2 must give `/dev/kvm`, cgroup v2 and Docker Engine in the WSL2 system, not Docker Desktop. |
