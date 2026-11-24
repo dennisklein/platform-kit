@@ -24,6 +24,8 @@ type account struct {
 	password string
 	role     string
 	enabled  bool
+	locked   bool
+	failures int // failed logins in a row
 }
 
 // roles are the specification's predefined roles — the only ones served.
@@ -54,6 +56,8 @@ func (s *State) authEnforced() bool {
 
 // Authenticate checks a username and password against the enabled accounts.
 // An open sim accepts everything.
+// A failed login counts against the account of that name, and locks it at
+// the fixture's lockout threshold.
 func (s *State) Authenticate(username, password string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -64,12 +68,31 @@ func (s *State) authenticateLocked(username, password string) bool {
 	if len(s.accounts) == 0 {
 		return true
 	}
-	for _, a := range s.accounts {
-		if a.enabled && a.username != "" && a.username == username && a.password == password {
-			return true
-		}
+	if username == "" {
+		return false
+	}
+	a := s.accountByUser(username)
+	if a == nil {
+		return false
+	}
+	if a.enabled && !a.locked && a.password == password {
+		a.failures = 0
+		return true
+	}
+	a.failures++
+	if t := s.f.LockoutThreshold; t > 0 && a.failures >= t {
+		a.locked = true
 	}
 	return false
+}
+
+// AccountLocked reports whether the named account is locked (test
+// observability).
+func (s *State) AccountLocked(username string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a := s.accountByUser(username)
+	return a != nil && username != "" && a.locked
 }
 
 // EnsureAccount is the seam entrance: create-or-reset the named account,
@@ -87,11 +110,19 @@ func (s *State) EnsureAccount(_ context.Context, username, password string) erro
 	}
 	if a := s.accountByUser(username); a != nil {
 		a.password = password
-		a.enabled = true
+		a.enabled, a.locked, a.failures = true, false, 0
 		return nil
 	}
 	if s.f.AccountSlots > 0 {
-		vacant := s.accountByUser("")
+		var vacant *account
+		sorted := slices.Clone(s.accounts)
+		slices.SortFunc(sorted, byAccountID)
+		for _, a := range sorted {
+			if a.username == "" && !slices.Contains(s.f.ReservedAccountSlots, a.id) {
+				vacant = a
+				break
+			}
+		}
 		if vacant == nil {
 			return refuse("every account slot is in use")
 		}
@@ -194,6 +225,7 @@ type accountPatch struct {
 	Password *string `json:"Password"`
 	RoleID   *string `json:"RoleId"`
 	Enabled  *bool   `json:"Enabled"`
+	Locked   *bool   `json:"Locked"`
 }
 
 // patchAccount applies a member PATCH. Renaming is how a fixed-slot collection
@@ -213,6 +245,20 @@ func (s *State) patchAccount(id string, p accountPatch) error {
 	}
 	if a == nil {
 		return notFound("ManagerAccount", id)
+	}
+	if slices.Contains(s.f.ReservedAccountSlots, id) {
+		return &Error{
+			Status: http.StatusBadRequest, MessageID: "PropertyNotWritable",
+			Message: "the account slot " + id + " is reserved and cannot be changed",
+			Args:    []string{"UserName"},
+		}
+	}
+	if p.Locked != nil && *p.Locked {
+		// The specification lets a client clear the lock, never set it.
+		return &Error{
+			Status: http.StatusBadRequest, MessageID: "PropertyValueNotInList",
+			Message: "Locked can only be set to false", Args: []string{"true", "Locked"},
+		}
 	}
 	if p.UserName != nil && *p.UserName != a.username {
 		if *p.UserName != "" && s.accountByUser(*p.UserName) != nil {
@@ -241,6 +287,9 @@ func (s *State) patchAccount(id string, p accountPatch) error {
 	}
 	if p.Enabled != nil {
 		a.enabled = *p.Enabled
+	}
+	if p.Locked != nil {
+		a.locked, a.failures = false, 0
 	}
 	return nil
 }

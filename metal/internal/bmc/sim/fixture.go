@@ -58,6 +58,13 @@ type Fixture struct {
 	// serves exactly that many members, vacant ones with an empty UserName:
 	// an account is created by PATCHing a vacant slot and POST answers 405.
 	AccountSlots int `yaml:"account_slots"`
+	// ReservedAccountSlots are vacant slots that refuse a PATCH (400), the
+	// way iDRAC keeps slot 1: empty, disabled and read-only.
+	ReservedAccountSlots []string `yaml:"reserved_account_slots"`
+	// LockoutThreshold locks an account after that many failed logins in a
+	// row; a locked account refuses every login until a PATCH sends
+	// Locked: false. A new password does not unlock it. Zero never locks.
+	LockoutThreshold int `yaml:"lockout_threshold"`
 
 	// NTP is the time-source surface: the standard NetworkProtocol NTP block
 	// (standard), or the iBMC's OEM HwNtpService with three server slots
@@ -385,6 +392,14 @@ func (f *Fixture) validate() error {
 	}
 	if f.AccountSlots > 0 && len(f.Accounts) > f.AccountSlots {
 		return fmt.Errorf("%d accounts seeded into %d slots", len(f.Accounts), f.AccountSlots)
+	}
+	for _, a := range f.Accounts {
+		if slices.Contains(f.ReservedAccountSlots, a.ID) {
+			return fmt.Errorf("account %s is seeded into reserved slot %s", a.Username, a.ID)
+		}
+	}
+	if f.LockoutThreshold < 0 {
+		return fmt.Errorf("lockout_threshold %d is negative", f.LockoutThreshold)
 	}
 	return f.checkRoutes()
 }

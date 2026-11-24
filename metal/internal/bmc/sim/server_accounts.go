@@ -53,7 +53,7 @@ func accountDoc(a account) map[string]any {
 	doc["UserName"] = a.username
 	doc["RoleId"] = a.role
 	doc["Enabled"] = a.enabled
-	doc["Locked"] = false
+	doc["Locked"] = a.locked
 	// Password is write-only on every account service: always null on read.
 	doc["Password"] = nil
 	doc["AccountTypes"] = []string{"Redfish"}

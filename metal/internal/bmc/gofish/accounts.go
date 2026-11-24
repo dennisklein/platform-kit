@@ -1,7 +1,9 @@
 package gofish
 
 import (
+	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"slices"
@@ -17,9 +19,13 @@ const accountRole = "Administrator"
 // AccountService. There are three shapes of it in the field, tried in the
 // order that never disturbs another account:
 //
-//   - the username exists: PATCH that member's password;
+//   - the username exists: PATCH that member's password, and clear its lock
+//     where the member serves one — a new password does not unlock an
+//     account on every BMC, and failed logins with the old one lock it;
 //   - the collection is a fixed set of slots, some vacant (an empty UserName):
-//     PATCH the first vacant slot — such a collection takes no POST;
+//     PATCH the first vacant slot that takes it — such a collection takes no
+//     POST, and some keep a vacant slot read-only (iDRAC's slot 1), which
+//     refuses the PATCH with 400 or 403;
 //   - otherwise: POST a new member.
 //
 // Raw writes, not gofish's typed helpers — the payload must be exactly the
@@ -45,7 +51,11 @@ func (c *client) EnsureAccount(ctx context.Context, username, password string) e
 		if a.UserName != username {
 			continue
 		}
-		if err := c.patch(a.ODataID, map[string]any{"Password": password, "Enabled": true}); err != nil {
+		reset := map[string]any{"Password": password, "Enabled": true}
+		if servesProperty(a.RawData, "Locked") {
+			reset["Locked"] = false
+		}
+		if err := c.patch(a.ODataID, reset); err != nil {
 			return fmt.Errorf("bmc: account %s: %w", username, err)
 		}
 		return nil
@@ -53,14 +63,22 @@ func (c *client) EnsureAccount(ctx context.Context, username, password string) e
 	create := map[string]any{
 		"UserName": username, "Password": password, "RoleId": accountRole, "Enabled": true,
 	}
+	var refused error
 	for _, a := range accounts {
 		if a.UserName != "" {
 			continue
 		}
-		if err := c.patch(a.ODataID, create); err != nil {
+		err := c.patch(a.ODataID, create)
+		if err == nil {
+			return nil
+		}
+		if st := statusOf(err); st != http.StatusBadRequest && st != http.StatusForbidden {
 			return fmt.Errorf("bmc: account %s in slot %s: %w", username, a.ID, err)
 		}
-		return nil
+		refused = cmp.Or(refused, fmt.Errorf("bmc: account %s in slot %s: %w", username, a.ID, err))
+	}
+	if refused != nil {
+		return refused
 	}
 	uri, err := c.accountsCollection(as.ODataID)
 	if err != nil {
@@ -75,6 +93,16 @@ func (c *client) EnsureAccount(ctx context.Context, username, password string) e
 	}
 	resp.Body.Close()
 	return nil
+}
+
+// servesProperty reports whether a resource's JSON carries the property.
+func servesProperty(raw []byte, name string) bool {
+	var doc map[string]json.RawMessage
+	if json.Unmarshal(raw, &doc) != nil {
+		return false
+	}
+	_, ok := doc[name]
+	return ok
 }
 
 // accountsCollection reads the Accounts link off the raw AccountService —
