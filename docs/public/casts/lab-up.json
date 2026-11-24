@@ -1,0 +1,191 @@
+{
+ "version": 1,
+ "title": "mise run lab:up",
+ "mode": "lines",
+ "events": [
+  {
+   "at": 0.25,
+   "cmd": "mise run lab:up"
+  },
+  {
+   "at": 1.05,
+   "out": "[[ok|ok   ]] go"
+  },
+  {
+   "at": 1.3,
+   "out": "[[ok|ok   ]] kind"
+  },
+  {
+   "at": 1.55,
+   "out": "[[ok|ok   ]] kubectl"
+  },
+  {
+   "at": 1.8,
+   "out": "[[ok|ok   ]] talosctl"
+  },
+  {
+   "at": 2.05,
+   "out": "[[ok|ok   ]] yq"
+  },
+  {
+   "at": 2.3,
+   "out": "[[ok|ok   ]] jq"
+  },
+  {
+   "at": 2.55,
+   "out": "[[ok|ok   ]] curl"
+  },
+  {
+   "at": 3.05,
+   "out": "[[ok|ok   ]] docker daemon answers"
+  },
+  {
+   "at": 3.3,
+   "out": "[[ok|ok   ]] docker is Docker Engine on this host (not podman, not Docker Desktop)"
+  },
+  {
+   "at": 3.55,
+   "out": "[[ok|ok   ]] docker runs as root (rootless Docker is not supported)"
+  },
+  {
+   "at": 3.8,
+   "out": "[[ok|ok   ]] /dev/kvm is usable by alice"
+  },
+  {
+   "at": 4.05,
+   "out": "[[ok|ok   ]] QEMU (qemu-system-x86_64, /usr/libexec/qemu-kvm or $PK_METAL_QEMU)"
+  },
+  {
+   "at": 4.3,
+   "out": "[[ok|ok   ]] OVMF (UEFI firmware for the machines)"
+  },
+  {
+   "at": 4.9,
+   "out": "[[ok|ok   ]] https://factory.talos.dev answers (installer images)"
+  },
+  {
+   "at": 5.5,
+   "out": "[[ok|ok   ]] the lab spec renders"
+  },
+  {
+   "at": 5.75,
+   "out": "[[ok|ok   ]] 11264 MiB of available memory for 3 machines"
+  },
+  {
+   "at": 6.0,
+   "out": "[[ok|ok   ]] 15 GiB free under /home/alice/platform-kit/.lab"
+  },
+  {
+   "at": 6.25,
+   "out": "the workstation has what the lab needs"
+  },
+  {
+   "at": 6.95,
+   "out": "[[b|== render /home/alice/platform-kit/lab/lab.yaml into /home/alice/platform-kit/.lab/generated]]"
+  },
+  {
+   "at": 7.85,
+   "out": "[[b|== lab network]]"
+  },
+  {
+   "at": 8.1,
+   "out": "  bridge pkbr0"
+  },
+  {
+   "at": 8.35,
+   "out": "  tap pktap1 (owner alice)"
+  },
+  {
+   "at": 8.6,
+   "out": "  tap pktap2 (owner alice)"
+  },
+  {
+   "at": 8.85,
+   "out": "  tap pktap3 (owner alice)"
+  },
+  {
+   "at": 9.1,
+   "out": "  enable IPv4 forwarding"
+  },
+  {
+   "at": 9.35,
+   "out": "  firewall rules (forwarding in DOCKER-USER)"
+  },
+  {
+   "at": 10.25,
+   "out": "[[b|== kind cluster pk-metal]]"
+  },
+  {
+   "at": 11.65,
+   "out": "[[dim|Creating cluster \"pk-metal\" ...]]"
+  },
+  {
+   "at": 12.85,
+   "out": "[[b|== operator image]]"
+  },
+  {
+   "at": 14.05,
+   "out": "[[b|== operator deployment (pk-metal:4f2a9c1)]]"
+  },
+  {
+   "at": 14.95,
+   "out": "[[dim|deployment \"pk-metal-manager\" successfully rolled out]]"
+  },
+  {
+   "at": 15.85,
+   "out": "[[b|== simulated fleet]]"
+  },
+  {
+   "at": 16.1,
+   "out": "  started (pid 48213, log /home/alice/platform-kit/.lab/fleet.log)"
+  },
+  {
+   "at": 16.7,
+   "out": "  BMC https://10.77.0.1:8441 answers"
+  },
+  {
+   "at": 16.95,
+   "out": "  BMC https://10.77.0.1:8442 answers"
+  },
+  {
+   "at": 17.2,
+   "out": "  BMC https://10.77.0.1:8443 answers"
+  },
+  {
+   "at": 18.1,
+   "out": "[[b|== lab manifests]]"
+  },
+  {
+   "at": 18.35,
+   "out": "[[dim|asset.metal.pk.io/node-1 serverside-applied]]"
+  },
+  {
+   "at": 18.6,
+   "out": "[[dim|...]]"
+  },
+  {
+   "at": 18.85,
+   "out": "[[dim|hostclaim.metal.pk.io/node-3 serverside-applied]]"
+  },
+  {
+   "at": 19.65,
+   "out": ""
+  },
+  {
+   "at": 19.9,
+   "out": "The lab is up. The operator now enrolls the machines and proposes to boot them."
+  },
+  {
+   "at": 20.15,
+   "out": "  watch it:      mise run lab:status"
+  },
+  {
+   "at": 20.4,
+   "out": "  let it happen: mise run lab:approve     (the one human step)"
+  },
+  {
+   "at": 20.65,
+   "out": "  afterwards:    mise run lab:kubeconfig"
+  }
+ ]
+}

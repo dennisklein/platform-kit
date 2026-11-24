@@ -1,0 +1,175 @@
+---
+title: Pivot in the lab
+description: Move the operator from kind to the Talos cluster that it installed, then install a second cluster from there.
+type: tutorial
+xref: { cat: tut, id: lab-pivot }
+sidebar:
+  order: 5
+sources:
+  - /repo/lab/lab.sh
+---
+
+import Callout from '../../../components/Callout.astro';
+import Checkpoint from '../../../components/lab/Checkpoint.astro';
+import TermReplay from '../../../components/lab/TermReplay.astro';
+import Figure from '../../../components/diagram/Figure.astro';
+import Zone from '../../../components/diagram/Zone.astro';
+import Box from '../../../components/diagram/Box.astro';
+import Edge from '../../../components/diagram/Edge.astro';
+
+At a real site, the operator starts in a small bootstrap cluster and installs the first Talos cluster.
+Then it moves to that cluster. In this tutorial, you do this move in the lab.
+
+## What you make
+
+<Figure
+  title="Before the pivot, the operator runs in kind and manages the first cluster. After the pivot, the operator runs on the first cluster, kind is gone, and the operator installs a second cluster."
+  caption="Before and after the pivot. After it, the first cluster manages its own machine and installs the second cluster."
+  width={720}
+  height={200}
+>
+  <Zone x={10} y={10} w={330} h={180} label="Before" />
+  <Box x={30} y={44} w={130} h={56} label="kind" sub="operator" variant="accent" />
+  <Box x={200} y={44} w={120} h={56} label="Cluster lab" sub="node-1" variant="ok" />
+  <Box x={200} y={120} w={120} h={50} label="node-2" sub="off" variant="soft" />
+  <Edge points={[[160, 72], [200, 72]]} label="manages" at={[180, 38]} />
+  <Zone x={380} y={10} w={330} h={180} label="After" />
+  <Box x={400} y={44} w={150} h={56} label="Cluster lab" sub="node-1 + operator" variant="accent" />
+  <Box x={590} y={44} w={100} h={56} label="Cluster work" sub="node-2" variant="ok" />
+  <Edge points={[[550, 72], [590, 72]]} label="installs" at={[570, 38]} />
+  <Box x={400} y={120} w={150} h={50} label="kind" sub="deleted" variant="soft" />
+  <Edge points={[[340, 100], [380, 100]]} variant="accent" />
+</Figure>
+
+- The operator on the first Talos cluster, `lab`.
+- No kind cluster.
+- A second Talos cluster, `work`, that the operator installed from its new place.
+
+## Time and prerequisites
+
+<dl class="pk-glance">
+  <dt>Time</dt>
+  <dd>About 30 minutes.</dd>
+  <dt>Before</dt>
+  <dd>[](tut:lab-first-cluster)</dd>
+  <dt>Memory</dt>
+  <dd>About 11 GiB free: two control planes with 4 GiB each, and kind.</dd>
+  <dt>Lab</dt>
+  <dd>Down. Step 1 starts a lab with two clusters of one machine each.</dd>
+</dl>
+
+## Steps
+
+### 1. Start a lab with two clusters
+
+1. If a lab runs, stop it and delete the disks.
+
+   ```sh
+   mise run lab:down && mise run lab:reset
+   ```
+
+2. Start the lab. [`PK_LAB_WORKLOAD`](lab:page/lab-yaml#pk_lab_workload) adds the second cluster to the spec.
+
+   ```sh
+   PK_LAB_NODES=1cp+0w PK_LAB_WORKLOAD=1cp+0w mise run lab:up
+   ```
+
+3. Install the first cluster.
+
+   ```sh
+   mise run lab:wait
+   ```
+
+<Checkpoint>
+`lab:wait` ends with `converged after`. `mise run lab:status` shows two Hosts.
+`pklab0001` is `Provisioned`. `pklab0002` is `Available`, because the claims of the second cluster are not applied.
+</Checkpoint>
+
+### 2. Move the operator
+
+<Callout type="caution">
+Do not start a second operator for the same machines.
+During the move, [](cli:pivot) stops the operator in kind before it starts the operator on the Talos cluster.
+</Callout>
+
+1. Run the pivot round.
+
+   ```sh
+   mise run lab:pivot
+   ```
+
+2. Follow the output. Each line that starts with `==` is one part.
+
+<TermReplay src="casts/lab-pivot.json" caption="A replay with example data." />
+
+| Part | What happens |
+| --- | --- |
+| Image registry | A registry at `10.77.0.1:5000` gets the operator image. The first cluster pulls it from there. |
+| `pk-metal pivot` | The operator stops in kind. Its objects move. The operator starts on the cluster `lab`. |
+| Delete kind | The task deletes the kind cluster. `.lab/kubeconfig` now names the cluster `lab`. |
+| Second cluster | The task applies `.lab/generated/workload/`, approves the install, and waits. |
+
+The move fails if the operator proposes an operation for a machine that has an installed system. See [](concept:pivot-model).
+[](lab:pivot) gives the flags that the task uses.
+
+<Checkpoint>
+The output ends with `The operator runs on TalosCluster lab and installed work from there.`
+</Checkpoint>
+
+### 3. Examine the result
+
+1. Make sure that kind is gone.
+
+   ```sh
+   kind get clusters
+   ```
+
+   The cluster `pk-metal` is not in the list.
+
+2. Show the operator on the first Talos cluster.
+
+   ```sh
+   kubectl --kubeconfig .lab/kubeconfig -n pk-metal get pods
+   ```
+
+3. Show the nodes of the second cluster.
+
+   ```sh
+   kubectl --kubeconfig .lab/second.kubeconfig get nodes
+   ```
+
+   ```console
+   NAME     STATUS   ROLES           AGE   VERSION
+   node-2   Ready    control-plane   3m    v1.36.2
+   ```
+
+4. Show the rack. The tasks now speak to the first Talos cluster.
+
+   ```sh
+   mise run lab:status
+   ```
+
+<Checkpoint>
+Two Hosts are `Provisioned`. The operator pod runs on `node-1`. The second cluster has one `Ready` node.
+</Checkpoint>
+
+### 4. Stop the lab
+
+1. Stop the lab.
+
+   ```sh
+   mise run lab:down
+   ```
+
+`lab:up` refuses to start kind again until you run `lab:down`. See [lab troubleshooting](lab:page/troubleshooting#the-lab-refuses-to-start-after-a-pivot).
+
+## What you learned
+
+- The operator can manage the machine that it runs on: [](concept:self-protection).
+- A pivot moves the objects and the operator, and it does not install a machine again: [](concept:pivot-model).
+- In the lab, the moved operator keeps its media store in an `emptyDir`. A real site uses a volume. See [](cli:pivot).
+
+## Next
+
+- [](tut:lab-disaster-recovery)
+- [](tut:first-real-server)

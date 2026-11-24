@@ -1,0 +1,255 @@
+---
+title: Scaling in the lab
+description: Add control planes, remove a worker and replace the machine of a control plane, each through approved operations.
+type: tutorial
+xref: { cat: tut, id: lab-scaling }
+sidebar:
+  order: 3
+sources:
+  - /repo/lab/lab.sh
+---
+
+import Callout from '../../../components/Callout.astro';
+import Checkpoint from '../../../components/lab/Checkpoint.astro';
+import TermReplay from '../../../components/lab/TermReplay.astro';
+import Figure from '../../../components/diagram/Figure.astro';
+import Box from '../../../components/diagram/Box.astro';
+import Edge from '../../../components/diagram/Edge.astro';
+
+In this tutorial, you change the size of a cluster that runs.
+You tell the operator the size that you want. The operator proposes one operation for each machine.
+
+## What you make
+
+<Figure
+  title="The cluster goes from three control planes and two workers to one control plane, back to three, then to one worker, then node-2 moves to a different machine."
+  caption="The sizes of the cluster in this tutorial. etcd has not more than one learner at a time."
+  width={736}
+  height={96}
+  wide
+>
+  <Box x={8} y={24} w={120} h={48} label="3 cp + 2 w" sub="start" variant="ok" />
+  <Box x={160} y={24} w={120} h={48} label="1 cp + 2 w" sub="step 2" />
+  <Box x={312} y={24} w={120} h={48} label="3 cp + 2 w" sub="step 3" />
+  <Box x={464} y={24} w={120} h={48} label="3 cp + 1 w" sub="step 4" />
+  <Box x={616} y={24} w={112} h={48} label="node-2 moves" sub="step 5" variant="accent" />
+  <Edge points={[[128, 48], [160, 48]]} />
+  <Edge points={[[280, 48], [312, 48]]} />
+  <Edge points={[[432, 48], [464, 48]]} />
+  <Edge points={[[584, 48], [616, 48]]} />
+</Figure>
+
+- A cluster that lost two control planes and got them back, one at a time.
+- A worker that left the cluster. Its machine is Available again, with a wiped disk.
+- A control plane that moved to a different machine.
+
+## Time and prerequisites
+
+<dl class="pk-glance">
+  <dt>Time</dt>
+  <dd>About 90 minutes.</dd>
+  <dt>Before</dt>
+  <dd>[](tut:lab-first-cluster)</dd>
+  <dt>Memory</dt>
+  <dd>About 19 GiB free, for five machines. See [memory](lab:page/prerequisites#memory).</dd>
+  <dt>Lab</dt>
+  <dd>Down. Step 1 starts a lab with five machines.</dd>
+</dl>
+
+The unattended task [](lab:scale) does all steps without your hands, and it examines etcd on each turn.
+
+<TermReplay src="casts/lab-scale.json" caption="A replay of lab:scale with example data. The lines are shorter than the real lines." />
+
+## Steps
+
+### 1. Start a lab with five machines
+
+1. If a lab runs, stop it and delete the disks.
+
+   ```sh
+   mise run lab:down && mise run lab:reset
+   ```
+
+2. Start the lab with three control planes and two workers. See [`PK_LAB_NODES`](lab:page/lab-yaml#pk_lab_nodes).
+
+   ```sh
+   PK_LAB_NODES=3cp+2w mise run lab:up
+   mise run lab:wait
+   ```
+
+3. Set the kubeconfig and the talosconfig for this terminal.
+
+   ```sh
+   export KUBECONFIG=$PWD/.lab/kubeconfig
+   export TALOSCONFIG=$PWD/.lab/talosconfig
+   ```
+
+<Checkpoint>
+`lab:wait` ends with `converged after`. This command shows three etcd members:
+
+```sh
+talosctl --nodes 10.77.0.11 etcd members
+```
+</Checkpoint>
+
+### 2. Remove two control planes
+
+1. Show the plan. Without `--apply`, the command changes nothing.
+
+   ```sh
+   metal/bin/pk-metal scale lab --control-planes 1 --workers 2
+   ```
+
+   ```console
+   cluster lab: 3 control plane(s) and 2 worker(s) now, 1 and 2 wanted
+   ```
+
+   The plan lists the claims that it deletes, and it tells you about the etcd risk.
+
+2. Apply the plan. On the way, etcd has two members. Give a reason to accept this risk.
+
+   ```sh
+   metal/bin/pk-metal scale lab --control-planes 1 --workers 2 --apply --ack-etcd-risk "lab tutorial"
+   ```
+
+3. Approve the operations that the operator proposes.
+
+   ```sh
+   mise run lab:approve
+   ```
+
+4. Do step 3 again until `mise run lab:status` shows no operation that waits. The control planes leave one at a time.
+
+<Callout type="warning">
+Do not remove a control plane from a cluster that has data you must keep, before you have a backup.
+The node leaves etcd, and Talos wipes its disk.
+</Callout>
+
+The operations use [](act:EtcdLeave), [](act:Drain) and [](act:TalosReset). See [](cli:scale).
+
+<Checkpoint>
+`talosctl --nodes 10.77.0.11 etcd members` shows one member.
+The Hosts `pklab0002` and `pklab0003` are `Available`.
+</Checkpoint>
+
+### 3. Add two control planes
+
+1. Apply the larger size.
+
+   ```sh
+   metal/bin/pk-metal scale lab --control-planes 3 --workers 2 --apply
+   ```
+
+   ```console
+   created claim default/node-2
+   created claim default/node-3
+   The operator proposes the operations; approve each with: pk-metal approve
+   ```
+
+2. Approve the installs as they come. The operator adds one control plane at a time.
+
+   ```sh
+   mise run lab:approve
+   ```
+
+3. Watch etcd. A new member is a learner first. Then it becomes a voter.
+
+   ```sh
+   talosctl --nodes 10.77.0.11 etcd members
+   ```
+
+<Checkpoint>
+etcd has three members and no learner. `kubectl --kubeconfig .lab/workload.kubeconfig get nodes` shows five `Ready` nodes.
+</Checkpoint>
+
+### 4. Remove a worker
+
+1. Apply the size with one worker. The operator removes `node-5`.
+
+   ```sh
+   metal/bin/pk-metal scale lab --control-planes 3 --workers 1 --apply
+   ```
+
+2. Approve the operation.
+
+   ```sh
+   mise run lab:approve
+   ```
+
+3. Wait until the Host of `node-5` is `Available`.
+
+   ```sh
+   kubectl get host pklab0005
+   ```
+
+See [](howto:release-a-host) and [](flow:release-and-reuse).
+
+<Checkpoint>
+The cluster has four nodes. The Host `pklab0005` is `Available`, and it has no annotation `metal.pk.io/disk-not-wiped`.
+</Checkpoint>
+
+### 5. Replace the machine of a control plane
+
+You move `node-2` from the Host `pklab0002` to the free Host `pklab0005`, as you do when hardware fails.
+
+1. Tell the claim to use the new Host.
+
+   ```sh
+   metal/bin/pk-metal replace node-2 --host pklab0005 --ack-etcd-risk "lab tutorial"
+   ```
+
+   ```console
+   claim default/node-2 now selects host pklab0005 (asset node-5); it ran on host pklab0002.
+   ```
+
+2. Approve the release of the old machine. Wait until `pklab0002` is `Available`.
+
+   ```sh
+   mise run lab:approve
+   kubectl get host pklab0002
+   ```
+
+3. Change the disk and the network link of the [](kind:TalosNode) to the values of the new machine.
+
+   ```sh
+   kubectl patch talosnode node-2 --type json --patch '[
+     {"op": "replace", "path": "/spec/installDiskSelector/serial", "value": "pklab-disk-5"},
+     {"op": "replace", "path": "/spec/network/links/0/hardwareAddr", "value": "52:54:00:77:00:15"}]'
+   ```
+
+4. Approve the install on the new machine.
+
+   ```sh
+   mise run lab:approve
+   ```
+
+The values come from the machine number. See [lab.yaml](lab:page/lab-yaml#what-comes-from-the-machine-number).
+For a real site, see [](howto:replace-a-node) and [](cli:replace).
+
+<Checkpoint>
+etcd has three members again. The claim `default/node-2` holds the Host `pklab0005`:
+
+```sh
+kubectl get hosts
+```
+</Checkpoint>
+
+### 6. Stop the lab
+
+1. Stop the lab and delete the disks.
+
+   ```sh
+   mise run lab:down && mise run lab:reset
+   ```
+
+## What you learned
+
+- You give the size. The operator finds the machines and the order: [](cli:scale).
+- Control planes join and leave one at a time, so that etcd keeps a majority.
+- A removed machine comes back to the pool with a wiped disk: [](flow:release-and-reuse).
+- A replace releases the old machine first. Then it installs the node on the new machine.
+
+## Next
+
+- [](tut:lab-disaster-recovery)
+- [](howto:remove-a-node)

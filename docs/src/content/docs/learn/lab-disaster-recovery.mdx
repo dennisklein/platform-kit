@@ -1,0 +1,174 @@
+---
+title: Disaster recovery in the lab
+description: Back up etcd, lose the etcd data on each control plane, and restore the cluster from an encrypted snapshot.
+type: tutorial
+xref: { cat: tut, id: lab-disaster-recovery }
+sidebar:
+  order: 4
+sources:
+  - /repo/lab/lab.sh
+---
+
+import Callout from '../../../components/Callout.astro';
+import Checkpoint from '../../../components/lab/Checkpoint.astro';
+import TermReplay from '../../../components/lab/TermReplay.astro';
+import Explainer from '../../../components/Explainer.astro';
+import Box from '../../../components/diagram/Box.astro';
+import Edge from '../../../components/diagram/Edge.astro';
+
+In this tutorial, the lab loses all etcd data of a cluster and gets it back from a snapshot.
+The task [](lab:backup-restore) does the steps. You watch them and examine the result.
+
+## What you make
+
+<Explainer
+  title="Lose etcd and restore it"
+  steps={[
+    { title: 'Back up', caption: 'The operator takes an etcd snapshot, encrypts it for your age key and stores it on its backup volume.', code: 'pk-metal backup now lab-dr', state: { etcd: 'active', snap: 'active', take: 'flow', before: 'ok' } },
+    { title: 'Write after the snapshot', caption: 'The task writes a second ConfigMap. The snapshot does not contain it.', code: 'kubectl create configmap dr-after', state: { etcd: 'active', snap: 'done', take: 'done', before: 'ok', after: 'active' } },
+    { title: 'Lose etcd', caption: 'The task wipes the partition EPHEMERAL on each control plane. The cluster reports EtcdDataLost. The operator does not bootstrap it again.', code: 'talosctl reset --system-labels-to-wipe EPHEMERAL', state: { etcd: 'err', snap: 'done', take: 'done', before: 'err', after: 'err' } },
+    { title: 'Propose and approve', caption: 'One person proposes the restore. A second person approves it.', code: 'pk-metal restore plan --snapshot <name> --propose lab', state: { etcd: 'err', snap: 'done', take: 'done', op: 'warn', you: 'active', approve: 'flow', before: 'err', after: 'err' } },
+    { title: 'Upload', caption: 'You decrypt the snapshot on the workstation and send it to the node.', code: 'pk-metal restore upload <operation> --identity identity.txt', state: { etcd: 'active', snap: 'active', take: 'done', op: 'active', you: 'done', approve: 'done', upload: 'flow', before: 'err', after: 'err' } },
+    { title: 'Recovered', caption: 'etcd starts from the snapshot. The first ConfigMap is back. The second ConfigMap is not.', code: 'kubectl -n default get configmaps', state: { etcd: 'ok', snap: 'done', take: 'done', op: 'ok', you: 'done', approve: 'done', upload: 'done', before: 'ok' } },
+  ]}
+>
+  <svg viewBox="0 0 720 210" role="img" aria-labelledby="ex-dr-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
+    <title id="ex-dr-t">A snapshot goes from etcd to the backup volume. After the data loss, an approved operation uploads the snapshot back to etcd.</title>
+    <defs>
+      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
+      </marker>
+    </defs>
+    <Box node="you" x={290} y={6} w={140} h={30} label="You" variant="soft" />
+    <Box node="etcd" x={20} y={70} w={170} h={56} label="etcd" sub="control plane node-1" />
+    <Box node="op" x={275} y={70} w={170} h={56} label="HostOperation" sub="etcdRecover" cat="kind" href="/reference/kinds/hostoperation/" />
+    <Box node="snap" x={530} y={70} w={170} h={56} label="Snapshot" sub="encrypted with age" cat="kind" href="/reference/kinds/etcdsnapshot/" />
+    <Box node="before" x={20} y={156} w={80} h={40} label="dr-before" mono />
+    <Box node="after" x={110} y={156} w={80} h={40} label="dr-after" mono />
+    <Edge node="take" points={[[190, 112], [230, 112], [230, 146], [490, 146], [490, 112], [530, 112]]} label="snapshot" at={[360, 164]} />
+    <Edge node="approve" points={[[360, 36], [360, 70]]} label="approves" at={[368, 58]} anchor="start" />
+    <Edge node="upload" points={[[530, 84], [445, 84]]} label="upload" at={[487, 76]} />
+    <Edge node="upload" points={[[275, 84], [190, 84]]} label="recover" at={[232, 76]} />
+  </svg>
+</Explainer>
+
+- An [](kind:EtcdBackupPolicy) and one verified [](kind:EtcdSnapshot).
+- A cluster that lost its etcd data and came back from the snapshot.
+- Proof of the result: an object from before the snapshot is back, and an object from after it is not.
+
+## Time and prerequisites
+
+<dl class="pk-glance">
+  <dt>Time</dt>
+  <dd>About 30 minutes.</dd>
+  <dt>Before</dt>
+  <dd>[](tut:lab-first-cluster)</dd>
+  <dt>Lab</dt>
+  <dd>Down. Step 1 starts a lab with one control plane, which is the quickest.</dd>
+</dl>
+
+## Steps
+
+### 1. Start a lab with one control plane
+
+1. If a lab runs, stop it and delete the disks.
+
+   ```sh
+   mise run lab:down && mise run lab:reset
+   ```
+
+2. Start the lab and install the cluster.
+
+   ```sh
+   PK_LAB_NODES=1cp+0w mise run lab:up
+   mise run lab:wait
+   ```
+
+<Checkpoint>
+`lab:wait` ends with `converged after`. The cluster has one `Ready` node.
+</Checkpoint>
+
+### 2. Run the round
+
+<Callout type="warning">
+Do not run this task on a cluster that has data you must keep.
+It wipes the etcd data of each control plane. You lose all changes after the snapshot.
+</Callout>
+
+1. Open the live view in a second terminal.
+
+   ```sh
+   mise run lab:top
+   ```
+
+2. Start the round in the first terminal.
+
+   ```sh
+   mise run lab:backup-restore
+   ```
+
+3. Follow the parts in the output.
+
+<TermReplay src="casts/lab-backup-restore.json" caption="A replay with example data. The names of the snapshot and the operation are different in your lab." />
+
+| Part in the output | What happens | Reference |
+| --- | --- | --- |
+| `etcd backup volume` | The manager gets a volume for snapshots. | [](ctrl:manager) |
+| `EtcdBackupPolicy lab-dr, a snapshot, and markers around it` | The task makes an age key and a policy. It writes `dr-before`, takes a snapshot, and writes `dr-after`. | [](cli:backup) |
+| `losing etcd` | `talosctl reset` wipes `EPHEMERAL` on the control plane. The TalosCluster reports `EtcdDataLost`. | [](kind:TalosCluster) |
+| `restoring <snapshot>` | The user `lab-restorer` proposes the restore. The admin approves it. The task uploads the snapshot. | [](cli:restore) |
+| `waiting for <operation> and for etcd` | The operation with [](act:EtcdRecover) runs. etcd starts from the snapshot. | [](kind:HostOperation) |
+
+<Checkpoint>
+The last line starts with `restored after` and ends with `dr-before is back, dr-after is not`.
+</Checkpoint>
+
+### 3. Examine the result
+
+1. Show the ConfigMaps in the restored cluster.
+
+   ```sh
+   kubectl --kubeconfig .lab/workload.kubeconfig -n default get configmaps
+   ```
+
+   `dr-before` is in the list. `dr-after` is not.
+
+2. Show the snapshots.
+
+   ```sh
+   metal/bin/pk-metal --kubeconfig .lab/kubeconfig backup list lab
+   ```
+
+3. Show the restore operation. Its phase is `Succeeded`.
+
+   ```sh
+   kubectl --kubeconfig .lab/kubeconfig -n pk-metal get hostoperations
+   ```
+
+4. Examine the files that the task kept.
+
+   ```sh
+   ls .lab/backup-restore/
+   ```
+
+   | File | Contents |
+   | --- | --- |
+   | `identity.txt` | The age identity. Only this key can decrypt the snapshot. |
+   | `snapshot.db.age` | The encrypted snapshot |
+   | `restorer.kubeconfig` | The kubeconfig of the user `lab-restorer` |
+
+<Checkpoint>
+The cluster is `Bootstrapped` again in `mise run lab:status`, and its node is `Ready`.
+</Checkpoint>
+
+## What you learned
+
+- The operator sees the loss of etcd data, and it does not bootstrap the cluster again without a person.
+- A restore needs two persons and an approval, as each other change does: [](concept:approval).
+- The operator stores only encrypted snapshots. You keep the key.
+- A restore brings back the state of the snapshot. You lose later changes.
+
+## Next
+
+- [](tut:lab-pivot)
+- [](rb:node-not-ready)

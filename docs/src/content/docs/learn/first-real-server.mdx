@@ -1,0 +1,225 @@
+---
+title: First real server
+description: Take one real machine from a BMC check to an installed Talos node, with the operator in kind on your workstation.
+type: tutorial
+xref: { cat: tut, id: first-real-server }
+sidebar:
+  order: 4
+sources:
+  - /repo/lab/kind.yaml
+  - /repo/metal/config/lab/kustomization.yaml
+  - /repo/metal/config/lab/manager_args.yaml
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../components/Callout.astro';
+import Provision from '../../../components/explainers/Provision.astro';
+
+In the virtual lab, the machines are simulated BMCs and virtual machines. In this tutorial you use one real server.
+At the end, the server runs Talos as a cluster with one control plane.
+
+## What you make
+
+- A management cluster in kind on your workstation, with the operator.
+- One [](kind:Host) for your server, found through its BMC.
+- One Talos cluster, `first`, with one node, `cp-1`, that is `Ready`.
+
+<Callout type="warning">
+The install overwrites the disk that you select. Use a server with no data that you must keep.
+</Callout>
+
+## Time and prerequisites
+
+<dl>
+  <dt>Time</dt>
+  <dd>About one hour. The install takes about ten minutes.</dd>
+  <dt>Hardware</dt>
+  <dd>One server with a Redfish BMC and virtual media. One free static address for the node.</dd>
+  <dt>Network</dt>
+  <dd>Your workstation reaches the BMC on TCP 443. The BMC reaches your workstation on TCP 30443. The node reaches the internet.</dd>
+  <dt>Tools</dt>
+  <dd>Docker Engine, kind, kubectl, talosctl, and the `pk-metal` binary. The tools of [](lab:page/prerequisites) are enough.</dd>
+  <dt>Knowledge</dt>
+  <dd>Read [](tut:lab-first-cluster) first. This tutorial uses the same steps.</dd>
+</dl>
+
+## Steps
+
+### 1. Check the BMC
+
+<Steps>
+
+1. Put the BMC password in the environment.
+
+   ```sh
+   read -rs PK_METAL_BMC_PASSWORD && export PK_METAL_BMC_PASSWORD
+   ```
+
+2. Check the BMC.
+
+   ```sh
+   pk-metal check --insecure https://192.0.2.21
+   ```
+
+3. Read the inventory into a file.
+
+   ```sh
+   pk-metal inventory --insecure --node cp-1 https://192.0.2.21 > cp-1-inventory.yaml
+   ```
+
+4. Write down these values: the serial number, the BMC MAC, the node NIC MAC and the install disk serial.
+
+</Steps>
+
+**Checkpoint.** The last line of the check is `check:    OK (read-only)`. See [](howto:check-a-bmc) to read the other lines.
+
+### 2. Start the operator
+
+<Steps>
+
+1. Copy `lab/kind.yaml` to `kind.yaml`. Set `listenAddress` to the address of your workstation on the BMC network.
+
+2. Make the kind cluster.
+
+   ```sh
+   kind create cluster --config kind.yaml
+   ```
+
+3. Make a site overlay on top of `metal/config/default`. Use `metal/config/lab` as the example. Give it the image, the ledger and `--media-url=https://<workstation address>:30443`.
+
+4. In the ledger of the overlay, write one line: the BMC MAC and `https://192.0.2.21`.
+
+5. Apply the overlay.
+
+   ```sh
+   kubectl apply --server-side -k overlay
+   ```
+
+</Steps>
+
+**Checkpoint.** `kubectl -n pk-metal get pods` shows the manager as `Running`.
+
+### 3. Enrol the server
+
+<Steps>
+
+1. Make the credentials Secret.
+
+   ```sh
+   kubectl -n pk-metal create secret generic bmc-factory \
+     --from-literal=username=admin --from-literal=password="$PK_METAL_BMC_PASSWORD"
+   ```
+
+2. Write and apply the [](kind:Asset), with the serial and the BMC MAC from stage 1.
+
+   ```sh
+   kubectl apply -f asset.yaml
+   ```
+
+3. Monitor the Host.
+
+   ```sh
+   kubectl get hosts -w
+   ```
+
+</Steps>
+
+**Checkpoint.** One Host is `Available`. If it shows `Mismatch`, see [](rb:host-mismatch).
+
+### 4. Define the cluster
+
+<Steps>
+
+1. Make the secrets bundle and put it into a Secret.
+
+   ```sh
+   talosctl gen secrets -o secrets.yaml
+   ```
+
+2. Make the Secret from the file.
+
+   ```sh
+   kubectl -n pk-metal create secret generic first-talos-secrets --from-file=secrets.yaml
+   ```
+
+3. Write a [](kind:TalosCluster) `first`. Use the node address as the endpoint. Set `controlPlane.allowScheduling: true`, so that pods can run on the one node.
+
+4. Write a [](kind:TalosNode) `cp-1` with the role `controlplane`, the disk serial and the NIC MAC from stage 1.
+
+5. Apply both files as a member of the admin group.
+
+   ```sh
+   kubectl apply --as=me --as-group=pk-metal:admins --as-group=system:authenticated -f first.yaml
+   ```
+
+</Steps>
+
+**Checkpoint.** `kubectl get talosnodes` shows `cp-1` with `Rendered=True`. See [](howto:define-a-cluster) for the fields.
+
+### 5. Claim and install
+
+<Provision />
+
+<Steps>
+
+1. Write a [](kind:HostClaim) `cp-1` with the Asset and `spec.os.nodeRef.name: cp-1`.
+
+2. Apply it as a member of the admin group.
+
+   ```sh
+   kubectl apply --as=me --as-group=pk-metal:admins --as-group=system:authenticated -f claim.yaml
+   ```
+
+3. Read the proposed install.
+
+   ```sh
+   pk-metal status
+   ```
+
+4. Approve it. The operator proposed it, so you can approve it.
+
+   ```sh
+   pk-metal approve
+   ```
+
+5. Monitor the Host and the serial console of the server.
+
+   ```sh
+   kubectl get hosts -w
+   ```
+
+</Steps>
+
+**Checkpoint.** The Host is `Provisioned`. `kubectl get taloscluster first` shows `AVAILABLE` `True`.
+
+### 6. Use the cluster
+
+<Steps>
+
+1. Write the kubeconfig to a file.
+
+   ```sh
+   kubectl -n pk-metal get secret first-kubeconfig -o jsonpath='{.data.kubeconfig}' | base64 -d > first.kubeconfig
+   ```
+
+2. Show the node.
+
+   ```sh
+   kubectl --kubeconfig first.kubeconfig get nodes
+   ```
+
+</Steps>
+
+**Checkpoint.** `cp-1` is `Ready`.
+
+## What you learned
+
+- The operator finds a machine through its BMC and the ledger: [](concept:ledger), [](concept:identity).
+- It boots from virtual media, not PXE: [](concept:virtual-media-boot).
+- It changes a machine only after your approval: [](concept:approval).
+
+## Next
+
+- Give the machine back: [](howto:release-a-host). The release wipes the disk.
+- Move the operator onto a cluster that it built: [](howto:pivot).
+- Install more machines: [](howto:install-hosts).

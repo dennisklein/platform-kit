@@ -1,0 +1,55 @@
+{
+ "version": 1,
+ "title": "mise run lab:pivot",
+ "mode": "lines",
+ "events": [
+  {
+   "at": 0.25,
+   "cmd": "mise run lab:pivot"
+  },
+  {
+   "at": 1.05,
+   "out": "[[b|== image registry on 10.77.0.1:5000]]"
+  },
+  {
+   "at": 1.95,
+   "out": "[[b|== operator image to 10.77.0.1:5000]]"
+  },
+  {
+   "at": 3.15,
+   "out": "[[b|== pk-metal pivot to TalosCluster lab]]"
+  },
+  {
+   "at": 4.95,
+   "out": "[[b|== deleting the kind cluster pk-metal]]"
+  },
+  {
+   "at": 5.2,
+   "out": "  the lab's kubeconfig names TalosCluster lab now"
+  },
+  {
+   "at": 6.2,
+   "out": "[[b|== TalosCluster work, installed by the operator on lab]]"
+  },
+  {
+   "at": 7.4,
+   "out": "  [[dim|[2026-01-15 10:40:12 UTC]]] hosts: 1 Assigned, 1 Provisioned; operations: 1 Running, 1 Succeeded; claims held: none; workload nodes Ready: 1"
+  },
+  {
+   "at": 9.0,
+   "out": "[[ok|converged after 288s]]: 2 Provisioned hosts, 1 Ready nodes in work"
+  },
+  {
+   "at": 9.6,
+   "out": "The operator runs on TalosCluster lab and installed work from there."
+  },
+  {
+   "at": 9.85,
+   "out": "  the operator's cluster: .lab/kubeconfig (also .lab/workload.kubeconfig)"
+  },
+  {
+   "at": 10.1,
+   "out": "  the second cluster:     .lab/second.kubeconfig and .lab/second.talosconfig"
+  }
+ ]
+}

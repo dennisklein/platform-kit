@@ -1,0 +1,51 @@
+{
+ "version": 1,
+ "title": "mise run lab:backup-restore",
+ "mode": "lines",
+ "events": [
+  {
+   "at": 0.25,
+   "cmd": "mise run lab:backup-restore"
+  },
+  {
+   "at": 1.05,
+   "out": "[[b|== etcd backup volume]]"
+  },
+  {
+   "at": 2.25,
+   "out": "[[b|== EtcdBackupPolicy lab-dr, a snapshot, and markers around it]]"
+  },
+  {
+   "at": 2.5,
+   "out": "[[dim|configmap/dr-before created]]"
+  },
+  {
+   "at": 3.7,
+   "out": "[[dim|configmap/dr-after created]]"
+  },
+  {
+   "at": 4.9,
+   "out": "[[b|== losing etcd: wiping EPHEMERAL on every control plane of lab]]"
+  },
+  {
+   "at": 6.5,
+   "out": "  the operator sees the loss and does not bootstrap: [[warn|...]]"
+  },
+  {
+   "at": 7.7,
+   "out": "[[b|== restoring lab-dr-manual-20260115-101502]]"
+  },
+  {
+   "at": 9.1,
+   "out": "[[b|== waiting for lab-etcd-recover-node-1 and for etcd]]"
+  },
+  {
+   "at": 10.3,
+   "out": "  [[dim|[2026-01-15 10:19:04 UTC]]] lab-etcd-recover-node-1 Running: ..."
+  },
+  {
+   "at": 11.9,
+   "out": "[[ok|restored after 412s]]: lab is Bootstrapped from lab-dr-manual-20260115-101502; dr-before is back, dr-after is not"
+  }
+ ]
+}

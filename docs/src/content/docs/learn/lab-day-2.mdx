@@ -1,0 +1,244 @@
+---
+title: Day 2 in the lab
+description: Reboot a node, change the configuration of all nodes without a reboot, and upgrade Talos, each through an approval.
+type: tutorial
+xref: { cat: tut, id: lab-day-2 }
+sidebar:
+  order: 2
+sources:
+  - /repo/lab/lab.sh
+---
+
+import Callout from '../../../components/Callout.astro';
+import Checkpoint from '../../../components/lab/Checkpoint.astro';
+import Figure from '../../../components/diagram/Figure.astro';
+import Box from '../../../components/diagram/Box.astro';
+import Edge from '../../../components/diagram/Edge.astro';
+
+In this tutorial, you do three day-2 changes on a cluster that runs.
+Each change is a proposal. Nothing happens to a machine before a person approves it.
+
+## What you make
+
+<Figure
+  title="Three changes in order: a reboot of one worker, a configuration change without a reboot, and a Talos upgrade. Each one waits for an approval."
+  caption="The three changes of this tutorial. Each one waits for an approval."
+  width={720}
+  height={120}
+>
+  <Box x={10} y={30} w={200} h={56} label="1. Reboot" sub="one HostOperation" />
+  <Box x={260} y={30} w={200} h={56} label="2. Config change" sub="rollout, no reboot" />
+  <Box x={510} y={30} w={200} h={56} label="3. Talos upgrade" sub="rollout, node by node" variant="accent" />
+  <Edge points={[[210, 58], [260, 58]]} />
+  <Edge points={[[460, 58], [510, 58]]} />
+</Figure>
+
+- A worker that rebooted cleanly: cordon, drain, reboot, uncordon.
+- A node label on all nodes, applied without a reboot.
+- A cluster on a newer Talos release.
+
+## Time and prerequisites
+
+<dl class="pk-glance">
+  <dt>Time</dt>
+  <dd>About 45 minutes.</dd>
+  <dt>Before</dt>
+  <dd>[](tut:lab-first-cluster)</dd>
+  <dt>Lab</dt>
+  <dd>Down, or not started. Step 1 starts it on an older Talos release.</dd>
+</dl>
+
+The unattended tasks [](lab:day2) and [](lab:upgrade) do the same changes without your hands.
+
+## Steps
+
+### 1. Start a lab on an older release
+
+1. If a lab runs, stop it and delete the disks.
+
+   ```sh
+   mise run lab:down && mise run lab:reset
+   ```
+
+2. Start the lab one Talos release behind. See [`PK_LAB_TALOS`](lab:page/lab-yaml#pk_lab_talos).
+
+   ```sh
+   PK_LAB_TALOS=v1.14.5 mise run lab:up
+   ```
+
+3. Approve the installs and wait.
+
+   ```sh
+   mise run lab:wait
+   ```
+
+4. Set the kubeconfig of the management cluster for this terminal.
+
+   ```sh
+   export KUBECONFIG=$PWD/.lab/kubeconfig
+   ```
+
+<Checkpoint>
+`lab:wait` ends with a line that starts with `converged after`.
+`kubectl get talosnodes` shows the release `v1.14.5` for each node.
+</Checkpoint>
+
+### 2. Reboot a worker
+
+The person who proposes a change cannot approve it. The lab has one admin, so you make a second user.
+
+1. Write a kubeconfig for the user `lab-proposer`.
+
+   ```sh
+   yq '.users[].user.as = "lab-proposer"
+     | .users[].user."as-groups" = ["system:masters", "system:authenticated"]' \
+     .lab/kubeconfig > .lab/proposer.kubeconfig
+   ```
+
+2. Propose the reboot as that user.
+
+   ```sh
+   metal/bin/pk-metal --kubeconfig .lab/proposer.kubeconfig reboot node-2
+   ```
+
+   ```console
+   proposed pk-metal/reboot-node-2-x7k2p: a clean reboot of TalosNode node-2 on host pklab0002 (5 steps).
+   Another person approves it after reading the plan: pk-metal approve pk-metal/reboot-node-2-x7k2p
+   To withdraw it: pk-metal abort pk-metal/reboot-node-2-x7k2p
+   ```
+
+3. Read the plan and approve it as the admin. Use the name from your output.
+
+   ```sh
+   metal/bin/pk-metal approve pk-metal/reboot-node-2-x7k2p
+   ```
+
+4. Watch the operation until its phase is `Succeeded`.
+
+   ```sh
+   kubectl -n pk-metal get hostoperations --watch
+   ```
+
+The actions are [](act:Cordon), [](act:Drain), [](act:TalosReboot), [](act:WaitNodeReady) and [](act:Uncordon). See [](cli:reboot).
+
+<Callout type="note">
+Reboot a worker in this lab, not the control plane.
+With one control plane, the cluster guard holds the reboot until you set an override. [](lab:day2) shows this case.
+</Callout>
+
+<Checkpoint>
+The operation is `Succeeded`. `kubectl --kubeconfig .lab/workload.kubeconfig get nodes` shows `node-2` as `Ready`, without `SchedulingDisabled`.
+</Checkpoint>
+
+### 3. Change the configuration without a reboot
+
+1. Add a label to each [](kind:TalosNode). The claim policy asks for the admin group, so you act as a member.
+
+   ```sh
+   for node in node-1 node-2 node-3; do
+     kubectl patch talosnode "$node" --type merge \
+       --as=lab-admin --as-group=pk-metal:admins --as-group=system:authenticated \
+       --patch '{"spec":{"labels":{"lab.pk.io/day2":"tutorial"}}}'
+   done
+   ```
+
+2. Wait until the operator proposes a rollout. This can take some minutes.
+
+   ```sh
+   metal/bin/pk-metal rollout list
+   ```
+
+3. Read the plan. Use the name from the list.
+
+   ```sh
+   metal/bin/pk-metal rollout show <rollout>
+   ```
+
+   Each step of the plan ends with `no reboot`.
+
+4. Approve the plan.
+
+   ```sh
+   metal/bin/pk-metal rollout approve <rollout>
+   ```
+
+5. The rollout pauses after the first node. Make sure that the node is `Ready`.
+6. Continue the rollout.
+
+   ```sh
+   metal/bin/pk-metal rollout resume <rollout>
+   ```
+
+See [](kind:TalosRollout), [](cli:rollout) and [](flow:day-2-change).
+
+<Checkpoint>
+`pk-metal rollout show` shows each step as `Succeeded`.
+This command shows the label on each node:
+
+```sh
+kubectl --kubeconfig .lab/workload.kubeconfig get nodes -L lab.pk.io/day2
+```
+</Checkpoint>
+
+### 4. Upgrade Talos
+
+1. Set the release that the cluster asks for. The target is the release in `lab/lab.yaml`.
+
+   ```sh
+   metal/bin/pk-metal upgrade talos lab v1.14.6
+   ```
+
+   ```console
+   cluster lab now asks for Talos v1.14.6 (was v1.14.5); nothing on a machine changed yet
+   ```
+
+   The command then shows the rollout that the operator proposes.
+
+2. Read the plan. Each step shows `v1.14.5 -> v1.14.6` and `REBOOTS`.
+
+   ```sh
+   metal/bin/pk-metal rollout show <rollout>
+   ```
+
+3. Approve the plan.
+
+   ```sh
+   metal/bin/pk-metal rollout approve <rollout>
+   ```
+
+4. After the first node, the rollout pauses. Make sure that all nodes are `Ready`.
+
+   ```sh
+   kubectl --kubeconfig .lab/workload.kubeconfig get nodes
+   ```
+
+5. Continue the rollout.
+
+   ```sh
+   metal/bin/pk-metal rollout resume <rollout>
+   ```
+
+The rollout does the control plane first, then the workers. The action is [](act:TalosUpgrade). See [](cli:upgrade) and [](howto:upgrade-talos).
+
+<Callout type="caution">
+Do not continue a rollout before you examine the first node.
+The pause is there so that a bad release stops at one node.
+</Callout>
+
+<Checkpoint>
+`kubectl get talosnodes` shows the release `v1.14.6` for each node.
+`pk-metal rollout list` shows the rollout as complete.
+</Checkpoint>
+
+## What you learned
+
+- A day-2 change is a proposal that waits for a person: [](concept:approval).
+- Two persons are necessary: one proposes, one approves.
+- A rollout changes one node at a time, and it pauses after the first node: [](kind:TalosRollout).
+- The operator finds if a configuration change needs a reboot. The plan shows it.
+
+## Next
+
+- [](tut:lab-scaling)
+- [](tut:lab-disaster-recovery)
+- [](howto:approve-hold-retry)

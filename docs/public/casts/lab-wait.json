@@ -1,0 +1,35 @@
+{
+ "version": 1,
+ "title": "mise run lab:wait",
+ "mode": "lines",
+ "events": [
+  {
+   "at": 0.25,
+   "cmd": "mise run lab:wait"
+  },
+  {
+   "at": 1.05,
+   "out": "[[b|== waiting up to 2400s for 3 Provisioned hosts and 3 Ready nodes (from 2026-01-15 10:02:10 UTC)]]"
+  },
+  {
+   "at": 1.95,
+   "out": "  [[dim|[2026-01-15 10:02:11 UTC]]] hosts: 3 Assigned; operations: 3 Running; claims held: none; workload nodes Ready: -"
+  },
+  {
+   "at": 3.15,
+   "out": "  [[dim|[2026-01-15 10:02:41 UTC]]] hosts: 3 Provisioning; operations: 3 Running; claims held: none; workload nodes Ready: -"
+  },
+  {
+   "at": 4.55,
+   "out": "  [[dim|[2026-01-15 10:05:26 UTC]]] hosts: 1 Provisioned, 2 Provisioning; operations: 1 Succeeded, 2 Running; claims held: none; workload nodes Ready: 1"
+  },
+  {
+   "at": 5.95,
+   "out": "  [[dim|[2026-01-15 10:06:12 UTC]]] hosts: 2 Provisioned, 1 Provisioning; operations: 2 Succeeded, 1 Running; claims held: none; workload nodes Ready: 2"
+  },
+  {
+   "at": 7.35,
+   "out": "[[ok|converged after 271s]]: hosts: 3 Provisioned; operations: 3 Succeeded; claims held: none; workload nodes Ready: 3"
+  }
+ ]
+}

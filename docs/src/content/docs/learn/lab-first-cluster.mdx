@@ -1,0 +1,202 @@
+---
+title: Your first cluster in the lab
+description: Make a Talos cluster with one control plane and two workers in the virtual lab, and approve each install.
+type: tutorial
+xref: { cat: tut, id: lab-first-cluster }
+sidebar:
+  order: 1
+sources:
+  - /repo/lab/README.md
+  - /repo/lab/lab.sh
+---
+
+import Callout from '../../../components/Callout.astro';
+import Checkpoint from '../../../components/lab/Checkpoint.astro';
+import TermReplay from '../../../components/lab/TermReplay.astro';
+import Shot from '../../../components/lab/Shot.astro';
+
+In this tutorial, you start the virtual lab and approve the install of three machines.
+The result is a Kubernetes cluster that the operator installed through simulated BMCs.
+
+## What you make
+
+<Shot src="top-3-all-ready.png" alt="pk-metal top with three tiles. Each machine is Provisioned, and each node is Ready." caption="The end of this tutorial, as lab:top shows it. A mock screen with example data." width={1600} height={529} />
+
+- A management cluster in kind that runs the operator.
+- Three QEMU virtual machines, each with a simulated BMC.
+- A Talos cluster with one control plane and two workers.
+
+[](lab:page/index) shows what runs where.
+
+## Time and prerequisites
+
+<dl class="pk-glance">
+  <dt>Time</dt>
+  <dd>About 15 minutes. The first start downloads the images and takes more time.</dd>
+  <dt>Workstation</dt>
+  <dd>Linux with KVM, Docker Engine, 12 GiB of free memory and 15 GiB of free disk.</dd>
+  <dt>Packages</dt>
+  <dd>See [](lab:page/prerequisites).</dd>
+  <dt>Repository</dt>
+  <dd>A clone of the repository. Run all commands in its root directory.</dd>
+</dl>
+
+## Steps
+
+### 1. Check the workstation
+
+1. Install the pinned tools.
+
+   ```sh
+   mise install
+   ```
+
+2. Run the doctor.
+
+   ```sh
+   mise run lab:doctor
+   ```
+
+3. If a line starts with `MISS`, do what its `fix:` line says. Then run the doctor again.
+
+<Checkpoint>
+The last line is `the workstation has what the lab needs`.
+</Checkpoint>
+
+### 2. Start the lab
+
+1. Start the lab.
+
+   ```sh
+   mise run lab:up
+   ```
+
+2. Type your password if `sudo` asks for it. Only the network part uses `sudo`.
+
+<TermReplay src="casts/lab-up.json" caption="A replay with example data. Your output has more lines." />
+
+<Checkpoint>
+The output ends with `The lab is up.` and three commands.
+No machine changed until now. See [](lab:up).
+</Checkpoint>
+
+### 3. Read the proposals
+
+1. Show the state of the rack.
+
+   ```sh
+   mise run lab:status
+   ```
+
+2. Find the three operations with the phase `AwaitingApproval`.
+3. Read the plan of each operation.
+
+   ```sh
+   metal/bin/pk-metal --kubeconfig .lab/kubeconfig approve
+   ```
+
+   Without a name, the command lists the operations that wait. It approves nothing.
+
+<Checkpoint>
+Each [](kind:Host) is `Assigned`, and each one has a [](kind:HostOperation) that waits for you.
+The operator found each BMC, compared the serial numbers, and bound each [](kind:HostClaim).
+</Checkpoint>
+
+### 4. Approve the installs
+
+<Callout type="warning">
+Do not approve an operation before you read its plan.
+An install overwrites the install disk of the machine. In the lab, the disk is a file in `.lab/state/`.
+</Callout>
+
+1. Open the live view in a second terminal.
+
+   ```sh
+   mise run lab:top
+   ```
+
+2. Select a machine with `tab`.
+3. Press `a`. Read the plan.
+4. Press `y` to approve.
+5. Do steps 2 to 4 again for the other two machines.
+
+<Shot src="top-2-approve.png" alt="The approval dialog of pk-metal top. It shows nine steps: eject media, mount the installer and the machine config, set the boot device, power cycle, wait for the node, eject media." caption="The plan of one install in lab:top. A mock screen with example data." width={1600} height={614} />
+
+To approve all operations at one time, you can use `mise run lab:approve`. See [](lab:approve).
+
+<Checkpoint>
+The line `needs a person` at the top of the view shows `0`.
+Each machine has an operation that runs, and its BMC shows mounted media.
+</Checkpoint>
+
+### 5. Watch the installs
+
+1. Keep the live view open. Each tile shows the step of its operation, for example `7/9 awaitCheckIn`.
+2. Wait until each Host is `Provisioned`. This takes about three minutes after the approval.
+
+<TermReplay src="casts/top.json" caption="A replay of lab:top with example data." />
+
+The control plane, `node-1`, installs first. The workers join after the control plane is bootstrapped.
+[](flow:rack-to-node) explains each step.
+
+<Checkpoint>
+Each tile shows `host Provisioned` and `Talos ready`. The cluster line shows `Bootstrapped` and `Available`.
+</Checkpoint>
+
+### 6. Use the cluster
+
+1. Stop the live view with `q`.
+2. Write the access files.
+
+   ```sh
+   mise run lab:kubeconfig
+   ```
+
+3. Show the nodes.
+
+   ```sh
+   kubectl --kubeconfig .lab/workload.kubeconfig get nodes
+   ```
+
+   ```console
+   NAME     STATUS   ROLES           AGE   VERSION
+   node-1   Ready    control-plane   6m    v1.36.2
+   node-2   Ready    <none>          4m    v1.36.2
+   node-3   Ready    <none>          4m    v1.36.2
+   ```
+
+4. Show the Hosts in the management cluster.
+
+   ```sh
+   kubectl --kubeconfig .lab/kubeconfig get hosts
+   ```
+
+<Checkpoint>
+Three nodes are `Ready`, and three Hosts are `Provisioned`.
+</Checkpoint>
+
+### 7. Stop the lab
+
+1. Stop the lab. The disks of the machines stay.
+
+   ```sh
+   mise run lab:down
+   ```
+
+2. To continue with [](tut:lab-day-2), do not stop the lab.
+
+After `lab:down`, a new `lab:up` starts the same machines from their disks.
+To delete the disks, run [](lab:reset).
+
+## What you learned
+
+- You write what must be true. The operator writes what it finds: [](concept:assert-vs-observe).
+- The operator proposes a change, and a person approves it: [](concept:approval).
+- The operator boots a machine from virtual media on its BMC: [](concept:virtual-media-boot).
+- The phase of a Host is a summary of its conditions: [](concept:phases-and-conditions).
+
+## Next
+
+- [](tut:lab-day-2): reboot a node, change its configuration and upgrade Talos.
+- [](tut:lab-scaling): add, remove and replace nodes.
+- [](tut:first-real-server): do the same with one real BMC.
