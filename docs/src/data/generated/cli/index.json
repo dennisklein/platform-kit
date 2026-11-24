@@ -45,7 +45,7 @@
     },
     {
       "name": "approve",
-      "summary": "show what a proposed operation will do to a machine, then let it run; without a name, list the operations that wait for approval",
+      "summary": "show what a proposed operation will do to a machine, then let it run; several names: one plan and one answer each; without a name, list the operations that wait for approval",
       "changes": true
     },
     {

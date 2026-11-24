@@ -41,12 +41,21 @@ that you proposed yourself, and an approval cannot be changed afterwards.
 Operations live in the operator's namespace, pk-metal. You can give the name
 as it appears in pk-metal status (pk-metal/<name>) or use -n.
 
+With several names, approve shows the plan of each in turn and asks about
+each one on its own. A no leaves that operation as it is and goes on with the
+next. The exit status is 1 if any of them was not approved.
+
+The plan also lists the guards that annotations lift for the operation
+(metal.pk.io/override-cluster-guard, metal.pk.io/ignore-window), with the
+reason each one gives. Read them before you answer.
+
 Without a terminal (in a script or a pipe), approve does not ask: it refuses
 unless you give --yes.
 
 examples:
   pk-metal approve                                  list what waits for approval
   pk-metal approve pk-metal/provision-node1-1a2b3c4d
+  pk-metal approve pk-metal/reboot-w-1-x7k2p pk-metal/reboot-w-2-q9r4s
   pk-metal approve --yes provision-node1-1a2b3c4d   approve in a script`
 }
 
@@ -60,35 +69,99 @@ func approveCmd(args []string) {
 	yes := fs.Bool("yes", false, "approve without asking (for scripts); the plan is still printed")
 	addGlobalFlags(fs)
 	parseFlags(fs, args)
-	if fs.NArg() > 1 {
-		badUsage(fs, "give one operation, or none to list the pending ones")
+	refs, err := approveRefs(fs.Args(), *ns, flagGiven(fs, "n"))
+	if err != nil {
+		badUsage(fs, err.Error())
 	}
 	cl, err := newClient()
 	if err != nil {
 		die(err)
 	}
-	ctx := context.Background()
+	ctx, stop := signalContext()
+	defer stop()
 
-	if fs.NArg() == 0 {
+	if len(refs) == 0 {
 		if err := listPending(ctx, cl, os.Stdout, time.Now()); err != nil {
 			die(err)
 		}
 		return
 	}
-	namespace, name, err := splitRef(fs.Arg(0), *ns, flagGiven(fs, "n"))
-	if err != nil {
-		badUsage(fs, err.Error())
-	}
 	user, err := whoAmI(ctx, cl)
 	if err != nil {
 		die(err)
 	}
-	if err := approve(ctx, cl, approval{
-		Namespace: namespace, Name: name, User: user, Yes: *yes,
-		In: os.Stdin, Interactive: isTerminal(os.Stdin), Out: os.Stdout,
+	// One reader for all the questions: each answer is one line, and a line
+	// meant for the next operation must not be read with this one.
+	in := oneByteAtATime{os.Stdin}
+	if err := approveAll(ctx, cl, refs, approval{
+		User: user, Yes: *yes, In: in, Interactive: isTerminal(os.Stdin), Out: os.Stdout,
 	}); err != nil {
 		die(err)
 	}
+}
+
+// approveRefs reads the operations the command line names, in order, each
+// once. A wrong name stops the command before any plan is shown.
+func approveRefs(args []string, ns string, nsGiven bool) ([]types.NamespacedName, error) {
+	var refs []types.NamespacedName
+	for _, arg := range args {
+		namespace, name, err := splitRef(arg, ns, nsGiven)
+		if err != nil {
+			return nil, err
+		}
+		ref := types.NamespacedName{Namespace: namespace, Name: name}
+		if !slices.Contains(refs, ref) {
+			refs = append(refs, ref)
+		}
+	}
+	return refs, nil
+}
+
+// approveAll shows the plan of each operation in turn and asks about each
+// one on its own: one plan, one answer. A no, or an operation that cannot be
+// approved, leaves that one as it is and goes on with the next. A question
+// that cannot be asked at all (no terminal, no answer in time, interrupted)
+// ends the run: the plans not yet shown are not approved.
+func approveAll(ctx context.Context, cl client.Client, refs []types.NamespacedName, tmpl approval) error {
+	var notApproved []string
+	for i, ref := range refs {
+		if i > 0 {
+			fmt.Fprintln(tmpl.Out)
+		}
+		a := tmpl
+		a.Namespace, a.Name = ref.Namespace, ref.Name
+		err := approve(ctx, cl, a)
+		if err == nil {
+			continue
+		}
+		if len(refs) == 1 {
+			return err
+		}
+		notApproved = append(notApproved, ref.String())
+		fmt.Fprintf(tmpl.Out, "%s: %v\n", ref, err)
+		if errors.Is(err, errCannotAsk) || errors.Is(err, errNoAnswer) || ctx.Err() != nil {
+			for _, rest := range refs[i+1:] {
+				notApproved = append(notApproved, rest.String())
+			}
+			break
+		}
+	}
+	if len(notApproved) > 0 {
+		return fmt.Errorf("%d of %d operations not approved: %s", len(notApproved), len(refs), strings.Join(notApproved, ", "))
+	}
+	return nil
+}
+
+// oneByteAtATime hands its reader's bytes on one at a time, so that a
+// buffered line reader on top of it stops at the end of a line and leaves
+// the next line for the next question.
+type oneByteAtATime struct{ r io.Reader }
+
+func (o oneByteAtATime) Read(p []byte) (int, error) {
+	if len(p) > 1 {
+		p = p[:1]
+	}
+	return o.r.Read(p)
 }
 
 // flagGiven reports whether the flag was set on the command line.
@@ -144,6 +217,10 @@ var errDeclined = errors.New("not approved; nothing changed")
 // errNoAnswer: the person did not answer within the window.
 var errNoAnswer = errors.New("no answer")
 
+// errCannotAsk: there is no terminal to ask on, and --yes was not given.
+var errCannotAsk = errors.New("stdin is not a terminal, so pk-metal cannot ask; " +
+	"read the plan above and rerun with --yes to approve it")
+
 // patchAttempts bounds how often an approval is sent again after the
 // operation changed under it in a way that does not touch the plan (the
 // operator writing its status).
@@ -166,8 +243,7 @@ func approve(ctx context.Context, cl client.Client, a approval) error {
 	reread := false
 	if !a.Yes {
 		if !a.Interactive {
-			return fmt.Errorf("stdin is not a terminal, so pk-metal cannot ask; " +
-				"read the plan above and rerun with --yes to approve it")
+			return errCannotAsk
 		}
 		window := a.Window
 		if window <= 0 {
@@ -175,10 +251,14 @@ func approve(ctx context.Context, cl client.Client, a approval) error {
 		}
 		fmt.Fprintf(a.Out, "\nApprove as %s? [y/N] ", a.User)
 		line, err := ask(ctx, a.In, window)
-		if errors.Is(err, errNoAnswer) {
+		switch {
+		case ctx.Err() != nil:
 			fmt.Fprintln(a.Out)
-			return fmt.Errorf("no answer within %s; nothing changed. Run approve again to see the plan as it is now",
-				shortDuration(window))
+			return fmt.Errorf("interrupted; nothing changed")
+		case errors.Is(err, errNoAnswer):
+			fmt.Fprintln(a.Out)
+			return fmt.Errorf("%w within %s; nothing changed. Run approve again to see the plan as it is now",
+				errNoAnswer, shortDuration(window))
 		}
 		switch strings.ToLower(strings.TrimSpace(line)) {
 		case "y", "yes":
@@ -269,7 +349,7 @@ func approvalPlan(ctx context.Context, cl client.Client, namespace, name, user s
 			ref, op.Spec.Approval.ApprovedBy)
 	case finished(op):
 		return nil, "", fmt.Errorf("operation %s has finished (%s); there is nothing to approve", ref, opPhase(op))
-	case op.Spec.Approval.Required != nil && !*op.Spec.Approval.Required:
+	case !op.ApprovalRequired():
 		return nil, "", fmt.Errorf("operation %s does not need approval; the operator runs it on its own", ref)
 	case op.Spec.ProposedBy == user:
 		// Admission refuses this too; saying it here names the rule instead
@@ -293,23 +373,10 @@ func opPhase(op *metalv1alpha1.HostOperation) metalv1alpha1.OperationPhase {
 }
 
 // finished: the executor recorded an outcome: success, failure or abort.
-func finished(op *metalv1alpha1.HostOperation) bool {
-	switch opPhase(op) {
-	case metalv1alpha1.OperationSucceeded, metalv1alpha1.OperationFailed, metalv1alpha1.OperationAborted:
-		return true
-	}
-	return false
-}
+func finished(op *metalv1alpha1.HostOperation) bool { return op.Finished() }
 
 // waitsForApproval: the operation needs a person and nobody has approved it.
-// It does not wait for the status: a just-proposed operation has no conditions yet.
-func waitsForApproval(op *metalv1alpha1.HostOperation) bool {
-	if finished(op) {
-		return false
-	}
-	required := op.Spec.Approval.Required == nil || *op.Spec.Approval.Required
-	return required && op.Spec.Approval.ApprovedBy == ""
-}
+func waitsForApproval(op *metalv1alpha1.HostOperation) bool { return op.AwaitsApproval() }
 
 // listPending prints one line for each operation that waits for approval.
 func listPending(ctx context.Context, cl client.Client, w io.Writer, now time.Time) error {
@@ -336,7 +403,9 @@ func listPending(ctx context.Context, cl client.Client, w io.Writer, now time.Ti
 			orDash(op.Spec.Reason), len(op.Spec.Actions), orDash(op.Spec.ProposedBy), age)
 	}
 	_ = tw.Flush()
-	fmt.Fprintln(w, "\nSee the plan of one and approve it: pk-metal approve <namespace>/<operation>")
+	first := pending[0].Namespace + "/" + pending[0].Name
+	fmt.Fprintf(w, "\nNothing was approved. Name the operations to see their plans and approve them, for example:\n"+
+		"  pk-metal approve %s\n", first)
 	return nil
 }
 
@@ -434,6 +503,13 @@ func renderPlan(op *metalv1alpha1.HostOperation, pc planContext) string {
 		}
 	}
 
+	if lifted := liftedGuards(op); len(lifted) > 0 {
+		b.WriteString("guards lifted for this operation:\n")
+		for _, l := range lifted {
+			fmt.Fprintf(&b, "  %s\n", l)
+		}
+	}
+
 	b.WriteString("steps, in this order:\n")
 	for i, a := range op.Spec.Actions {
 		fmt.Fprintf(&b, "  %2d. %s\n", i+1, describeAction(a, pc))
@@ -458,6 +534,31 @@ func renderPlan(op *metalv1alpha1.HostOperation, pc planContext) string {
 			diskSelector(n.Spec.InstallDiskSelector))
 	}
 	return b.String()
+}
+
+// guardEffect says in plain words which rule an annotation lifts.
+var guardEffect = map[string]string{
+	metalv1alpha1.AnnotationOverrideClusterGuard: "a control plane may go down although etcd is not fully healthy without it",
+	metalv1alpha1.AnnotationIgnoreWindow:         "it may start outside every maintenance window",
+}
+
+// liftedGuards lists the annotations on the operation that lift a safety
+// rule, each with its reason and the rule it lifts. The approver must see
+// them: the plan alone does not show that a rule no longer holds.
+func liftedGuards(op *metalv1alpha1.HostOperation) []string {
+	var out []string
+	for _, key := range metalv1alpha1.GuardAnnotations {
+		why, ok := op.Annotations[key]
+		if !ok {
+			continue
+		}
+		why = strings.TrimSpace(why)
+		if why == "" {
+			why = "no reason given"
+		}
+		out = append(out, fmt.Sprintf("%s (%s): %s", key, why, guardEffect[key]))
+	}
+	return out
 }
 
 func describeAction(a metalv1alpha1.HostOperationAction, pc planContext) string {
@@ -488,6 +589,10 @@ func describeAction(a metalv1alpha1.HostOperationAction, pc planContext) string 
 	case a.PowerCycle != nil:
 		return "power cycle: if the machine is on, force it off (no clean shutdown) and on again; if it is off, power it on"
 	case a.PowerOff != nil:
+		if t := a.PowerOff.GracefulTimeoutSeconds; t > 0 {
+			return fmt.Sprintf("power the machine off: ask the OS to shut down, wait up to %s for it, then force it off",
+				shortDuration(time.Duration(t)*time.Second))
+		}
 		return "power the machine off (forced; the OS is not asked to shut down)"
 	case a.ApplyBios != nil:
 		var kv []string

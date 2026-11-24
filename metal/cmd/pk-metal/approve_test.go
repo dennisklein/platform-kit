@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -112,6 +113,32 @@ boots TalosNode node-1: address 10.0.0.11, role controlplane
 	assert.Equal(t, want, renderPlan(op, pc))
 }
 
+// TestRenderPlanLiftedGuards: an operation that comes with a guard lifted
+// (pk-metal restore --propose sets both) says so in its plan, with the
+// reason, so that the approver sees which rule no longer holds.
+func TestRenderPlanLiftedGuards(t *testing.T) {
+	op, objs := bootPlan()
+	pc, err := loadPlanContext(context.Background(), fakeClient(objs...), op)
+	require.NoError(t, err)
+	assert.NotContains(t, renderPlan(op, pc), "guards lifted")
+
+	p := &restorePlan{Cluster: "lab", in: restoreInput{User: "carol"}}
+	restore := p.op("pk0001", "recover", op.Spec.Actions[:1])
+	restore.Annotations[metalv1alpha1.AnnotationIgnoreWindow] = " "
+	out := renderPlan(restore, pc)
+	assert.Contains(t, out, "guards lifted for this operation:\n"+
+		"  metal.pk.io/override-cluster-guard (pk-metal restore: etcd of cluster lab is broken and this operation is its repair): "+
+		"a control plane may go down although etcd is not fully healthy without it\n"+
+		"  metal.pk.io/ignore-window (no reason given): it may start outside every maintenance window\n"+
+		"steps, in this order:\n")
+
+	// The plan is what approve compares before it writes: a guard lifted
+	// after the plan was shown makes the approval refuse.
+	shown := renderPlan(op, pc)
+	op.Annotations = map[string]string{metalv1alpha1.AnnotationOverrideClusterGuard: "later"}
+	assert.NotEqual(t, shown, renderPlan(op, pc))
+}
+
 // TestRenderPlanMissingObjects: a plan whose host or node is gone still
 // renders, and says what it cannot know.
 func TestRenderPlanMissingObjects(t *testing.T) {
@@ -132,6 +159,9 @@ func TestDescribeOtherActions(t *testing.T) {
 		}}, pc))
 	assert.Equal(t, "power the machine off (forced; the OS is not asked to shut down)",
 		describeAction(metalv1alpha1.HostOperationAction{PowerOff: &metalv1alpha1.PowerOffAction{}}, pc))
+	assert.Equal(t, "power the machine off: ask the OS to shut down, wait up to 5m for it, then force it off",
+		describeAction(metalv1alpha1.HostOperationAction{PowerOff: &metalv1alpha1.PowerOffAction{GracefulTimeoutSeconds: 300}}, pc),
+		"a graceful power-off is not described as forced")
 	assert.Equal(t, "boot from Pxe at every start, until changed",
 		describeAction(metalv1alpha1.HostOperationAction{SetBootOverride: &metalv1alpha1.SetBootOverrideAction{Target: "Pxe", Once: ptr.To(false)}}, pc))
 	assert.Equal(t, "flash firmware version 1.2.3 from https://repo.example/bmc.bin",
@@ -436,6 +466,96 @@ func TestApproveWhatWasShown(t *testing.T) {
 	})
 }
 
+// TestApproveSeveral: several names give one plan and one answer each.
+func TestApproveSeveral(t *testing.T) {
+	ctx := context.Background()
+	three := func() (client.Client, []*metalv1alpha1.HostOperation, []types.NamespacedName) {
+		first, objs := bootPlan()
+		var ops []*metalv1alpha1.HostOperation
+		var refs []types.NamespacedName
+		for _, name := range []string{"op-a", "op-b", "op-c"} {
+			op := first.DeepCopy()
+			op.Name = name
+			ops = append(ops, op)
+			refs = append(refs, types.NamespacedName{Namespace: op.Namespace, Name: name})
+			objs = append(objs, op)
+		}
+		return fakeClient(objs[1:]...), ops, refs
+	}
+
+	t.Run("each operation gets its own question", func(t *testing.T) {
+		cl, ops, refs := three()
+		var out bytes.Buffer
+		err := approveAll(ctx, cl, refs, approval{User: "alice", Interactive: true, Out: &out,
+			In: oneByteAtATime{strings.NewReader("y\nn\nyes\n")}})
+		assert.EqualError(t, err, "1 of 3 operations not approved: pk-metal/op-b")
+		assert.Equal(t, 3, strings.Count(out.String(), "Approve as alice? [y/N] "))
+		assert.Equal(t, 3, strings.Count(out.String(), "steps, in this order:"))
+		assert.Contains(t, out.String(), "pk-metal/op-b: not approved; nothing changed\n")
+		assert.Equal(t, "alice", approvedBy(t, cl, ops[0]))
+		assert.Empty(t, approvedBy(t, cl, ops[1]))
+		assert.Equal(t, "alice", approvedBy(t, cl, ops[2]))
+	})
+
+	t.Run("one that cannot be approved does not stop the others", func(t *testing.T) {
+		cl, ops, refs := three()
+		missing := types.NamespacedName{Namespace: "pk-metal", Name: "gone"}
+		var out bytes.Buffer
+		err := approveAll(ctx, cl, append([]types.NamespacedName{missing}, refs...),
+			approval{User: "alice", Yes: true, Out: &out})
+		assert.EqualError(t, err, "1 of 4 operations not approved: pk-metal/gone")
+		for _, op := range ops {
+			assert.Equal(t, "alice", approvedBy(t, cl, op))
+		}
+	})
+
+	t.Run("without a terminal nothing is approved and the rest is not shown", func(t *testing.T) {
+		cl, ops, refs := three()
+		var out bytes.Buffer
+		err := approveAll(ctx, cl, refs, approval{User: "alice", Out: &out})
+		assert.EqualError(t, err, "3 of 3 operations not approved: pk-metal/op-a, pk-metal/op-b, pk-metal/op-c")
+		assert.Equal(t, 1, strings.Count(out.String(), "steps, in this order:"))
+		for _, op := range ops {
+			assert.Empty(t, approvedBy(t, cl, op))
+		}
+	})
+
+	t.Run("an interrupt ends the run and changes nothing", func(t *testing.T) {
+		cl, ops, refs := three()
+		cancelled, cancel := context.WithCancel(ctx)
+		cancel()
+		never, w := io.Pipe()
+		defer w.Close()
+		var out bytes.Buffer
+		err := approveAll(cancelled, cl, refs, approval{User: "alice", Interactive: true, In: never, Out: &out})
+		assert.ErrorContains(t, err, "3 of 3 operations not approved")
+		assert.Contains(t, out.String(), "pk-metal/op-a: interrupted; nothing changed\n")
+		for _, op := range ops {
+			assert.Empty(t, approvedBy(t, cl, op))
+		}
+	})
+
+	t.Run("one name keeps the error as it is", func(t *testing.T) {
+		cl, _, refs := three()
+		var out bytes.Buffer
+		err := approveAll(ctx, cl, refs[:1], approval{User: "alice", Interactive: true, Out: &out,
+			In: strings.NewReader("n\n")})
+		assert.ErrorIs(t, err, errDeclined)
+	})
+}
+
+func TestApproveRefs(t *testing.T) {
+	refs, err := approveRefs([]string{"a", "pk-metal/b", "pk-metal/a"}, "pk-metal", false)
+	require.NoError(t, err)
+	assert.Equal(t, []types.NamespacedName{{Namespace: "pk-metal", Name: "a"}, {Namespace: "pk-metal", Name: "b"}}, refs,
+		"in order, each once")
+	_, err = approveRefs([]string{"a", "x/y/z"}, "pk-metal", false)
+	assert.ErrorContains(t, err, "not a name", "a wrong name stops the command before any plan")
+	refs, err = approveRefs(nil, "pk-metal", false)
+	require.NoError(t, err)
+	assert.Empty(t, refs)
+}
+
 func TestListPending(t *testing.T) {
 	op, objs := bootPlan()
 	auto := op.DeepCopy()
@@ -452,6 +572,9 @@ func TestListPending(t *testing.T) {
 	assert.Regexp(t, `(?m)^pk-metal/provision-node1-1a2b3c4d\s+pk0001\s+Provisioning\s+9\s+`+operator+`\s+1h30m$`, out.String())
 	assert.NotContains(t, out.String(), "auto", "an operation that needs no approval is not pending")
 	assert.NotContains(t, out.String(), "pk-metal/done")
+	assert.Contains(t, out.String(), "Nothing was approved. Name the operations to see their plans and approve them, "+
+		"for example:\n  pk-metal approve pk-metal/provision-node1-1a2b3c4d\n",
+		"a list without a name says that it approved nothing, and how to approve")
 
 	out.Reset()
 	require.NoError(t, listPending(context.Background(), fakeClient(), &out, time.Now()))
