@@ -249,4 +249,12 @@ func TestOnCallRole(t *testing.T) {
 	} {
 		assert.Equal(t, c.want, allowed(c.verb, c.group, c.resource), "%s %s/%s (%s)", c.verb, c.group, c.resource, c.why)
 	}
+
+	// The manager's /metrics, for a look when Prometheus is down.
+	sar := &authorizationv1.SubjectAccessReview{Spec: authorizationv1.SubjectAccessReviewSpec{
+		User: "bob", Groups: []string{"system:authenticated"},
+		NonResourceAttributes: &authorizationv1.NonResourceAttributes{Verb: "get", Path: "/metrics"},
+	}}
+	require.NoError(t, cl.Create(ctx, sar))
+	assert.True(t, sar.Status.Allowed, "get /metrics")
 }

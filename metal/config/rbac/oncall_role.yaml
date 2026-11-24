@@ -9,6 +9,8 @@
 #   - patch a TalosCluster to remove the restore-pending mark after a restore;
 #   - patch an Asset to correct its ledger facts;
 #   - delete a TalosRollout to stop it for good.
+# It may also read the manager's /metrics (the manager asks the API server
+# whether a caller may get that URL), for a look when Prometheus is down.
 # It holds no patch on HostOperations or TalosRollouts: that is approval, and
 # belongs to pk-metal-approver. Bind both to a person who must also approve,
 # abort, or resume. It holds no Secret. Nothing binds it by default.
@@ -42,3 +44,5 @@ rules:
   - apiGroups: ["events.k8s.io"]
     resources: ["events"]
     verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]

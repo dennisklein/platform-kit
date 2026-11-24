@@ -120,7 +120,7 @@
       "namespace": "",
       "source": "metal/config/rbac/oncall_role.yaml",
       "generated": false,
-      "description": "What a person on call needs to follow the runbooks (docs site: operate/runbooks), and no more. The runbooks read every pk-metal kind, and they change a few things that start no machine change by themselves: - delete a failed or aborted HostOperation (pk-metal retry); the operator proposes a new one, which waits for approval again; - patch a HostClaim (pk-metal hold, unhold) and a Host (pk-metal wipe, or remove the disk-not-wiped mark); a wipe is still an operation a second person approves; - patch a TalosCluster to remove the restore-pending mark after a restore; - patch an Asset to correct its ledger facts; - delete a TalosRollout to stop it for good. It holds no patch on HostOperations or TalosRollouts: that is approval, and belongs to pk-metal-approver. Bind both to a person who must also approve, abort, or resume. It holds no Secret. Nothing binds it by default.",
+      "description": "What a person on call needs to follow the runbooks (docs site: operate/runbooks), and no more. The runbooks read every pk-metal kind, and they change a few things that start no machine change by themselves: - delete a failed or aborted HostOperation (pk-metal retry); the operator proposes a new one, which waits for approval again; - patch a HostClaim (pk-metal hold, unhold) and a Host (pk-metal wipe, or remove the disk-not-wiped mark); a wipe is still an operation a second person approves; - patch a TalosCluster to remove the restore-pending mark after a restore; - patch an Asset to correct its ledger facts; - delete a TalosRollout to stop it for good. It may also read the manager's /metrics (the manager asks the API server whether a caller may get that URL), for a look when Prometheus is down. It holds no patch on HostOperations or TalosRollouts: that is approval, and belongs to pk-metal-approver. Bind both to a person who must also approve, abort, or resume. It holds no Secret. Nothing binds it by default.",
       "rules": [
         {
           "apiGroups": [
@@ -239,6 +239,16 @@
             "get",
             "list",
             "watch"
+          ]
+        },
+        {
+          "apiGroups": [],
+          "resources": [],
+          "verbs": [
+            "get"
+          ],
+          "nonResourceURLs": [
+            "/metrics"
           ]
         }
       ]
