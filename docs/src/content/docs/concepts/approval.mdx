@@ -1,0 +1,69 @@
+---
+title: Approval
+description: The operator proposes a change. A person approves it. Then the operator does it.
+type: concept
+xref: { cat: concept, id: approval }
+sidebar:
+  order: 4
+sources:
+  - /repo/metal/config/policy/hostoperation-approval.yaml
+  - /repo/metal/config/policy/talosrollout-approval.yaml
+  - /repo/metal/config/policy/hostclaim-provisioning.yaml
+---
+
+import Figure from '../../../components/diagram/Figure.astro';
+import Box from '../../../components/diagram/Box.astro';
+import Edge from '../../../components/diagram/Edge.astro';
+
+Nothing that disrupts a machine happens before a person approves it.
+The operator only proposes. A second person reads the plan and approves it. Then the operator runs it.
+
+<Figure title="Propose, approve, execute. The admission policy stands between the person and the operation." caption="The three roles. The proposer and the approver are different people." width={720} height={140} wide>
+  <Box x={10} y={45} w={190} h={54} label="Propose" sub="operator or person" />
+  <Box x={265} y={45} w={190} h={54} label="Approve" sub="another person" variant="accent" />
+  <Box x={520} y={45} w={190} h={54} label="Execute" sub="HostOperation controller" cat="ctrl" href="/reference/controllers/hostoperation/" />
+  <Edge points={[[200, 72], [265, 72]]} label="plan" at={[232, 64]} />
+  <Edge points={[[455, 72], [520, 72]]} label="approved" at={[487, 64]} />
+  <text class="t-small t-label" x={360} y={125} text-anchor="middle">rules: approve as yourself, never your own proposal, write once</text>
+</Figure>
+
+## Terms
+
+<dl>
+  <dt>Proposal</dt>
+  <dd>A [](kind:HostOperation) or a [](kind:TalosRollout) that waits in `AwaitingApproval`. It names its proposer in `spec.proposedBy`.</dd>
+  <dt>Plan</dt>
+  <dd>The list of actions, fixed when the operator proposes. A changed plan is a new proposal with a new name.</dd>
+  <dt>Approver</dt>
+  <dd>A person with the ClusterRole `pk-metal-approver`, other than the proposer.</dd>
+  <dt>Hold</dt>
+  <dd>The annotation `metal.pk.io/hold` on a claim. While it is there, the operator proposes nothing for the claim.</dd>
+  <dt>Automatic approval</dt>
+  <dd>A claim setting, `spec.provisioning.approval: Automatic`. Only an admin can set it.</dd>
+</dl>
+
+## What needs approval
+
+| Change | Approval |
+| --- | --- |
+| Install, BIOS change, firmware, reboot, wipe | Yes, one per operation |
+| Release of a machine that ran its node | Yes |
+| Talos or Kubernetes upgrade, configuration change | Yes, one for the rollout plan |
+| Read the BMC, take an etcd snapshot, dry run of a configuration | No |
+| Rotation of BMC credentials | No, the EndpointProfile is the approval |
+
+## Safeguards
+
+- [](cli:approve) approves only the plan that it printed. If the operation changed in the meantime, nothing is approved.
+- The approval names the uid and the resourceVersion that you read, so the API server refuses it if the object changed.
+- A gate after the approval can still hold the start, see [](concept:maintenance-windows) and [](concept:cluster-guard).
+
+## In the reference
+
+- [](flow:approval-flow): the gate step by step
+- [](cli:approve), [](cli:hold), [](cli:retry), [](cli:abort)
+- [](kind:HostOperation#spec.approval)
+
+## Do it
+
+- [](howto:approve-hold-retry)

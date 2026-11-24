@@ -1,0 +1,66 @@
+---
+title: Pivot model
+description: What moves when the operator moves to another cluster, in which order, and how the copy keeps references correct.
+type: concept
+xref: { cat: concept, id: pivot-model }
+sidebar:
+  order: 13
+sources:
+  - /repo/metal/cmd/pk-metal/pivot.go
+  - /repo/metal/internal/pivot
+---
+
+import Figure from '../../../components/diagram/Figure.astro';
+import Box from '../../../components/diagram/Box.astro';
+import Edge from '../../../components/diagram/Edge.astro';
+
+A pivot moves the operator and its state to another cluster, like `clusterctl move` in Cluster API.
+All state is API objects, so the move is a copy of objects in a fixed sequence. No machine changes.
+
+<Figure title="The copy sequence: ConfigMaps and Secrets, then Assets and profiles, then Hosts, then HostClaims and HostOperations, then Talos objects and windows, then all other kinds of the two groups." caption="Owners and referenced objects go first. A second pass fills owners that come later." width={720} height={110} wide>
+  <Box x={5} y={30} w={110} h={54} label="1 Secrets" sub="ConfigMaps" />
+  <Box x={125} y={30} w={110} h={54} label="2 Assets" sub="profiles, MEs" />
+  <Box x={245} y={30} w={110} h={54} label="3 Hosts" sub="claimRef" />
+  <Box x={365} y={30} w={110} h={54} label="4 Claims" sub="operations" />
+  <Box x={485} y={30} w={110} h={54} label="5 Talos" sub="windows" />
+  <Box x={605} y={30} w={110} h={54} label="6 Others" sub="rollouts, backups" />
+  <Edge points={[[115, 57], [125, 57]]} />
+  <Edge points={[[235, 57], [245, 57]]} />
+  <Edge points={[[355, 57], [365, 57]]} />
+  <Edge points={[[475, 57], [485, 57]]} />
+  <Edge points={[[595, 57], [605, 57]]} />
+</Figure>
+
+## What moves
+
+- ConfigMaps and Secrets of the namespace `pk-metal`: the ledger, the BMC credentials, the secrets bundles, the rendered configs, the published credentials.
+- All objects of `metal.pk.io` and `os.pk.io`, with their status, labels, annotations and finalizers.
+- Finished operations too. They are the record of what was done to each machine.
+
+## What does not move
+
+Events, the leader lease, service account tokens, imager Jobs and the files in the media store.
+The target builds missing installers again. The workload clusters do not move, because they do not depend on the operator.
+
+## How the copy keeps objects correct
+
+<dl>
+  <dt>UIDs</dt>
+  <dd>Each object gets a new UID. The move writes the new UID into `spec.claimRef.uid`, into the claim label of operations and into owner references.</dd>
+  <dt>Identities</dt>
+  <dd>The move writes each operation as its proposer and replays each approval as the person who gave it, so the admission policy accepts them.</dd>
+  <dt>Status</dt>
+  <dd>The move copies status under the name of the controller that owns each part. The hand-off record of a claim moves too, so no machine installs again.</dd>
+  <dt>Markers</dt>
+  <dd>Annotations on the namespace `pk-metal`: `pivoted-to` and `pivot-replicas` on the source, `pivot-source` on the target. They make a second run continue.</dd>
+</dl>
+
+## In the reference
+
+- [](cli:pivot)
+- [](concept:self-protection): what changes after the move
+
+## Do it
+
+- [](flow:pivot)
+- [](howto:move-back)

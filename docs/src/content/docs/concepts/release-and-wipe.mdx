@@ -1,0 +1,58 @@
+---
+title: Release and wipe
+description: A released machine never keeps its node. If Talos could not wipe the disk, the Host stays marked until an approved wipe.
+type: concept
+xref: { cat: concept, id: release-and-wipe }
+sidebar:
+  order: 20
+sources:
+  - /repo/metal/internal/controller/removal.go
+  - /repo/metal/internal/controller/host_wipe.go
+---
+
+import Figure from '../../../components/diagram/Figure.astro';
+import Box from '../../../components/diagram/Box.astro';
+import Edge from '../../../components/diagram/Edge.astro';
+
+When a claim goes, the machine returns to the pool. Its disk must not hold the old node.
+If the old disk boots, the machine comes back as a node that no longer belongs, with the keys of its cluster.
+
+<Figure title="A release asks: does the node answer? Yes: drain, leave etcd, Talos reset, power off, Available. No: remove the etcd member by ID, power off, DiskWiped=False. A wipe then erases the disk and the Host is Available." caption="Two paths out. Both end with a machine that holds no node." width={720} height={220} wide>
+  <Box x={10} y={80} w={150} h={54} label="Release" sub="claim deleted" />
+  <Box x={210} y={80} w={140} h={54} label="Node answers?" variant="accent" />
+  <Box x={400} y={20} w={170} h={54} label="Talos reset" sub="disk wiped" variant="ok" />
+  <Box x={400} y={140} w={170} h={54} label="Power off only" sub="DiskWiped=False" variant="warn" />
+  <Box x={610} y={20} w={100} h={54} label="Available" variant="ok" />
+  <Box x={610} y={140} w={100} h={54} label="Wipe" sub="approved" />
+  <Edge points={[[160, 107], [210, 107]]} />
+  <Edge points={[[350, 97], [375, 97], [375, 47], [400, 47]]} label="yes" at={[383, 70]} anchor="start" />
+  <Edge points={[[350, 117], [375, 117], [375, 167], [400, 167]]} label="no" at={[383, 150]} anchor="start" />
+  <Edge points={[[570, 47], [610, 47]]} />
+  <Edge points={[[570, 167], [610, 167]]} />
+  <Edge points={[[660, 140], [660, 74]]} variant="accent" />
+</Figure>
+
+## Terms
+
+<dl>
+  <dt>Release</dt>
+  <dd>The operation that the [](ctrl:hostclaim) proposes when you delete a claim.</dd>
+  <dt>Hand-off record</dt>
+  <dd>[`status.handOff`](kind:HostClaim#status.handOff) of the claim. It records that a node was installed on a machine. It decides whether a release needs approval.</dd>
+  <dt>Disk not wiped</dt>
+  <dd>The condition `DiskWiped=False` with reason `InstalledNodeRemains`, and the annotation `metal.pk.io/disk-not-wiped`.</dd>
+  <dt>Wipe</dt>
+  <dd>An operation that boots a Talos image with `talos.experimental.wipe=system`. The machine ends in Talos maintenance mode with an empty disk.</dd>
+</dl>
+
+## Rules
+
+1. A marked Host gets no install and no other operation that turns it on.
+2. [](cli:wipe) asks for the wipe. A person approves it.
+3. If you know that the disk is empty, remove the annotation yourself. The operator accepts it.
+4. The hand-off record changes only through [](cli:reinstall), [](cli:replace) or a removal. Each one resets the disk first.
+
+## Do it
+
+- [](flow:release-and-reuse)
+- [](howto:release-a-host)

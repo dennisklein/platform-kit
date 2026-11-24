@@ -1,0 +1,66 @@
+---
+title: Phases and conditions
+description: Conditions are the facts. The phase is a summary of them for people.
+type: concept
+xref: { cat: concept, id: phases-and-conditions }
+sidebar:
+  order: 3
+sources:
+  - /repo/metal/internal/phase/phase.go
+  - /repo/metal/api/v1alpha1/conditions.go
+---
+
+import Figure from '../../../components/diagram/Figure.astro';
+import Box from '../../../components/diagram/Box.astro';
+import Edge from '../../../components/diagram/Edge.astro';
+import HostPhases from '../../../components/diagrams/HostPhases.astro';
+
+Each object has conditions. A condition is one fact with a status, a reason and a message.
+The phase is one word that summarizes the conditions. Read the conditions to know why something waits.
+
+<Figure title="Controllers write conditions. One package derives the phase and blockedOn from the conditions. People and tables read the phase." caption="One direction only: the controllers never read the phase." width={720} height={130} wide>
+  <Box x={10} y={40} w={150} h={54} label="Controllers" sub="observe" cat="ctrl" href="/reference/controllers/" />
+  <Box x={200} y={40} w={150} h={54} label="Conditions" sub="the facts" variant="accent" />
+  <Box x={390} y={40} w={150} h={54} label="internal/phase" sub="derive" mono />
+  <Box x={580} y={40} w={130} h={54} label="phase, blockedOn" sub="for people" variant="soft" />
+  <Edge points={[[160, 67], [200, 67]]} label="write" at={[180, 59]} />
+  <Edge points={[[350, 67], [390, 67]]} label="read" at={[370, 59]} />
+  <Edge points={[[540, 67], [580, 67]]} label="stamp" at={[560, 59]} />
+</Figure>
+
+## Terms
+
+<dl>
+  <dt>Condition</dt>
+  <dd>A fact with a type (for example `Verified`), a status (`True`, `False` or `Unknown`), a reason and a message in plain words.</dd>
+  <dt>Reason</dt>
+  <dd>One CamelCase word that a script can compare, for example `SerialMismatch`.</dd>
+  <dt>Phase</dt>
+  <dd>A summary of the conditions. The package `internal/phase` derives it again on each pass. It has no memory of the previous phase.</dd>
+  <dt>blockedOn</dt>
+  <dd>The reason of the condition that holds the object now. [](cli:status) shows it in the BLOCKED column.</dd>
+</dl>
+
+## Rules
+
+1. A controller decides only on conditions. It never reads a phase.
+2. Only the stamp functions in `internal/phase` write `phase` and `blockedOn`. A test fails on any other write.
+3. The derivation is a list in order of precedence. Hard stops come first, for example `Unreachable` and `Mismatch`.
+
+## Host phases
+
+<HostPhases />
+
+## Phases of each kind
+
+| Kind | Phases |
+| --- | --- |
+| [](kind:ManagementEndpoint) | Pending, Connecting, Inventorying, Verifying, Configuring, Ready, Unreachable, Mismatch |
+| [](kind:Host) | Enrolling, Inspecting, Available, Assigned, Provisioning, Provisioned, Releasing, Failed, Maintenance |
+| [](kind:HostClaim) | Pending, Bound, Ambiguous |
+| [](kind:HostOperation) | Proposed, AwaitingApproval, Running, Succeeded, Failed, Aborted |
+
+## In the reference
+
+- [Host conditions](kind:Host#status.conditions) and the condition table on each kind page
+- [](cli:status) and [](cli:top)

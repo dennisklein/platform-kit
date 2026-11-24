@@ -1,0 +1,70 @@
+---
+title: One-slot BMC
+description: A BMC with one virtual media slot gets one installer that holds the node configuration.
+type: concept
+xref: { cat: concept, id: one-slot-bmc }
+sidebar:
+  order: 6
+sources:
+  - /repo/metal/internal/controller/bootasset_embedded.go
+  - /repo/metal/internal/controller/imager.go
+---
+
+import Figure from '../../../components/diagram/Figure.astro';
+import Box from '../../../components/diagram/Box.astro';
+import Edge from '../../../components/diagram/Edge.astro';
+import Callout from '../../../components/Callout.astro';
+
+A normal install needs two media: the installer and the configuration.
+Some BMCs hold one medium only. For a blank machine behind such a BMC, the operator builds one installer for that node, with the configuration inside.
+
+<Figure title="Two slots: installer and configuration ISO. One slot: an imager Job builds an embedded installer into the media store, and the BMC mounts it." caption="Two ways to the same boot. The configuration never goes over the network to the machine." width={720} height={230} wide>
+  <text class="t-small t-label" x={10} y={22}>two slots</text>
+  <Box x={10} y={32} w={170} h={50} label="Installer ISO" sub="image factory" />
+  <Box x={200} y={32} w={170} h={50} label="Config ISO" sub="small, per node" />
+  <Box x={530} y={32} w={180} h={50} label="BMC, 2 slots" />
+  <Edge points={[[370, 57], [530, 57]]} label="mount both" at={[450, 49]} />
+  <text class="t-small t-label" x={10} y={132}>one slot</text>
+  <Box x={10} y={142} w={170} h={54} label="BootAsset" sub="<node>-embedded" cat="kind" href="/reference/kinds/bootasset/" />
+  <Box x={200} y={142} w={150} h={54} label="Imager Job" sub="no privileges" />
+  <Box x={370} y={142} w={140} h={54} label="Media store" sub="digest checked" />
+  <Box x={530} y={142} w={180} h={54} label="BMC, 1 slot" />
+  <Edge points={[[180, 169], [200, 169]]} />
+  <Edge points={[[350, 169], [370, 169]]} />
+  <Edge points={[[510, 169], [530, 169]]} label="mount" at={[520, 214]} />
+</Figure>
+
+## Terms
+
+<dl>
+  <dt>Embedded installer</dt>
+  <dd>A Talos installer ISO with the configuration of one node inside. Talos 1.12 or later reads it.</dd>
+  <dt>imager</dt>
+  <dd>The Talos tool that builds the ISO. It runs as a Job in the namespace `pk-metal`. It reads the configuration from a file, not from its arguments.</dd>
+  <dt>Media store</dt>
+  <dd>A volume of the operator that holds the built ISOs. The kustomize component `config/media-store` adds it.</dd>
+  <dt>Digest</dt>
+  <dd>The hash of the ISO. The [](kind:BootAsset) records it. The media service checks it each time a BMC downloads the file.</dd>
+</dl>
+
+## Why not send the configuration over the network
+
+A Talos machine without a configuration accepts a configuration from each client that reaches it.
+The configuration holds the keys and tokens of the cluster. So the operator always sends it out of band, through the BMC.
+
+<Callout type="caution">
+Treat the media store volume like the Secret storage of the cluster.
+Each ISO holds a node configuration in plain text, readable only by the operator user.
+</Callout>
+
+## Lifecycle of an ISO
+
+1. A new configuration, Talos version or schematic gives a new build.
+2. The operator deletes the old ISO when the new one is ready.
+3. All ISOs of a node go with its [](kind:TalosNode).
+4. A machine that already runs Talos needs no embedded ISO. Its configuration goes into the one slot as a small ISO.
+
+## In the reference
+
+- [](kind:BootAsset), [](ctrl:bootasset)
+- [](concept:virtual-media-boot)

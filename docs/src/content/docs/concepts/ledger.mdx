@@ -1,0 +1,65 @@
+---
+title: Ledger
+description: The ledger maps the MAC address of each BMC to its HTTPS address. The operator never invents an address.
+type: concept
+xref: { cat: concept, id: ledger }
+sidebar:
+  order: 8
+sources:
+  - /repo/metal/internal/ledger/ledger.go
+  - /repo/metal/internal/controller/asset_controller.go
+---
+
+import Figure from '../../../components/diagram/Figure.astro';
+import Box from '../../../components/diagram/Box.astro';
+import Edge from '../../../components/diagram/Edge.astro';
+
+The ledger is the operator copy of your BMC address reservations.
+An [](kind:Asset) gets a [](kind:ManagementEndpoint) only when its BMC MAC address is in the ledger.
+
+<Figure title="The Asset gives a BMC MAC. The ledger maps the MAC to an HTTPS address. The Asset controller writes the ManagementEndpoint with that address." caption="The same facts as your dhcpd or dnsmasq host entries." width={720} height={120} wide>
+  <Box x={10} y={35} w={190} h={54} label="Asset" sub="spec.bmcMac" cat="kind" href="/reference/kinds/asset/" />
+  <Box x={265} y={35} w={190} h={54} label="Ledger" sub="MAC → https://address" variant="accent" />
+  <Box x={520} y={35} w={190} h={54} label="ManagementEndpoint" sub="spec.address" cat="kind" href="/reference/kinds/managementendpoint/" />
+  <Edge points={[[200, 62], [265, 62]]} label="lookup" at={[232, 54]} />
+  <Edge points={[[455, 62], [520, 62]]} label="materialize" at={[487, 54]} />
+</Figure>
+
+## Format
+
+A flat YAML map, one line for each BMC:
+
+```yaml
+"0c:c4:7a:12:34:56": https://192.0.2.21
+"0C-C4-7A-12-34-57": https://[2001:db8::22]
+```
+
+## Terms
+
+<dl>
+  <dt>Ledger file</dt>
+  <dd>The file that the manager reads with `--ledger`. In a cluster it comes from the ConfigMap `pk-metal-ledger` in the namespace `pk-metal`.</dd>
+  <dt>Materialized</dt>
+  <dd>The Asset condition that says whether the operator found the address and wrote the endpoint.</dd>
+</dl>
+
+## Rules
+
+1. The operator writes MAC keys in lower case with colons. You can write them in each case, with `:` or `-`.
+2. The operator skips and reports a line that it cannot use. It does not stop the other machines.
+3. The manager reads the ledger when it starts. A changed ConfigMap from kustomize restarts the manager.
+
+| Reason on the Asset | Meaning |
+| --- | --- |
+| `NoBMCMac` | The Asset has no `spec.bmcMac`. |
+| `NoLedgerEntry` | The MAC address is not in the ledger. |
+| `LedgerEntryInvalid` | The line for the MAC was skipped. The message says why. |
+| `MaterializeConflict` | An endpoint with this name belongs to another Asset. |
+
+## In the reference
+
+- [](ctrl:asset), [](ctrl:manager)
+
+## Do it
+
+- [](howto:enrol-hosts)

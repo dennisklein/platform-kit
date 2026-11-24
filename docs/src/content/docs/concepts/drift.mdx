@@ -1,0 +1,81 @@
+---
+title: Drift
+description: Each rendered config is a Secret named by its digest. A dry run on each node shows whether the machine runs what the operator renders.
+type: concept
+xref: { cat: concept, id: drift }
+sidebar:
+  order: 17
+sources:
+  - /repo/metal/internal/controller/talosnode_day2.go
+  - /repo/metal/internal/controller/talosnode_controller.go
+---
+
+import Figure from '../../../components/diagram/Figure.astro';
+import Box from '../../../components/diagram/Box.astro';
+import Edge from '../../../components/diagram/Edge.astro';
+
+The operator never changes a config Secret in place. Each new config gets a new Secret, named after the node and the digest of the content.
+A dry run on each node then tells whether the machine runs the current config.
+
+<Figure title="An edit gives a new Secret with a new digest. The old Secret stays while something refers to it. A dry run compares the new config with the node and sets ConfigInSync. A drift gives a Config rollout." caption="A new digest is a new Secret. An approved operation can never apply other bytes." width={720} height={210} wide>
+  <Box x={10} y={20} w={200} h={50} label="machineconfig-node-1-0123…" sub="applied" mono />
+  <Box x={10} y={90} w={200} h={50} label="machineconfig-node-1-89ab…" sub="current" mono variant="accent" />
+  <Box x={270} y={90} w={170} h={50} label="Dry run" sub="what would change?" />
+  <Box x={500} y={20} w={210} h={50} label="ConfigInSync=True" sub="InSync" variant="ok" />
+  <Box x={500} y={90} w={210} h={50} label="ConfigInSync=False" sub="ConfigDrift, status.drift" variant="warn" />
+  <Box x={500} y={155} w={210} h={45} label="Config rollout" sub="proposed" cat="concept" href="/concepts/rollouts/" />
+  <Edge points={[[210, 115], [270, 115]]} />
+  <Edge points={[[440, 105], [470, 105], [470, 45], [500, 45]]} variant="muted" />
+  <Edge points={[[440, 115], [500, 115]]} />
+  <Edge points={[[605, 140], [605, 155]]} />
+</Figure>
+
+## Terms
+
+<dl>
+  <dt>Content-addressed Secret</dt>
+  <dd>A config Secret named `machineconfig-<node>-<digest>`. Its name changes when its content changes.</dd>
+  <dt>Dry run</dt>
+  <dd>A question to Talos: what changes if this config is applied? Talos answers and changes nothing.</dd>
+  <dt>Drift</dt>
+  <dd>The machine does not run the config that the operator renders. [`status.drift`](kind:TalosNode#status.drift) gives the number of lines, the changed keys and whether a reboot is necessary. It never holds values.</dd>
+</dl>
+
+## When the dry run runs
+
+| Situation | Interval |
+| --- | --- |
+| Normal | 10 minutes |
+| A rollout runs on the cluster | 30 seconds |
+
+## ConfigInSync
+
+| Status | Reason | Meaning |
+| --- | --- | --- |
+| `True` | `InSync` | The machine runs what the operator renders. |
+| `False` | `ConfigDrift` | It does not. The operator proposes a `Config` rollout. |
+| `Unknown` | `DriftUnknown` | The dry run failed. The message says why. |
+
+If Talos does not say whether a change needs a reboot, the operator assumes that it does.
+
+## Which Secrets stay
+
+- The current config.
+- The config that the node last applied.
+- Configs that an unfinished operation or rollout names.
+
+The operator deletes the others.
+
+## Why it helps
+
+- An edit to a TalosCluster or TalosNode reaches the machines through a rollout.
+- A change made by hand with `talosctl` shows as drift, and the rollout undoes it.
+
+## In the reference
+
+- [](kind:TalosNode), [](ctrl:talosnode)
+- [](act:TalosApplyConfig): the Secret must hash to the pinned digest
+
+## Do it
+
+- [](howto:change-machine-config)

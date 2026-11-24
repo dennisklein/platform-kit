@@ -1,0 +1,63 @@
+---
+title: Maintenance windows
+description: A MaintenanceWindow says when approved work may start on a set of machines. It never approves anything.
+type: concept
+xref: { cat: concept, id: maintenance-windows }
+sidebar:
+  order: 19
+sources:
+  - /repo/metal/internal/controller/window.go
+  - /repo/metal/api/v1alpha1/maintenancewindow_types.go
+---
+
+import Figure from '../../../components/diagram/Figure.astro';
+import Box from '../../../components/diagram/Box.astro';
+import Edge from '../../../components/diagram/Edge.astro';
+
+A person still approves each change. A [](kind:MaintenanceWindow) decides only **when** an approved change starts.
+
+<Figure title="A week from Monday to Sunday. The window opens Saturday 22:00 for six hours. An operation approved on Wednesday waits until Saturday 22:00. A step that runs when the window closes finishes." caption="Approved on Wednesday, started on Saturday night." width={720} height={170} wide>
+  {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d, i) => (
+    <text class="t-small t-label" x={40 + i * 95} y={30} text-anchor="middle">{d}</text>
+  ))}
+  <line x1="10" y1="60" x2="710" y2="60" class="edge edge-muted"></line>
+  <rect x="550" y="45" width="50" height="30" class="box box-ok"></rect>
+  <text class="t-small" x={575} y={96} text-anchor="middle">open 22:00, 6h</text>
+  <Box x={130} y={110} w={210} h={44} label="approved" sub="OutsideMaintenanceWindow" variant="warn" />
+  <Edge points={[[340, 132], [575, 132], [575, 75]]} label="starts by itself" at={[460, 124]} />
+</Figure>
+
+## Terms
+
+<dl>
+  <dt>Covered machine</dt>
+  <dd>A machine that `spec.hostSelector` or `spec.clusters` selects. Either match is enough.</dd>
+  <dt>Open</dt>
+  <dd>The time inside a weekly or a one-time window, in `spec.timeZone`. Weekly windows keep the wall clock time across a daylight saving change.</dd>
+  <dt>ignore-window</dt>
+  <dd>The operation annotation `metal.pk.io/ignore-window`. Its value is your reason. The operation then starts outside the windows.</dd>
+</dl>
+
+## Rules
+
+1. An approved operation on a covered machine waits until one of its windows is open.
+2. When a window opens, the waiting operations start. Nobody has to be awake.
+3. A step that runs is never stopped when the window closes.
+4. A machine that no window covers is not held.
+5. New installs (reason `Provisioning`) are not held.
+6. A window that the operator cannot read is `Valid=False` and never opens. A mistake holds work back.
+7. A rollout that reaches a node outside its windows waits between nodes.
+
+## Where you see it
+
+- `blockedOn: OutsideMaintenanceWindow` in [](cli:status). It does not count as "needs a person".
+- `kubectl get maintenancewindows` shows OPEN and NEXT CHANGE.
+- The metric `pk_metal_operation_blocked{reason="OutsideMaintenanceWindow"}`.
+
+## In the reference
+
+- [](kind:MaintenanceWindow), [](ctrl:maintenancewindow)
+
+## Do it
+
+- [](howto:maintenance-windows)

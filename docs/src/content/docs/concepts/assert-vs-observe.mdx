@@ -1,0 +1,64 @@
+---
+title: Assert and observe
+description: You write what must be true. The operator writes what it finds. The two never mix.
+type: concept
+xref: { cat: concept, id: assert-vs-observe }
+sidebar:
+  order: 2
+sources:
+  - /repo/metal/api/v1alpha1/asset_types.go
+  - /repo/metal/api/v1alpha1/host_types.go
+---
+
+import Figure from '../../../components/diagram/Figure.astro';
+import Box from '../../../components/diagram/Box.astro';
+import Edge from '../../../components/diagram/Edge.astro';
+import Zone from '../../../components/diagram/Zone.astro';
+
+Each fact has one author. You assert facts in objects that you keep in git.
+The operator observes facts and writes them in its own objects and in each `status`.
+
+<Figure title="Assertions on the left, written by you. Observations on the right, written by the operator. The Verified condition compares the serial numbers from both sides." caption="Two origins of facts. Where they disagree, the operator stops." width={720} height={270} wide>
+  <Zone x={10} y={30} w={330} h={230} label="you assert (git)" />
+  <Zone x={380} y={30} w={330} h={230} label="the operator observes" />
+  <Box x={30} y={60} w={140} h={44} label="Asset" cat="kind" href="/reference/kinds/asset/" />
+  <Box x={180} y={60} w={140} h={44} label="HostClaim" cat="kind" href="/reference/kinds/hostclaim/" />
+  <Box x={30} y={120} w={140} h={44} label="TalosCluster" cat="kind" href="/reference/kinds/taloscluster/" />
+  <Box x={180} y={120} w={140} h={44} label="TalosNode" cat="kind" href="/reference/kinds/talosnode/" />
+  <Box x={30} y={180} w={290} h={44} label="Profiles, windows, backup policies" />
+  <Box x={400} y={60} w={140} h={44} label="ManagementEndpoint" cat="kind" href="/reference/kinds/managementendpoint/" />
+  <Box x={550} y={60} w={140} h={44} label="Host" cat="kind" href="/reference/kinds/host/" />
+  <Box x={400} y={120} w={290} h={44} label="HostOperation" sub="proposed by the operator" cat="kind" href="/reference/kinds/hostoperation/" />
+  <Box x={400} y={180} w={290} h={44} label="status of each object" />
+  <Edge points={[[150, 60], [150, 16], [670, 16], [670, 60]]} variant="accent" label="serial: Verified?" at={[410, 11]} />
+</Figure>
+
+## Terms
+
+<dl>
+  <dt>Assertion</dt>
+  <dd>A fact that you write: the serial number of a machine, the install disk, the Talos version.</dd>
+  <dt>Observation</dt>
+  <dd>A fact that the operator reads from a BMC, a node or etcd, and writes in a status.</dd>
+  <dt>Spec</dt>
+  <dd>The part of an object that holds assertions. On a [](kind:Host) the operator writes the spec too, from the claim.</dd>
+  <dt>Status</dt>
+  <dd>The part of an object that holds observations. Only the operator writes it.</dd>
+</dl>
+
+## When they disagree
+
+The operator does not guess which side is correct.
+If the serial number in the Asset is not the serial number that the BMC reports, the operator stops for that machine.
+See [](concept:identity) and [](rb:host-mismatch).
+
+## Why it helps
+
+- Your git repository holds only assertions. You can apply it again at each time.
+- The status tells what is true now, not what someone wished.
+- A change made by hand shows as drift, not as a new truth. See [](concept:drift).
+
+## In the reference
+
+- [](kind:Asset), [](kind:Host)
+- [](concept:phases-and-conditions): how status reports observations

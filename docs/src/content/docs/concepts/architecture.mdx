@@ -1,0 +1,74 @@
+---
+title: Architecture
+description: The management cluster runs the operator. The operator reaches the BMCs over Redfish and the nodes over the Talos API.
+type: concept
+xref: { cat: concept, id: architecture }
+sidebar:
+  order: 1
+sources:
+  - /repo/metal/cmd/manager/main.go
+  - /repo/metal/internal/controller/setup.go
+---
+
+import Figure from '../../../components/diagram/Figure.astro';
+import Box from '../../../components/diagram/Box.astro';
+import Edge from '../../../components/diagram/Edge.astro';
+import Zone from '../../../components/diagram/Zone.astro';
+
+pk-metal is a Kubernetes operator. It runs in a small management cluster.
+It reads the objects that you write and changes the machines through their BMCs.
+
+<Figure title="The management cluster holds the objects and the manager. The manager reaches the BMCs over HTTPS and the Talos nodes on port 50000. The BMCs get boot media from the media service." caption="Who talks to whom. Arrows show who opens the connection." width={720} height={300} wide>
+  <Zone x={10} y={10} w={300} h={280} label="management cluster" />
+  <Box x={30} y={40} w={260} h={50} label="API server" sub="your objects, status" />
+  <Box x={30} y={120} w={260} h={50} label="Manager" sub="controllers" cat="ctrl" href="/reference/controllers/manager/" />
+  <Box x={30} y={210} w={260} h={50} label="Media service" sub="--media-url, one-time grants" />
+  <Edge points={[[160, 120], [160, 90]]} both />
+  <Edge points={[[160, 170], [160, 210]]} />
+  <Zone x={410} y={10} w={300} h={280} label="machines" />
+  <Box x={430} y={40} w={260} h={50} label="Talos node" sub="Talos API, 50000" />
+  <Box x={430} y={120} w={260} h={50} label="Machine" sub="power, disks" />
+  <Box x={430} y={210} w={260} h={50} label="BMC" sub="Redfish, HTTPS 443" />
+  <Edge points={[[290, 135], [350, 135], [350, 65], [430, 65]]} label="Talos API" at={[358, 100]} anchor="start" />
+  <Edge points={[[290, 155], [380, 155], [380, 225], [430, 225]]} label="Redfish" at={[388, 195]} anchor="start" />
+  <Edge points={[[430, 250], [290, 250]]} label="BMC gets media" at={[360, 270]} />
+  <Edge points={[[560, 210], [560, 170]]} label="power, media" at={[568, 194]} anchor="start" />
+  <Edge points={[[560, 120], [560, 90]]} variant="muted" label="runs" at={[568, 109]} anchor="start" />
+</Figure>
+
+## Parts
+
+<dl>
+  <dt>Management cluster</dt>
+  <dd>The Kubernetes cluster that runs the operator. It holds all state as API objects. First a kind cluster, later the Talos cluster that the operator built, see [](concept:pivot-model).</dd>
+  <dt>Manager</dt>
+  <dd>The one process that runs all controllers. One replica holds the leader lease.</dd>
+  <dt>BMC</dt>
+  <dd>The controller on the main board of a machine. The operator uses Redfish to read it, to switch the power and to mount virtual media.</dd>
+  <dt>Media service</dt>
+  <dd>An HTTPS server in the manager. A BMC downloads the installer and the node configuration from it with a one-time grant.</dd>
+  <dt>Talos node</dt>
+  <dd>A machine that runs Talos Linux. It has no shell and no SSH. The operator uses the Talos API.</dd>
+  <dt>Relay</dt>
+  <dd>An optional forwarder for day 0, when your workstation cannot reach the BMCs. See [](concept:relay).</dd>
+</dl>
+
+## Two API groups
+
+| Group | Kinds | About |
+| --- | --- | --- |
+| `metal.pk.io` | [](kind:Asset), [](kind:ManagementEndpoint), [](kind:Host), [](kind:HostClaim), [](kind:HostOperation), profiles, [](kind:MaintenanceWindow) | Hardware and its changes |
+| `os.pk.io` | [](kind:TalosCluster), [](kind:TalosNode), [](kind:BootAsset), [](kind:TalosRollout), [](kind:EtcdBackupPolicy), [](kind:EtcdSnapshot) | The installed system |
+
+## Principles
+
+1. You write what must be true. The operator writes what it finds. See [](concept:assert-vs-observe).
+2. A person approves each change to a machine. See [](concept:approval).
+3. The operator boots from virtual media, not from PXE. See [](concept:virtual-media-boot).
+4. The operator does not take down the cluster that it runs on. See [](concept:self-protection).
+
+## In the reference
+
+- [](kind:index) and [](ctrl:index)
+- [](ctrl:manager): flags, leader election, the ledger file
+- [](lab:page/index): the same parts on one workstation

@@ -1,0 +1,53 @@
+---
+title: Virtual media boot
+description: The operator boots a machine from an image on the BMC. It does not use PXE.
+type: concept
+xref: { cat: concept, id: virtual-media-boot }
+sidebar:
+  order: 5
+sources:
+  - /repo/metal/internal/controller/provisioning.go
+---
+
+import Provision from '../../../components/explainers/Provision.astro';
+
+The operator does not use PXE, TFTP or DHCP to install a machine.
+It mounts the installer and the node configuration as virtual media on the BMC, and boots the machine from them one time.
+
+<Provision start={3} />
+
+## Terms
+
+<dl>
+  <dt>Virtual media slot</dt>
+  <dd>A virtual CD drive of the BMC. The BMC downloads an image URL into the slot.</dd>
+  <dt>Boot override</dt>
+  <dd>A one-time boot device that the BMC uses at the next start, here the virtual CD.</dd>
+  <dt>Grant</dt>
+  <dd>A one-time user and password in the media URL. The media service accepts it for one operation only.</dd>
+  <dt>Check-in</dt>
+  <dd>The moment when the installed node runs its configuration and answers the operator over the Talos API.</dd>
+</dl>
+
+## The sequence
+
+1. [](act:EjectMedia) on each slot.
+2. [](act:InsertMedia) for the installer.
+3. [](act:InsertMedia) for the configuration. The operation pins the configuration by its digest.
+4. [](act:SetBootOverride) to the virtual CD, one time, in UEFI mode.
+5. [](act:PowerCycle).
+6. [](act:AwaitCheckIn) until the node runs from its disk.
+7. [](act:EjectMedia): the configuration first, because it holds the keys of the cluster.
+
+## Why not PXE
+
+- No DHCP or TFTP server is necessary on the machine network.
+- The node configuration never goes over the network to a machine without a configuration.
+- The BMC gets the media, so the machine needs no route to the operator.
+
+A BMC with only one slot gets one installer with the configuration inside, see [](concept:one-slot-bmc).
+
+## In the reference
+
+- [](kind:BootAsset), [](kind:HostOperation)
+- [](flow:rack-to-node)

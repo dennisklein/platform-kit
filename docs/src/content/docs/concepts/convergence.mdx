@@ -1,0 +1,70 @@
+---
+title: Convergence
+description: Profiles say what BIOS and firmware a class of machines must have. The operator proposes the changes that make each machine agree.
+type: concept
+xref: { cat: concept, id: convergence }
+sidebar:
+  order: 9
+sources:
+  - /repo/metal/internal/controller/convergence.go
+  - /repo/metal/internal/controller/convergence_controller.go
+  - /repo/metal/internal/controller/convergence_disrupt.go
+---
+
+import Figure from '../../../components/diagram/Figure.astro';
+import Box from '../../../components/diagram/Box.astro';
+import Edge from '../../../components/diagram/Edge.astro';
+
+A profile selects machines by label and says what they must have.
+The convergence controller merges the profiles for each Host, compares the result with the machine, and proposes a [](kind:HostOperation) for the difference.
+
+<Figure title="BiosProfiles merge into BiosSettings for each Host. The controller compares them with the BIOS that the BMC reports and proposes a HostOperation. FirmwareProfiles go first." caption="Desired state from profiles, observed state from the BMC, a proposal for the difference." width={720} height={200} wide>
+  <Box x={10} y={20} w={170} h={50} label="FirmwareProfile" sub="by label, layer" cat="kind" href="/reference/kinds/firmwareprofile/" />
+  <Box x={10} y={120} w={170} h={50} label="BiosProfile" sub="by label, layer" cat="kind" href="/reference/kinds/biosprofile/" />
+  <Box x={250} y={120} w={170} h={50} label="BiosSettings" sub="merged, per Host" cat="kind" href="/reference/kinds/biossettings/" />
+  <Box x={250} y={20} w={170} h={50} label="BMC" sub="versions, attributes" />
+  <Box x={500} y={70} w={210} h={60} label="HostOperation" sub="proposed, waits for you" cat="kind" href="/reference/kinds/hostoperation/" />
+  <Edge points={[[180, 145], [250, 145]]} label="merge" at={[215, 137]} />
+  <Edge points={[[420, 145], [460, 145], [460, 115], [500, 115]]} label="drift" at={[440, 165]} />
+  <Edge points={[[180, 55], [215, 55], [215, 92], [500, 92]]} label="firmware first" at={[420, 86]} />
+  <Edge points={[[335, 70], [335, 120]]} variant="muted" label="observe" at={[327, 110]} anchor="end" />
+</Figure>
+
+## Terms
+
+<dl>
+  <dt>Profile</dt>
+  <dd>A class of desired state: [](kind:BiosProfile), [](kind:FirmwareProfile) or [](kind:EndpointProfile).</dd>
+  <dt>Layer</dt>
+  <dd>The precedence of a profile. A higher layer overrides a lower one. Two profiles on the same layer that disagree are a conflict, and the operator holds the Host.</dd>
+  <dt>BiosSchema</dt>
+  <dd>The attribute registry that the BMC reports. The operator checks each desired attribute against it. See [](kind:BiosSchema).</dd>
+  <dt>Plan hash</dt>
+  <dd>The hash of a proposed change. The same hash never gives a second operation.</dd>
+</dl>
+
+## Rules
+
+1. Firmware converges before BIOS, because the BIOS schema depends on the firmware.
+2. The operation carries the attributes. A later edit of the profile cannot change an approved operation.
+3. On a machine that runs a node, the operator wraps the change. It drains the node, reboots it through Talos with a power cycle and waits for the node.
+4. A control plane also waits for a healthy etcd before and after.
+5. The operator proposes no change on a machine that it runs on, see [](concept:self-protection).
+
+## Conditions on the Host
+
+| Condition | True means |
+| --- | --- |
+| `FirmwareConverged` | The BMC firmware agrees with the FirmwareProfile. |
+| `SystemFirmwareConverged` | The BIOS, NIC and RAID firmware agree. |
+| `BiosConverged` | The BIOS attributes agree with the BiosSettings. |
+
+## In the reference
+
+- [](ctrl:convergence)
+- [](act:ApplyBios), [](act:FlashFirmware), [](act:StageFirmware)
+
+## Do it
+
+- [](howto:apply-bios-settings)
+- [](howto:flash-firmware)

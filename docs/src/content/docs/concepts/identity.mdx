@@ -1,0 +1,54 @@
+---
+title: Identity
+description: The operator compares the serial in the Asset with the serial that the BMC reports.
+type: concept
+xref: { cat: concept, id: identity }
+sidebar:
+  order: 7
+sources:
+  - /repo/metal/internal/identity/identity.go
+  - /repo/metal/internal/controller/identity.go
+---
+
+import Figure from '../../../components/diagram/Figure.astro';
+import Box from '../../../components/diagram/Box.astro';
+import Edge from '../../../components/diagram/Edge.astro';
+
+A machine has one identity: its serial number.
+Two independent sources give it: you, in the [](kind:Asset), and the BMC, through Redfish. The operator continues only when they agree.
+
+<Figure title="The serial from the Asset and the serial from Redfish go into a comparison. If equal, Verified is True and the Host is named after the serial. If different, the endpoint is in Mismatch and nothing happens to the machine." caption="Two origins, one comparison. A mismatch stops the machine, it never changes it." width={720} height={210} wide>
+  <Box x={10} y={20} w={190} h={50} label="Asset spec.serial" sub="you assert" cat="kind" href="/reference/kinds/asset/" />
+  <Box x={10} y={130} w={190} h={50} label="Redfish serial" sub="the BMC reports" />
+  <Box x={270} y={75} w={160} h={50} label="Compare" sub="Verified condition" variant="accent" />
+  <Box x={510} y={20} w={200} h={50} label="Equal" sub="Host <serial>, Available" variant="ok" />
+  <Box x={510} y={130} w={200} h={50} label="Different" sub="Mismatch, hold" variant="err" />
+  <Edge points={[[200, 45], [235, 45], [235, 92], [270, 92]]} />
+  <Edge points={[[200, 155], [235, 155], [235, 108], [270, 108]]} />
+  <Edge points={[[430, 92], [470, 92], [470, 45], [510, 45]]} />
+  <Edge points={[[430, 108], [470, 108], [470, 155], [510, 155]]} />
+</Figure>
+
+## Terms
+
+<dl>
+  <dt>Serial anchor</dt>
+  <dd>The serial number that the operator reads for a vendor. A Supermicro system gives the board serial. A Huawei system gives the chassis serial.</dd>
+  <dt>Host name</dt>
+  <dd>The serial anchor in lower case. Each path to the same machine gives the same [](kind:Host).</dd>
+  <dt>Verified</dt>
+  <dd>The condition that says the two serials agree. `False` with `SerialMismatch` or `MACMismatch` holds the machine.</dd>
+  <dt>Mismatch</dt>
+  <dd>The phase of a [](kind:ManagementEndpoint) whose facts do not agree with its Asset.</dd>
+</dl>
+
+## Why two sources
+
+- A wrong cable or a wrong ledger line can point an Asset to another machine.
+- If the operator trusted one source, it could install the wrong machine.
+- The identity does not use the address, the endpoint name or the BMC firmware. So two paths to one machine cannot disagree.
+
+## Do it
+
+- [](rb:host-mismatch)
+- [](howto:enrol-hosts)

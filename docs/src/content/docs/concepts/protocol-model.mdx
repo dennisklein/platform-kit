@@ -1,0 +1,77 @@
+---
+title: Protocol model
+description: Two model tests check many orders of events in the claim and operation protocol, not one path at a time.
+type: concept
+xref: { cat: concept, id: protocol-model }
+sidebar:
+  order: 14
+sources:
+  - /repo/metal/internal/controller/protocol_model_test.go
+  - /repo/metal/internal/controller/hostoperation_model_test.go
+---
+
+import Figure from '../../../components/diagram/Figure.astro';
+import Box from '../../../components/diagram/Box.astro';
+import Edge from '../../../components/diagram/Edge.astro';
+
+The operator changes a machine through some controllers that work together.
+Each controller reads a cache that can be late, and a process can stop at each point.
+Two model tests check the protocol across many orders of events.
+
+<Figure title="The protocol model holds the full system as one world. Actors take turns: claim controller, executor, person, machine, convergence. After each turn the invariants are checked. A failure prints the shortest sequence of turns." caption="An explicit-state model check, breadth first, about 1.2 million states at 14 turns." width={720} height={200} wide>
+  <Box x={10} y={20} w={150} h={34} label="claim controller" />
+  <Box x={10} y={62} w={150} h={34} label="executor" />
+  <Box x={10} y={104} w={150} h={34} label="person" />
+  <Box x={10} y={146} w={150} h={34} label="machine, convergence" />
+  <Box x={260} y={70} w={180} h={60} label="World" sub="now and one turn before" variant="accent" />
+  <Box x={540} y={40} w={170} h={50} label="Invariants" sub="11 checks" variant="ok" />
+  <Box x={540} y={110} w={170} h={50} label="Counterexample" sub="shortest path" variant="err" />
+  <Edge points={[[160, 100], [260, 100]]} label="each turn" at={[210, 92]} />
+  <Edge points={[[440, 90], [490, 90], [490, 65], [540, 65]]} />
+  <Edge points={[[440, 110], [490, 110], [490, 135], [540, 135]]} variant="muted" />
+</Figure>
+
+## The two tests
+
+| Test | What it checks | Size |
+| --- | --- | --- |
+| `TestProtocolModel` | Each order of turns of the controllers, a person and the machine, with stale reads | 14 turns, about 40 seconds |
+| `TestExecutorModel` | The real executor against the Redfish simulator, with faults and process stops | 300 cases from a fixed seed |
+
+## Terms
+
+<dl>
+  <dt>World</dt>
+  <dd>The full system state as one value: one Host, one claim, the machine, three operation slots.</dd>
+  <dt>Stale read</dt>
+  <dd>A controller reads an object kind from the world one turn before. The model tries each choice.</dd>
+  <dt>Invariant</dt>
+  <dd>A rule that must be true after each turn. For example: at most one started operation runs on a Host.</dd>
+</dl>
+
+## Selected invariants
+
+1. At most one started, unfinished operation runs on a Host.
+2. Only an approved operation mounts media.
+3. A machine that a boot touched is unbound only after a release turned it off.
+4. A release of a machine that ran its node waits for a person.
+5. A power action on a control plane of the operator cluster starts only with `metal.pk.io/allow-self-disruption`.
+
+The model calls the same helper functions as the controllers. Only the control flow is written again in the test.
+
+## Known limit
+
+A hold set right after the deletion of a claim does not stop a release that needs no approval.
+To keep a machine, hold the claim before you delete it.
+
+## Run it
+
+```sh
+cd metal
+PK_MODEL_DEPTH=16 go test -count=1 -run TestProtocolModel -v ./internal/controller
+```
+
+## In the reference
+
+- [](ctrl:hostclaim), [](ctrl:hostoperation)
+- [](concept:approval)

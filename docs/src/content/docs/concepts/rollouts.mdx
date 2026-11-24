@@ -1,0 +1,71 @@
+---
+title: Rollouts
+description: A TalosRollout changes a cluster node by node. One approval covers the plan, and the plan hash fixes what the person approved.
+type: concept
+xref: { cat: concept, id: rollouts }
+sidebar:
+  order: 16
+sources:
+  - /repo/metal/internal/controller/talosrollout_plan.go
+  - /repo/metal/internal/controller/talosrollout_controller.go
+  - /repo/metal/internal/controller/hostoperation_rollout.go
+---
+
+import Figure from '../../../components/diagram/Figure.astro';
+import Box from '../../../components/diagram/Box.astro';
+import Edge from '../../../components/diagram/Edge.astro';
+
+A [](kind:TalosRollout) is one change to one cluster, for each node in sequence.
+The operator writes the plan, a person approves its hash, and each node operation must agree with that hash.
+
+<Figure title="The plan has a hash. The approval names the hash. Each HostOperation carries rolloutRef with the hash. The executor runs an operation only if the rollout is approved for that hash and the actions are the same as the plan step." caption="The plan hash connects what a person read with what runs." width={720} height={200} wide>
+  <Box x={10} y={20} w={200} h={60} label="status.plan" sub="nodes, order, actions" />
+  <Box x={260} y={20} w={200} h={60} label="status.planHash" sub="sha256 of the plan" variant="accent" />
+  <Box x={510} y={20} w={200} h={60} label="spec.approval" sub="planHash you read" />
+  <Box x={260} y={120} w={200} h={60} label="HostOperation" sub="rolloutRef.planHash" cat="kind" href="/reference/kinds/hostoperation/" />
+  <Box x={510} y={120} w={200} h={60} label="Executor check" sub="else RolloutRefused" variant="ok" />
+  <Edge points={[[210, 50], [260, 50]]} />
+  <Edge points={[[460, 50], [510, 50]]} />
+  <Edge points={[[360, 80], [360, 120]]} />
+  <Edge points={[[460, 150], [510, 150]]} />
+  <Edge points={[[610, 80], [610, 120]]} variant="muted" />
+</Figure>
+
+## Terms
+
+<dl>
+  <dt>Plan</dt>
+  <dd>Each node in order, the Host it runs on, what changes, whether it reboots, and the actions of its operation.</dd>
+  <dt>Plan hash</dt>
+  <dd>A hash of the cluster, the kind, the target, the drain settings and each plan step.</dd>
+  <dt>Pause after the first node</dt>
+  <dd>The rollout always stops after its first node. You cannot turn this off. `pk-metal rollout resume` continues.</dd>
+  <dt>Health gate</dt>
+  <dd>The checks before each node. etcd has a leader, and no member has an error or is a learner. Each control plane is a member, and each other Kubernetes node is Ready.</dd>
+</dl>
+
+## Rules
+
+1. Until approval, the operator keeps the plan current, for example when a node joins.
+2. After approval, the plan is frozen. If the current plan differs before the first node starts, the rollout ends with `PlanChanged`.
+3. Only one approved rollout runs on a cluster at a time.
+4. A failed or aborted rollout is not proposed again. Delete it to get a new proposal.
+5. The approver must not be the proposer or the operator. The approval is write once.
+
+## Sequence
+
+| Group | How many at a time |
+| --- | --- |
+| Control planes | One. The etcd leader goes last. |
+| kube-proxy (Kubernetes upgrade only) | After the control planes |
+| Workers | `spec.maxUnavailableWorkers`, default 1 |
+
+## In the reference
+
+- [](kind:TalosRollout), [](ctrl:talosrollout), [](ctrl:rolloutproposer)
+- [](cli:rollout), [](cli:upgrade)
+
+## Do it
+
+- [](flow:day-2-change)
+- [](howto:upgrade-talos)

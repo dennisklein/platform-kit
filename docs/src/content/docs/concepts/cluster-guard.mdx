@@ -1,0 +1,78 @@
+---
+title: Cluster guard
+description: The operator takes down one control plane at a time, and only while etcd keeps a healthy majority without it.
+type: concept
+xref: { cat: concept, id: cluster-guard }
+sidebar:
+  order: 15
+sources:
+  - /repo/metal/internal/controller/clusterguard.go
+  - /repo/metal/internal/controller/etcdview.go
+---
+
+import Figure from '../../../components/diagram/Figure.astro';
+import Box from '../../../components/diagram/Box.astro';
+import Edge from '../../../components/diagram/Edge.astro';
+import Callout from '../../../components/Callout.astro';
+
+etcd works only while a majority of its members are up.
+If you approve three reboots on three control planes at once, the operator still takes down one at a time.
+
+<Figure title="Three approved reboot operations on cp-1, cp-2 and cp-3. The guard lets cp-1 run. cp-2 and cp-3 wait with ClusterDisruption until cp-1 is back and etcd is healthy." caption="Three approvals, one at a time. Workers are not held." width={720} height={210} wide>
+  <Box x={10} y={20} w={200} h={54} label="reboot cp-1" sub="Running" variant="ok" />
+  <Box x={260} y={20} w={200} h={54} label="reboot cp-2" sub="ClusterDisruption" variant="warn" />
+  <Box x={510} y={20} w={200} h={54} label="reboot cp-3" sub="ClusterDisruption" variant="warn" />
+  <Box x={210} y={120} w={300} h={60} label="Cluster guard" sub="asks etcd live, before each step" variant="accent" />
+  <Edge points={[[210, 150], [110, 150], [110, 74]]} variant="accent" label="go" at={[118, 110]} anchor="start" />
+  <Edge points={[[360, 120], [360, 74]]} variant="muted" label="wait" at={[368, 100]} anchor="start" />
+  <Edge points={[[510, 150], [610, 150], [610, 74]]} variant="muted" label="wait" at={[618, 110]} anchor="start" />
+</Figure>
+
+## The two checks
+
+Before a step takes a control plane down, the guard checks:
+
+1. **One at a time.** No other control plane of the same cluster is in the middle of such an operation.
+2. **A healthy quorum.** etcd is fully healthy without this node. Each other member answers, has no error, knows a leader and is not a learner. etcd has no alarm. The members that stay are a majority.
+
+The guard counts from the etcd member list, not from the TalosNodes. A member that a wiped node left behind still counts against the majority.
+
+When the first step that takes the node down is its own [](act:EtcdLeave), as in a release, the member leaves while the other members answer.
+The guard then counts the majority from the smaller cluster, so a release can take two control planes down to one.
+The last member still needs the override.
+
+## Terms
+
+<dl>
+  <dt>quorum</dt>
+  <dd>A majority of the etcd voting members. Three members tolerate one failure. Two members tolerate none.</dd>
+  <dt>learner</dt>
+  <dd>A new etcd member that copies data and has no vote yet.</dd>
+  <dt>Steps that take a node down</dt>
+  <dd>A power cycle, a power off, [](act:TalosReboot), [](act:TalosShutdown), [](act:TalosUpgrade), [](act:TalosReset), [](act:EtcdLeave), and [](act:TalosApplyConfig) in mode `Reboot` or `Auto`.</dd>
+  <dt>ClusterDisruption</dt>
+  <dd>The `blockedOn` reason of an operation that the guard holds. Nothing happened to the machine yet.</dd>
+</dl>
+
+## What the guard does not hold
+
+- Workers.
+- Control planes that are not etcd members: they still join, or they already left.
+- A cluster that was never bootstrapped. On day 0 all control planes install at once.
+
+## Override
+
+<Callout type="caution">
+Use `metal.pk.io/override-cluster-guard` only to repair an etcd that is already broken, or for a cluster with one control plane.
+It lifts check 2 only. Check 1 and [](concept:self-protection) stay.
+</Callout>
+
+## In the reference
+
+- [](ctrl:hostoperation)
+- [](concept:node-lifecycle): the same rules for join and leave
+
+## Do it
+
+- [](flow:disaster-recovery)
+- [](rb:etcd-unhealthy)

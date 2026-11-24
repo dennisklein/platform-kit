@@ -1,0 +1,68 @@
+---
+title: etcd backup
+description: The operator takes etcd snapshots on a schedule, encrypts them to your age keys and checks each one. It cannot read its own backups.
+type: concept
+xref: { cat: concept, id: etcd-backup }
+sidebar:
+  order: 18
+sources:
+  - /repo/metal/internal/controller/etcdbackup_controller.go
+  - /repo/metal/internal/etcdbackup
+---
+
+import Figure from '../../../components/diagram/Figure.astro';
+import Box from '../../../components/diagram/Box.astro';
+import Edge from '../../../components/diagram/Edge.astro';
+import Zone from '../../../components/diagram/Zone.astro';
+import Callout from '../../../components/Callout.astro';
+
+A snapshot holds each Secret of a cluster. So the operator encrypts it before it leaves the operator, with public keys only.
+Only a person with a private key can decrypt it, on that person's own machine.
+
+<Figure title="etcd gives a snapshot to the operator. The operator checks the bbolt format, encrypts with age public keys and writes ciphertext to S3 or a PVC. It reads the ciphertext back to verify. A person decrypts with an age identity on a workstation." caption="Public keys in the cluster, private keys with people." width={720} height={200} wide>
+  <Zone x={10} y={10} w={450} h={180} label="cluster" />
+  <Box x={30} y={50} w={120} h={54} label="etcd" sub="a follower" />
+  <Box x={180} y={50} w={130} h={54} label="Operator" sub="age1… public" />
+  <Box x={335} y={50} w={110} h={54} label="Sink" sub="S3 or PVC" />
+  <Box x={180} y={125} w={265} h={46} label="EtcdSnapshot" sub="Verified, sha256" cat="kind" href="/reference/kinds/etcdsnapshot/" />
+  <Zone x={490} y={10} w={220} h={180} label="your workstation" />
+  <Box x={510} y={70} w={180} h={60} label="pk-metal backup" sub="age private key" variant="accent" />
+  <Edge points={[[150, 77], [180, 77]]} />
+  <Edge points={[[310, 77], [335, 77]]} />
+  <Edge points={[[445, 77], [510, 92]]} label="ciphertext" at={[478, 66]} />
+</Figure>
+
+## Terms
+
+<dl>
+  <dt>Sink</dt>
+  <dd>Where snapshots go: an S3 bucket, or a PersistentVolumeClaim of the operator.</dd>
+  <dt>age recipient</dt>
+  <dd>A public key `age1…` in the policy. Name at least two, for example two persons or one key in a safe.</dd>
+  <dt>Verified</dt>
+  <dd>The operator read the ciphertext back and its hash agrees. The plaintext was a valid bbolt database. Only a Verified snapshot can be restored.</dd>
+  <dt>BackedUp</dt>
+  <dd>The policy condition. True while a Verified snapshot is newer than two intervals.</dd>
+</dl>
+
+## Rules
+
+1. A snapshot needs no approval. It reads etcd and changes no machine.
+2. Retention removes old snapshots, but never the newest Verified snapshot.
+3. The operator refuses a PVC sink for the cluster that it runs on, with `SinkRefused`. The cluster takes that volume with it when it fails.
+4. The operator never restores by itself. A restore is approved operations, see [](flow:disaster-recovery).
+5. The operator never bootstraps a cluster two times.
+
+<Callout type="warning">
+Delete a decrypted snapshot when you no longer need it.
+It holds each Secret of the cluster in plain text.
+</Callout>
+
+## In the reference
+
+- [](kind:EtcdBackupPolicy), [](kind:EtcdSnapshot), [](ctrl:etcdbackuppolicy)
+- [](cli:backup), [](cli:restore)
+
+## Do it
+
+- [](howto:back-up-etcd)

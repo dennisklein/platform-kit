@@ -1,0 +1,93 @@
+---
+title: Observability
+description: Three views of the same state - pk-metal status for a look, pk-metal top to watch, and Prometheus metrics for dashboards and alerts.
+type: concept
+xref: { cat: concept, id: observability }
+sidebar:
+  order: 23
+sources:
+  - /repo/metal/cmd/pk-metal/status.go
+  - /repo/metal/internal/metrics
+  - /repo/metal/config/prometheus/rules.yaml
+---
+
+import Figure from '../../../components/diagram/Figure.astro';
+import Box from '../../../components/diagram/Box.astro';
+import Edge from '../../../components/diagram/Edge.astro';
+import Callout from '../../../components/Callout.astro';
+
+All state is in API objects. Each view reads the same objects, so the views agree.
+Most metrics are read from the cluster state at each scrape, so a value is never older than the scrape.
+
+<Figure title="The API objects feed three views: pk-metal status, pk-metal top and the metrics endpoint of the manager. Prometheus scrapes the metrics and fires alerts." caption="One source, three views." width={720} height={200} wide>
+  <Box x={10} y={70} w={170} h={60} label="API objects" sub="conditions, phases" variant="accent" />
+  <Box x={270} y={10} w={190} h={50} label="pk-metal status" sub="a look, a cron check" cat="cli" href="/reference/cli/status/" />
+  <Box x={270} y={75} w={190} h={50} label="pk-metal top" sub="watch the fleet" cat="cli" href="/reference/cli/top/" />
+  <Box x={270} y={140} w={190} h={50} label="/metrics" sub="manager" />
+  <Box x={540} y={140} w={170} h={50} label="Prometheus" sub="dashboards, alerts" />
+  <Edge points={[[180, 90], [225, 90], [225, 35], [270, 35]]} />
+  <Edge points={[[180, 100], [270, 100]]} />
+  <Edge points={[[180, 110], [225, 110], [225, 165], [270, 165]]} />
+  <Edge points={[[540, 165], [460, 165]]} label="scrape" at={[500, 157]} />
+</Figure>
+
+## pk-metal status
+
+One table for each kind of thing: HOST, OPERATION, ENDPOINT, CLAIM, CLUSTER, NODE.
+Under each table, one line for each row that needs a person, with the reason.
+
+| Exit status | Meaning |
+| --- | --- |
+| `0` | Nothing needs a person. |
+| `1` | The command could not read the cluster. |
+| `2` | Something needs a person: an approval, a failed operation, an unhealthy etcd, a stale backup, a node that is not Ready. |
+
+An operation that waits for its window or for another operation on the same Host does not count. That is the plan at work.
+
+## Metrics
+
+All metric names start with `pk_metal_`. Some examples:
+
+<dl>
+  <dt>`host_phase`, `host_blocked`</dt>
+  <dd>The phase of each Host, and the reason when it is blocked.</dd>
+  <dt>`operation_awaiting_approval_seconds`</dt>
+  <dd>How long each operation waits for a person.</dd>
+  <dt>`operation_blocked`</dt>
+  <dd>Approved operations that did not start, with the reason, for example `OutsideMaintenanceWindow`.</dd>
+  <dt>`bmc_reachable`, `talosnode_ready`, `taloscluster_available`</dt>
+  <dd>The health of BMCs, nodes and clusters.</dd>
+  <dt>`etcd_backup_last_success_timestamp_seconds`</dt>
+  <dd>The time of the newest Verified snapshot.</dd>
+  <dt>`credentials_expiry_timestamp_seconds`, `credentials_issued_timestamp_seconds`</dt>
+  <dd>When the published admin credentials expire, and when they became valid. The difference is their lifetime.</dd>
+  <dt>`rollout_nodes_done`, `rollout_nodes_total`</dt>
+  <dd>The progress of an approved rollout.</dd>
+</dl>
+
+## Alerts
+
+The file `metal/config/prometheus/rules.yaml` holds a PrometheusRule. Apply it where the Prometheus Operator runs.
+
+| Alert | Fires when |
+| --- | --- |
+| `PkMetalOperationFailed` | An operation failed, for 5 minutes |
+| `PkMetalApprovalWaiting` | An operation waited more than one day for approval |
+| `PkMetalBMCUnreachable` | A BMC does not answer for 15 minutes |
+| `PkMetalNodeNotReady` | A node is not Ready for 15 minutes |
+| `PkMetalClusterUnavailable` | The API of a cluster does not answer, or a node is down, for 15 minutes |
+| `PkMetalEtcdBackupStale` | The newest Verified snapshot is older than 12 hours |
+| `PkMetalCredentialsExpiring` | A published credential has less than one sixth of its lifetime left, for 10 minutes |
+
+<Callout type="note">
+The operator issues new credentials when one third of the TTL is left. The default TTL is 24 hours.
+At one sixth, the renewal is late, so the alert shows a renewal that fails. The alert reads the lifetime from the credential, so it works for each TTL. See [](concept:credentials).
+</Callout>
+
+## In the reference
+
+- [](cli:status), [](cli:top), [](ctrl:manager)
+
+## Do it
+
+- [](howto:collect-diagnostics)

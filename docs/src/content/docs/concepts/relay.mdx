@@ -1,0 +1,64 @@
+---
+title: Relay
+description: The relay forwards boot media and Redfish calls when the workstation that runs pk-metal boot cannot reach the BMCs.
+type: concept
+xref: { cat: concept, id: relay }
+sidebar:
+  order: 12
+sources:
+  - /repo/metal/internal/relay
+  - /repo/metal/cmd/pk-metal/relay.go
+---
+
+import Figure from '../../../components/diagram/Figure.astro';
+import Box from '../../../components/diagram/Box.astro';
+import Edge from '../../../components/diagram/Edge.astro';
+import Zone from '../../../components/diagram/Zone.astro';
+
+On day 0 no cluster exists. [](cli:boot) runs on a workstation, but the workstation often cannot reach the BMC network.
+[](cli:relay) runs on a host that can. It forwards the traffic. TLS does not stop at the relay.
+
+<Figure title="The workstation runs pk-metal boot and reaches the relay tunnel over ssh -L. BMCs download media from the relay front address. The relay splices the connections to the media server inside pk-metal boot." caption="TLS ends inside pk-metal boot. The relay sees only ciphertext." width={720} height={210} wide>
+  <Zone x={10} y={10} w={220} h={190} label="workstation" />
+  <Box x={30} y={60} w={180} h={60} label="pk-metal boot" sub="media server, Redfish client" />
+  <Zone x={280} y={10} w={200} h={190} label="relay host" />
+  <Box x={300} y={40} w={160} h={46} label="tunnel" sub="loopback :9443" />
+  <Box x={300} y={120} w={160} h={46} label="front" sub=":8443" />
+  <Zone x={530} y={10} w={180} h={190} label="BMC network" />
+  <Box x={550} y={80} w={140} h={60} label="BMCs" />
+  <Edge points={[[210, 75], [300, 63]]} label="ssh -L, HMAC" at={[255, 58]} />
+  <Edge points={[[550, 120], [460, 143]]} label="GET media" at={[505, 152]} />
+  <Edge points={[[460, 63], [550, 95]]} label="DIAL" at={[505, 66]} />
+</Figure>
+
+## Terms
+
+<dl>
+  <dt>Front</dt>
+  <dd>The address where BMCs download boot media.</dd>
+  <dt>Tunnel</dt>
+  <dd>The control port of the relay. It stays on loopback. You reach it with `ssh -L`.</dd>
+  <dt>Relay secret</dt>
+  <dd>A shared secret of at least 32 characters. Each line on the tunnel carries an HMAC of the secret, a fresh nonce, the verb and its argument.</dd>
+</dl>
+
+## Why the secret
+
+The BMCs do not check the certificate of the media server.
+A party that holds the control connection could read the grant, get the node configuration or serve its own ISO.
+The HMAC proves who connects. A line without a valid HMAC gets `ERR unauthenticated`.
+The secret does not encrypt the tunnel, so the tunnel stays on loopback.
+
+## Rules
+
+1. The relay writes a new secret file only if none exists. It never replaces a file.
+2. [](cli:boot) only reads a secret. It never makes one.
+3. The operator does not use the relay today. It is for day 0.
+
+## In the reference
+
+- [](cli:relay), [](cli:boot)
+
+## Do it
+
+- [](howto:bootstrap-without-operator)

@@ -1,0 +1,61 @@
+---
+title: Talos rendering
+description: The operator renders the machine config of each node from its TalosCluster and TalosNode.
+type: concept
+xref: { cat: concept, id: talos-rendering }
+sidebar:
+  order: 10
+sources:
+  - /repo/metal/internal/controller/talosnode_controller.go
+  - /repo/metal/internal/controller/talos.go
+---
+
+import Figure from '../../../components/diagram/Figure.astro';
+import Box from '../../../components/diagram/Box.astro';
+import Edge from '../../../components/diagram/Edge.astro';
+
+You do not write Talos machine configs. You write a [](kind:TalosCluster) for the shared part and a [](kind:TalosNode) for each machine.
+The operator renders the config of each node into a Secret.
+
+<Figure title="TalosCluster, TalosNode and the secrets bundle go into the renderer. The result is a Secret named after the node and the digest of the config." caption="Like a shared kickstart part and a per-host part, but rendered for the Talos version that the node runs." width={720} height={190} wide>
+  <Box x={10} y={15} w={180} h={46} label="TalosCluster" sub="versions, endpoint, patches" cat="kind" href="/reference/kinds/taloscluster/" />
+  <Box x={10} y={72} w={180} h={46} label="TalosNode" sub="role, disk, network" cat="kind" href="/reference/kinds/talosnode/" />
+  <Box x={10} y={129} w={180} h={46} label="Secrets bundle" sub="CAs and tokens" />
+  <Box x={270} y={65} w={170} h={60} label="Render" sub="for status.renderedFor" variant="accent" />
+  <Box x={520} y={65} w={190} h={60} label="Secret" sub="machineconfig-<node>-<digest>" mono />
+  <Edge points={[[190, 38], [230, 38], [230, 85], [270, 85]]} />
+  <Edge points={[[190, 95], [270, 95]]} />
+  <Edge points={[[190, 152], [230, 152], [230, 105], [270, 105]]} />
+  <Edge points={[[440, 95], [520, 95]]} />
+</Figure>
+
+## Terms
+
+<dl>
+  <dt>Machine config</dt>
+  <dd>The full configuration of one Talos node. It holds the keys of the cluster.</dd>
+  <dt>Patch</dt>
+  <dd>A part of a Talos config that you add on the TalosCluster or the TalosNode, for example `ResolverConfig`.</dd>
+  <dt>schematic</dt>
+  <dd>The kernel arguments and system extensions of the installer image. The image factory builds the image from it.</dd>
+  <dt>Rendered for</dt>
+  <dd>The Talos version that a config was rendered for: the version that the node runs, not the version that the cluster asks for.</dd>
+</dl>
+
+## Rules
+
+1. Each config is a new Secret, named by its digest. The operator never changes a Secret in place. See [](concept:drift).
+2. A running node does not get a new config by itself. A `Config` rollout applies it, see [](concept:rollouts).
+3. If the Talos and Kubernetes versions cannot go together, `Rendered` is `False` with `UnsupportedVersionPair`. The last good config stays.
+4. The operator refuses a TalosNode without an install disk selector.
+
+## In the reference
+
+- [](ctrl:talosnode), [](ctrl:taloscluster)
+- [`status.renderedFor`](kind:TalosNode#status.renderedFor)
+- [](cli:render): the same render without the operator
+
+## Do it
+
+- [](howto:define-a-cluster)
+- [](howto:change-machine-config)
