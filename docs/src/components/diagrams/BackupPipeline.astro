@@ -1,0 +1,43 @@
+---
+// Static diagram: one etcd snapshot, from schedule to retention.
+// Source: metal/internal/controller/etcdbackup_controller.go, metal/internal/etcdbackup.
+import Figure from '../diagram/Figure.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+import Zone from '../diagram/Zone.astro';
+
+const xs = [20, 150, 280, 410, 540, 670];
+const w = 110;
+const y = 150;
+const stages = [
+  ['Snapshot', 'stream from etcd'],
+  ['Verify', 'bbolt + sha256'],
+  ['Encrypt', 'age recipients'],
+  ['Sink', 's3 or pvc'],
+  ['Read back', 'hash ciphertext'],
+  ['Retention', 'count, maxAge'],
+];
+---
+
+<Figure
+  title="The etcd backup pipeline. A policy creates a snapshot record. The operator streams the snapshot from a healthy etcd member, verifies it, encrypts it with age, writes it to the sink, reads it back and prunes old snapshots."
+  caption="One snapshot. The operator holds only public keys: it can write a backup, but it cannot read one."
+  width={800}
+  height={250}
+  wide
+>
+  <Zone x={10} y={124} w={780} h={88} label="operator (manager process)" />
+  <Box x={20} y={20} w={190} h={48} label="EtcdBackupPolicy" sub="every spec.interval" cat="kind" href="/reference/kinds/etcdbackuppolicy/" />
+  <Box x={290} y={20} w={190} h={48} label="EtcdSnapshot" sub="one record" cat="kind" href="/reference/kinds/etcdsnapshot/" />
+  <Box x={560} y={20} w={220} h={48} label="Control plane" sub="a healthy follower first" />
+  <Edge points={[[210, 44], [290, 44]]} label="creates" at={[250, 36]} />
+  <Edge points={[[480, 44], [560, 44]]} label="picks member" at={[520, 36]} />
+  <Edge points={[[670, 68], [670, 100], [75, 100], [75, 150]]} variant="accent" label="talos etcd snapshot" at={[372, 94]} />
+  {stages.map(([l, s], i) => (
+    <Box x={xs[i]} y={y} w={w} h={48} label={l} sub={s} variant={i === 4 ? 'ok' : i === 5 ? 'soft' : undefined} />
+  ))}
+  {xs.slice(0, -1).map((x, i) => (
+    <Edge points={[[x + w, y + 24], [xs[i + 1], y + 24]]} />
+  ))}
+  <text class="t-small t-label" x={595} y={y + 70} text-anchor="middle">Verified=True</text>
+</Figure>

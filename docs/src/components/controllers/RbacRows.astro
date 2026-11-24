@@ -1,0 +1,125 @@
+---
+// The RBAC rules that +kubebuilder:rbac markers in the named source files ask for,
+// from data/generated/rbac.json (metal/hack/docgen). With `role`, the rules of one
+// Role or ClusterRole instead. One row for each rule.
+import rbac from '../../data/generated/rbac.json';
+
+interface Rule {
+  apiGroups: string[];
+  resources: string[];
+  verbs: string[];
+  namespace?: string;
+}
+interface Props {
+  /** File names under metal/internal/controller (or a path that ends with one). */
+  sources?: string[];
+  /** The name of a role in rbac.json, for example pk-metal-approver. */
+  role?: string;
+  /** With `role`: Role or ClusterRole. */
+  kind?: string;
+}
+const { sources = [], role, kind } = Astro.props;
+
+type Row = Rule & { source?: string; scope: string };
+let rows: Row[] = [];
+if (role) {
+  const r = (rbac.roles as any[]).find((x) => x.name === role && (!kind || x.kind === kind));
+  if (!r) throw new Error(`RbacRows: no role ${kind ?? ''} ${role} in rbac.json`);
+  rows = (r.rules as Rule[]).map((x) => ({ ...x, scope: r.namespace ? `namespace ${r.namespace}` : 'cluster' }));
+} else {
+  for (const s of sources) {
+    const m = (rbac.markers as any[]).find((x) => x.source.endsWith(`/${s}`));
+    if (!m) throw new Error(`RbacRows: no markers for ${s} in rbac.json`);
+    for (const r of m.rules as Rule[]) {
+      rows.push({ ...r, source: m.source, scope: r.namespace ? `namespace ${r.namespace}` : 'cluster' });
+    }
+  }
+}
+const group = (g: string) => (g === '' ? 'core' : g);
+const showSource = !role && sources.length > 1;
+---
+
+<div class="pk-rbac not-content">
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">API group</th>
+        <th scope="col">Resources</th>
+        <th scope="col">Verbs</th>
+        <th scope="col">Scope</th>
+        {showSource && <th scope="col">Marker in</th>}
+      </tr>
+    </thead>
+    <tbody>
+      {rows.map((r) => (
+        <tr>
+          <td><code>{r.apiGroups.map(group).join(', ')}</code></td>
+          <td>{r.resources.map((x) => <code class="r-res">{x}</code>)}</td>
+          <td>
+            {r.verbs.map((v) => (
+              <span class:list={['r-verb', { 'r-write': !['get', 'list', 'watch'].includes(v) }]}>{v}</span>
+            ))}
+          </td>
+          <td class="r-scope">{r.scope}</td>
+          {showSource && (
+            <td><code class="r-src">{r.source!.split('/').at(-1)}</code></td>
+          )}
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>
+
+<style>
+  .pk-rbac {
+    margin: 1rem 0 1.5rem;
+    overflow-x: auto;
+  }
+  .pk-rbac table {
+    inline-size: 100%;
+    border-collapse: collapse;
+    font-size: 0.86rem;
+  }
+  .pk-rbac th {
+    text-align: start;
+    font-weight: 600;
+    font-size: 0.74rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--pk-ink-3);
+    padding: 0.4rem 0.6rem;
+    border-block-end: 1px solid var(--pk-rule);
+  }
+  .pk-rbac td {
+    padding: 0.4rem 0.6rem;
+    border-block-end: 1px solid color-mix(in srgb, var(--pk-rule) 60%, transparent);
+    vertical-align: top;
+  }
+  .pk-rbac code {
+    font-size: 0.8rem;
+  }
+  .r-res {
+    display: inline-block;
+    margin: 0 0.25rem 0.2rem 0;
+  }
+  .r-verb {
+    display: inline-block;
+    margin: 0 0.2rem 0.2rem 0;
+    padding: 0 0.4rem;
+    border-radius: 999px;
+    font-family: var(--pk-font-mono);
+    font-size: 0.74rem;
+    line-height: 1.5;
+    color: var(--pk-ink-2);
+    border: 1px solid var(--pk-rule);
+  }
+  .r-verb.r-write {
+    color: var(--pk-warn);
+    border-color: color-mix(in srgb, var(--pk-warn) 55%, transparent);
+    background: color-mix(in srgb, var(--pk-warn) 9%, transparent);
+  }
+  .r-scope {
+    white-space: nowrap;
+    color: var(--pk-ink-2);
+  }
+</style>

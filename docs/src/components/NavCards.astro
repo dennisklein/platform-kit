@@ -1,0 +1,32 @@
+---
+// The four entry points of the landing page. Each card has the colour and icon of
+// the category that it leads to. The counts come from the pages and from the
+// generated reference data, so they follow the code.
+import { loadPages } from '../../scripts/registry.mjs';
+import cliIndex from '../data/generated/cli/index.json';
+import actions from '../data/generated/actions.json';
+import controllers from '../data/generated/controllers.json';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const kinds = Object.keys(import.meta.glob('../data/generated/crds/*.json')).length;
+const pages = loadPages();
+const count = (type: string) => pages.filter((p) => p.data.type === type && p.data.xref?.id !== 'index' && !/^day-\d$/.test(p.data.xref?.id ?? '')).length;
+const n = (k: number, one: string, many = `${one}s`) => `${k} ${k === 1 ? one : many}`;
+const cards = [
+  { cat: 'tut', title: 'Learn', href: '/learn/lab-first-cluster/', body: 'Make a Talos cluster in the virtual lab, step by step. No hardware is necessary.', more: n(count('tutorial'), 'tutorial') },
+  { cat: 'howto', title: 'Operate', href: '/operate/day-1/', body: 'Day 1: enrol and install machines. Day 2: upgrade, change and release them. Runbooks for each failure.', more: `${n(count('howto'), 'how-to')} · ${n(count('runbook'), 'runbook')}` },
+  { cat: 'kind', title: 'Reference', href: '/reference/kinds/', body: 'Each kind, controller, action and command on one page, with all fields and links.', more: `${n(kinds, 'kind')} · ${n(controllers.controllers.length, 'controller')} · ${n(cliIndex.commands.length, 'command')} · ${n(actions.actions.length, 'action')}` },
+  { cat: 'lab', title: 'Lab', href: '/reference/lab/tasks/', body: 'Simulated BMCs, virtual machines and a management cluster on one workstation.', more: 'mise run lab:*' },
+];
+---
+
+<div class="pk-cards not-content">
+  {cards.map((c) => (
+    <a class="pk-navcard" data-cat={c.cat} href={`${base}${c.href}`}>
+      <span class="pk-navcard-icon" aria-hidden="true"></span>
+      <span class="pk-navcard-title">{c.title}</span>
+      <span class="pk-navcard-body">{c.body}</span>
+      <span class="pk-navcard-more">{c.more}</span>
+    </a>
+  ))}
+</div>

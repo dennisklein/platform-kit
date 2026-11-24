@@ -1,0 +1,38 @@
+---
+// Static diagram: the Host phases. Source: metal/internal/phase/phase.go (ForHost).
+import Figure from '../diagram/Figure.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+
+const row = 30;
+const w = 104;
+const h = 44;
+const xs = [10, 136, 262, 388, 514, 640];
+const names = ['Enrolling', 'Inspecting', 'Available', 'Assigned', 'Provisioning', 'Provisioned'];
+---
+
+<Figure
+  title="Host phases. A Host moves from Enrolling to Provisioned. A release takes it back to Available. Failed and Maintenance are stops."
+  caption="Host phases. The phase is a summary of the conditions."
+  width={792}
+  height={232}
+  wide
+>
+  {names.map((n, i) => (
+    <Box x={xs[i]} y={row} w={w} h={h} label={n} variant={n === 'Available' ? 'accent' : n === 'Provisioned' ? 'ok' : undefined} />
+  ))}
+  {xs.slice(0, -1).map((x, i) => (
+    <Edge points={[[x + w, row + h / 2], [xs[i + 1], row + h / 2]]} />
+  ))}
+  <text class="t-small t-label" x={199} y={row - 8} text-anchor="middle">Reachable</text>
+  <text class="t-small t-label" x={325} y={row - 8} text-anchor="middle">Verified</text>
+  <text class="t-small t-label" x={451} y={row - 8} text-anchor="middle">claim</text>
+  <text class="t-small t-label" x={577} y={row - 8} text-anchor="middle">Booted</text>
+  <text class="t-small t-label" x={703} y={row - 8} text-anchor="middle">OSReady</text>
+  <Box x={514} y={130} w={w} h={h} label="Failed" variant="err" />
+  <Box x={640} y={130} w={w} h={h} label="Releasing" variant="warn" />
+  <Box x={10} y={130} w={230} h={h} label="Maintenance" sub="any phase, by annotation" variant="soft" />
+  <Edge points={[[566, row + h], [566, 130]]} variant="muted" label="False" at={[572, 108]} anchor="start" />
+  <Edge points={[[692, row + h], [692, 130]]} label="claim deleted" at={[698, 108]} anchor="start" />
+  <Edge points={[[692, 174], [692, 206], [314, 206], [314, row + h]]} variant="accent" label="wiped, free again" at={[503, 200]} />
+</Figure>

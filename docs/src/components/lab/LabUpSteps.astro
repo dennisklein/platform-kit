@@ -1,0 +1,62 @@
+---
+// Explainer: the parts of `mise run lab:up`, in the order of up() in lab/lab.sh.
+import Explainer from '../Explainer.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+
+const parts = [
+  { id: 'doctor', label: 'doctor', makes: 'Checks', sub: 'no change' },
+  { id: 'render', label: 'render', makes: 'Files', sub: '.lab/generated' },
+  { id: 'network', label: 'network', makes: 'pkbr0', sub: 'and the taps' },
+  { id: 'cluster', label: 'cluster', makes: 'kind', sub: 'pk-metal' },
+  { id: 'deploy', label: 'deploy', makes: 'Operator', sub: 'and the CRDs' },
+  { id: 'fleet', label: 'fleet', makes: 'BMCs', sub: 'and the VMs' },
+  { id: 'manifests', label: 'manifests', makes: 'Objects', sub: 'Assets, claims' },
+];
+const w = 92;
+const gap = 12;
+const x = (i: number) => 8 + i * (w + gap);
+
+const captions = [
+  ['Check the workstation', 'The doctor checks the tools, KVM, Docker, memory and disk. Each check that fails prints its fix. The doctor changes nothing.', 'lab/lab.sh doctor'],
+  ['Render the spec', 'The renderer reads lab/lab.yaml and writes the fleet file, the manifests, the tap list and the ledger into .lab/generated.', 'lab/lab.sh render'],
+  ['Make the network', 'lab/net.sh makes the bridge pkbr0, one tap for each machine and the firewall rules. This is the only part that uses sudo.', 'lab/lab.sh network'],
+  ['Start the management cluster', 'kind starts one node. The media port 30443 is published on the bridge address only.', 'lab/lab.sh cluster'],
+  ['Deploy the operator', 'The script builds the operator image from the working tree and loads it into kind. Then it applies the CRDs and the manager Deployment.', 'lab/lab.sh deploy'],
+  ['Start the simulated fleet', 'One pk-metal process serves a BMC for each machine. The script waits until each BMC answers.', 'lab/lab.sh fleet'],
+  ['Apply the manifests', 'The script applies the Assets, the TalosCluster, the TalosNodes and the HostClaims. The operator proposes one install for each machine. The installs wait for you.', 'lab/lab.sh manifests'],
+];
+const steps = captions.map(([title, caption, code], i) => ({
+  title,
+  caption,
+  code,
+  state: Object.fromEntries(
+    parts.flatMap((p, j) =>
+      j < i
+        ? [[p.id, 'done'], [`${p.id}-e`, 'done'], [`${p.id}-m`, 'ok'], ...(j < 6 ? [[`${p.id}-n`, 'done']] : [])]
+        : j === i
+          ? [[p.id, 'active'], [`${p.id}-e`, 'flow'], [`${p.id}-m`, 'active']]
+          : [],
+    ),
+  ),
+}));
+---
+
+<Explainer title="The parts of lab:up" steps={steps as any}>
+  <svg viewBox="0 0 728 190" role="img" aria-labelledby="ex-labup-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
+    <title id="ex-labup-t">lab:up runs seven parts in order: doctor, render, network, cluster, deploy, fleet and manifests. Each part makes one thing.</title>
+    <defs>
+      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
+      </marker>
+    </defs>
+    {parts.map((p, i) => (
+      <>
+        <Box node={p.id} x={x(i)} y={16} w={w} h={40} label={p.label} mono />
+        <Edge node={`${p.id}-e`} points={[[x(i) + w / 2, 56], [x(i) + w / 2, 110]]} />
+        <Box node={`${p.id}-m`} x={x(i)} y={110} w={w} h={56} label={p.makes} sub={p.sub} variant="soft" />
+        {i < parts.length - 1 && <Edge node={`${p.id}-n`} points={[[x(i) + w, 36], [x(i + 1), 36]]} variant="muted" />}
+      </>
+    ))}
+  </svg>
+</Explainer>

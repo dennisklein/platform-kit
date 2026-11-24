@@ -1,0 +1,31 @@
+---
+// Static diagram: how a node's machine config is made and used.
+// Sources: metal/internal/controller/talosnode_controller.go, talosnode_day2.go.
+import Figure from '../diagram/Figure.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+---
+
+<Figure
+  title="Talos rendering. The TalosCluster, the TalosNode and the secrets bundle go into the render. The result is a content-addressed config Secret. A BootAsset, the check-in and day-2 operations use it."
+  caption="One render for each node. A new config gets a new Secret. The operator never changes a config Secret."
+  width={800}
+  height={240}
+  wide
+>
+  <Box x={10} y={14} w={170} h={48} label="TalosCluster" sub="shared settings" cat="kind" href="/reference/kinds/taloscluster/" />
+  <Box x={10} y={96} w={170} h={48} label="TalosNode" sub="one machine" cat="kind" href="/reference/kinds/talosnode/" />
+  <Box x={10} y={178} w={170} h={48} label="Secrets bundle" sub="spec.secretsRef" />
+  <Box x={250} y={96} w={150} h={48} label="Render" sub="for the node's version" variant="accent" />
+  <Box x={450} y={96} w={186} h={48} label="Config Secret" sub="machineconfig-<node>-<digest>" />
+  <Box x={660} y={14} w={130} h={48} label="BootAsset" sub="configISO" cat="kind" href="/reference/kinds/bootasset/" />
+  <Box x={660} y={96} w={130} h={48} label="Machine" sub="check-in, dry run" />
+  <Box x={660} y={178} w={130} h={48} label="HostOperation" sub="talosApplyConfig" cat="kind" href="/reference/kinds/hostoperation/" />
+  <Edge points={[[180, 38], [215, 38], [215, 112], [250, 112]]} />
+  <Edge points={[[180, 120], [250, 120]]} />
+  <Edge points={[[180, 202], [215, 202], [215, 128], [250, 128]]} />
+  <Edge points={[[400, 120], [450, 120]]} />
+  <Edge points={[[636, 112], [648, 112], [648, 38], [660, 38]]} />
+  <Edge points={[[636, 120], [660, 120]]} />
+  <Edge points={[[636, 128], [648, 128], [648, 202], [660, 202]]} />
+</Figure>

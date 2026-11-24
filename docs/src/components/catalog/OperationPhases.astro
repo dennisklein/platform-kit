@@ -1,0 +1,36 @@
+---
+// Static diagram: the HostOperation phases. Source: metal/internal/phase/phase.go (ForOperation).
+import Figure from '../diagram/Figure.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+
+const row = 30;
+const w = 132;
+const h = 44;
+const xs = [10, 196, 382, 568];
+const mid = row + h / 2;
+---
+
+<Figure
+  title="HostOperation phases. An operation moves from Proposed through AwaitingApproval and Running to Succeeded. Failed and Aborted are the other final phases."
+  caption="HostOperation phases. Succeeded, Failed and Aborted are final."
+  width={710}
+  height={206}
+  wide
+>
+  <Box x={xs[0]} y={row} w={w} h={h} label="Proposed" />
+  <Box x={xs[1]} y={row} w={w} h={h} label="AwaitingApproval" variant="warn" />
+  <Box x={xs[2]} y={row} w={w} h={h} label="Running" variant="accent" />
+  <Box x={xs[3]} y={row} w={w} h={h} label="Succeeded" variant="ok" />
+  <Edge points={[[xs[0] + w, mid], [xs[1], mid]]} />
+  <Edge points={[[xs[1] + w, mid], [xs[2], mid]]} />
+  <Edge points={[[xs[2] + w, mid], [xs[3], mid]]} />
+  <text class="t-small t-label" x={xs[1] - 27} y={row - 8} text-anchor="middle">gate</text>
+  <text class="t-small t-label" x={xs[2] - 27} y={row - 8} text-anchor="middle">approved</text>
+  <text class="t-small t-label" x={xs[3] - 27} y={row - 8} text-anchor="middle">Executed</text>
+  <Box x={xs[2]} y={136} w={w} h={h} label="Failed" variant="err" />
+  <Box x={xs[3]} y={136} w={w} h={h} label="Aborted" variant="soft" />
+  <Edge points={[[xs[2] + 46, row + h], [xs[2] + 46, 136]]} variant="muted" label="action failed" at={[xs[2] + 38, 112]} anchor="end" />
+  <Edge points={[[xs[2] + 100, row + h], [xs[2] + 100, 104], [xs[3] + 66, 104], [xs[3] + 66, 136]]} variant="muted" label="abort" at={[xs[3] + 74, 124]} anchor="start" />
+  <Box x={xs[0]} y={136} w={318} h={h} label="Proposed, with blockedOn" sub="approved, but it waits for a queue or a window" variant="soft" />
+</Figure>

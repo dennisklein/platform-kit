@@ -1,0 +1,25 @@
+---
+// An arrow along a path. `points` is a list of [x, y]; the path has square corners.
+// `label` sits at `at` ([x, y]). `pathLength` is 1, so Explainer can draw it on.
+interface Props {
+  points: [number, number][];
+  variant?: 'accent' | 'muted';
+  label?: string;
+  at?: [number, number];
+  anchor?: 'start' | 'middle' | 'end';
+  node?: string;
+  both?: boolean;
+}
+const { points, variant, label, at, anchor = 'middle', node, both } = Astro.props;
+const d = points.map(([x, y], i) => `${i ? 'L' : 'M'}${x} ${y}`).join(' ');
+---
+
+<g class="edge-g" data-node={node}>
+  <path
+    class:list={['edge', variant && `edge-${variant}`]}
+    d={d}
+    pathLength="1"
+    marker-end="url(#pk-arrow)"
+    marker-start={both ? 'url(#pk-arrow)' : undefined}></path>
+  {label && at && <text class="t-small t-label" x={at[0]} y={at[1]} text-anchor={anchor}>{label}</text>}
+</g>

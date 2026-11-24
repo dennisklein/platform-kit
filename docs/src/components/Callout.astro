@@ -1,0 +1,14 @@
+---
+// A safety notice in the STE order: WARNING (risk of data loss or damage),
+// CAUTION (risk of disruption), NOTE (other information). Start the text with a
+// command, then give the reason.
+interface Props {
+  type: 'warning' | 'caution' | 'note';
+}
+const { type } = Astro.props;
+---
+
+<aside class={`pk-callout pk-${type}`} role={type === 'note' ? 'note' : 'alert'}>
+  <p class="pk-callout-label">{type.toUpperCase()}</p>
+  <div class="pk-callout-body"><slot /></div>
+</aside>

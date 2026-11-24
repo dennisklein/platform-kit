@@ -1,0 +1,32 @@
+---
+// Static diagram: the media store. Sources: metal/internal/asset/store.go, service.go, grants.go,
+// metal/internal/controller/bootasset_embedded.go.
+import Figure from '../diagram/Figure.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+import Zone from '../diagram/Zone.astro';
+---
+
+<Figure
+  title="The media store. An imager Job builds an installer with the node config inside and writes it to the store volume. The manager imports it and serves it to the BMC under a grant."
+  caption="The media store holds secrets. Only the operator namespace mounts it."
+  width={800}
+  height={270}
+  wide
+>
+  <Box x={10} y={20} w={160} h={48} label="TalosNode" sub="config Secret" cat="kind" href="/reference/kinds/talosnode/" />
+  <Box x={220} y={20} w={190} h={48} label="BootAsset" sub="embeddedInstaller" cat="kind" href="/reference/kinds/bootasset/" />
+  <Box x={460} y={20} w={150} h={48} label="imager Job" sub="Talos imager" />
+  <Box x={650} y={20} w={140} h={48} label="BMC" sub="one media slot" />
+  <Zone x={200} y={110} w={428} h={140} label="media store volume (--media-store)" />
+  <Box x={212} y={150} w={170} h={48} label="builds/<job>/" sub="output of one build" mono />
+  <Box x={402} y={150} w={216} h={48} label="assets/<asset>/<key>.iso" sub="one file per build key" mono variant="accent" />
+  <Box x={650} y={170} w={140} h={48} label="Media service" sub="HTTPS, grants" />
+  <Edge points={[[170, 44], [220, 44]]} label="config" at={[195, 36]} />
+  <Edge points={[[410, 44], [460, 44]]} label="starts" at={[435, 36]} />
+  <Edge points={[[535, 68], [535, 100], [297, 100], [297, 150]]} label="writes" at={[422, 94]} />
+  <Edge points={[[382, 174], [402, 174]]} />
+  <text class="t-small t-label" x={392} y={226} text-anchor="middle">import: rename</text>
+  <Edge points={[[618, 194], [650, 194]]} label="digest" at={[634, 186]} />
+  <Edge points={[[720, 170], [720, 68]]} variant="accent" label="grant URL" at={[728, 124]} anchor="start" />
+</Figure>

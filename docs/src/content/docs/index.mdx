@@ -1,0 +1,45 @@
+---
+title: pk-metal
+description: pk-metal installs Talos Linux on bare-metal servers through their BMCs. A person approves each change before the operator does it.
+template: splash
+type: landing
+tableOfContents: false
+editUrl: false
+lastUpdated: false
+pagefind: false
+hero:
+  title: pk-metal
+  tagline: A Kubernetes operator that installs Talos Linux on bare-metal servers through their BMCs. You write what must be true. The operator proposes each change. You approve it.
+  actions:
+    - { text: Run the lab, link: 'tut:lab-first-cluster', variant: primary }
+    - { text: Reference, link: 'kind:Host', variant: secondary }
+---
+
+import NavCards from '../../components/NavCards.astro';
+import Provision from '../../components/explainers/Provision.astro';
+
+## Start here
+
+<NavCards />
+
+## How a machine gets installed
+
+The operator uses Redfish and virtual media. It does not use PXE, TFTP or DHCP.
+Step through the install of one machine. Each box links to its reference page.
+
+<Provision start={1} />
+
+## Three rules
+
+1. You write what must be true. The operator writes what it finds. Read [](concept:assert-vs-observe).
+2. The operator does nothing that disrupts a machine before a person approves it. Read [](concept:approval).
+3. Conditions are the facts. The phase is a summary for people. Read [](concept:phases-and-conditions).
+
+## Link colours
+
+Each link shows the category of its target with a colour and an icon:
+[](kind:Host), [](ctrl:host), [](act:PowerCycle), [](cli:approve), [](lab:up),
+[](concept:approval), [](flow:rack-to-node), [](howto:install-hosts),
+[](rb:operation-failed) and [](tut:lab-first-cluster).
+A dotted line marks a [glossary](ref:glossary) term, for example BMC.
+[How to read this site](/start/how-to-read/) explains each category.

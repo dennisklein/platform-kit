@@ -1,0 +1,29 @@
+---
+// Static diagram: the HostOperation phases. Source: metal/internal/phase/phase.go (ForOperation).
+import Figure from '../diagram/Figure.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+---
+
+<Figure
+  title="HostOperation phases. Proposed, AwaitingApproval, then Running, then Succeeded or Failed. An approved operation that a gate holds shows Proposed with blockedOn. An abort ends it as Aborted."
+  caption="HostOperation phases. The phase comes from the Approved and Executed conditions."
+  width={780}
+  height={250}
+  wide
+>
+  <Box x={10} y={40} w={130} h={44} label="Proposed" sub="no condition yet" />
+  <Box x={180} y={40} w={170} h={44} label="AwaitingApproval" sub="Approved=False" variant="warn" />
+  <Box x={400} y={40} w={130} h={44} label="Running" sub="Executing" variant="accent" />
+  <Box x={600} y={40} w={150} h={44} label="Succeeded" sub="Executed=True" variant="ok" />
+  <Box x={180} y={150} w={170} h={44} label="Proposed" sub="+ blockedOn: a gate holds" variant="soft" />
+  <Box x={600} y={110} w={150} h={44} label="Failed" sub="Executed=False" variant="err" />
+  <Box x={600} y={180} w={150} h={44} label="Aborted" sub="Executed=False, Aborted" variant="warn" />
+  <Edge points={[[140, 62], [180, 62]]} />
+  <Edge points={[[350, 62], [400, 62]]} label="approved" at={[375, 32]} />
+  <Edge points={[[530, 62], [600, 62]]} label="all steps" at={[565, 32]} />
+  <Edge points={[[265, 84], [265, 150]]} variant="muted" label="a gate holds" at={[273, 122]} anchor="start" />
+  <Edge points={[[350, 172], [440, 172], [440, 84]]} label="gate opens" at={[446, 130]} anchor="start" />
+  <Edge points={[[530, 76], [560, 76], [560, 132], [600, 132]]} variant="muted" label="a step fails" at={[566, 104]} anchor="start" />
+  <Edge points={[[510, 84], [510, 210], [600, 210]]} variant="muted" label="metal.pk.io/abort" at={[516, 236]} anchor="start" />
+</Figure>

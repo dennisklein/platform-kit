@@ -1,0 +1,97 @@
+---
+// Explainer: the life of one HostOperation, from proposal to its end.
+// Source: metal/internal/controller/hostoperation_controller.go (Reconcile, begin),
+// hostoperation_rollout.go, window.go, selfprotect.go, clusterguard.go.
+import Explainer from '../Explainer.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+
+const gx = [20, 168, 316, 464, 612];
+const gw = 128;
+const gy = 118;
+const steps = [
+  {
+    title: 'Propose',
+    caption: 'A controller or a person creates the HostOperation. spec.actions lists each action in order. Nothing changes on the machine.',
+    code: 'kubectl get hostoperations -A',
+    state: { ctrl: 'active', propose: 'flow', op: 'warn' },
+    text: { 'op-ph': 'AwaitingApproval', 'steps-ph': '-', 'fin-ph': '-' },
+  },
+  {
+    title: 'Approve',
+    caption: 'A second person reads the actions and approves. Admission makes sure that the approver is not the proposer.',
+    code: 'pk-metal approve pk-metal/bios-sim-0001-1a2b3c',
+    state: { ctrl: 'done', propose: 'done', you: 'active', approve: 'flow', op: 'active' },
+    text: { 'op-ph': 'approved', 'steps-ph': '-', 'fin-ph': '-' },
+  },
+  {
+    title: 'Abort gate',
+    caption: 'If a person set metal.pk.io/abort before the start, the operation ends at once as Aborted. The machine did not change.',
+    state: { propose: 'done', approve: 'done', op: 'active', enter: 'flow', 'g-abort': 'active' },
+    text: { 'op-ph': 'approved', 'steps-ph': '-', 'fin-ph': '-' },
+  },
+  {
+    title: 'Rollout gate',
+    caption: 'An operation with spec.rolloutRef starts only if its TalosRollout is approved for the same plan hash and lists the same actions. If not, it fails with RolloutRefused.',
+    state: { propose: 'done', approve: 'done', op: 'active', enter: 'done', 'g-abort': 'done', c1: 'flow', 'g-rollout': 'active' },
+    text: { 'op-ph': 'approved', 'steps-ph': '-', 'fin-ph': '-' },
+  },
+  {
+    title: 'Maintenance window',
+    caption: 'If a MaintenanceWindow covers the Host and no window is open, the operation waits. The phase is Proposed and blockedOn is OutsideMaintenanceWindow.',
+    code: 'kubectl annotate hostoperation -n pk-metal <op> metal.pk.io/ignore-window="<reason>"',
+    state: { propose: 'done', approve: 'done', op: 'warn', enter: 'done', 'g-abort': 'done', c1: 'done', 'g-rollout': 'done', c2: 'flow', 'g-window': 'warn' },
+    text: { 'op-ph': 'Proposed (held)', 'steps-ph': '-', 'fin-ph': '-' },
+  },
+  {
+    title: 'Guards',
+    caption: 'A disruptive operation waits while it would reboot a machine that the operator runs on, or take down a second control plane. blockedOn is SelfDisruption or ClusterDisruption.',
+    state: { propose: 'done', approve: 'done', op: 'warn', enter: 'done', 'g-abort': 'done', c1: 'done', 'g-rollout': 'done', c2: 'done', 'g-window': 'done', c3: 'flow', 'g-self': 'warn', c4: 'flow', 'g-cluster': 'warn' },
+    text: { 'op-ph': 'Proposed (held)', 'steps-ph': '-', 'fin-ph': '-' },
+  },
+  {
+    title: 'Steps',
+    caption: 'The operator records a baseline, then runs each action in order. Each action checks its goal before it acts. A wait has a time budget.',
+    code: 'drain → talosReboot → waitNodeReady → uncordon',
+    state: { propose: 'done', approve: 'done', op: 'active', enter: 'done', 'g-abort': 'done', c1: 'done', 'g-rollout': 'done', c2: 'done', 'g-window': 'done', c3: 'done', 'g-self': 'done', c4: 'done', 'g-cluster': 'done', run: 'flow', steps: 'active' },
+    text: { 'op-ph': 'Running', 'steps-ph': 'step 2/4 talosReboot', 'fin-ph': '-' },
+  },
+  {
+    title: 'Finish',
+    caption: 'All actions reach their goal: Succeeded. An action fails: Failed, and nothing retries it. An abort between two actions undoes media, boot override and cordon: Aborted.',
+    code: 'pk-metal retry pk-metal/<op>',
+    state: { propose: 'done', approve: 'done', op: 'ok', enter: 'done', 'g-abort': 'done', c1: 'done', 'g-rollout': 'done', c2: 'done', 'g-window': 'done', c3: 'done', 'g-self': 'done', c4: 'done', 'g-cluster': 'done', run: 'done', steps: 'done', end: 'flow', fin: 'ok' },
+    text: { 'op-ph': 'Succeeded', 'steps-ph': 'step 4/4 uncordon done', 'fin-ph': 'Succeeded · Failed · Aborted' },
+  },
+];
+---
+
+<Explainer title="The life of one HostOperation" steps={steps as any}>
+  <svg viewBox="0 0 760 330" role="img" aria-labelledby="ex-oplife-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
+    <title id="ex-oplife-t">A controller proposes a HostOperation. A person approves it. Five gates can hold it: abort, rollout, maintenance window, self guard and cluster guard. Then the steps run and the operation ends.</title>
+    <defs>
+      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
+      </marker>
+    </defs>
+    <Box node="ctrl" x={20} y={14} w={170} h={52} label="Controller" sub="proposes" />
+    <Box node="op" x={280} y={14} w={200} h={52} label="HostOperation" sub="-" text="op-ph" cat="kind" href="/reference/kinds/hostoperation/" />
+    <Box node="you" x={570} y={14} w={170} h={52} label="You" sub="approve" variant="soft" />
+    <Edge node="propose" points={[[190, 40], [280, 40]]} label="creates" at={[235, 32]} />
+    <Edge node="approve" points={[[570, 40], [480, 40]]} label="approves" at={[525, 32]} />
+    <Edge node="enter" points={[[380, 66], [380, 92], [84, 92], [84, gy]]} />
+    <Box node="g-abort" x={gx[0]} y={gy} w={gw} h={48} label="Abort?" sub="metal.pk.io/abort" />
+    <Box node="g-rollout" x={gx[1]} y={gy} w={gw} h={48} label="Rollout" sub="rolloutRef" />
+    <Box node="g-window" x={gx[2]} y={gy} w={gw} h={48} label="Window" sub="MaintenanceWindow" />
+    <Box node="g-self" x={gx[3]} y={gy} w={gw} h={48} label="Self guard" sub="operator's machines" />
+    <Box node="g-cluster" x={gx[4]} y={gy} w={gw} h={48} label="Cluster guard" sub="one control plane" />
+    {gx.slice(0, -1).map((x, i) => (
+      <Edge node={`c${i + 1}`} points={[[x + gw, gy + 24], [gx[i + 1], gy + 24]]} />
+    ))}
+    <Edge node="run" points={[[676, gy + 48], [676, 196], [255, 196], [255, 222]]} label="baseline, then steps" at={[465, 190]} />
+    <Box node="steps" x={20} y={222} w={470} h={56} label="Steps" sub="-" text="steps-ph" />
+    <Box node="fin" x={540} y={222} w={200} h={56} label="End" sub="-" text="fin-ph" />
+    <Edge node="end" points={[[490, 250], [540, 250]]} />
+    <text class="t-small t-muted" x={20} y={310}>A held operation changes nothing. It starts when the gate opens.</text>
+  </svg>
+</Explainer>

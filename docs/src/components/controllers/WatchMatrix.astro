@@ -1,0 +1,134 @@
+---
+// "Who watches what": one row for each named controller of the manager, one column
+// for each kind it reads events of. Source: the SetupWithManager function of each
+// reconciler in metal/internal/controller (For, Owns, Watches).
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+type Mark = 'for' | 'owns' | 'watches' | 'gen';
+const cols = [
+  'Asset', 'ManagementEndpoint', 'EndpointProfile', 'Host', 'HostClaim', 'HostOperation',
+  'BiosProfile', 'BiosSettings', 'FirmwareProfile', 'MaintenanceWindow', 'BootAsset',
+  'TalosCluster', 'TalosNode', 'TalosRollout', 'EtcdBackupPolicy', 'EtcdSnapshot',
+  'Secret', 'ConfigMap', 'Job',
+];
+const core = new Set(['Secret', 'ConfigMap', 'Job']);
+// [controller name, page, marks]
+const rows: [string, string, Record<string, Mark>][] = [
+  ['asset', 'asset', { Asset: 'for', ManagementEndpoint: 'owns' }],
+  ['managementendpoint', 'managementendpoint', { ManagementEndpoint: 'for', Asset: 'watches' }],
+  ['endpointconvergence', 'endpointconvergence', { ManagementEndpoint: 'for', Secret: 'owns', EndpointProfile: 'watches' }],
+  ['host', 'host', { Host: 'for', ManagementEndpoint: 'watches', HostOperation: 'watches', HostClaim: 'watches', TalosNode: 'watches' }],
+  ['protection', 'protection', { Host: 'for', ManagementEndpoint: 'watches' }],
+  ['hostclaim', 'hostclaim', { HostClaim: 'for', Host: 'watches', HostOperation: 'watches', ManagementEndpoint: 'watches', Asset: 'watches', TalosNode: 'watches', BootAsset: 'watches' }],
+  ['host-wipe', 'hostclaim', { Host: 'for', HostOperation: 'watches', BootAsset: 'watches' }],
+  ['hostoperation', 'hostoperation', { HostOperation: 'for', Host: 'watches' }],
+  ['convergence', 'convergence', { BiosSettings: 'for', Host: 'watches', BiosProfile: 'watches', FirmwareProfile: 'watches', ManagementEndpoint: 'watches', HostOperation: 'watches', HostClaim: 'watches', TalosNode: 'gen' }],
+  ['maintenancewindow', 'maintenancewindow', { MaintenanceWindow: 'for' }],
+  ['talosnode', 'talosnode', { TalosNode: 'for', Secret: 'owns', TalosCluster: 'watches', ConfigMap: 'watches', TalosRollout: 'watches', Host: 'watches' }],
+  ['talosnode-member', 'talosnode', { TalosNode: 'for', HostClaim: 'watches', HostOperation: 'watches' }],
+  ['taloscluster', 'taloscluster', { TalosCluster: 'for', Secret: 'owns', TalosNode: 'watches', TalosRollout: 'watches', Host: 'watches' }],
+  ['bootasset', 'bootasset', { BootAsset: 'for', Secret: 'owns', Job: 'owns', TalosNode: 'watches' }],
+  ['talosrollout', 'talosrollout', { TalosRollout: 'for', HostOperation: 'owns', TalosNode: 'watches' }],
+  ['rolloutproposer', 'talosrollout', { TalosCluster: 'for', TalosNode: 'watches', TalosRollout: 'watches' }],
+  ['etcdbackuppolicy', 'etcdbackup', { EtcdBackupPolicy: 'for', EtcdSnapshot: 'watches' }],
+  ['etcdsnapshot', 'etcdbackup', { EtcdSnapshot: 'for' }],
+];
+
+const lx = 8;
+const gx = 150;
+const cw = 29;
+const gy = 150;
+const rh = 24;
+const W = gx + cols.length * cw + 10;
+const H = gy + rows.length * rh + 46;
+const colX = (i: number) => gx + i * cw + cw / 2;
+const rowY = (j: number) => gy + j * rh + rh / 2;
+const id = `wm-${Math.random().toString(36).slice(2, 8)}`;
+---
+
+<figure class="pk-fig wide not-content pk-wm">
+  <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-labelledby={id} xmlns="http://www.w3.org/2000/svg">
+    <title id={id}>A matrix. Each row is a controller of the manager. Each column is a kind. A mark shows that the controller reconciles the kind, owns objects of it, or watches it.</title>
+    {rows.map((_, j) => j % 2 === 0 && <rect class="wm-band" x={lx - 4} y={gy + j * rh} width={W - lx} height={rh}></rect>)}
+    {cols.map((c, i) => (
+      <line class="wm-grid" x1={colX(i)} y1={gy - 4} x2={colX(i)} y2={gy + rows.length * rh}></line>
+    ))}
+    {cols.map((c, i) =>
+      core.has(c) ? (
+        <text class="t-small wm-col wm-core" transform={`translate(${colX(i) + 4} ${gy - 8}) rotate(-55)`}>{c}</text>
+      ) : (
+        <a href={`${base}/reference/kinds/${c.toLowerCase()}/`} data-cat="kind" class="wm-a">
+          <text class="t-small wm-col" transform={`translate(${colX(i) + 4} ${gy - 8}) rotate(-55)`}>{c}</text>
+        </a>
+      ),
+    )}
+    {rows.map(([name, page, marks], j) => (
+      <g>
+        <a href={`${base}/reference/controllers/${page}/`} data-cat="ctrl" class="wm-a">
+          <text class="t-small wm-row" x={lx} y={rowY(j) + 4}>{name}</text>
+        </a>
+        {cols.map((c, i) => {
+          const m = marks[c];
+          if (!m) return null;
+          const x = colX(i);
+          const y = rowY(j);
+          if (m === 'for') return <circle class="wm-for" cx={x} cy={y} r={6.5}><title>{`${name} reconciles ${c}`}</title></circle>;
+          if (m === 'owns') return <rect class="wm-owns" x={x - 5.5} y={y - 5.5} width={11} height={11} rx={2}><title>{`${name} owns ${c} objects`}</title></rect>;
+          return <circle class:list={['wm-watch', { 'wm-gen': m === 'gen' }]} cx={x} cy={y} r={5}><title>{`${name} watches ${c}${m === 'gen' ? ' (spec changes only)' : ''}`}</title></circle>;
+        })}
+      </g>
+    ))}
+    <g transform={`translate(${lx} ${H - 18})`}>
+      <circle class="wm-for" cx={6} cy={-4} r={6}></circle>
+      <text class="t-small" x={18} y={0}>For: the kind it reconciles</text>
+      <rect class="wm-owns" x={185} y={-9.5} width={11} height={11} rx={2}></rect>
+      <text class="t-small" x={203} y={0}>Owns: it makes these objects</text>
+      <circle class="wm-watch" cx={392} cy={-4} r={5}></circle>
+      <text class="t-small" x={403} y={0}>Watches: an event starts a pass</text>
+      <circle class="wm-watch wm-gen" cx={597} cy={-4} r={5}></circle>
+      <text class="t-small" x={608} y={0}>spec changes only</text>
+    </g>
+  </svg>
+  <figcaption>Who watches what. Select a controller or a kind to open its page.</figcaption>
+</figure>
+
+<style is:global>
+  .pk-wm .wm-band {
+    fill: color-mix(in srgb, var(--pk-fig-line) 7%, transparent);
+  }
+  .pk-wm .wm-grid {
+    stroke: color-mix(in srgb, var(--pk-fig-line) 25%, transparent);
+    stroke-width: 1;
+  }
+  .pk-wm .wm-col,
+  .pk-wm .wm-row {
+    font-size: 11px;
+  }
+  .pk-wm a.wm-a text {
+    fill: var(--cat-c);
+  }
+  .pk-wm a.wm-a:hover text,
+  .pk-wm a.wm-a:focus-visible text {
+    text-decoration: underline;
+  }
+  .pk-wm .wm-row {
+    font-family: var(--pk-font-mono);
+  }
+  .pk-wm .wm-core {
+    fill: var(--pk-fig-dim);
+  }
+  .pk-wm .wm-for {
+    fill: var(--c-ctrl);
+  }
+  .pk-wm .wm-owns {
+    fill: var(--c-kind);
+  }
+  .pk-wm .wm-watch {
+    fill: var(--pk-fig-box);
+    stroke: var(--c-ctrl);
+    stroke-width: 2;
+  }
+  .pk-wm .wm-gen {
+    stroke-dasharray: 2 2;
+  }
+</style>

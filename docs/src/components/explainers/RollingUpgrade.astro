@@ -1,0 +1,99 @@
+---
+// Explainer: a Talos upgrade rolled through a cluster.
+// Source: metal/internal/controller/talosrollout_controller.go (runPass, nextSteps, paused,
+// healthGate, plan), talosrollout_plan.go (rolloutActions).
+import Explainer from '../Explainer.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+
+const cps = [20, 150, 280];
+const ws = [430, 512, 594, 676];
+const ny = 118;
+const old = 'v1.14.6';
+const neu = 'v1.14.7';
+const base = { 'cp1-v': old, 'cp2-v': old, 'cp3-v': old, 'w1-v': old, 'w2-v': old, 'w3-v': old, 'w4-v': old };
+const steps = [
+  {
+    title: 'Propose',
+    caption: 'You raise spec.talosVersion. The operator proposes a TalosRollout. The plan puts control planes first, the etcd leader last, then workers.',
+    code: 'pk-metal upgrade talos lab v1.14.7',
+    state: { ro: 'warn' },
+    text: { ...base, 'ro-ph': 'AwaitingApproval', 'op-a': 'plan: cp-1, cp-2, cp-3 (leader), w-1 … w-4' },
+  },
+  {
+    title: 'Approve the plan',
+    caption: 'A second person approves the plan hash. The plan is frozen from now on. One approval covers every node.',
+    code: 'pk-metal rollout approve lab-talosupgrade-1a2b3c4d',
+    state: { ro: 'active', you: 'active', approve: 'flow' },
+    text: { ...base, 'ro-ph': 'Approved', 'op-a': 'planHash sha256:1a2b…' },
+  },
+  {
+    title: 'First control plane',
+    caption: 'The operator creates one HostOperation for cp-1. It carries rolloutRef and needs no approval of its own.',
+    code: 'drain → talosUpgrade → waitNodeReady → waitEtcdHealthy → uncordon',
+    state: { ro: 'active', approve: 'done', cp1: 'active', e1: 'flow', op: 'active' },
+    text: { ...base, 'ro-ph': 'Progressing', 'cp1-v': 'upgrading', 'op-a': 'cp-1: talosUpgrade' },
+  },
+  {
+    title: 'Pause after the first node',
+    caption: 'The first node is done. The rollout always stops here. Look at the node, then resume.',
+    code: 'pk-metal rollout resume lab-talosupgrade-1a2b3c4d',
+    state: { ro: 'warn', approve: 'done', cp1: 'ok', e1: 'done', op: 'done' },
+    text: { ...base, 'ro-ph': 'Paused: PausedAfterFirstNode', 'cp1-v': neu, 'op-a': 'cp-1 Succeeded' },
+  },
+  {
+    title: 'Health gate, then cp-2',
+    caption: 'Before each node, the operator asks etcd and Kubernetes again. All members healthy and voting, all Nodes Ready: the next control plane starts.',
+    state: { ro: 'active', approve: 'done', cp1: 'ok', e1: 'done', gate: 'ok', e2: 'flow', cp2: 'active', op: 'active' },
+    text: { ...base, 'ro-ph': 'Progressing', 'cp1-v': neu, 'cp2-v': 'upgrading', 'op-a': 'cp-2: talosUpgrade' },
+  },
+  {
+    title: 'The leader goes last',
+    caption: 'cp-3 leads etcd. It is the last control plane, so etcd elects a new leader only one time.',
+    state: { ro: 'active', approve: 'done', cp1: 'ok', cp2: 'ok', e1: 'done', e2: 'done', gate: 'ok', e3: 'flow', cp3: 'active', op: 'active' },
+    text: { ...base, 'ro-ph': 'Progressing', 'cp1-v': neu, 'cp2-v': neu, 'cp3-v': 'upgrading', 'op-a': 'cp-3: talosUpgrade' },
+  },
+  {
+    title: 'Workers, two at a time',
+    caption: 'With spec.maxUnavailableWorkers: 2, two workers change at the same time. Control planes always go one at a time.',
+    state: { ro: 'active', approve: 'done', cp1: 'ok', cp2: 'ok', cp3: 'ok', e1: 'done', e2: 'done', e3: 'done', gate: 'ok', e4: 'flow', w1: 'active', w2: 'active', op: 'active' },
+    text: { ...base, 'ro-ph': 'Progressing', 'cp1-v': neu, 'cp2-v': neu, 'cp3-v': neu, 'w1-v': 'upgrading', 'w2-v': 'upgrading', 'op-a': 'w-1, w-2: drain → talosUpgrade → waitNodeReady → uncordon' },
+  },
+  {
+    title: 'Complete',
+    caption: 'The last workers are done. The rollout sets Complete=True. If a node fails, the rollout stops and the other nodes are Skipped.',
+    code: 'pk-metal rollout show lab-talosupgrade-1a2b3c4d',
+    state: { ro: 'ok', approve: 'done', cp1: 'ok', cp2: 'ok', cp3: 'ok', w1: 'ok', w2: 'ok', w3: 'ok', w4: 'ok', e1: 'done', e2: 'done', e3: 'done', e4: 'done', gate: 'done', op: 'done' },
+    text: { 'ro-ph': 'Complete', 'cp1-v': neu, 'cp2-v': neu, 'cp3-v': neu, 'w1-v': neu, 'w2-v': neu, 'w3-v': neu, 'w4-v': neu, 'op-a': '7 of 7 nodes Succeeded' },
+  },
+];
+---
+
+<Explainer title="Roll a Talos upgrade through a cluster" steps={steps as any}>
+  <svg viewBox="0 0 760 300" role="img" aria-labelledby="ex-roll-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
+    <title id="ex-roll-t">A TalosRollout upgrades three control planes one at a time with the etcd leader last, pauses after the first node, then upgrades the workers two at a time.</title>
+    <defs>
+      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
+      </marker>
+    </defs>
+    <Box node="ro" x={20} y={14} w={220} h={52} label="TalosRollout" sub="-" text="ro-ph" cat="kind" href="/reference/kinds/talosrollout/" />
+    <Box node="you" x={300} y={14} w={150} h={52} label="You" sub="approve, resume" variant="soft" />
+    <Box node="gate" x={520} y={14} w={220} h={52} label="Health gate" sub="etcd healthy, Nodes Ready" />
+    <Edge node="approve" points={[[300, 40], [240, 40]]} label="planHash" at={[270, 32]} />
+    <text class="t-small t-zone" x={20} y={ny - 10}>control planes, one at a time</text>
+    <text class="t-small t-zone" x={430} y={ny - 10}>workers, two at a time</text>
+    <Box node="cp1" x={cps[0]} y={ny} w={110} h={52} label="cp-1" sub={old} text="cp1-v" />
+    <Box node="cp2" x={cps[1]} y={ny} w={110} h={52} label="cp-2" sub={old} text="cp2-v" />
+    <Box node="cp3" x={cps[2]} y={ny} w={110} h={52} label="cp-3 leader" sub={old} text="cp3-v" />
+    <Box node="w1" x={ws[0]} y={ny} w={70} h={52} label="w-1" sub={old} text="w1-v" />
+    <Box node="w2" x={ws[1]} y={ny} w={70} h={52} label="w-2" sub={old} text="w2-v" />
+    <Box node="w3" x={ws[2]} y={ny} w={70} h={52} label="w-3" sub={old} text="w3-v" />
+    <Box node="w4" x={ws[3]} y={ny} w={70} h={52} label="w-4" sub={old} text="w4-v" />
+    <Edge node="e1" points={[[75, 66], [75, ny]]} />
+    <Edge node="e2" points={[[130, ny + 26], [150, ny + 26]]} />
+    <Edge node="e3" points={[[260, ny + 26], [280, ny + 26]]} />
+    <Edge node="e4" points={[[390, ny + 26], [430, ny + 26]]} />
+    <Box node="op" x={20} y={222} w={720} h={56} label="HostOperation for each node" sub="-" text="op-a" cat="kind" href="/reference/kinds/hostoperation/" />
+  </svg>
+</Explainer>

@@ -1,0 +1,282 @@
+/*
+ * The site theme, "Control room": an operator console. Dark first, dense but calm. Inter and
+ * IBM Plex Mono; a cyan accent; status colours for phases; category links as chips;
+ * top tabs for the layers of the site (HeaderTabs.astro, SidebarTabs.astro).
+ */
+
+:root {
+  --pk-font-body: 'Inter Variable', 'Inter', system-ui, sans-serif;
+  --pk-font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --pk-paper: #0b0f14;
+  --pk-paper-2: #111821;
+  --pk-paper-3: #1a2330;
+  --pk-nav: #0b0f14;
+  --pk-sidebar: #0d131a;
+  --pk-rule: #1f2a36;
+  --pk-rule-strong: #2d3b4a;
+  --pk-ink: #e6edf3;
+  --pk-ink-2: #b4c0cc;
+  --pk-ink-3: #8b98a5;
+  --pk-link: #22d3ee;
+  --pk-link-tint: #0e2a33;
+  --pk-accent: #22d3ee;
+  --pk-accent-ink: #22d3ee;
+  --pk-on-accent: #04141a;
+  --pk-ok: #3fb950;
+  --pk-warn: #d29922;
+  --pk-err: #f85149;
+  --pk-shadow: 0 0 0 1px rgb(34 211 238 / 0.06), 0 18px 40px -18px rgb(0 0 0 / 0.9);
+
+  --pk-fig-box: #111821;
+  --pk-fig-line: #3b4b5c;
+  --pk-fig-ink: #e6edf3;
+  --pk-fig-dim: #8b98a5;
+
+  --pk-ex-bg: #0d131a;
+  --pk-ex-box: #111821;
+  --pk-ex-rule: #1f2a36;
+  --pk-ex-line: #2d3b4a;
+  --pk-ex-ink: #e6edf3;
+  --pk-ex-ink-2: #b4c0cc;
+  --pk-ex-dim: #8b98a5;
+  --pk-ex-active: #22d3ee;
+  --pk-term-bg: #070a0e;
+
+  --c-kind: #2dd4bf;
+  --c-ctrl: #a78bfa;
+  --c-act: #818cf8;
+  --c-cli: #e6edf3;
+  --c-lab: #4ade80;
+  --c-ref: #94a3b8;
+  --c-concept: #60a5fa;
+  --c-flow: #22d3ee;
+  --c-howto: #fbbf24;
+  --c-rb: #fb7185;
+  --c-tut: #e879f9;
+
+  --pk-radius: 3px;
+  --pk-radius-lg: 6px;
+  --sl-text-body: 0.97rem;
+  --sl-nav-height: 6rem;
+  --sl-sidebar-width: 16rem;
+  --sl-content-width: 50rem;
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --pk-paper: #f6f8fa;
+  --pk-paper-2: #ffffff;
+  --pk-paper-3: #eaeef2;
+  --pk-nav: #ffffff;
+  --pk-sidebar: #f6f8fa;
+  --pk-rule: #d0d7de;
+  --pk-rule-strong: #afb8c1;
+  --pk-ink: #1f2328;
+  --pk-ink-2: #424a53;
+  --pk-ink-3: #59636e;
+  --pk-link: #0e7490;
+  --pk-link-tint: #e0f4f8;
+  --pk-accent: #0891b2;
+  --pk-accent-ink: #0e7490;
+  --pk-on-accent: #ffffff;
+  --pk-ok: #1a7f37;
+  --pk-warn: #9a6700;
+  --pk-err: #cf222e;
+  --pk-shadow: 0 1px 2px rgb(31 35 40 / 0.08), 0 12px 28px -14px rgb(31 35 40 / 0.25);
+
+  --pk-fig-box: #ffffff;
+  --pk-fig-line: #8c959f;
+  --pk-fig-ink: #1f2328;
+  --pk-fig-dim: #59636e;
+
+  --c-kind: #0f766e;
+  --c-ctrl: #6d28d9;
+  --c-act: #4338ca;
+  --c-cli: #1f2328;
+  --c-lab: #15803d;
+  --c-ref: #475569;
+  --c-concept: #1d4ed8;
+  --c-flow: #0e7490;
+  --c-howto: #92400e;
+  --c-rb: #be123c;
+  --c-tut: #a21caf;
+  color-scheme: light;
+}
+
+/* The console panels stay dark in light mode. */
+:root[data-theme='light'] .pk-ex,
+:root[data-theme='light'] .pk-hero-panel {
+  --pk-ok: #3fb950;
+  --pk-warn: #d29922;
+  --pk-err: #f85149;
+  --pk-accent: #22d3ee;
+  --pk-on-accent: #04141a;
+  --c-kind: #2dd4bf;
+}
+
+@media (min-width: 50em) {
+  :root {
+    --sl-text-h1: 2.1rem;
+    --sl-text-h2: 1.4rem;
+    --sl-text-h3: 1.1rem;
+  }
+}
+
+/* ---------- Header with tabs ---------- */
+
+.pk-header {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  block-size: 100%;
+}
+.pk-header > :first-child {
+  block-size: 3.4rem;
+}
+.pk-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-inline: calc(-1 * var(--sl-nav-pad-x));
+  padding-inline: var(--sl-nav-pad-x);
+  margin-block-end: calc(-1 * var(--sl-nav-pad-y) - 1px);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.pk-tabs a {
+  padding: 0.55rem 0.9rem 0.6rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--pk-ink-3);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+}
+.pk-tabs a:hover {
+  color: var(--pk-ink);
+}
+.pk-tabs a[aria-current='page'] {
+  color: var(--pk-ink);
+  border-bottom-color: var(--pk-accent);
+}
+
+/* ---------- Links as chips ---------- */
+
+.sl-markdown-content a.x,
+a.x,
+.x.pk-sample {
+  /* Inline, not inline-flex: an inline-flex box is atomic, and a line can break
+     between it and the full stop after it. */
+  display: inline;
+  padding: 0.05em 0.35em 0.1em;
+  border: 0;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--cat-c) 11%, transparent);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  white-space: nowrap;
+}
+a.x:hover {
+  background: color-mix(in srgb, var(--cat-c) 20%, transparent);
+}
+a.x[data-cat='kind'],
+a.x[data-cat='ctrl'],
+a.x[data-cat='act'] {
+  font-family: var(--pk-font-mono);
+  font-size: 0.88em;
+}
+a.x[data-cat='cli'],
+.x.pk-sample[data-cat='cli'] {
+  background: var(--pk-paper-3);
+}
+a.x[data-cat='ext'],
+a.x[data-cat='src'] {
+  background: none;
+  padding: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--cat-c) 40%, transparent);
+  border-radius: 0;
+}
+
+/* ---------- Page title ---------- */
+
+.pk-eyebrow {
+  font-family: var(--pk-font-mono);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--cat-c, var(--pk-accent));
+}
+.pk-eyebrow::after {
+  content: none;
+}
+.pk-eyebrow::before {
+  content: '// ';
+  color: var(--pk-ink-3);
+}
+.sl-markdown-content h2 {
+  font-weight: 600;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--pk-rule);
+}
+
+/* ---------- Callouts as console notices ---------- */
+
+.pk-callout {
+  border: 1px solid color-mix(in srgb, var(--co) 45%, transparent);
+  border-inline-start-width: 3px;
+  border-radius: var(--pk-radius);
+}
+.pk-callout-label {
+  font-family: var(--pk-font-mono);
+}
+
+/* ---------- Diagrams glow ---------- */
+
+.pk-ex .edge-g.is-flow .edge {
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--pk-ex-active) 70%, transparent));
+}
+.pk-ex .box-g.is-active .box {
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--pk-ex-active) 35%, transparent));
+}
+.pk-ex-title,
+.pk-ex-step {
+  font-family: var(--pk-font-mono);
+}
+.pk-fig .t-title {
+  font-family: var(--pk-font-mono);
+  font-weight: 500;
+  font-size: 12px;
+}
+
+/* ---------- Hero and cards ---------- */
+
+.pk-hero-kicker {
+  font-family: var(--pk-font-mono);
+}
+.pk-hero-title {
+  font-family: var(--pk-font-mono);
+  font-weight: 600;
+  letter-spacing: -0.04em;
+}
+.pk-navcard {
+  background: var(--pk-paper-2);
+  border-top-width: 1px;
+  position: relative;
+}
+.pk-navcard::before {
+  content: '';
+  position: absolute;
+  inset: -1px -1px auto;
+  block-size: 2px;
+  background: var(--cat-c);
+  border-radius: var(--pk-radius) var(--pk-radius) 0 0;
+}
+
+/* ---------- Field tables as a dense grid ---------- */
+
+.pk-fields td,
+.pk-fields th {
+  padding-block: 0.4rem;
+}
+.pk-fields .f-path code {
+  font-weight: 500;
+}

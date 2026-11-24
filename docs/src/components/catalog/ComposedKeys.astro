@@ -1,0 +1,44 @@
+---
+// The keys that the generated keys.json does not have. The Go source builds them from
+// a prefix constant (labelDomain + "vendor"), and the generator reads only string
+// literals. Sources: metal/internal/controller/labels.go, endpointprofile_controller.go
+// and identity.go. Remove an entry here when keys.json has the key.
+import { keys, sourceUrl } from './data';
+
+interface Props {
+  set: 'selector' | 'internal';
+}
+const { set } = Astro.props;
+const dir = 'metal/internal/controller/';
+const all = [
+  { set: 'selector', key: 'metal.pk.io/vendor', kind: 'label', on: 'Host, ManagementEndpoint', text: 'The vendor that the BMC reports, for example Huawei.', source: 'labels.go' },
+  { set: 'selector', key: 'metal.pk.io/model', kind: 'label', on: 'Host, ManagementEndpoint', text: 'The model that the BMC reports.', source: 'labels.go' },
+  { set: 'selector', key: 'metal.pk.io/vlan', kind: 'label', on: 'ManagementEndpoint', text: 'The VLAN from the Asset. The label is absent when the Asset has no VLAN.', source: 'labels.go' },
+  { set: 'selector', key: 'metal.pk.io/asset', kind: 'label', on: 'Host', text: 'The name of the Asset through which the operator found the machine.', source: 'labels.go' },
+  { set: 'internal', key: 'metal.pk.io/managed-labels', kind: 'annotation', on: 'Host, ManagementEndpoint', text: 'The list of the label keys that the operator manages on the object. The operator does not change a label that is not in the list.', source: 'labels.go' },
+  { set: 'internal', key: 'metal.pk.io/rotated-at', kind: 'annotation', on: 'Secret (managed BMC credentials)', text: 'The time when the operator made the password. The operator compares it with maxAge of the EndpointProfile.', source: 'endpointprofile_controller.go' },
+  { set: 'internal', key: 'metal.pk.io/plan-hash', kind: 'annotation', on: 'Secret (BMC identity in progress)', text: 'The hash of the identity that the key and the certificate request are for.', source: 'identity.go' },
+  { set: 'internal', key: 'metal.pk.io/certificate-request', kind: 'annotation', on: 'Secret (BMC identity in progress)', text: 'The name of the CertificateRequest for the identity.', source: 'identity.go' },
+] as const;
+const stale = all.filter((a) => keys.some((k) => k.key === a.key)).map((a) => a.key);
+if (stale.length) throw new Error(`catalog: keys.json now has [${stale}]. Remove them from ComposedKeys.astro.`);
+const rows = all.filter((a) => a.set === set);
+---
+
+<div class="pk-fields pk-cat not-content">
+  <table>
+    <thead>
+      <tr><th scope="col">Key</th><th scope="col">Type</th><th scope="col">On</th><th scope="col">Value</th></tr>
+    </thead>
+    <tbody>
+      {rows.map((r) => (
+        <tr id={r.key} data-q={`${r.key} ${r.text}`.toLowerCase()}>
+          <td class="f-path"><a href={`#${r.key}`} class="f-anchor"><code>{r.key}</code></a></td>
+          <td>{r.kind}</td>
+          <td>{r.on}</td>
+          <td class="f-desc">{r.text} <a class="x" data-cat="src" href={sourceUrl(dir + r.source)}>{r.source}</a></td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>

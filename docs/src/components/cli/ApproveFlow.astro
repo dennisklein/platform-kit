@@ -1,0 +1,78 @@
+---
+// Explainer: what pk-metal approve does between the command and the start of the
+// operation. Source: metal/cmd/pk-metal/approve.go (approve, approvalPlan,
+// approvalPatch, approvalWindow).
+import Explainer from '../Explainer.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+
+const steps = [
+  {
+    title: 'Read',
+    caption: 'approve reads the operation, its Host, the BMC paths, the boot assets and the TalosNodes. It asks the API server for your user name.',
+    code: 'pk-metal approve pk-metal/provision-simhw2288v5000397-1a2b3c4d',
+    state: { you: 'active', cli: 'active', run: 'done', read: 'flow', op: 'active' },
+    text: { 'cli-s': 'reads', 'op-s': 'AwaitingApproval', 'ctl-s': 'waits' },
+  },
+  {
+    title: 'Refuse',
+    caption: 'approve stops here if the operation is approved, is finished, needs no approval, or if you proposed it.',
+    state: { cli: 'warn', run: 'done', read: 'done', op: 'active' },
+    text: { 'cli-s': 'checks', 'op-s': 'AwaitingApproval', 'ctl-s': 'waits' },
+  },
+  {
+    title: 'Show the plan',
+    caption: 'approve prints the plan: the machine, its BMC, each step in order, and the disk that the install overwrites.',
+    state: { cli: 'active', plan: 'active', show: 'flow', run: 'done', read: 'done', op: 'done' },
+    text: { 'cli-s': 'prints', 'op-s': 'AwaitingApproval', 'ctl-s': 'waits' },
+  },
+  {
+    title: 'Ask',
+    caption: 'approve asks "Approve as <user>? [y/N]". The question waits five minutes. Without an answer, nothing changes.',
+    code: 'Approve as alice? [y/N] y',
+    state: { you: 'active', cli: 'warn', plan: 'done', show: 'done', run: 'flow', read: 'done', op: 'done' },
+    text: { 'cli-s': 'waits 5 min', 'op-s': 'AwaitingApproval', 'ctl-s': 'waits' },
+  },
+  {
+    title: 'Read again',
+    caption: 'After a yes, approve reads the operation again. It must be the same object (same UID) and the plan must read the same.',
+    state: { you: 'done', cli: 'active', plan: 'done', run: 'done', read: 'flow', op: 'active' },
+    text: { 'cli-s': 'compares', 'op-s': 'AwaitingApproval', 'ctl-s': 'waits' },
+  },
+  {
+    title: 'Approve',
+    caption: 'approve writes your user name into the operation. The patch carries the UID and the resource version, so the API server refuses it if the object changed.',
+    code: 'spec.approval.approvedBy: alice',
+    state: { you: 'done', cli: 'ok', plan: 'done', run: 'done', read: 'done', patch: 'flow', op: 'ok' },
+    text: { 'cli-s': 'approved', 'op-s': 'approvedBy: alice', 'ctl-s': 'waits' },
+  },
+  {
+    title: 'Run',
+    caption: 'The HostOperation controller sees the approval and starts the first action. Follow it with pk-metal status.',
+    code: 'pk-metal status',
+    state: { you: 'done', cli: 'done', plan: 'done', run: 'done', read: 'done', patch: 'done', op: 'ok', watch: 'flow', ctl: 'active' },
+    text: { 'cli-s': 'done', 'op-s': 'Running', 'ctl-s': 'runs the actions' },
+  },
+];
+---
+
+<Explainer title="Approve one operation" steps={steps as any}>
+  <svg viewBox="0 0 720 250" role="img" aria-labelledby="ex-approve-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
+    <title id="ex-approve-t">pk-metal approve reads the operation, shows the plan, asks, reads the operation again and writes the approval. Then the operator starts the operation.</title>
+    <defs>
+      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
+      </marker>
+    </defs>
+    <Box node="you" x={20} y={30} w={150} h={56} label="You" sub="approver" variant="soft" />
+    <Box node="cli" x={275} y={30} w={170} h={56} label="pk-metal approve" sub="reads" text="cli-s" mono />
+    <Box node="op" x={530} y={30} w={170} h={56} label="HostOperation" sub="AwaitingApproval" text="op-s" cat="kind" href="/reference/kinds/hostoperation/" />
+    <Box node="plan" x={275} y={160} w={170} h={56} label="Plan" sub="steps, media, disk" />
+    <Box node="ctl" x={530} y={160} w={170} h={56} label="Operator" sub="waits" text="ctl-s" cat="ctrl" href="/reference/controllers/hostoperation/" />
+    <Edge node="run" points={[[170, 58], [275, 58]]} label="command, answer" at={[222, 50]} />
+    <Edge node="read" points={[[445, 46], [530, 46]]} label="get" at={[487, 38]} />
+    <Edge node="patch" points={[[445, 72], [530, 72]]} label="patch" at={[487, 88]} />
+    <Edge node="show" points={[[360, 86], [360, 160]]} label="prints" at={[368, 128]} anchor="start" />
+    <Edge node="watch" points={[[615, 86], [615, 160]]} label="watches" at={[623, 128]} anchor="start" />
+  </svg>
+</Explainer>

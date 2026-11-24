@@ -1,0 +1,141 @@
+---
+// The annotations, labels or finalizers of the operator, from the generated keys.json.
+// The anchor of an entry is the key: #metal.pk.io/hold. A constant name in a
+// description (AnnotationDiskNotWiped) shows as a link to its key.
+import { keyId, keys, sentence, sourceUrl } from './data';
+
+interface Props {
+  kind: 'annotation' | 'label' | 'finalizer';
+}
+const { kind } = Astro.props;
+const byConstant = new Map<string, string>();
+for (const k of keys) for (const c of k.constants) byConstant.set(c.name, k.key);
+const noun = { annotation: 'The annotation', label: 'The label', finalizer: 'The finalizer' }[kind];
+
+type Part = { text?: string; key?: string };
+function parts(text: string): Part[] {
+  const out: Part[] = [];
+  let last = 0;
+  for (const m of text.matchAll(/\b[A-Za-z]+\b/g)) {
+    const key = byConstant.get(m[0]);
+    if (!key) continue;
+    out.push({ text: text.slice(last, m.index) }, { key });
+    last = m.index! + m[0].length;
+  }
+  out.push({ text: text.slice(last) });
+  return out;
+}
+function paragraphs(k: (typeof keys)[number]) {
+  const name = k.constants[0]?.name;
+  return (k.description ?? '')
+    .split(/\n\n+/)
+    .filter(Boolean)
+    .map((p, i) => (p.startsWith('\t') ? { cmd: p.split('\n').map((l) => l.trim()).join('\n') } : { parts: parts(i === 0 ? sentence(p, name, noun) : p) }));
+}
+const rows = keys.filter((k) => k.kind === kind).map((k) => ({ ...k, id: keyId(k), paras: paragraphs(k) }));
+---
+
+<div class="pk-keys not-content">
+  {rows.map((k) => (
+    <article id={k.id} class="k-entry" data-q={`${k.key} ${k.description}`.toLowerCase()}>
+      <header>
+        <a href={`#${k.id}`} class="k-key"><code>{k.key}</code></a>
+        <span class:list={['k-badge', k.exported ? 'k-api' : 'k-int']}>{k.exported ? 'API' : 'internal'}</span>
+      </header>
+      {k.paras.length === 0 && <p class="k-none">The source has no description.</p>}
+      {k.paras.map((p) =>
+        p.cmd ? (
+          <pre class="k-cmd"><code>{p.cmd}</code></pre>
+        ) : (
+          <p>{p.parts!.map((x) => (x.key ? (x.key === k.key ? <code>{x.key}</code> : <a href={`#${x.key}`}><code>{x.key}</code></a>) : x.text))}</p>
+        ),
+      )}
+      <footer>
+        {k.constants.map((c) => (
+          <a class="x" data-cat="src" href={sourceUrl(c.source)} title={c.name}>{c.source.split('/').at(-1)}</a>
+        ))}
+      </footer>
+    </article>
+  ))}
+</div>
+
+<style>
+  .pk-keys {
+    margin-block: 1rem;
+    border: 1px solid var(--pk-rule);
+    border-radius: var(--pk-radius);
+  }
+  .k-entry {
+    padding: 0.8rem 1rem 0.7rem;
+    border-bottom: 1px solid var(--pk-rule);
+    scroll-margin-top: calc(var(--sl-nav-height) + 4.5rem);
+  }
+  .k-entry:last-child {
+    border-bottom: 0;
+  }
+  .k-entry:target {
+    background: color-mix(in srgb, var(--pk-accent) 12%, transparent);
+  }
+  .k-entry[hidden] {
+    display: none;
+  }
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+    align-items: center;
+    margin-bottom: 0.35rem;
+  }
+  .k-key {
+    text-decoration: none;
+    color: var(--pk-ink);
+  }
+  .k-key code {
+    background: none;
+    padding: 0;
+    font-size: 0.92rem;
+    font-weight: 600;
+  }
+  .k-badge {
+    padding: 0.05rem 0.4rem;
+    font: 600 0.66rem/1.5 var(--pk-font-mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    border: 1px solid var(--pk-rule-strong);
+    border-radius: 999px;
+    color: var(--pk-ink-3);
+  }
+  .k-api {
+    color: var(--c-kind);
+    border-color: color-mix(in srgb, var(--c-kind) 50%, transparent);
+  }
+  p {
+    margin: 0.3rem 0;
+    font-size: 0.9rem;
+    line-height: 1.55;
+    color: var(--pk-ink-2);
+    max-inline-size: 78ch;
+  }
+  p code {
+    font-size: 0.8rem;
+  }
+  .k-none {
+    font-style: italic;
+    color: var(--pk-ink-3);
+  }
+  .k-cmd {
+    margin: 0.4rem 0;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.8rem;
+    background: var(--pk-paper-2);
+    border-radius: var(--pk-radius);
+    overflow-x: auto;
+  }
+  footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.9rem;
+    margin-top: 0.35rem;
+    font-size: 0.78rem;
+  }
+</style>

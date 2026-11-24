@@ -1,0 +1,102 @@
+---
+// "Who writes what": each row reads from left to right. An object, the controller
+// that reads it, and the object or the machine that the controller writes.
+// Source: the Reconcile functions in metal/internal/controller.
+import Figure from '../diagram/Figure.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+type Obj = { label: string; sub?: string; kind?: string; soft?: boolean };
+type Row = { name: string; items: [Obj, [string, string], Obj, ([string, string] | null)?, Obj?] };
+const k = (label: string, sub?: string): Obj => ({ label, sub, kind: label });
+const o = (label: string, sub?: string): Obj => ({ label, sub, soft: true });
+const rows: Row[] = [
+  { name: 'Find', items: [k('Asset', 'you write'), ['asset', 'asset'], k('ManagementEndpoint'), ['managementendpoint', 'managementendpoint'], o('BMC', 'read only')] },
+  { name: 'Project', items: [k('ManagementEndpoint', 'status'), ['host', 'host'], k('Host'), ['protection', 'protection'], o('finalizers', 'claim protection')] },
+  { name: 'Install', items: [k('HostClaim', 'you write'), ['hostclaim', 'hostclaim'], k('HostOperation', 'proposal'), ['hostoperation', 'hostoperation'], o('BMC and Talos', 'after approval')] },
+  { name: 'Render', items: [k('TalosNode', 'you write'), ['talosnode', 'talosnode'], o('config Secret', 'by digest'), ['bootasset', 'bootasset'], k('BootAsset')] },
+  { name: 'Cluster', items: [k('TalosCluster', 'you write'), ['taloscluster', 'taloscluster'], o('etcd and credentials', 'bootstrap once')] },
+  { name: 'Roll out', items: [k('TalosCluster', 'version, drift'), ['rolloutproposer', 'talosrollout'], k('TalosRollout', 'plan'), ['talosrollout', 'talosrollout'], k('HostOperation', 'one per node')] },
+  { name: 'Converge', items: [k('BiosProfile', 'and FirmwareProfile'), ['convergence', 'convergence'], k('BiosSettings'), ['convergence', 'convergence'], k('HostOperation', 'proposal')] },
+  { name: 'Configure', items: [k('EndpointProfile', 'you write'), ['endpointconvergence', 'endpointconvergence'], o('BMC', 'accounts, NTP, TLS')] },
+  { name: 'Back up', items: [k('EtcdBackupPolicy', 'you write'), ['etcdbackuppolicy', 'etcdbackup'], k('EtcdSnapshot'), ['etcdsnapshot', 'etcdbackup'], o('sink', 'S3 or volume')] },
+  { name: 'Schedule', items: [k('MaintenanceWindow', 'you write'), ['maintenancewindow', 'maintenancewindow'], o('status', 'open, next change')] },
+];
+const xs = [78, 352, 626];
+const bw = 148;
+const bh = 40;
+const rh = 54;
+const top = 8;
+const H = top + rows.length * rh;
+const pill = (x1: number, x2: number) => ({ cx: (x1 + x2) / 2 });
+---
+
+<Figure
+  title="Who writes what. Each row reads from left to right: an object, the controller that reads it, and what that controller writes."
+  caption="Who writes what. A violet pill is a controller. Select it to open its page."
+  width={780}
+  height={H}
+  wide
+  class="pk-chains"
+>
+  {rows.map((r, j) => {
+    const y = top + j * rh;
+    const cy = y + bh / 2;
+    const objs = [r.items[0], r.items[2], r.items[4]].filter(Boolean) as Obj[];
+    const ctrls = [r.items[1], r.items[3]].filter(Boolean) as [string, string][];
+    return (
+      <g>
+        <text class="t-small wc-lane" x={4} y={cy + 4}>{r.name}</text>
+        {objs.map((ob, i) => (
+          <Box
+            x={xs[i]} y={y} w={bw} h={bh} label={ob.label} sub={ob.sub}
+            variant={ob.soft ? 'soft' : undefined}
+            cat={ob.kind ? 'kind' : undefined}
+            href={ob.kind ? `/reference/kinds/${ob.kind.toLowerCase()}/` : undefined}
+          />
+        ))}
+        {ctrls.map(([name, page], i) => {
+          const x1 = xs[i] + bw;
+          const x2 = xs[i + 1];
+          const { cx } = pill(x1, x2);
+          const max = x2 - x1 - 8;
+          const need = name.length * 5.4 + 12;
+          const pw = Math.min(max, need);
+          return (
+            <>
+              <Edge points={[[x1, cy], [x2, cy]]} />
+              <a href={`${base}/reference/controllers/${page}/`} data-cat="ctrl" class="wc-pill">
+                <rect x={cx - pw / 2} y={cy - 9} width={pw} height={18} rx={9}></rect>
+                <text x={cx} y={cy + 3.5} text-anchor="middle" textLength={need > max ? pw - 10 : undefined} lengthAdjust="spacingAndGlyphs">{name}</text>
+              </a>
+            </>
+          );
+        })}
+      </g>
+    );
+  })}
+</Figure>
+
+<style is:global>
+  .pk-chains .wc-lane {
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 9.5px;
+  }
+  .pk-chains .wc-pill rect {
+    fill: var(--pk-fig-box);
+    stroke: var(--c-ctrl);
+    stroke-width: 1.5;
+  }
+  .pk-chains .wc-pill text {
+    fill: var(--c-ctrl);
+    font-family: var(--pk-font-mono);
+    font-size: 9px;
+    font-weight: 600;
+  }
+  .pk-chains .wc-pill:hover rect,
+  .pk-chains .wc-pill:focus-visible rect {
+    fill: color-mix(in srgb, var(--c-ctrl) 14%, var(--pk-fig-box));
+  }
+</style>

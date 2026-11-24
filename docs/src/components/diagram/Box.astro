@@ -1,0 +1,36 @@
+---
+// A box with a title and an optional second line. With `cat` and `href` the box is a
+// category link (same colour as the text links). `node` names the box for Explainer
+// steps; `text` names the second line, so a step can change it.
+interface Props {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  label: string;
+  sub?: string;
+  variant?: 'accent' | 'soft' | 'ok' | 'warn' | 'err';
+  cat?: string;
+  href?: string;
+  node?: string;
+  text?: string;
+  mono?: boolean;
+}
+const { x, y, w, h, label, sub, variant, cat, href, node, text, mono } = Astro.props;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const cx = x + w / 2;
+const ty = sub ? y + h / 2 - 4 : y + h / 2 + 5;
+const Tag = href ? 'a' : 'g';
+---
+
+<Tag
+  class:list={['box-g', { 'is-cat': !!cat }]}
+  data-node={node}
+  data-cat={cat}
+  href={href ? `${base}${href}` : undefined}
+>
+  <rect class:list={['box', variant && `box-${variant}`]} x={x} y={y} width={w} height={h}></rect>
+  {cat && <rect class="box-band" x={x} y={y} width="4" height={h}></rect>}
+  <text class:list={['t-title', { 't-mono': mono }]} x={cx} y={ty} text-anchor="middle">{label}</text>
+  {sub && <text class="t-small t-muted" x={cx} y={y + h / 2 + 13} text-anchor="middle" data-text={text}>{sub}</text>}
+</Tag>

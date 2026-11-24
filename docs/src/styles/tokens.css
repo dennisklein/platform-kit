@@ -1,0 +1,86 @@
+/*
+ * Shared tokens. The theme file (theme.css) sets the --pk-*
+ * colours, the fonts and the category colours (--c-*) for dark (:root) and light
+ * (:root[data-theme='light']). This file maps them to Starlight and to the glossary
+ * domains, so the components use only --pk-* and --c-* tokens.
+ */
+
+:root {
+  --pk-radius: 4px;
+  --pk-radius-lg: 8px;
+  --pk-stroke: 1.25px;
+
+  /* Glossary domains reuse the category hues. */
+  --d-hw: var(--c-act);
+  --d-redfish: var(--c-flow);
+  --d-k8s: var(--c-kind);
+  --d-talos: var(--c-tut);
+  --d-safety: var(--c-rb);
+  --d-lab: var(--c-lab);
+  --d-ops: var(--c-howto);
+  --c-term: var(--pk-ink-2);
+  --c-ext: var(--pk-ink-2);
+  --c-src: var(--pk-link);
+
+  --sl-font: var(--pk-font-body);
+  --sl-font-mono: var(--pk-font-mono);
+  --sl-color-white: var(--pk-ink);
+  --sl-color-gray-1: var(--pk-ink);
+  --sl-color-gray-2: var(--pk-ink-2);
+  --sl-color-gray-3: var(--pk-ink-3);
+  --sl-color-gray-4: var(--pk-ink-3);
+  --sl-color-gray-5: var(--pk-rule-strong);
+  --sl-color-gray-6: var(--pk-paper-2);
+  --sl-color-gray-7: var(--pk-paper-2);
+  --sl-color-black: var(--pk-paper);
+  --sl-color-accent-low: var(--pk-link-tint);
+  --sl-color-accent: var(--pk-link);
+  --sl-color-accent-high: var(--pk-link);
+  --sl-color-text: var(--pk-ink);
+  --sl-color-text-accent: var(--pk-link);
+  --sl-color-text-invert: var(--pk-paper);
+  --sl-color-bg: var(--pk-paper);
+  --sl-color-bg-nav: var(--pk-nav, var(--pk-paper));
+  --sl-color-bg-sidebar: var(--pk-sidebar, var(--pk-paper));
+  --sl-color-bg-inline-code: var(--pk-paper-3);
+  --sl-color-bg-accent: var(--pk-link);
+  --sl-color-hairline-light: var(--pk-rule);
+  --sl-color-hairline: var(--pk-rule);
+  --sl-color-hairline-shade: var(--pk-rule);
+  --sl-color-backdrop-overlay: rgb(0 0 0 / 0.5);
+  --sl-line-height: 1.65;
+  --sl-line-height-headings: 1.2;
+  --sl-content-width: 48rem;
+  --sl-text-code: 0.86rem;
+  --sl-text-code-sm: 0.86em;
+}
+
+*,
+*::before,
+*::after {
+  font-variant-ligatures: none !important;
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--pk-font-mono);
+}
+
+:focus-visible {
+  outline: 2px solid var(--pk-link);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--pk-accent) 40%, transparent);
+}
+
+h1,
+h2,
+h3,
+h4,
+.pk-hero-title {
+  font-family: var(--pk-font-head, var(--pk-font-body));
+}

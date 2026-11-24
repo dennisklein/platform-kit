@@ -1,0 +1,112 @@
+---
+// The reasons of one API group, from the generated conditions.json, in the groups of
+// the Go source (one const block is one group). Each row has the anchor
+// reason-<name> in lower case (#reason-serialmismatch); when both API groups have the
+// name, the os.pk.io row is #reason-os-<name>.
+import { conditionId, conditionOf, reasonId, reasons, sentence } from './data';
+
+interface Props {
+  group: 'metal.pk.io' | 'os.pk.io';
+}
+const { group } = Astro.props;
+const blocks = new Map<string, typeof reasons>();
+for (const r of reasons.filter((x) => x.group === group)) {
+  const k = r.context ?? '';
+  blocks.set(k, [...(blocks.get(k) ?? []), r]);
+}
+/** "Reasons on the claim's Bound condition. More text." gives the title and the note. */
+function head(context: string) {
+  if (!context) return { title: 'Other reasons', note: '' };
+  const i = context.indexOf('. ');
+  const first = (i < 0 ? context : context.slice(0, i)).replace(/\.$/, '');
+  return { title: first, note: i < 0 ? '' : context.slice(i + 2) };
+}
+const sections = [...blocks.entries()]
+  .map(([context, rows]) => ({ ...head(context), rows }))
+  .sort((a, b) => (a.title === 'Other reasons' ? 1 : b.title === 'Other reasons' ? -1 : 0));
+---
+
+{sections.map((s) => (
+  <section class="pk-fields pk-cat c-block not-content" data-block>
+    <header class="c-head">
+      <p class="c-title">{s.title}</p>
+      {s.note && <p class="c-note">{s.note}</p>}
+    </header>
+    <table>
+      <thead>
+        <tr><th scope="col">Reason</th><th scope="col">On</th><th scope="col">Description</th></tr>
+      </thead>
+      <tbody>
+        {s.rows.map((r) => (
+          <tr id={reasonId(r)} data-q={`${r.value} ${r.description}`.toLowerCase()}>
+            <td class="f-path"><a href={`#${reasonId(r)}`} class="f-anchor"><code>{r.value}</code></a></td>
+            <td class="c-on">
+              {(r.on ?? []).map((o) => {
+                const c = conditionOf(o.condition, group);
+                return (
+                  <a class:list={['c-on-link', o.status.toLowerCase()]} href={c ? `#${conditionId(c)}` : undefined}>
+                    <code>{o.condition}</code><span>{o.status}</span>
+                  </a>
+                );
+              })}
+            </td>
+            <td class="f-desc">{sentence(r.description, r.name) || <span class="c-none">The source has no description.</span>}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </section>
+))}
+
+<style>
+  .c-block {
+    margin-block: 1.25rem;
+  }
+  .c-head {
+    padding: 0.6rem 0.75rem;
+    border-bottom: 1px solid var(--pk-rule);
+  }
+  .c-title {
+    margin: 0;
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: var(--pk-ink);
+  }
+  .c-note {
+    margin: 0.25rem 0 0;
+    font-size: 0.82rem;
+    line-height: 1.5;
+    color: var(--pk-ink-3);
+    max-inline-size: 72ch;
+  }
+  .c-on {
+    white-space: nowrap;
+  }
+  .c-on-link {
+    display: flex;
+    gap: 0.4rem;
+    align-items: baseline;
+    text-decoration: none;
+    color: var(--pk-ink-2);
+  }
+  .c-on-link code {
+    background: none;
+    padding: 0;
+    font-size: 0.8rem;
+  }
+  .c-on-link span {
+    font: 600 0.66rem/1.4 var(--pk-font-mono);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--pk-ink-3);
+  }
+  .c-on-link.true span { color: var(--pk-ok); }
+  .c-on-link.false span { color: var(--pk-err); }
+  .c-none {
+    color: var(--pk-ink-3);
+    font-style: italic;
+  }
+  .f-desc {
+    min-inline-size: 16rem;
+  }
+</style>

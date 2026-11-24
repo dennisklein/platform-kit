@@ -1,0 +1,295 @@
+---
+// The glossary page: every term of src/data/glossary.yaml, A to Z. Each term has an
+// anchor (its id), so `[](term:bmc)` and the automatic term links land on it. Domain
+// buttons and a text box filter the list; without JavaScript all terms show.
+import { loadGlossary } from '../../scripts/glossary-data.mjs';
+import { canonicalText, loadRegistry } from '../../scripts/registry.mjs';
+import { byId } from '../data/categories.mjs';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const reg = loadRegistry(base);
+const { domains, terms } = loadGlossary();
+const byTerm = new Map(terms.map((t: any) => [t.id, t]));
+
+const sorted = [...terms].sort((a: any, b: any) => a.term.localeCompare(b.term, 'en', { sensitivity: 'base' }));
+const letter = (t: any) => {
+  const c = t.term.replace(/^[^A-Za-z0-9]+/, '')[0]?.toUpperCase() ?? '#';
+  return /[A-Z]/.test(c) ? c : '#';
+};
+const groups = new Map<string, any[]>();
+for (const t of sorted) {
+  const l = letter(t);
+  if (!groups.has(l)) groups.set(l, []);
+  groups.get(l)!.push(t);
+}
+const count = (d: string) => terms.filter((t: any) => t.domain === d).length;
+
+/** The "see" field as a category link, or nothing. */
+function see(s: string | undefined) {
+  if (!s) return undefined;
+  const [key, frag] = s.split('#');
+  const [cat, id] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)];
+  const c = [...byId.values()].find((x) => x.scheme === cat);
+  const e = c && reg.get(`${c.id}:${id}`);
+  if (!e) throw new Error(`glossary: the see field "${s}" names no page`);
+  return { href: frag ? `${e.href.split('#')[0]}#${frag}` : e.href, cat: e.cat, xref: `${e.cat}:${e.id}`, text: canonicalText(e), mono: c.mono };
+}
+---
+
+<div class="pk-gloss-tools not-content" hidden>
+  <div class="pk-gloss-domains" role="group" aria-label="Domains">
+    <button type="button" aria-pressed="true" data-domain-filter="">All <span>{terms.length}</span></button>
+    {Object.entries(domains).map(([id, d]: [string, any]) => (
+      <button type="button" aria-pressed="false" data-domain-filter={id} data-domain={id}>
+        <span class="pk-gloss-icon" aria-hidden="true"></span>{d.name} <span>{count(id)}</span>
+      </button>
+    ))}
+  </div>
+  <label class="pk-gloss-search">
+    <span class="sr-only">Filter the terms</span>
+    <input type="search" placeholder="Type a term or a word" autocomplete="off" spellcheck="false" />
+  </label>
+  <output aria-live="polite"></output>
+</div>
+
+<nav class="pk-gloss-az not-content" aria-label="Letters">
+  {[...groups.keys()].map((l) => <a href={`#letter-${l.toLowerCase()}`}>{l}</a>)}
+</nav>
+
+{
+  [...groups.entries()].map(([l, list]) => (
+    <section class="pk-gloss-group" data-letter={l}>
+      <h2 id={`letter-${l.toLowerCase()}`}>{l}</h2>
+      <dl class="pk-gloss">
+        {list.map((t: any) => {
+          const s = see(t.see);
+          const rel = (t.related ?? []).map((r: string) => byTerm.get(r)).filter(Boolean);
+          return (
+            <div class="pk-gloss-entry" id={t.id} data-domain={t.domain} data-q={`${t.term} ${t.abbr ?? ''} ${(t.forms ?? []).join(' ')} ${t.def}`.toLowerCase()}>
+              <dt>
+                <span class="pk-gloss-term">{t.term}</span>
+                {t.abbr && <span class="pk-gloss-abbr">{t.abbr}</span>}
+                <span class="pk-gloss-meta" data-domain={t.domain}>
+                  <span class="pk-gloss-icon" aria-hidden="true"></span>
+                  {domains[t.domain]?.name} · {t.kind}
+                </span>
+              </dt>
+              <dd>
+                <p>{t.def}</p>
+                {(s || rel.length > 0) && (
+                  <p class="pk-gloss-see">
+                    {s && (
+                      <>
+                        See <a class="x" data-cat={s.cat} data-xref={s.xref} href={s.href}>{s.text}</a>
+                        {rel.length > 0 && '. '}
+                      </>
+                    )}
+                    {rel.length > 0 && (
+                      <>
+                        Related:{' '}
+                        {rel.map((r: any, i: number) => (
+                          <>
+                            {i > 0 && ', '}
+                            <a class="gl" data-gl={r.id} data-domain={r.domain} href={`#${r.id}`}>{r.term}</a>
+                          </>
+                        ))}
+                      </>
+                    )}
+                  </p>
+                )}
+              </dd>
+            </div>
+          );
+        })}
+      </dl>
+    </section>
+  ))
+}
+
+<script>
+  const tools = document.querySelector<HTMLElement>('.pk-gloss-tools');
+  if (tools) {
+    const input = tools.querySelector('input')!;
+    const out = tools.querySelector('output')!;
+    const buttons = [...tools.querySelectorAll<HTMLButtonElement>('[data-domain-filter]')];
+    const entries = [...document.querySelectorAll<HTMLElement>('.pk-gloss-entry')];
+    const groups = [...document.querySelectorAll<HTMLElement>('.pk-gloss-group')];
+    let domain = '';
+    tools.hidden = false;
+    const apply = () => {
+      const q = input.value.trim().toLowerCase();
+      let n = 0;
+      for (const e of entries) {
+        const show = (!domain || e.dataset.domain === domain) && (!q || e.dataset.q!.includes(q));
+        e.hidden = !show;
+        if (show) n++;
+      }
+      for (const g of groups) g.hidden = !g.querySelector('.pk-gloss-entry:not([hidden])');
+      out.textContent = `${n} of ${entries.length} terms`;
+    };
+    for (const b of buttons) {
+      b.addEventListener('click', () => {
+        domain = b.dataset.domainFilter!;
+        for (const x of buttons) x.setAttribute('aria-pressed', String(x === b));
+        apply();
+      });
+    }
+    input.addEventListener('input', apply);
+    // A link to a term must show the term, also when a filter hides it.
+    const reveal = () => {
+      const t = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+      if (t && (t.hidden || t.closest('[hidden]'))) {
+        input.value = '';
+        domain = '';
+        for (const x of buttons) x.setAttribute('aria-pressed', String(x.dataset.domainFilter === ''));
+        apply();
+        t.scrollIntoView();
+      }
+    };
+    addEventListener('hashchange', reveal);
+    apply();
+  }
+</script>
+
+<style>
+  .pk-gloss-tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem 1rem;
+    align-items: center;
+    margin-block: 1rem;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid var(--pk-rule);
+    border-radius: var(--pk-radius);
+    background: var(--pk-paper-2);
+  }
+  .pk-gloss-tools[hidden] {
+    display: none;
+  }
+  .pk-gloss-domains {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+  .pk-gloss-domains button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.2rem 0.55rem;
+    font: 500 0.78rem var(--pk-font-body);
+    color: var(--gl-c, var(--pk-ink-2));
+    background: transparent;
+    border: 1px solid var(--pk-rule-strong);
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .pk-gloss-domains button span:last-child {
+    font-family: var(--pk-font-mono);
+    color: var(--pk-ink-3);
+  }
+  .pk-gloss-domains button[aria-pressed='true'] {
+    background: color-mix(in srgb, var(--gl-c, var(--pk-accent)) 16%, transparent);
+    border-color: var(--gl-c, var(--pk-accent));
+  }
+  .pk-gloss-icon {
+    display: inline-block;
+    inline-size: 0.9rem;
+    block-size: 0.9rem;
+    background: currentColor;
+    -webkit-mask: var(--gl-i) center / contain no-repeat;
+    mask: var(--gl-i) center / contain no-repeat;
+  }
+  .pk-gloss-search {
+    flex: 1 1 14rem;
+    display: flex;
+  }
+  .pk-gloss-search input {
+    flex: 1;
+    min-inline-size: 8rem;
+    padding: 0.35rem 0.6rem;
+    font: 0.9rem var(--pk-font-mono);
+    color: var(--pk-ink);
+    background: var(--pk-paper);
+    border: 1px solid var(--pk-rule-strong);
+    border-radius: var(--pk-radius);
+  }
+  output {
+    font: 0.78rem var(--pk-font-mono);
+    color: var(--pk-ink-3);
+  }
+  .pk-gloss-az {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.15rem;
+    margin-block: 0.5rem 1rem;
+  }
+  .pk-gloss-az a {
+    min-inline-size: 1.6rem;
+    padding: 0.1rem 0.3rem;
+    text-align: center;
+    font: 500 0.85rem var(--pk-font-mono);
+    color: var(--pk-ink-2);
+    text-decoration: none;
+    border-radius: var(--pk-radius);
+  }
+  .pk-gloss-az a:hover {
+    color: var(--pk-ink);
+    background: var(--pk-paper-3);
+  }
+  .pk-gloss-group[hidden],
+  .pk-gloss-entry[hidden] {
+    display: none;
+  }
+  dl.pk-gloss {
+    display: block;
+    border: 0;
+    margin-block-start: 0.5rem;
+  }
+  .pk-gloss-entry {
+    padding-block: 0.7rem;
+    border-bottom: 1px solid var(--pk-rule);
+    scroll-margin-block-start: calc(var(--sl-nav-height) + 1rem);
+  }
+  .pk-gloss-entry:target {
+    background: color-mix(in srgb, var(--pk-accent) 8%, transparent);
+  }
+  .pk-gloss dt,
+  .pk-gloss dd {
+    display: block;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .pk-gloss dt {
+    display: flex !important;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.6rem;
+  }
+  .pk-gloss-term {
+    font-weight: 600;
+    color: var(--pk-ink);
+  }
+  .pk-gloss-abbr {
+    font-weight: 400;
+    color: var(--pk-ink-2);
+  }
+  .pk-gloss-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin-inline-start: auto;
+    font: 0.72rem var(--pk-font-mono);
+    color: var(--gl-c, var(--pk-ink-3));
+  }
+  .pk-gloss dd p {
+    margin: 0.3rem 0 0;
+  }
+  .pk-gloss-entry > * + * {
+    margin-block-start: 0;
+  }
+  .pk-gloss-see {
+    font-size: 0.88rem;
+    color: var(--pk-ink-2);
+  }
+</style>

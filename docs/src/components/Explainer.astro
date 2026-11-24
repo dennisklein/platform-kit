@@ -1,0 +1,121 @@
+---
+// A stepped explainer: an SVG stage (the slot), a caption and a command for each step,
+// and controls (restart, back, play, next, one tick for each step, "n / N").
+// Each step sets a state on named stage parts: `state: { host: 'active', bind: 'flow' }`.
+// States: active, done, flow (a moving dash on an edge), ok, warn, err. Parts that a
+// step does not name go back to rest. `text` sets the second line of a Box by its
+// `text` name. Arrow keys step when the explainer has focus. With reduced motion,
+// play is off and edges do not move; the steps still work.
+interface Step {
+  title: string;
+  caption: string;
+  code?: string;
+  state?: Record<string, 'active' | 'done' | 'flow' | 'ok' | 'warn' | 'err'>;
+  text?: Record<string, string>;
+}
+interface Props {
+  title: string;
+  steps: Step[];
+  start?: number;
+}
+const { title, steps, start = 0 } = Astro.props;
+const first = steps[start];
+---
+
+<section class="pk-ex not-content" aria-label={title} tabindex="0" data-steps={JSON.stringify(steps)} data-start={start}>
+  <header class="pk-ex-head">
+    <p class="pk-ex-title">{title}</p>
+    <p class="pk-ex-count"><span data-ex="n">{start + 1}</span> / {steps.length}</p>
+  </header>
+  <div class="pk-ex-stage"><slot /></div>
+  <div class="pk-ex-text">
+    <p class="pk-ex-step" data-ex="title">{first.title}</p>
+    <p class="pk-ex-caption" aria-live="polite" data-ex="caption">{first.caption}</p>
+    <code class="pk-ex-code" data-ex="code" hidden={!first.code}>{first.code}</code>
+  </div>
+  <div class="pk-ex-controls">
+    <button type="button" data-ex="restart" aria-label="Restart">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3v4h4M3.5 7A5 5 0 1 1 4 11"></path></svg>
+    </button>
+    <button type="button" data-ex="prev" aria-label="Back">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5"></path></svg>
+    </button>
+    <button type="button" data-ex="play" aria-label="Play" class="pk-ex-play">
+      <svg viewBox="0 0 16 16" aria-hidden="true" class="i-play"><path d="M5 3v10l8-5Z"></path></svg>
+      <svg viewBox="0 0 16 16" aria-hidden="true" class="i-pause"><path d="M5 3v10M11 3v10"></path></svg>
+    </button>
+    <button type="button" data-ex="next" aria-label="Next">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5"></path></svg>
+    </button>
+    <ol class="pk-ex-ticks">
+      {steps.map((s, i) => (
+        <li>
+          <button type="button" data-ex-go={i} aria-label={`Step ${i + 1}: ${s.title}`} aria-current={i === start ? 'step' : undefined}>{i + 1}</button>
+        </li>
+      ))}
+    </ol>
+  </div>
+</section>
+
+<script>
+  const states = ['active', 'done', 'flow', 'ok', 'warn', 'err'].map((s) => `is-${s}`);
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  for (const ex of document.querySelectorAll<HTMLElement>('.pk-ex')) {
+    const steps = JSON.parse(ex.dataset.steps!);
+    const q = (k: string) => ex.querySelector<HTMLElement>(`[data-ex="${k}"]`)!;
+    const ticks = [...ex.querySelectorAll<HTMLButtonElement>('[data-ex-go]')];
+    let cur = Number(ex.dataset.start ?? 0);
+    let timer: number | undefined;
+
+    const go = (i: number) => {
+      cur = Math.max(0, Math.min(steps.length - 1, i));
+      const s = steps[cur];
+      for (const el of ex.querySelectorAll<SVGElement>('[data-node]')) {
+        el.classList.remove(...states);
+        const st = s.state?.[el.dataset.node!];
+        if (st) el.classList.add(`is-${st}`);
+      }
+      for (const [k, v] of Object.entries(s.text ?? {})) {
+        const t = ex.querySelector(`[data-text="${k}"]`);
+        if (t) t.textContent = v as string;
+      }
+      q('n').textContent = String(cur + 1);
+      q('title').textContent = s.title;
+      q('caption').textContent = s.caption;
+      const code = q('code');
+      code.hidden = !s.code;
+      code.textContent = s.code ?? '';
+      ticks.forEach((t, j) => {
+        if (j === cur) t.setAttribute('aria-current', 'step');
+        else t.removeAttribute('aria-current');
+        t.classList.toggle('seen', j < cur);
+      });
+    };
+
+    const stop = () => {
+      window.clearInterval(timer);
+      timer = undefined;
+      ex.classList.remove('playing');
+      q('play').setAttribute('aria-label', 'Play');
+    };
+    const play = () => {
+      if (reduced.matches) return go(cur + 1);
+      if (cur === steps.length - 1) go(0);
+      ex.classList.add('playing');
+      q('play').setAttribute('aria-label', 'Pause');
+      timer = window.setInterval(() => (cur === steps.length - 1 ? stop() : go(cur + 1)), 3200);
+    };
+
+    q('restart').addEventListener('click', () => (stop(), go(0)));
+    q('prev').addEventListener('click', () => (stop(), go(cur - 1)));
+    q('next').addEventListener('click', () => (stop(), go(cur + 1)));
+    q('play').addEventListener('click', () => (timer ? stop() : play()));
+    ticks.forEach((t, j) => t.addEventListener('click', () => (stop(), go(j))));
+    ex.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight') (stop(), go(cur + 1), e.preventDefault());
+      if (e.key === 'ArrowLeft') (stop(), go(cur - 1), e.preventDefault());
+    });
+    go(cur);
+  }
+</script>

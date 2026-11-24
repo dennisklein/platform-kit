@@ -1,0 +1,18 @@
+---
+// One CSS rule per link category and per glossary domain: the colour token and the
+// icon. The colours are theme tokens (--c-<category>, --d-<domain>); see src/styles.
+import { categories, iconUrl } from '../data/categories.mjs';
+import { loadGlossary } from '../../scripts/glossary-data.mjs';
+
+const { domains } = loadGlossary();
+const css = [
+  ...categories.map(
+    (c) => `[data-cat="${c.id}"]{--cat-c:var(--c-${c.id});--cat-i:${iconUrl(c.icon)}}`,
+  ),
+  ...Object.entries(domains).map(
+    ([id, d]) => `[data-domain="${id}"]{--gl-c:var(--d-${id},var(--c-term));--gl-i:${iconUrl(d.icon)}}`,
+  ),
+].join('\n');
+---
+
+<style is:global set:html={css}></style>

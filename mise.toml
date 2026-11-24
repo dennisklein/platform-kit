@@ -18,6 +18,8 @@ kind = "0.32"
 golangci-lint = "2"
 jq = "1"
 yq = "4"
+# Node 24 LTS for the documentation site in docs/ (Astro + Starlight).
+node = "24.22"
 # Vale lints the documentation site against the STE style in docs/styles.
 vale = "3.28"
 
@@ -258,6 +260,53 @@ run = "lab/lab.sh down"
 [tasks."lab:reset"]
 description = "Wipe the lab machines' disks (the lab must be down)"
 run = "lab/lab.sh reset"
+
+# Documentation site (docs/): Astro + Starlight. The site deploys to GitHub Pages from
+# the metal branch (.github/workflows/docs.yml).
+
+[tasks."docs:install"]
+description = "Install the pinned npm packages of the documentation site (npm ci)"
+dir = "docs"
+run = "npm ci --no-audit --no-fund"
+sources = ["package.json", "package-lock.json"]
+outputs = ["node_modules/.package-lock.json"]
+
+[tasks."docs:dev"]
+description = "Serve the documentation site with live reload at http://localhost:4321/platform-kit/"
+dir = "docs"
+depends = ["docs:install"]
+env = { ASTRO_TELEMETRY_DISABLED = "1" }
+run = "npx astro dev"
+
+[tasks."docs:build"]
+description = "Build the documentation site into docs/dist; fails on an unknown category link or a broken internal link"
+dir = "docs"
+depends = ["docs:install"]
+env = { ASTRO_TELEMETRY_DISABLED = "1" }
+run = "npx astro build"
+
+[tasks."docs:preview"]
+description = "Serve the built site from docs/dist"
+dir = "docs"
+env = { ASTRO_TELEMETRY_DISABLED = "1" }
+run = "npx astro preview"
+
+[tasks."docs:links"]
+description = "Check the category links and their anchors in docs/dist"
+dir = "docs"
+depends = ["docs:build"]
+run = "node scripts/check-xrefs.mjs dist"
+
+[tasks."docs:check"]
+description = "The documentation gate of CI: build, internal links, category links"
+depends = ["docs:links"]
+
+[tasks."docs:shots"]
+description = "Take screenshots of representative pages (light, dark, phone) into docs/.shots (needs Playwright with Chromium; set NODE_PATH to it)"
+dir = "docs"
+depends = ["docs:build"]
+env = { ASTRO_TELEMETRY_DISABLED = "1" }
+run = "node scripts/shots.mjs"
 
 [tasks."docs:lint"]
 description = "Check the prose of the documentation pages with the STE Vale style (docs/.vale.ini)"

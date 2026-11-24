@@ -1,0 +1,74 @@
+---
+// Explainer: how the operator installs one machine, from claim to Provisioned.
+// Source: metal/internal/controller/provisioning.go (provisionOp).
+import Explainer from '../Explainer.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+
+interface Props {
+  start?: number;
+}
+const { start = 0 } = Astro.props;
+const steps = [
+  {
+    title: 'Claim',
+    caption: 'You apply a HostClaim. The HostClaim controller binds a free Host to it.',
+    code: 'kubectl apply -f claim.yaml',
+    state: { claim: 'active', host: 'active', bind: 'flow' },
+    text: { 'claim-ph': 'Bound', 'host-ph': 'Assigned', 'op-ph': '-', 'node-ph': 'off' },
+  },
+  {
+    title: 'Propose',
+    caption: 'The controller proposes a HostOperation. The operation waits for approval. The machine does not change.',
+    code: 'pk-metal status',
+    state: { claim: 'done', host: 'done', bind: 'done', op: 'warn', propose: 'flow' },
+    text: { 'claim-ph': 'Bound', 'host-ph': 'Assigned', 'op-ph': 'AwaitingApproval', 'node-ph': 'off' },
+  },
+  {
+    title: 'Approve',
+    caption: 'You approve the operation. The HostOperation controller starts it.',
+    code: 'pk-metal approve install-node-01',
+    state: { claim: 'done', host: 'done', bind: 'done', propose: 'done', you: 'active', approve: 'flow', op: 'active' },
+    text: { 'claim-ph': 'Bound', 'host-ph': 'Assigned', 'op-ph': 'Running', 'node-ph': 'off' },
+  },
+  {
+    title: 'Boot',
+    caption: 'The operation mounts the installer and the node configuration as virtual media. It sets a one-time boot device and power cycles the machine.',
+    code: 'InsertMedia → SetBootOverride → PowerCycle',
+    state: { claim: 'done', host: 'active', bind: 'done', propose: 'done', approve: 'done', op: 'active', redfish: 'flow', bmc: 'active', media: 'active', mount: 'flow', power: 'flow', node: 'active' },
+    text: { 'claim-ph': 'Bound', 'host-ph': 'Provisioning', 'op-ph': 'Running', 'node-ph': 'installing' },
+  },
+  {
+    title: 'Check in',
+    caption: 'Talos starts from the disk and the node checks in. The operation ejects the media and succeeds. The Host is Provisioned.',
+    code: 'AwaitCheckIn → EjectMedia',
+    state: { claim: 'done', host: 'ok', bind: 'done', propose: 'done', approve: 'done', op: 'ok', redfish: 'done', bmc: 'done', media: 'done', mount: 'done', power: 'done', node: 'ok', checkin: 'flow' },
+    text: { 'claim-ph': 'Bound', 'host-ph': 'Provisioned', 'op-ph': 'Succeeded', 'node-ph': 'ready' },
+  },
+];
+---
+
+<Explainer title="Install one machine" steps={steps as any} start={start}>
+  <svg viewBox="0 0 720 280" role="img" aria-labelledby="ex-prov-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
+    <title id="ex-prov-t">A HostClaim binds a Host. A HostOperation, after approval, boots the machine through its BMC with virtual media.</title>
+    <defs>
+      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
+      </marker>
+    </defs>
+    <Box node="you" x={290} y={6} w={140} h={30} label="You" variant="soft" />
+    <Box node="claim" x={20} y={62} w={170} h={56} label="HostClaim" sub="Pending" text="claim-ph" cat="kind" href="/reference/kinds/hostclaim/" />
+    <Box node="op" x={275} y={62} w={170} h={56} label="HostOperation" sub="-" text="op-ph" cat="kind" href="/reference/kinds/hostoperation/" />
+    <Box node="bmc" x={530} y={62} w={170} h={56} label="BMC" sub="Redfish" />
+    <Box node="host" x={20} y={182} w={170} h={56} label="Host" sub="Available" text="host-ph" cat="kind" href="/reference/kinds/host/" />
+    <Box node="media" x={275} y={182} w={170} h={56} label="Media store" sub="installer + config" />
+    <Box node="node" x={530} y={182} w={170} h={56} label="Machine" sub="off" text="node-ph" />
+    <Edge node="bind" points={[[105, 118], [105, 182]]} label="binds" at={[113, 154]} anchor="start" />
+    <Edge node="propose" points={[[190, 90], [275, 90]]} label="proposes" at={[232, 82]} />
+    <Edge node="approve" points={[[360, 36], [360, 62]]} label="approves" at={[440, 26]} anchor="start" />
+    <Edge node="redfish" points={[[445, 90], [530, 90]]} label="Redfish" at={[487, 82]} />
+    <Edge node="mount" points={[[445, 210], [530, 210]]} label="mounts" at={[487, 202]} />
+    <Edge node="power" points={[[615, 118], [615, 182]]} label="power cycle" at={[623, 154]} anchor="start" />
+    <Edge node="checkin" points={[[615, 238], [615, 262], [105, 262], [105, 238]]} label="checks in" at={[360, 256]} />
+  </svg>
+</Explainer>

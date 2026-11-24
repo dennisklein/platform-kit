@@ -1,0 +1,93 @@
+---
+// The phases of one kind, from the generated phases.json, with the meaning and the
+// rule of each phase from phase-notes.ts. Each row has the anchor `<kind>-<phase>` in
+// lower case, for example #host-available.
+import { phaseId, phaseSet, sourceUrl } from './data';
+import { phaseNotes } from './phase-notes';
+
+interface Props {
+  kind: string;
+  /** `flow` keeps the order of the enum (the usual path); `precedence` sorts by rule order. */
+  order?: 'flow' | 'precedence';
+}
+const { kind, order = 'flow' } = Astro.props;
+const set = phaseSet(kind);
+const notes = phaseNotes[set.type] ?? {};
+const names = set.values.map((v) => v.value);
+const missing = names.filter((n) => !notes[n]);
+const extra = Object.keys(notes).filter((n) => !names.includes(n));
+if (missing.length || extra.length) {
+  throw new Error(`catalog: phase-notes.ts and phases.json disagree for ${set.type}: no note for [${missing}], no phase for [${extra}]`);
+}
+const rows = set.values.map((v) => ({ ...v, ...notes[v.value] }));
+if (order === 'precedence') rows.sort((a, b) => a.order - b.order);
+const code = (s: string) => s.split('`').map((part, i) => (i % 2 ? { code: part } : { text: part }));
+---
+
+<div class="pk-fields pk-cat not-content">
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Phase</th>
+        <th scope="col">Meaning</th>
+        <th scope="col">The operator shows it when</th>
+        <th scope="col" class="c-num" title="The order in which the operator examines the rules">Rule</th>
+      </tr>
+    </thead>
+    <tbody>
+      {rows.map((r) => (
+        <tr id={phaseId(kind, r.value)}>
+          <td class="f-path">
+            <a href={`#${phaseId(kind, r.value)}`} class="f-anchor"><span class:list={['c-dot', r.tone && `c-${r.tone}`]}></span><code>{r.value}</code></a>
+          </td>
+          <td class="f-desc c-rule">{code(r.means).map((p) => (p.code ? <code>{p.code}</code> : p.text))}</td>
+          <td class="f-desc c-rule">{code(r.rule).map((p) => (p.code ? <code>{p.code}</code> : p.text))}</td>
+          <td class="c-num">{r.order}</td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+  <p class="c-foot">
+    Type <code>{set.type}</code> in <code>{set.usedBy.join(', ')}</code> ·
+    <a class="x" data-cat="src" href={sourceUrl(set.source)}>{set.source.split('/').at(-1)}</a>
+  </p>
+</div>
+
+<style>
+  .c-dot {
+    display: inline-block;
+    inline-size: 0.55rem;
+    block-size: 0.55rem;
+    margin-inline-end: 0.5rem;
+    border-radius: 50%;
+    border: 1.5px solid var(--pk-fig-line);
+    background: var(--pk-fig-box);
+  }
+  .c-ok { background: var(--pk-ok); border-color: var(--pk-ok); }
+  .c-warn { background: var(--pk-warn); border-color: var(--pk-warn); }
+  .c-err { background: var(--pk-err); border-color: var(--pk-err); }
+  .c-accent { background: var(--pk-accent); border-color: var(--pk-accent); }
+  .c-soft { background: var(--pk-rule-strong); border-color: var(--pk-rule-strong); }
+  .c-num {
+    text-align: end;
+    font-family: var(--pk-font-mono);
+    color: var(--pk-ink-3);
+  }
+  .c-rule code {
+    font-size: 0.8rem;
+  }
+  .f-desc {
+    min-inline-size: 13rem;
+  }
+  .c-foot {
+    margin: 0;
+    padding: 0.45rem 0.75rem;
+    font-size: 0.78rem;
+    color: var(--pk-ink-3);
+    border-top: 1px solid var(--pk-rule);
+    background: var(--pk-paper-2);
+  }
+  .c-foot code {
+    font-size: 0.74rem;
+  }
+</style>

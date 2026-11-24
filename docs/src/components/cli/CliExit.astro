@@ -1,0 +1,54 @@
+---
+// The exit status of one command. The rows come from the generated data: the
+// command's own table when its help has one (pk-metal status), the table of
+// the program for all other commands.
+import { command, index } from './data';
+
+interface Props {
+  cmd?: string;
+}
+const { cmd } = Astro.props;
+const own = cmd ? command(cmd).exitStatus : [];
+const rows = own.length ? own : index.exitStatus.filter((r) => !cmd || !/status only/.test(r.meaning));
+
+function text(meaning: string) {
+  // "error; the message is on stderr, as \"pk-metal: <message>\"" and so on: one sentence.
+  let s = meaning.replace(/^pk-metal status only: /, '').trim();
+  s = s.charAt(0).toUpperCase() + s.slice(1);
+  return /[.!?]$/.test(s) ? s : `${s}.`;
+}
+---
+
+<div class="pk-fields pk-cli-exit not-content">
+  <table>
+    <thead>
+      <tr><th scope="col">Code</th><th scope="col">Meaning</th></tr>
+    </thead>
+    <tbody>
+      {rows.map((r) => (
+        <tr id={`exit-${r.code}`} data-code={r.code}>
+          <td class="f-path"><a href={`#exit-${r.code}`} class="f-anchor"><code>{r.code}</code></a></td>
+          <td class="f-desc">
+            {text(r.meaning)}
+            {!cmd && /status only/.test(r.meaning) && <span class="f-only"> Only <code>pk-metal status</code> gives this code.</span>}
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>
+
+<style is:global>
+  .pk-cli-exit .f-path {
+    inline-size: 5rem;
+  }
+  .pk-cli-exit tr[data-code='0'] .f-anchor code {
+    color: var(--pk-ok);
+  }
+  .pk-cli-exit tr[data-code='1'] .f-anchor code {
+    color: var(--pk-err);
+  }
+  .pk-cli-exit tr[data-code='2'] .f-anchor code {
+    color: var(--pk-warn);
+  }
+</style>

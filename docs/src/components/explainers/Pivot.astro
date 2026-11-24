@@ -1,0 +1,94 @@
+---
+// Explainer: move the operator from a bootstrap cluster to the cluster it built.
+// Source: metal/cmd/pk-metal/pivot.go (preflight, install, pause, copy, start, settle).
+import Explainer from '../Explainer.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+import Zone from '../diagram/Zone.astro';
+
+interface Props {
+  start?: number;
+}
+const { start = 0 } = Astro.props;
+const steps = [
+  {
+    title: 'Bootstrap',
+    caption: 'The operator starts in a small bootstrap cluster, for example kind on a workstation. It installs the first Talos cluster.',
+    code: 'kind create cluster',
+    state: { src: 'ok', machines: 'active', s2m: 'flow' },
+    text: { 'src-ph': '1 replica', 'dst-ph': 'no operator', 'obj-ph': 'in source' },
+  },
+  {
+    title: 'Preflight',
+    caption: 'pivot refuses to start while an operation runs, an operation waits for approval, a rollout runs, or the target has no storage for the media store.',
+    code: 'pk-metal pivot --to mgmt.kubeconfig',
+    state: { src: 'ok', you: 'active', check: 'warn' },
+    text: { 'src-ph': '1 replica', 'dst-ph': 'no operator', 'obj-ph': 'in source' },
+  },
+  {
+    title: 'Install',
+    caption: 'pivot installs the CRDs, the admission policies, the roles and the manager on the target. The manager has zero replicas.',
+    code: 'CRDs → policies → RBAC → namespace → Deployment (0)',
+    state: { src: 'ok', check: 'ok', dst: 'active' },
+    text: { 'src-ph': '1 replica', 'dst-ph': '0 replicas', 'obj-ph': 'in source' },
+  },
+  {
+    title: 'Pause the source',
+    caption: 'pivot scales the source manager to zero. It does not delete it. Annotations on the namespace record the move.',
+    code: 'metal.pk.io/pivoted-to, metal.pk.io/pivot-replicas',
+    state: { src: 'warn', dst: 'active' },
+    text: { 'src-ph': '0 replicas', 'dst-ph': '0 replicas', 'obj-ph': 'in source' },
+  },
+  {
+    title: 'Copy',
+    caption: 'pivot copies Secrets, Assets, Hosts, claims, operations and Talos objects with their status. It writes the new UIDs into each reference.',
+    code: 'spec.claimRef.uid, owner references, approvals',
+    state: { src: 'warn', dst: 'active', obj: 'active', copy: 'flow' },
+    text: { 'src-ph': '0 replicas', 'dst-ph': '0 replicas', 'obj-ph': 'copied' },
+  },
+  {
+    title: 'Start',
+    caption: 'pivot starts the target manager and waits for its leader lease. The target manager now reaches the BMCs and the nodes.',
+    code: '--media-url https://<node address>:30443',
+    state: { src: 'warn', dst: 'ok', obj: 'done', d2m: 'flow', machines: 'active' },
+    text: { 'src-ph': '0 replicas', 'dst-ph': '1 replica', 'obj-ph': 'copied' },
+  },
+  {
+    title: 'Settle',
+    caption: 'pivot watches the new manager for 90 seconds. A new operation is a failure: a move never boots, powers or changes a machine.',
+    code: '--settle 90s',
+    state: { src: 'warn', dst: 'ok', d2m: 'flow', machines: 'ok', check: 'ok' },
+    text: { 'src-ph': '0 replicas', 'dst-ph': '1 replica', 'obj-ph': 'copied' },
+  },
+  {
+    title: 'Done',
+    caption: 'The operator runs on the machines that it manages. Self-protection now holds power actions on its own control planes. Delete the kind cluster when you no longer need it.',
+    code: 'kind delete cluster --name <name>',
+    state: { src: 'done', dst: 'ok', machines: 'ok', d2m: 'done' },
+    text: { 'src-ph': 'stopped', 'dst-ph': '1 replica', 'obj-ph': 'copied' },
+  },
+];
+---
+
+<Explainer title="Move the operator (pivot)" steps={steps as any} start={start}>
+  <svg viewBox="0 0 720 270" role="img" aria-labelledby="ex-piv-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
+    <title id="ex-piv-t">pk-metal pivot installs the operator on the target cluster, pauses the source, copies the objects, starts the target manager and watches it.</title>
+    <defs>
+      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
+      </marker>
+    </defs>
+    <Zone x={10} y={10} w={250} h={150} label="bootstrap cluster (kind)" />
+    <Zone x={460} y={10} w={250} h={150} label="Talos cluster mgmt" />
+    <Box node="src" x={35} y={40} w={200} h={50} label="Operator" sub="-" text="src-ph" />
+    <Box node="obj" x={35} y={100} w={200} h={46} label="pk-metal objects" sub="-" text="obj-ph" />
+    <Box node="dst" x={485} y={40} w={200} h={50} label="Operator" sub="-" text="dst-ph" />
+    <Box node="dobj" x={485} y={100} w={200} h={46} label="pk-metal objects" sub="new UIDs" />
+    <Box node="you" x={285} y={20} w={150} h={44} label="You" sub="pk-metal pivot" variant="soft" />
+    <Box node="check" x={285} y={80} w={150} h={44} label="Preflight" sub="refuses or goes on" />
+    <Box node="machines" x={200} y={206} w={320} h={54} label="BMCs and machines" sub="no change during the move" />
+    <Edge node="copy" points={[[235, 140], [485, 140]]} label="copy" at={[360, 152]} />
+    <Edge node="s2m" points={[[135, 160], [135, 233], [200, 233]]} label="manages" at={[143, 190]} anchor="start" />
+    <Edge node="d2m" points={[[585, 160], [585, 233], [520, 233]]} label="manages" at={[577, 190]} anchor="end" />
+  </svg>
+</Explainer>

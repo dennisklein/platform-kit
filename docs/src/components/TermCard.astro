@@ -1,0 +1,82 @@
+---
+// Hover and focus card for glossary terms (a.gl) and category links (a.x[data-xref]).
+// The data comes from /xref.json (src/pages/xref.json.ts), loaded on the first hover.
+const url = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/xref.json`;
+---
+
+<div class="pk-card" id="pk-card" role="tooltip" hidden data-src={url}></div>
+
+<script>
+  const card = document.getElementById('pk-card') as HTMLDivElement;
+  let data: Promise<any> | undefined;
+  let owner: HTMLElement | undefined;
+  let hideTimer: number | undefined;
+
+  const load = () => (data ??= fetch(card.dataset.src!).then((r) => r.json()));
+  const esc = (s: string) => s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+
+  async function show(a: HTMLElement) {
+    window.clearTimeout(hideTimer);
+    owner = a;
+    const d = await load();
+    if (owner !== a) return;
+    let html = '';
+    if (a.classList.contains('gl')) {
+      const t = d.terms[a.dataset.gl!];
+      if (!t) return;
+      const dom = d.domains[t.domain] ?? { name: t.domain };
+      html = `<p class="pk-card-head" data-domain="${esc(t.domain)}"><span class="pk-card-icon"></span>${esc(dom.name)}</p>
+        <p class="pk-card-title">${esc(t.term)}${t.abbr ? ` <span class="pk-card-abbr">${esc(t.abbr)}</span>` : ''}<span class="pk-card-kind">${esc(t.kind ?? '')}</span></p>
+        <p class="pk-card-body">${esc(t.def)}</p>`;
+    } else {
+      const x = d.xrefs[a.dataset.xref!];
+      if (!x) return;
+      html = `<p class="pk-card-head" data-cat="${esc(x.cat)}"><span class="pk-card-icon"></span>${esc(d.categories[x.cat])}</p>
+        <p class="pk-card-title">${esc(x.title)}</p>
+        ${x.description ? `<p class="pk-card-body">${esc(x.description)}</p>` : ''}
+        ${x.planned ? '<p class="pk-card-note">This page is planned.</p>' : ''}`;
+    }
+    card.innerHTML = html;
+    card.hidden = false;
+    place(a);
+  }
+
+  function place(a: HTMLElement) {
+    const r = a.getBoundingClientRect();
+    const w = card.offsetWidth;
+    const h = card.offsetHeight;
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
+    const below = r.bottom + 8 + h < window.innerHeight;
+    card.style.left = `${left + window.scrollX}px`;
+    card.style.top = `${(below ? r.bottom + 8 : r.top - h - 8) + window.scrollY}px`;
+  }
+
+  function hide() {
+    hideTimer = window.setTimeout(() => {
+      card.hidden = true;
+      owner = undefined;
+    }, 120);
+  }
+
+  const target = (e: Event) =>
+    (e.target as Element | null)?.closest?.('a.gl, a.x[data-xref]') as HTMLElement | null;
+  document.addEventListener('pointerover', (e) => {
+    const a = target(e);
+    if (a) show(a);
+  });
+  document.addEventListener('pointerout', (e) => {
+    if (target(e)) hide();
+  });
+  document.addEventListener('focusin', (e) => {
+    const a = target(e);
+    if (a) show(a);
+  });
+  document.addEventListener('focusout', (e) => {
+    if (target(e)) hide();
+  });
+  card.addEventListener('pointerenter', () => window.clearTimeout(hideTimer));
+  card.addEventListener('pointerleave', hide);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') card.hidden = true;
+  });
+</script>

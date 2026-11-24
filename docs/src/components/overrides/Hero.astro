@@ -1,0 +1,44 @@
+---
+// The landing hero: name, one claim, the actions from the `hero` frontmatter, and a
+// small status panel.
+import { loadRegistry } from '../../../scripts/registry.mjs';
+import { byScheme } from '../../data/categories.mjs';
+
+const { hero, title: pageTitle } = Astro.locals.starlightRoute.entry.data as any;
+const title = hero.title ?? pageTitle;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+// Actions use category links (`tut:lab-first-cluster`), like the text.
+const registry = loadRegistry(base);
+const href = (link: string) => {
+  const m = /^([a-z]+):(.+)$/.exec(link);
+  const e = m && byScheme.has(m[1]) ? registry.get(`${byScheme.get(m[1]).id}:${m[2]}`) : undefined;
+  if (m && byScheme.has(m[1]) && !e) throw new Error(`hero: unknown id "${link}"`);
+  return e ? e.href : link;
+};
+---
+
+<section class="pk-hero not-content">
+  <div class="pk-hero-text">
+    <p class="pk-hero-kicker">Bare metal · Redfish · Talos Linux</p>
+    <h1 class="pk-hero-title" id="_top">{title}</h1>
+    <p class="pk-hero-tagline">{hero.tagline}</p>
+    <div class="pk-hero-actions">
+      {hero.actions?.map((a: any) => (
+        <a class:list={['pk-btn', { 'pk-btn-primary': a.variant === 'primary' }]} href={href(a.link)}>{a.text}</a>
+      ))}
+    </div>
+  </div>
+  <div class="pk-hero-panel" aria-hidden="true">
+    <p class="pk-term-bar"><span></span><span></span><span></span><b>pk-metal status</b></p>
+    <pre class="pk-term"><span class="d">HOST              PHASE         BLOCKED</span>
+sim-0001          <span class="ok">Provisioned</span>
+sim-0002          <span class="ok">Provisioned</span>
+sim-0003          <span class="run">Provisioning</span>
+sim-0004          <span class="warn">Assigned</span>      Approval(Provisioning)
+sim-0005          Available
+
+<span class="d">OPERATION              PHASE</span>
+install-sim-0004       <span class="warn">AwaitingApproval</span>
+<span class="p">$</span> pk-metal approve install-sim-0004<span class="cur"></span></pre>
+  </div>
+</section>

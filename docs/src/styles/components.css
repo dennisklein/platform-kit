@@ -1,0 +1,949 @@
+/*
+ * Components that every theme shares. Colours come from tokens only; the theme files
+ * change the shape where the theme needs it (link style, diagram corners, callouts).
+ */
+
+/* ---------- Category links ---------- */
+
+.sl-markdown-content a.x,
+a.x,
+.x.pk-sample {
+  color: var(--cat-c);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--cat-c) 38%, transparent);
+  transition: border-color 0.12s;
+  overflow-wrap: anywhere;
+}
+a.x:hover {
+  border-bottom-color: var(--cat-c);
+}
+a.x::before,
+.x.pk-sample::before {
+  content: '';
+  display: inline-block;
+  inline-size: 0.95em;
+  block-size: 0.95em;
+  margin-inline-end: 0.25em;
+  vertical-align: -0.13em;
+  background: currentColor;
+  -webkit-mask: var(--cat-i) center / contain no-repeat;
+  mask: var(--cat-i) center / contain no-repeat;
+}
+a.x[data-cat='cli'],
+a.x[data-cat='lab'],
+a.x[data-cat='src'],
+.x.mono {
+  font-family: var(--pk-font-mono);
+  font-size: 0.9em;
+}
+a.x[data-cat='ext']::before {
+  content: none;
+}
+a.x[data-cat='ext']::after {
+  content: '';
+  display: inline-block;
+  inline-size: 0.8em;
+  block-size: 0.8em;
+  margin-inline-start: 0.2em;
+  background: currentColor;
+  -webkit-mask: var(--cat-i) center / contain no-repeat;
+  mask: var(--cat-i) center / contain no-repeat;
+}
+a.x code {
+  color: inherit;
+  background: none;
+  padding: 0;
+}
+@media print {
+  a.x::before,
+  a.x::after {
+    display: none;
+  }
+}
+
+/* ---------- Glossary terms ---------- */
+
+.sl-markdown-content a.gl,
+a.gl,
+.gl.pk-sample {
+  color: inherit;
+  text-decoration: underline dotted color-mix(in srgb, var(--gl-c, var(--pk-ink-2)) 80%, transparent);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 0.22em;
+}
+a.gl:hover {
+  text-decoration-style: solid;
+}
+a.gl abbr {
+  text-decoration: none;
+}
+
+/* ---------- Hover card ---------- */
+
+.pk-card {
+  position: absolute;
+  z-index: 60;
+  max-inline-size: min(22rem, calc(100vw - 16px));
+  padding: 0.75rem 0.9rem;
+  background: var(--pk-paper);
+  color: var(--pk-ink);
+  border: 1px solid var(--pk-rule-strong);
+  border-radius: var(--pk-radius-lg);
+  box-shadow: var(--pk-shadow);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.pk-card p {
+  margin: 0;
+}
+.pk-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gl-c, var(--cat-c));
+}
+.pk-card-icon {
+  inline-size: 1rem;
+  block-size: 1rem;
+  background: currentColor;
+  -webkit-mask: var(--gl-i, var(--cat-i)) center / contain no-repeat;
+  mask: var(--gl-i, var(--cat-i)) center / contain no-repeat;
+}
+.pk-card-title {
+  margin-top: 0.35rem !important;
+  font-weight: 650;
+  font-size: 1rem;
+}
+.pk-card-abbr,
+.pk-card-kind {
+  font-weight: 400;
+  font-size: 0.8rem;
+  color: var(--pk-ink-3);
+}
+.pk-card-kind {
+  font-style: italic;
+  margin-inline-start: 0.5rem;
+}
+.pk-card-body {
+  margin-top: 0.3rem !important;
+  color: var(--pk-ink-2);
+}
+.pk-card-note {
+  margin-top: 0.4rem !important;
+  font-size: 0.75rem;
+  color: var(--pk-ink-3);
+}
+
+/* ---------- Eyebrow, page title ---------- */
+
+.pk-eyebrow {
+  margin: 1.25rem 0 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--pk-ink-3);
+}
+.pk-eyebrow::after {
+  content: '';
+  display: block;
+  inline-size: 1.75rem;
+  block-size: 3px;
+  margin-top: 0.6rem;
+  background: var(--pk-accent);
+}
+.pk-eyebrow + h1 {
+  margin-top: 0.5rem;
+}
+
+/* ---------- Footer legend ---------- */
+
+.pk-legend {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--pk-rule);
+}
+.pk-legend-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--pk-ink-3);
+}
+.pk-legend ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pk-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  color: var(--cat-c);
+}
+.pk-chip::before {
+  content: '';
+  inline-size: 0.9rem;
+  block-size: 0.9rem;
+  background: currentColor;
+  -webkit-mask: var(--cat-i) center / contain no-repeat;
+  mask: var(--cat-i) center / contain no-repeat;
+}
+
+/* ---------- Definition lists ---------- */
+
+.sl-markdown-content dl:not(.pk-gloss) {
+  display: grid;
+  grid-template-columns: minmax(8rem, max-content) 1fr;
+  gap: 0;
+  border-top: 1px solid var(--pk-rule);
+}
+.sl-markdown-content dl:not(.pk-gloss) > dt,
+.sl-markdown-content dl:not(.pk-gloss) > dd {
+  margin: 0;
+  padding: 0.5rem 0.75rem 0.5rem 0;
+  border-bottom: 1px solid var(--pk-rule);
+}
+.sl-markdown-content dl:not(.pk-gloss) > dt {
+  font-weight: 600;
+  color: var(--pk-ink-2);
+  font-size: 0.9em;
+}
+.sl-markdown-content dl:not(.pk-gloss) > dd {
+  padding-inline-start: 0.75rem;
+}
+@media (max-width: 40rem) {
+  .sl-markdown-content dl:not(.pk-gloss) {
+    grid-template-columns: 1fr;
+  }
+  .sl-markdown-content dl:not(.pk-gloss) > dt {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+  .sl-markdown-content dl:not(.pk-gloss) > dd {
+    padding-inline-start: 0;
+  }
+}
+
+/* ---------- Numbered procedures ---------- */
+
+.sl-markdown-content ol:not(:where(.not-content *)) {
+  counter-reset: pk-step;
+  list-style: none;
+  padding-inline-start: 2.4rem;
+}
+.sl-markdown-content ol:not(:where(.not-content *)) > li {
+  counter-increment: pk-step;
+  position: relative;
+}
+.sl-markdown-content ol:not(:where(.not-content *)) > li::before {
+  content: counter(pk-step);
+  position: absolute;
+  inset-inline-start: -2.4rem;
+  inset-block-start: 0.12em;
+  inline-size: 1.55rem;
+  block-size: 1.55rem;
+  display: grid;
+  place-items: center;
+  font: 600 0.78rem/1 var(--pk-font-mono);
+  color: var(--pk-ink-2);
+  border: 1px solid var(--pk-rule-strong);
+  border-radius: 50%;
+}
+
+/* ---------- Tables ---------- */
+
+.sl-markdown-content table {
+  font-size: 0.92em;
+}
+.sl-markdown-content table th {
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--pk-ink-3);
+}
+
+/* ---------- Field tables ---------- */
+
+.pk-fields {
+  overflow-x: auto;
+  margin-block: 1rem;
+  border: 1px solid var(--pk-rule);
+  border-radius: var(--pk-radius);
+}
+.pk-fields table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.pk-fields th {
+  text-align: start;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pk-ink-3);
+  background: var(--pk-paper-2);
+  border-bottom: 1px solid var(--pk-rule);
+}
+.pk-fields td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--pk-rule);
+  vertical-align: top;
+}
+.pk-fields tr:last-child td {
+  border-bottom: 0;
+}
+.pk-fields tr:target td {
+  background: color-mix(in srgb, var(--pk-accent) 12%, transparent);
+}
+.pk-fields .f-path {
+  white-space: nowrap;
+}
+.pk-fields tr[data-depth='1'] .f-path {
+  padding-inline-start: 1.75rem;
+}
+.pk-fields tr[data-depth='2'] .f-path {
+  padding-inline-start: 2.75rem;
+}
+.pk-fields tr[data-depth='3'] .f-path {
+  padding-inline-start: 3.75rem;
+}
+.pk-fields tr[data-depth]:not([data-depth='0']) .f-path::before {
+  content: '└ ';
+  color: var(--pk-rule-strong);
+  font-family: var(--pk-font-mono);
+}
+.pk-fields .f-anchor {
+  text-decoration: none;
+  color: var(--pk-ink);
+}
+.pk-fields .f-anchor code {
+  background: none;
+  padding: 0;
+  font-weight: 600;
+}
+.pk-fields .f-type code {
+  background: none;
+  padding: 0;
+  color: var(--c-kind);
+  font-size: 0.8rem;
+}
+.pk-fields .f-req {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pk-warn);
+}
+.pk-fields .f-desc {
+  color: var(--pk-ink-2);
+  min-inline-size: 18rem;
+}
+.pk-fields .f-enum {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.35rem;
+}
+.pk-fields .f-enum code {
+  font-size: 0.75rem;
+}
+
+/* ---------- Callouts (STE notices) ---------- */
+
+.pk-callout {
+  --co: var(--pk-link);
+  margin-block: 1.25rem;
+  padding: 0.75rem 1rem;
+  border-inline-start: 3px solid var(--co);
+  background: color-mix(in srgb, var(--co) 7%, transparent);
+  border-radius: 0 var(--pk-radius) var(--pk-radius) 0;
+}
+.pk-warning {
+  --co: var(--pk-err);
+}
+.pk-caution {
+  --co: var(--pk-warn);
+}
+.pk-callout-label {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--co);
+}
+.pk-callout-body > :first-child {
+  margin-top: 0.25rem;
+}
+
+/* ---------- Diagrams ---------- */
+
+.pk-fig {
+  margin: 1.5rem 0;
+}
+.pk-fig svg,
+.pk-stage-svg {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+  font-family: var(--pk-font-body);
+  overflow: visible;
+}
+.pk-fig figcaption {
+  margin-top: 0.5rem;
+  font-size: 0.82rem;
+  color: var(--pk-ink-3);
+}
+.pk-fig .box,
+.pk-ex .box {
+  fill: var(--pk-fig-box);
+  stroke: var(--pk-fig-line);
+  stroke-width: var(--pk-stroke);
+  rx: var(--pk-radius);
+}
+.pk-fig .box-accent {
+  fill: color-mix(in srgb, var(--pk-accent) 14%, var(--pk-fig-box));
+  stroke: var(--pk-accent);
+}
+.pk-fig .box-ok {
+  fill: color-mix(in srgb, var(--pk-ok) 14%, var(--pk-fig-box));
+  stroke: var(--pk-ok);
+}
+.pk-fig .box-warn {
+  fill: color-mix(in srgb, var(--pk-warn) 12%, var(--pk-fig-box));
+  stroke: var(--pk-warn);
+}
+.pk-fig .box-err {
+  fill: color-mix(in srgb, var(--pk-err) 12%, var(--pk-fig-box));
+  stroke: var(--pk-err);
+}
+.pk-fig .box-soft,
+.pk-ex .box-soft {
+  fill: transparent;
+  stroke-dasharray: 4 3;
+}
+.box-band {
+  fill: var(--cat-c);
+  stroke: none;
+}
+.pk-fig .zone {
+  fill: url(#pk-hatch);
+  stroke: var(--pk-fig-line);
+  stroke-dasharray: 3 3;
+}
+.hatch {
+  stroke: var(--pk-rule);
+  stroke-width: 1;
+}
+.t-title {
+  fill: var(--pk-fig-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+.t-small {
+  fill: var(--pk-fig-dim);
+  font-size: 11px;
+}
+.t-label {
+  fill: var(--pk-fig-dim);
+  font-style: italic;
+}
+.t-mono {
+  font-family: var(--pk-font-mono);
+}
+.t-zone {
+  fill: var(--pk-fig-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 10px;
+}
+a.box-g.is-cat .t-title {
+  fill: var(--cat-c);
+}
+a.box-g:hover .box {
+  stroke: var(--cat-c);
+}
+.edge {
+  fill: none;
+  stroke: var(--pk-fig-line);
+  stroke-width: var(--pk-stroke);
+}
+.edge-accent {
+  stroke: var(--pk-accent);
+}
+.edge-muted {
+  stroke-dasharray: 4 3;
+}
+
+/* ---------- Explainer ---------- */
+
+.pk-ex {
+  margin: 1.75rem 0;
+  border: 1px solid var(--pk-ex-rule);
+  border-radius: var(--pk-radius-lg);
+  background: var(--pk-ex-bg);
+  color: var(--pk-ex-ink);
+  overflow: hidden;
+  --pk-fig-box: var(--pk-ex-box);
+  --pk-fig-line: var(--pk-ex-line);
+  --pk-fig-ink: var(--pk-ex-ink);
+  --pk-fig-dim: var(--pk-ex-dim);
+}
+.pk-ex:focus-visible {
+  outline-offset: 3px;
+}
+.pk-ex-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--pk-ex-rule);
+}
+.pk-ex-head p {
+  margin: 0;
+}
+.pk-ex-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--pk-ex-dim);
+}
+.pk-ex-count {
+  font: 500 0.8rem var(--pk-font-mono);
+  color: var(--pk-ex-dim);
+}
+.pk-ex-stage {
+  padding: 1rem 1rem 0.25rem;
+}
+.pk-ex-text {
+  padding: 0.25rem 1rem 0.75rem;
+  min-block-size: 6.25rem;
+}
+.pk-ex-text p {
+  margin: 0;
+}
+.pk-ex-step {
+  font-weight: 650;
+  color: var(--pk-ex-ink);
+}
+.pk-ex-caption {
+  margin-top: 0.2rem !important;
+  color: var(--pk-ex-ink-2);
+  font-size: 0.95rem;
+}
+.pk-ex-code {
+  display: inline-block;
+  margin-top: 0.5rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.8rem;
+  color: var(--pk-ex-ink);
+  background: var(--pk-ex-box);
+  border: 1px solid var(--pk-ex-rule);
+  border-radius: var(--pk-radius);
+}
+.pk-ex-code[hidden] {
+  display: none;
+}
+.pk-ex-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.6rem 1rem;
+  border-top: 1px solid var(--pk-ex-rule);
+}
+.pk-ex-controls button {
+  display: grid;
+  place-items: center;
+  min-inline-size: 2rem;
+  block-size: 2rem;
+  padding: 0 0.4rem;
+  border: 1px solid var(--pk-ex-rule);
+  border-radius: var(--pk-radius);
+  background: transparent;
+  color: var(--pk-ex-ink-2);
+  font: 600 0.78rem var(--pk-font-mono);
+  cursor: pointer;
+}
+.pk-ex-controls button:hover {
+  color: var(--pk-ex-ink);
+  border-color: var(--pk-ex-dim);
+}
+.pk-ex-controls svg {
+  inline-size: 1rem;
+  block-size: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.pk-ex-play .i-pause,
+.pk-ex.playing .pk-ex-play .i-play {
+  display: none;
+}
+.pk-ex.playing .pk-ex-play .i-pause {
+  display: block;
+}
+.pk-ex-play {
+  background: var(--pk-accent) !important;
+  border-color: var(--pk-accent) !important;
+  color: var(--pk-on-accent) !important;
+}
+.pk-ex-play svg {
+  fill: currentColor;
+}
+.pk-ex-ticks {
+  display: flex;
+  gap: 0.25rem;
+  margin: 0 0 0 auto !important;
+  padding: 0 !important;
+  list-style: none;
+}
+.pk-ex-ticks li {
+  margin: 0 !important;
+}
+.pk-ex-ticks li::before {
+  content: none !important;
+}
+.pk-ex-ticks button[aria-current='step'] {
+  color: var(--pk-on-accent);
+  background: var(--pk-ex-active);
+  border-color: var(--pk-ex-active);
+}
+.pk-ex-ticks button.seen {
+  color: var(--pk-ex-ink);
+  border-color: var(--pk-ex-dim);
+}
+
+/* Stage states */
+.pk-ex .box-g .box,
+.pk-ex .edge-g .edge,
+.pk-ex .t-title,
+.pk-ex .t-small {
+  transition: fill 0.35s, stroke 0.35s, opacity 0.35s;
+}
+.pk-ex .edge-g {
+  opacity: 0.35;
+}
+.pk-ex .edge-g text {
+  opacity: 0;
+  transition: opacity 0.35s;
+}
+.pk-ex .edge-g.is-done,
+.pk-ex .edge-g.is-flow {
+  opacity: 1;
+}
+.pk-ex .edge-g.is-flow text,
+.pk-ex .edge-g.is-done text {
+  opacity: 1;
+}
+.pk-ex .edge-g.is-flow .edge {
+  stroke: var(--pk-ex-active);
+  stroke-width: 2;
+  stroke-dasharray: 0.035 0.02;
+  animation: pk-flow 1.1s linear infinite;
+}
+.pk-ex .edge-g.is-flow text {
+  fill: var(--pk-ex-active);
+}
+@keyframes pk-flow {
+  to {
+    stroke-dashoffset: -0.055;
+  }
+}
+.pk-ex .box-g.is-active .box {
+  stroke: var(--pk-ex-active);
+  stroke-width: 2;
+  fill: color-mix(in srgb, var(--pk-ex-active) 16%, var(--pk-ex-box));
+}
+.pk-ex .box-g.is-done .box {
+  stroke: var(--pk-ex-dim);
+}
+.pk-ex .box-g.is-ok .box {
+  stroke: var(--pk-ok);
+  stroke-width: 2;
+  fill: color-mix(in srgb, var(--pk-ok) 16%, var(--pk-ex-box));
+}
+.pk-ex .box-g.is-warn .box {
+  stroke: var(--pk-warn);
+  stroke-width: 2;
+  fill: color-mix(in srgb, var(--pk-warn) 14%, var(--pk-ex-box));
+}
+.pk-ex .box-g.is-err .box {
+  stroke: var(--pk-err);
+  stroke-width: 2;
+}
+.pk-ex .box-g.is-active .t-small,
+.pk-ex .box-g.is-ok .t-small,
+.pk-ex .box-g.is-warn .t-small {
+  fill: var(--pk-ex-ink);
+}
+.pk-ex .box-g.is-active {
+  animation: pk-pulse 2.2s ease-in-out infinite;
+}
+@keyframes pk-pulse {
+  50% {
+    opacity: 0.82;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pk-ex .edge-g.is-flow .edge,
+  .pk-ex .box-g.is-active {
+    animation: none;
+  }
+  .pk-ex * {
+    transition: none !important;
+  }
+}
+
+/* ---------- Landing ---------- */
+
+.pk-hero {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 2.5rem;
+  align-items: center;
+  padding-block: 2.5rem 1.5rem;
+}
+.pk-hero-kicker {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--pk-accent-ink, var(--pk-accent));
+}
+.pk-hero-title {
+  margin: 0.5rem 0 0;
+  font-size: clamp(2.6rem, 6vw, 4rem);
+  line-height: 1;
+  font-weight: 700;
+  color: var(--pk-ink);
+  letter-spacing: -0.02em;
+}
+.pk-hero-tagline {
+  margin: 1rem 0 0;
+  font-size: 1.15rem;
+  line-height: 1.55;
+  color: var(--pk-ink-2);
+  max-inline-size: 34rem;
+}
+.pk-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+.pk-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.6rem 1.1rem;
+  border: 1px solid var(--pk-rule-strong);
+  border-radius: var(--pk-radius);
+  color: var(--pk-ink);
+  font-weight: 600;
+  text-decoration: none;
+}
+.pk-btn:hover {
+  border-color: var(--pk-ink-2);
+}
+.pk-btn-primary {
+  background: var(--pk-accent);
+  border-color: var(--pk-accent);
+  color: var(--pk-on-accent);
+}
+.pk-btn-primary:hover {
+  border-color: var(--pk-accent);
+  filter: brightness(1.08);
+}
+.pk-hero-panel {
+  border: 1px solid var(--pk-ex-rule);
+  border-radius: var(--pk-radius-lg);
+  background: var(--pk-term-bg, var(--pk-ex-bg));
+  box-shadow: var(--pk-shadow);
+  overflow: hidden;
+  min-inline-size: 0;
+}
+.pk-term-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.55rem 0.8rem;
+  border-bottom: 1px solid var(--pk-ex-rule);
+}
+.pk-term-bar span {
+  inline-size: 0.6rem;
+  block-size: 0.6rem;
+  border-radius: 50%;
+  background: var(--pk-ex-rule);
+}
+.pk-term-bar b {
+  margin-inline-start: 0.5rem;
+  font: 500 0.75rem var(--pk-font-mono);
+  color: var(--pk-ex-dim);
+}
+.pk-term {
+  margin: 0;
+  padding: 0.9rem 1rem 1rem;
+  font: 0.78rem/1.6 var(--pk-font-mono);
+  color: var(--pk-ex-ink);
+  overflow-x: auto;
+  background: none;
+}
+.pk-term .d {
+  color: var(--pk-ex-dim);
+}
+.pk-term .ok {
+  color: var(--pk-ok);
+}
+.pk-term .warn {
+  color: var(--pk-warn);
+}
+.pk-term .run {
+  color: var(--pk-ex-active);
+}
+.pk-term .p {
+  color: var(--pk-accent);
+}
+.pk-term .cur {
+  display: inline-block;
+  inline-size: 0.55em;
+  block-size: 1.1em;
+  margin-inline-start: 0.15em;
+  vertical-align: -0.2em;
+  background: var(--pk-ex-ink);
+  animation: pk-blink 1.1s steps(2) infinite;
+}
+@keyframes pk-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.pk-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin-block: 1rem 2rem;
+}
+.pk-navcard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 1.1rem 1.1rem 1rem;
+  border: 1px solid var(--pk-rule);
+  border-top: 3px solid var(--cat-c);
+  border-radius: var(--pk-radius);
+  background: var(--pk-paper);
+  color: var(--pk-ink);
+  text-decoration: none;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.pk-navcard:hover {
+  border-color: var(--cat-c);
+  transform: translateY(-2px);
+}
+.pk-navcard-icon {
+  inline-size: 1.5rem;
+  block-size: 1.5rem;
+  background: var(--cat-c);
+  -webkit-mask: var(--cat-i) center / contain no-repeat;
+  mask: var(--cat-i) center / contain no-repeat;
+}
+.pk-navcard-title {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+.pk-navcard-body {
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--pk-ink-2);
+}
+.pk-navcard-more {
+  margin-top: auto;
+  padding-top: 0.4rem;
+  font: 500 0.75rem var(--pk-font-mono);
+  color: var(--cat-c);
+}
+
+@media (max-width: 64rem) {
+  .pk-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 50rem) {
+  .pk-hero {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+    padding-block-start: 1rem;
+  }
+}
+@media (max-width: 32rem) {
+  .pk-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Legend table (How to read) ---------- */
+
+.pk-legend-table td:last-child {
+  white-space: nowrap;
+}
+
+/* ---------- Sidebar: planned pages ---------- */
+
+#starlight__sidebar a[data-planned] {
+  opacity: 0.62;
+}
+#starlight__sidebar a[data-planned]::after {
+  content: '·';
+  margin-inline-start: 0.35rem;
+  color: var(--pk-ink-3);
+}
+
+/* ---------- Narrow screens ---------- */
+
+/* An icon must stay with the text of its link. */
+a.x {
+  white-space: nowrap;
+}
+/* A long name in inline code (a metric, a field path) wraps instead of making the
+   page wider than the screen. A definition list cell may shrink below its content. */
+.sl-markdown-content :not(pre) > code {
+  overflow-wrap: anywhere;
+}
+.sl-markdown-content dl:not(.pk-gloss) > dt,
+.sl-markdown-content dl:not(.pk-gloss) > dd {
+  min-inline-size: 0;
+}
+/* Diagrams keep a readable size and scroll sideways on a phone. */
+@media (max-width: 40rem) {
+  .pk-fig,
+  .pk-ex-stage {
+    overflow-x: auto;
+  }
+  .pk-fig svg {
+    min-inline-size: 40rem;
+  }
+  .pk-ex-stage svg {
+    min-inline-size: 34rem;
+  }
+  .pk-ex-ticks {
+    margin-inline-start: 0 !important;
+  }
+}

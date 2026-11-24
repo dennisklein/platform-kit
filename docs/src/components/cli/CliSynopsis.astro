@@ -1,0 +1,102 @@
+---
+// The synopsis of one command, from the generated data. Each form is on its own
+// line: a command with subcommands (`a | b | c`) shows one line for each.
+import { command } from './data';
+
+interface Props {
+  cmd: string;
+}
+const c = command(Astro.props.cmd);
+
+// Split "now <cluster> | list [<cluster>] | ..." at the top level only: a `|`
+// inside brackets or parentheses is a choice of one argument.
+function forms(s: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let cur = '';
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if ('[(<'.includes(ch)) depth++;
+    if ('])>'.includes(ch)) depth--;
+    if (ch === '|' && depth === 0 && s[i - 1] === ' ' && s[i + 1] === ' ') {
+      out.push(cur.trim());
+      cur = '';
+    } else cur += ch;
+  }
+  out.push(cur.trim());
+  return out;
+}
+
+const hasSubs = c.subcommands.length > 0 || c.name === 'sim';
+const lines = (hasSubs ? forms(c.synopsis) : [c.synopsis]).map((f) => f.replace(/^pk-metal\s+\S+\s*/, ''));
+
+// Tokens: flags, <placeholders>, punctuation and words.
+function tokens(line: string) {
+  let afterFlag = false;
+  return line.split(/(\s+|[\[\]()|])/).filter((t) => t !== '').map((t) => {
+    if (/^\s+$/.test(t)) return { cls: '', t };
+    if (t === '|') return { cls: 'syn-p', t };
+    if (/^[\[\]()]$/.test(t)) {
+      afterFlag = false;
+      return { cls: 'syn-p', t };
+    }
+    if (/^--?[a-z]/.test(t)) {
+      afterFlag = true;
+      return { cls: 'syn-f', t };
+    }
+    // A word after a flag is the value of the flag, not a word to type.
+    if (afterFlag || /^<.*>$/.test(t) || t === '...') return { cls: 'syn-a', t };
+    return { cls: 'syn-w', t };
+  });
+}
+---
+
+<div class="pk-cli-syn not-content" role="group" aria-label={`Synopsis of pk-metal ${c.name}`}>
+  {lines.map((line) => (
+    <code class="pk-cli-syn-line">
+      <span class="syn-prog">pk-metal</span> <span class="syn-cmd">{c.name}</span>{line && ' '}{tokens(line).map((k) => (k.cls ? <span class={k.cls}>{k.t}</span> : k.t))}
+    </code>
+  ))}
+</div>
+
+<style is:global>
+  .pk-cli-syn {
+    display: grid;
+    gap: 0.35rem;
+    margin-block: 1rem;
+    padding: 0.8rem 1rem;
+    border: 1px solid var(--pk-rule);
+    border-inline-start: 3px solid var(--c-cli);
+    border-radius: 0 var(--pk-radius) var(--pk-radius) 0;
+    background: var(--pk-paper-2);
+    overflow-x: auto;
+  }
+  .pk-cli-syn-line {
+    display: block;
+    padding: 0 0 0 4.5ch;
+    text-indent: -4.5ch;
+    background: none;
+    font-size: 0.86rem;
+    line-height: 1.6;
+    color: var(--pk-ink-2);
+    white-space: pre-wrap;
+  }
+  .pk-cli-syn .syn-prog {
+    color: var(--pk-ink-3);
+  }
+  .pk-cli-syn .syn-cmd,
+  .pk-cli-syn .syn-w {
+    color: var(--pk-ink);
+    font-weight: 600;
+  }
+  .pk-cli-syn .syn-f {
+    color: var(--c-cli);
+  }
+  .pk-cli-syn .syn-a {
+    color: var(--pk-ink-2);
+    font-style: italic;
+  }
+  .pk-cli-syn .syn-p {
+    color: var(--pk-ink-3);
+  }
+</style>

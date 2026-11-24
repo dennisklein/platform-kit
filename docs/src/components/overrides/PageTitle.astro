@@ -1,0 +1,18 @@
+---
+// The page title with an eyebrow above it ("Kind · metal.pk.io/v1alpha1").
+const PAGE_TITLE_ID = '_top';
+import { byId } from '../../data/categories.mjs';
+
+const route = Astro.locals.starlightRoute;
+const data = route.entry.data as any;
+const typeLabel: Record<string, string> = {
+  start: 'Start', kind: 'Kind', controller: 'Controller', cli: 'Command', lab: 'Lab',
+  concept: 'Concept', workflow: 'Workflow', howto: 'How-to', runbook: 'Runbook',
+  tutorial: 'Tutorial', reference: 'Reference', project: 'Project',
+};
+const eyebrow = data.eyebrow ?? (data.day ? `Day ${data.day}` : typeLabel[data.type] ?? '');
+const cat = data.xref ? byId.get(data.xref.cat) : undefined;
+---
+
+{eyebrow && <p class="pk-eyebrow" data-cat={cat?.id}>{eyebrow}</p>}
+<h1 id={PAGE_TITLE_ID}>{data.title}</h1>

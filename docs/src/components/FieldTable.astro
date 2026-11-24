@@ -1,0 +1,39 @@
+---
+// The fields of a kind's spec or status, from its CRD. Each row has an anchor
+// (#spec.claimRef), so `[](kind:Host#spec.claimRef)` links to it.
+import { loadCrd } from '../lib/crd';
+
+interface Props {
+  kind: string;
+  part: 'spec' | 'status';
+}
+const { kind, part } = Astro.props;
+const rows = loadCrd(kind)[part];
+---
+
+<div class="pk-fields not-content">
+  <table>
+    <thead>
+      <tr><th scope="col">Field</th><th scope="col">Type</th><th scope="col">Description</th></tr>
+    </thead>
+    <tbody>
+      {rows.map((r) => (
+        <tr id={r.path} data-depth={r.depth}>
+          <td class="f-path">
+            <a href={`#${r.path}`} class="f-anchor"><code>{r.path.split('.').at(-1)}</code></a>
+            {r.required && <span class="f-req" title="required">required</span>}
+          </td>
+          <td class="f-type"><code>{r.type}</code></td>
+          <td class="f-desc">
+            {r.description ?? ''}
+            {r.enum && (
+              <span class="f-enum">
+                {r.enum.map((e) => <code>{e}</code>)}
+              </span>
+            )}
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>

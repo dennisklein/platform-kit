@@ -1,0 +1,25 @@
+---
+// Static diagram: firmware convergence. Sources: metal/internal/controller/convergence_controller.go
+// (firmware), convergence_sysfw.go, convergence_disrupt.go.
+import Figure from '../diagram/Figure.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+---
+
+<Figure
+  title="Firmware convergence. A FirmwareProfile names the BMC firmware and the system firmware. A different BMC version gives a flashFirmware operation. A different system version gives a stageFirmware operation with a reboot."
+  caption="Two kinds of firmware, two kinds of operation. Both wait for approval."
+  width={800}
+  height={200}
+  wide
+>
+  <Box x={10} y={70} w={170} h={52} label="FirmwareProfile" sub="manager + system[]" cat="kind" href="/reference/kinds/firmwareprofile/" />
+  <Box x={270} y={14} w={230} h={52} label="HostOperation" sub="flashFirmware" cat="kind" href="/reference/kinds/hostoperation/" variant="warn" />
+  <Box x={270} y={128} w={230} h={52} label="HostOperation" sub="stageFirmware … talosReboot" cat="kind" href="/reference/kinds/hostoperation/" variant="warn" />
+  <Box x={580} y={14} w={210} h={52} label="BMC firmware" sub="BMC restarts, machine runs" />
+  <Box x={580} y={128} w={210} h={52} label="BIOS, NIC, RAID" sub="applies at the next reset" />
+  <Edge points={[[180, 88], [225, 88], [225, 40], [270, 40]]} label="manager.version" at={[218, 60]} anchor="end" />
+  <Edge points={[[180, 104], [225, 104], [225, 154], [270, 154]]} label="system[].version" at={[218, 142]} anchor="end" />
+  <Edge points={[[500, 40], [580, 40]]} label="approved" at={[540, 32]} />
+  <Edge points={[[500, 154], [580, 154]]} label="approved" at={[540, 146]} />
+</Figure>

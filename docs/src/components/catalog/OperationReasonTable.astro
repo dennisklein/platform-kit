@@ -1,0 +1,28 @@
+---
+// The values of HostOperation spec.reason that the API package declares, from the
+// generated conditions.json. Anchor: #opreason-<name> in lower case.
+import { operationReasonId, operationReasons, sentence } from './data';
+---
+
+<div class="pk-fields pk-cat not-content">
+  <table>
+    <thead>
+      <tr><th scope="col">spec.reason</th><th scope="col">Description</th></tr>
+    </thead>
+    <tbody>
+      {operationReasons.map((r) => (
+        <tr id={operationReasonId(r)} data-q={r.value.toLowerCase()}>
+          <td class="f-path"><a href={`#${operationReasonId(r)}`} class="f-anchor"><code>{r.value}</code></a></td>
+          <td class="f-desc">{sentence(r.description, r.name) || <span class="c-none">The source has no description.</span>}</td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>
+
+<style>
+  .c-none {
+    color: var(--pk-ink-3);
+    font-style: italic;
+  }
+</style>

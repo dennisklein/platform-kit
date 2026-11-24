@@ -1,0 +1,160 @@
+---
+// Explainer: one HostOperation in the executor, from the start gates to the last
+// step. Source: metal/internal/controller/hostoperation_controller.go (Reconcile,
+// begin), window.go (holdForWindow), hostoperation_rollout.go (gateRollout).
+import Explainer from '../Explainer.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+
+interface Props {
+  start?: number;
+}
+const { start = 0 } = Astro.props;
+const gates = [
+  ['g-abort', 'Abort', 'asked?'],
+  ['g-appr', 'Approval', 'approvedBy'],
+  ['g-ro', 'Rollout', 'planHash'],
+  ['g-act', 'Actions', 'all known'],
+  ['g-queue', 'Queue', 'one per host'],
+  ['g-lock', 'Locks', 'host, BMC'],
+  ['g-maint', 'Maint.', 'annotation'],
+  ['g-win', 'Window', 'open?'],
+  ['g-guard', 'Guards', 'self, cluster'],
+];
+const done = (n: number) => Object.fromEntries(gates.slice(0, n).map(([id]) => [id, 'done']));
+const allGates = done(gates.length);
+const steps = [
+  {
+    title: 'Read',
+    caption: 'A pass starts when the operation, a sibling operation or its Host changes. A finished operation only waits for its TTL.',
+    code: 'kubectl get hostoperations -A',
+    state: {},
+  },
+  {
+    title: 'Abort',
+    caption: 'If a person asked for an abort and the operation has no baseline, it ends at once. Nothing touched the machine.',
+    code: 'pk-metal abort <operation>',
+    state: { 'g-abort': 'active' },
+  },
+  {
+    title: 'Approval',
+    caption: 'If approval is required and approvedBy is empty, the pass stops. Approved is False with the reason AwaitingApproval.',
+    code: 'pk-metal approve <operation>',
+    state: { ...done(1), 'g-appr': 'warn' },
+  },
+  {
+    title: 'Rollout',
+    caption: 'An operation that names a rollout starts only while the rollout approval covers its plan hash, node, host and actions. If not, it fails.',
+    state: { ...done(2), 'g-ro': 'active' },
+  },
+  {
+    title: 'Known actions',
+    caption: 'If this operator version does not run one of the actions, the operation fails before it starts.',
+    state: { ...done(3), 'g-act': 'active' },
+  },
+  {
+    title: 'Queue',
+    caption: 'Only one operation runs on a Host. A started one goes first, then the oldest. The others wait with OperationQueued.',
+    state: { ...done(4), 'g-queue': 'warn' },
+  },
+  {
+    title: 'Locks',
+    caption: 'A pass takes a lock on the Host and on each BMC of the Host. If a lock is busy, the pass comes back later. It changed nothing.',
+    state: { ...done(5), 'g-lock': 'active' },
+  },
+  {
+    title: 'Maintenance',
+    caption: 'If the Host has the maintenance annotation, an operation that did not start waits with HostInMaintenance.',
+    code: 'kubectl annotate host <host> metal.pk.io/maintenance-',
+    state: { ...done(6), 'g-maint': 'warn' },
+  },
+  {
+    title: 'Window',
+    caption: 'If a MaintenanceWindow covers the Host and no window is open, the operation waits until the next one opens. An install does not wait.',
+    state: { ...done(7), 'g-win': 'warn' },
+  },
+  {
+    title: 'Guards',
+    caption: 'A disruptive operation asks the self guard and the cluster guard. If either one holds it, it waits with SelfDisruption or ClusterDisruption.',
+    state: { ...done(8), 'g-guard': 'warn' },
+  },
+  {
+    title: 'Baseline',
+    caption: 'The executor checks the queue again against the API server. It reads the BMC and writes the baseline before the first change to the machine.',
+    state: { ...allGates, gb: 'flow', base: 'active' },
+    text: { 'base-s': 'power state, reset time' },
+  },
+  {
+    title: 'Next step',
+    caption: 'The pass continues after the last recorded step. Before each step it checks for an abort and for enough time left in the pass budget.',
+    state: { ...allGates, gb: 'done', base: 'done', ba: 'flow', next: 'active' },
+  },
+  {
+    title: 'Cluster guard',
+    caption: 'A step that takes a control plane down asks the cluster guard again, right before it acts. A drain before it can take a long time.',
+    state: { ...allGates, gb: 'done', base: 'done', next: 'done', nb: 'flow', guard: 'active' },
+  },
+  {
+    title: 'Run step',
+    caption: 'The step first compares its goal with the machine. An image that is already inserted, or a power state already reached, is success.',
+    state: { ...allGates, gb: 'done', base: 'done', next: 'done', guard: 'done', bc: 'flow', run: 'active' },
+  },
+  {
+    title: 'Record',
+    caption: 'The executor adds the step to status.steps and writes the status before the next step. A pass that stops continues from this record.',
+    state: { ...allGates, gb: 'done', base: 'done', next: 'done', guard: 'done', run: 'done', cd: 'flow', rec: 'active', da: 'flow' },
+  },
+  {
+    title: 'Wait',
+    caption: 'A step that waits for the world, or a guard that holds, ends the pass. The next pass comes after the wait interval, 5 seconds by default.',
+    state: { ...allGates, gb: 'done', base: 'done', next: 'done', guard: 'warn', run: 'warn', cw: 'flow', gw: 'flow', wait: 'warn' },
+  },
+  {
+    title: 'Failed',
+    caption: 'A step that fails ends the operation. Executed is False with StepFailed. The executor never retries. A person retries or deletes it.',
+    code: 'pk-metal retry <operation>',
+    state: { ...allGates, gb: 'done', base: 'done', next: 'done', guard: 'done', run: 'err', cf: 'flow', failed: 'err' },
+  },
+  {
+    title: 'Succeeded',
+    caption: 'When no step is left, the executor reads the reset time once more and sets Executed to True. The TTL then deletes the operation.',
+    state: { ...allGates, gb: 'done', base: 'done', rec: 'done', run: 'done', next: 'ok', as: 'flow', ok: 'ok' },
+  },
+];
+const gx = (i: number) => 8 + i * 79;
+---
+
+<Explainer title="The executor: start gates and step loop" steps={steps as any} start={start}>
+  <svg viewBox="0 0 720 320" role="img" aria-labelledby="ex-exec-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
+    <title id="ex-exec-t">Nine start gates in a row, then the baseline, then a loop of four boxes: next step, cluster guard, run step and record. A pass leaves the loop to wait, to fail or to succeed.</title>
+    <defs>
+      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
+      </marker>
+    </defs>
+    <text class="t-small t-zone" x={8} y={14}>Start gates, in order</text>
+    <line class="edge" x1={8} y1={44} x2={712} y2={44}></line>
+    {gates.map(([id, label, sub], i) => (
+      <Box node={id} x={gx(i)} y={22} w={72} h={44} label={label} sub={sub} />
+    ))}
+    <text class="t-small t-zone" x={8} y={104}>Step loop</text>
+    <Box node="rec" x={200} y={110} w={150} h={40} label="Record" sub="status.steps" />
+    <Box node="next" x={380} y={110} w={150} h={40} label="Next step" sub="abort? budget?" />
+    <Box node="base" x={560} y={110} w={150} h={40} label="Baseline" sub="before the first write" text="base-s" />
+    <Box node="failed" x={10} y={190} w={150} h={40} label="Failed" sub="StepFailed, no retry" variant="err" />
+    <Box node="run" x={200} y={190} w={150} h={40} label="Run step" sub="goal met? act" />
+    <Box node="guard" x={380} y={190} w={150} h={40} label="Cluster guard" sub="disruptive steps" />
+    <Box node="ok" x={560} y={190} w={150} h={40} label="Succeeded" sub="Executed=True" variant="ok" />
+    <Box node="wait" x={200} y={270} w={330} h={40} label="Wait" sub="requeue: settle, check-in, held" variant="warn" />
+    <Edge node="gb" points={[[676, 66], [676, 110]]} />
+    <Edge node="ba" points={[[560, 130], [530, 130]]} />
+    <Edge node="nb" points={[[455, 150], [455, 190]]} />
+    <Edge node="bc" points={[[380, 210], [350, 210]]} />
+    <Edge node="cd" points={[[275, 190], [275, 150]]} />
+    <Edge node="da" points={[[350, 130], [380, 130]]} />
+    <Edge node="as" points={[[530, 142], [545, 142], [545, 210], [560, 210]]} label="none left" at={[548, 182]} anchor="start" />
+    <Edge node="cf" points={[[200, 210], [160, 210]]} label="error" at={[180, 202]} />
+    <Edge node="cw" points={[[275, 230], [275, 270]]} label="waiting" at={[283, 254]} anchor="start" />
+    <Edge node="gw" points={[[455, 230], [455, 270]]} label="held" at={[463, 254]} anchor="start" />
+  </svg>
+</Explainer>

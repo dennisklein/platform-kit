@@ -1,0 +1,31 @@
+---
+// Static diagram: the objects that a HostClaim names and the objects that follow from it.
+// Source: metal/internal/controller/hostclaim_controller.go.
+import Figure from '../diagram/Figure.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+
+const w = 160;
+const h = 44;
+---
+
+<Figure
+  title="A HostClaim names an Asset and a TalosNode. The operator binds the Host of the Asset to the claim and proposes HostOperations for it."
+  caption="A HostClaim and the objects around it. You write the filled boxes."
+  width={755}
+  height={196}
+  wide
+>
+  <Box x={10} y={76} w={w} h={h} label="HostClaim" variant="accent" cat="kind" href="/reference/kinds/hostclaim/" />
+  <Box x={300} y={14} w={w} h={h} label="Asset" variant="accent" cat="kind" href="/reference/kinds/asset/" />
+  <Box x={300} y={76} w={w} h={h} label="Host" cat="kind" href="/reference/kinds/host/" />
+  <Box x={300} y={138} w={w} h={h} label="TalosNode" variant="accent" cat="kind" href="/reference/kinds/talosnode/" />
+  <Box x={585} y={76} w={w} h={h} label="HostOperation" cat="kind" href="/reference/kinds/hostoperation/" />
+  <Edge points={[[90, 76], [90, 36], [300, 36]]} label="spec.assetRef" at={[195, 28]} />
+  <Edge points={[[170, 98], [300, 98]]} variant="accent" label="binds" at={[235, 90]} />
+  <Edge points={[[90, 120], [90, 160], [300, 160]]} label="spec.os.nodeRef" at={[195, 178]} />
+  <Edge points={[[380, 58], [380, 76]]} variant="muted" />
+  <Edge points={[[585, 98], [460, 98]]} label="install, release" at={[522, 90]} />
+  <text class="t-small t-label" x={585} y={150} text-anchor="start">The operator proposes each</text>
+  <text class="t-small t-label" x={585} y={166} text-anchor="start">operation. You approve it.</text>
+</Figure>

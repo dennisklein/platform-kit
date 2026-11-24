@@ -1,0 +1,105 @@
+---
+// Explainer: a day-2 change rolled through a cluster with a TalosRollout.
+// Sources: metal/internal/controller/talosrollout_proposer.go (what is proposed),
+// talosrollout_plan.go (planHash, rolloutActions), talosrollout_controller.go
+// (order, pause after the first node, health gate between nodes).
+import Explainer from '../Explainer.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+
+interface Props {
+  start?: number;
+}
+const { start = 0 } = Astro.props;
+const idle = { 'cp1-ph': 'v1.11', 'cp2-ph': 'v1.11', 'cp3-ph': 'v1.11 · leader', 'w1-ph': 'v1.11', 'w2-ph': 'v1.11' };
+const steps = [
+  {
+    title: 'Ask',
+    caption: 'You ask for a new Talos release. The command changes only spec.talosVersion of the TalosCluster. No machine changes.',
+    code: 'pk-metal upgrade talos lab v1.12.0',
+    state: { you: 'active', you2tc: 'flow', tc: 'active' },
+    text: { ...idle, 'ro-ph': '-' },
+  },
+  {
+    title: 'Propose',
+    caption: 'The rollout proposer sees that the nodes run another version. It writes a TalosRollout. The plan lists each node in order and has a planHash.',
+    code: 'pk-metal rollout show lab-talosupgrade-1a2b3c4d',
+    state: { tc: 'done', you2tc: 'done', tc2ro: 'flow', ro: 'warn' },
+    text: { ...idle, 'ro-ph': 'AwaitingApproval' },
+  },
+  {
+    title: 'Approve',
+    caption: 'Another person approves the plan hash that they read. From now on the plan is frozen.',
+    code: 'pk-metal rollout approve lab-talosupgrade-1a2b3c4d',
+    state: { tc: 'done', tc2ro: 'done', you: 'active', you2ro: 'flow', ro: 'active' },
+    text: { ...idle, 'ro-ph': 'Approved' },
+  },
+  {
+    title: 'First node',
+    caption: 'The rollout makes one HostOperation for the first control plane: drain, talosUpgrade, waitNodeReady, waitEtcdHealthy, uncordon.',
+    code: 'drain → talosUpgrade → waitNodeReady → waitEtcdHealthy → uncordon',
+    state: { ro: 'active', ro2n: 'flow', cp1: 'active' },
+    text: { ...idle, 'cp1-ph': 'upgrade', 'ro-ph': 'Progressing' },
+  },
+  {
+    title: 'Pause',
+    caption: 'After the first node, the rollout always pauses. Examine the node. Then resume the rollout.',
+    code: 'pk-metal rollout resume lab-talosupgrade-1a2b3c4d',
+    state: { ro: 'warn', ro2n: 'done', cp1: 'ok', you: 'active', you2ro: 'flow' },
+    text: { ...idle, 'cp1-ph': 'v1.12', 'ro-ph': 'Paused' },
+  },
+  {
+    title: 'Control planes',
+    caption: 'The control planes go one at a time. The etcd leader goes last. Before each node, the rollout reads etcd and the Kubernetes nodes again.',
+    code: 'Progressing: WaitingForHealth',
+    state: { ro: 'active', cp1: 'ok', cp2: 'ok', cp3: 'active' },
+    text: { ...idle, 'cp1-ph': 'v1.12', 'cp2-ph': 'v1.12', 'cp3-ph': 'upgrade · leader', 'ro-ph': 'Progressing' },
+  },
+  {
+    title: 'Workers',
+    caption: 'Then the workers. spec.maxUnavailableWorkers sets how many go at the same time. The default is one.',
+    code: 'spec.maxUnavailableWorkers: 2',
+    state: { ro: 'active', cp1: 'ok', cp2: 'ok', cp3: 'ok', w1: 'active', w2: 'active' },
+    text: { 'cp1-ph': 'v1.12', 'cp2-ph': 'v1.12', 'cp3-ph': 'v1.12', 'w1-ph': 'upgrade', 'w2-ph': 'upgrade', 'ro-ph': 'Progressing' },
+  },
+  {
+    title: 'Complete',
+    caption: 'Each node runs the new release. The rollout is Complete. The TalosCluster condition VersionsCurrent is True.',
+    code: 'pk-metal status',
+    state: { ro: 'ok', tc: 'ok', cp1: 'ok', cp2: 'ok', cp3: 'ok', w1: 'ok', w2: 'ok' },
+    text: { 'cp1-ph': 'v1.12', 'cp2-ph': 'v1.12', 'cp3-ph': 'v1.12', 'w1-ph': 'v1.12', 'w2-ph': 'v1.12', 'ro-ph': 'Complete' },
+  },
+];
+const k = (p: string) => `/reference/kinds/${p}/`;
+const xs = [15, 157, 299, 441, 583];
+const nodes = [
+  ['cp1', 'cp-1'],
+  ['cp2', 'cp-2'],
+  ['cp3', 'cp-3'],
+  ['w1', 'w-1'],
+  ['w2', 'w-2'],
+];
+---
+
+<Explainer title="Roll a change through a cluster" steps={steps as any} start={start}>
+  <svg viewBox="0 0 720 250" role="img" aria-labelledby="ex-d2c-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
+    <title id="ex-d2c-t">A change to the TalosCluster gives a TalosRollout. After approval, the rollout changes one node at a time: control planes first, the etcd leader last, then the workers.</title>
+    <defs>
+      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
+      </marker>
+    </defs>
+    <Box node="tc" x={15} y={20} w={190} h={54} label="TalosCluster" sub="spec.talosVersion" cat="kind" href={k('taloscluster')} />
+    <Box node="ro" x={265} y={20} w={190} h={54} label="TalosRollout" sub="-" text="ro-ph" cat="kind" href={k('talosrollout')} />
+    <Box node="you" x={515} y={20} w={190} h={54} label="You" sub="ask, approve, resume" variant="soft" />
+    <Edge node="you2tc" points={[[610, 74], [610, 92], [110, 92], [110, 74]]} label="upgrade" at={[200, 106]} />
+    <Edge node="tc2ro" points={[[205, 47], [265, 47]]} label="proposes" at={[235, 39]} />
+    <Edge node="you2ro" points={[[515, 47], [455, 47]]} label="approves" at={[485, 39]} />
+    <Edge node="ro2n" points={[[360, 74], [360, 132], [77, 132], [77, 150]]} label="one HostOperation per node" at={[220, 126]} />
+    <text class="t-small t-label" x={15} y={232}>control planes, one at a time</text>
+    <text class="t-small t-label" x={441} y={232}>workers</text>
+    {nodes.map(([id, name], i) => (
+      <Box node={id} x={xs[i]} y={150} w={122} h={54} label={name} sub="v1.11" text={`${id}-ph`} />
+    ))}
+  </svg>
+</Explainer>

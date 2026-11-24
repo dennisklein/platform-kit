@@ -1,0 +1,95 @@
+---
+// The conditions of one API group, from the generated conditions.json. Each row has
+// the anchor of the condition name in lower case (#verified); when both groups have
+// the name, the os.pk.io row has the prefix os- (#os-verified). The last column lists
+// the reasons that the source ties to the condition.
+import { conditionId, conditions, reasonId, reasons, sentence, sourceUrl } from './data';
+import { conditionNotes } from './condition-notes';
+
+interface Props {
+  group: 'metal.pk.io' | 'os.pk.io';
+}
+const { group } = Astro.props;
+const rows = conditions
+  .filter((c) => c.group === group)
+  .map((c) => ({
+    ...c,
+    id: conditionId(c),
+    text: conditionNotes[`${c.group}/${c.value}`] ?? sentence(c.description, c.name),
+    reasons: reasons.filter((r) => r.group === group && r.on?.some((o) => o.condition === c.value)),
+  }))
+  .sort((a, b) => a.value.localeCompare(b.value));
+const sources = [...new Set(rows.map((r) => r.source))];
+---
+
+<div class="pk-fields pk-cat not-content">
+  <table>
+    <thead>
+      <tr><th scope="col">Condition</th><th scope="col">True means</th><th scope="col">Reasons</th></tr>
+    </thead>
+    <tbody>
+      {rows.map((r) => (
+        <tr id={r.id} data-q={`${r.value} ${r.text}`.toLowerCase()}>
+          <td class="f-path"><a href={`#${r.id}`} class="f-anchor"><code>{r.value}</code></a></td>
+          <td class="f-desc">{r.text}</td>
+          <td class="c-reasons">
+            {r.reasons.map((x) => (
+              <a href={`#${reasonId(x)}`} class:list={['c-chip', x.on?.find((o) => o.condition === r.value)?.status.toLowerCase()]}>{x.value}</a>
+            ))}
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+  <p class="c-foot">
+    {rows.length} conditions in <code>{group}</code> ·
+    {sources.map((s) => <a class="x" data-cat="src" href={sourceUrl(s)}>{s.split('/').at(-1)}</a>)}
+  </p>
+</div>
+
+<style>
+  .f-desc {
+    min-inline-size: 16rem;
+  }
+  .c-reasons {
+    min-inline-size: 12rem;
+  }
+  .c-chip {
+    display: inline-block;
+    margin: 0 0.25rem 0.25rem 0;
+    padding: 0.05rem 0.4rem;
+    font: 500 0.72rem/1.5 var(--pk-font-mono);
+    color: var(--pk-ink-2);
+    text-decoration: none;
+    border: 1px solid var(--pk-rule-strong);
+    border-radius: 999px;
+  }
+  .c-chip:hover {
+    border-color: var(--pk-link);
+    color: var(--pk-link);
+  }
+  .c-chip.true {
+    border-color: color-mix(in srgb, var(--pk-ok) 60%, transparent);
+  }
+  .c-chip.false {
+    border-color: color-mix(in srgb, var(--pk-err) 55%, transparent);
+  }
+  .c-chip.unknown {
+    border-style: dashed;
+  }
+  .c-foot {
+    margin: 0;
+    padding: 0.45rem 0.75rem;
+    font-size: 0.78rem;
+    color: var(--pk-ink-3);
+    border-top: 1px solid var(--pk-rule);
+    background: var(--pk-paper-2);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.75rem;
+    align-items: baseline;
+  }
+  .c-foot code {
+    font-size: 0.74rem;
+  }
+</style>

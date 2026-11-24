@@ -1,0 +1,93 @@
+---
+// Explainer: grow control planes from one to three, then shrink back to one.
+// Sources: metal/internal/controller/removal.go (joinVerdict, removalVerdict),
+// metal/cmd/pk-metal/lifecycle.go (pk-metal scale).
+import Explainer from '../Explainer.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+
+interface Props {
+  start?: number;
+}
+const { start = 0 } = Astro.props;
+const steps = [
+  {
+    title: 'Plan',
+    caption: 'pk-metal scale prints which machines the cluster gains, and in which order. Without --apply it changes nothing.',
+    code: 'pk-metal scale lab --control-planes 3',
+    state: { you: 'active', cp1: 'ok' },
+    text: { 'cp1-ph': 'voter · leader', 'cp2-ph': 'free machine', 'cp3-ph': 'free machine', 'etcd-ph': '1 voter' },
+  },
+  {
+    title: 'Apply',
+    caption: 'With --apply the command writes one HostClaim for each new node. The operator proposes a boot for each claim.',
+    code: 'pk-metal scale lab --control-planes 3 --apply',
+    state: { you: 'active', you2cl: 'flow', claims: 'active', cp1: 'ok', cp2: 'warn', cp3: 'warn' },
+    text: { 'cp1-ph': 'voter · leader', 'cp2-ph': 'boot proposed', 'cp3-ph': 'boot proposed', 'etcd-ph': '1 voter' },
+  },
+  {
+    title: 'One join at a time',
+    caption: 'You approve both boots. The operator boots cp-2. It holds cp-3 while cp-2 joins.',
+    code: 'blockedOn: EtcdJoinWaiting',
+    state: { claims: 'done', cp1: 'ok', cp2: 'active', cp3: 'warn', cp2etcd: 'flow' },
+    text: { 'cp1-ph': 'voter · leader', 'cp2-ph': 'learner', 'cp3-ph': 'waits', 'etcd-ph': '1 voter + 1 learner' },
+  },
+  {
+    title: 'Promote',
+    caption: 'cp-2 catches up and etcd promotes it to a voter. All members are healthy. Now cp-3 boots and joins.',
+    code: 'waitEtcdHealthy',
+    state: { cp1: 'ok', cp2: 'ok', cp3: 'active', cp3etcd: 'flow' },
+    text: { 'cp1-ph': 'voter · leader', 'cp2-ph': 'voter', 'cp3-ph': 'learner', 'etcd-ph': '2 voters + 1 learner' },
+  },
+  {
+    title: 'Three voters',
+    caption: 'Three voters tolerate one failure. Use an odd number of control planes: 1, 3 or 5.',
+    code: 'pk-metal status',
+    state: { cp1: 'ok', cp2: 'ok', cp3: 'ok', etcd: 'ok' },
+    text: { 'cp1-ph': 'voter · leader', 'cp2-ph': 'voter', 'cp3-ph': 'voter', 'etcd-ph': '3 voters' },
+  },
+  {
+    title: 'Shrink',
+    caption: 'To go back to one, the plan removes two control planes. Two voters is an even count, so the plan needs your reason.',
+    code: 'pk-metal scale lab --control-planes 1 --apply --ack-etcd-risk "lab test"',
+    state: { you: 'active', you2cl: 'flow', claims: 'warn', cp1: 'ok', cp2: 'warn', cp3: 'warn' },
+    text: { 'cp1-ph': 'voter · leader', 'cp2-ph': 'release proposed', 'cp3-ph': 'release proposed', 'etcd-ph': '3 voters' },
+  },
+  {
+    title: 'Leave one at a time',
+    caption: 'After approval, one control plane leaves etcd, then the next. The leader leaves last, so etcd elects a new leader once only.',
+    code: 'drain → etcdForfeitLeadership → etcdLeave → talosReset',
+    state: { cp1: 'ok', cp2: 'done', cp3: 'active', cp3etcd: 'flow' },
+    text: { 'cp1-ph': 'voter · leader', 'cp2-ph': 'released', 'cp3-ph': 'leaves', 'etcd-ph': '2 voters' },
+  },
+  {
+    title: 'Back to one',
+    caption: 'cp-2 and cp-3 are reset and turned off. Their Hosts are Available again. etcd has one healthy voter.',
+    code: 'pk-metal status',
+    state: { cp1: 'ok', cp2: 'done', cp3: 'done', etcd: 'ok' },
+    text: { 'cp1-ph': 'voter · leader', 'cp2-ph': 'Available', 'cp3-ph': 'Available', 'etcd-ph': '1 voter' },
+  },
+];
+const k = (p: string) => `/reference/kinds/${p}/`;
+---
+
+<Explainer title="Add and remove control planes" steps={steps as any} start={start}>
+  <svg viewBox="0 0 720 260" role="img" aria-labelledby="ex-scale-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
+    <title id="ex-scale-t">pk-metal scale writes HostClaims. Control planes join etcd one at a time, as a learner first. They leave one at a time, and the leader leaves last.</title>
+    <defs>
+      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
+      </marker>
+    </defs>
+    <Box node="you" x={15} y={20} w={170} h={54} label="You" sub="pk-metal scale" variant="soft" />
+    <Box node="claims" x={275} y={20} w={170} h={54} label="HostClaims" sub="one per node" cat="kind" href={k('hostclaim')} />
+    <Box node="etcd" x={535} y={20} w={170} h={54} label="etcd" sub="-" text="etcd-ph" />
+    <Edge node="you2cl" points={[[185, 47], [275, 47]]} label="writes" at={[230, 39]} />
+    <Box node="cp1" x={15} y={170} w={170} h={54} label="cp-1" sub="-" text="cp1-ph" />
+    <Box node="cp2" x={275} y={170} w={170} h={54} label="cp-2" sub="-" text="cp2-ph" />
+    <Box node="cp3" x={535} y={170} w={170} h={54} label="cp-3" sub="-" text="cp3-ph" />
+    <Edge node="cp2etcd" points={[[360, 170], [360, 120], [600, 120], [600, 74]]} />
+    <Edge node="cp3etcd" points={[[650, 170], [650, 74]]} />
+    <text class="t-small t-label" x={360} y={250} text-anchor="middle">control planes of TalosCluster lab</text>
+  </svg>
+</Explainer>

@@ -1,0 +1,368 @@
+---
+// A terminal replay: it plays a cast from public/casts line by line (a typed command,
+// then its output at the recorded times), or frame by frame for a full-screen program.
+// The casts are synthetic: written by hand from the messages in lab/lab.sh and the
+// layout of `pk-metal top`, with example data only.
+//
+// Cast format (JSON, version 1):
+//   { "version": 1, "title": "mise run lab:up", "mode": "lines",
+//     "events": [ { "at": 0, "cmd": "mise run lab:up" }, { "at": 1.2, "out": "ok    go" } ] }
+//   { "version": 1, "title": "pk-metal top", "mode": "frames",
+//     "frames": [ { "hold": 3, "caption": "Two operations wait.", "lines": ["..."] } ] }
+// Colour: `[[ok|text]]`, `[[warn|text]]`, `[[err|text]]`, `[[dim|text]]`, `[[b|text]]`.
+//
+// Without JavaScript, and in print, a lines cast shows all lines and a frames cast shows
+// its last frame. With reduced motion, the replay does not start by itself.
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { root } from '../../../scripts/root.mjs';
+
+interface Props {
+  /** Path of the cast below public/, for example "casts/lab-up.json". */
+  src: string;
+  /** Text below the terminal. */
+  caption?: string;
+  /** Start again at the end. The default is true for frames and false for lines. */
+  loop?: boolean;
+}
+const { src, caption } = Astro.props;
+const cast = JSON.parse(readFileSync(join(root, 'public', src), 'utf8'));
+if (cast.version !== 1) throw new Error(`TermReplay: ${src} is not a version 1 cast`);
+const frames = cast.mode === 'frames';
+const loop = Astro.props.loop ?? frames;
+
+const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+/** Escapes a cast line and turns `[[ok|text]]` into a coloured span. */
+// A mark or an arrow can come from a font with a different width. A cell of 1ch keeps
+// the columns of a full-screen frame in line.
+const paint = (s: string) =>
+  esc(s)
+    .replace(/[●◐✗○▶·…]/g, '<i class="tr-g">$&</i>')
+    .replace(/\[\[(ok|warn|err|dim|b)\|(.*?)\]\]/g, '<span class="tr-$1">$2</span>');
+---
+
+<figure class="pk-tr not-content" data-mode={cast.mode} data-loop={loop ? '' : undefined}>
+  <div class="pk-tr-win">
+    <div class="pk-tr-bar">
+      <span class="pk-tr-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="pk-tr-title">{cast.title}</span>
+      <span class="pk-tr-tag">example</span>
+      <button type="button" class="pk-tr-btn" data-tr="play" aria-label="Pause" hidden>
+        <svg viewBox="0 0 16 16" aria-hidden="true" class="i-play"><path d="M5 3v10l8-5Z"></path></svg>
+        <svg viewBox="0 0 16 16" aria-hidden="true" class="i-pause"><path d="M5 3v10M11 3v10"></path></svg>
+      </button>
+      <button type="button" class="pk-tr-btn" data-tr="restart" aria-label="Restart" hidden>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3v4h4M3.5 7A5 5 0 1 1 4 11"></path></svg>
+      </button>
+    </div>
+    {frames ? (
+      <div class="pk-tr-screen" role="img" aria-label={`${cast.title}: ${cast.frames.map((f: any) => f.caption).join(' ')}`}>
+        {cast.frames.map((f: any) => (
+          <pre class="pk-tr-frame" data-hold={f.hold ?? 3} data-caption={f.caption ?? ''} set:html={f.lines.map(paint).join('\n')} />
+        ))}
+      </div>
+    ) : (
+      <pre class="pk-tr-screen">{cast.events.map((e: any) =>
+        e.cmd !== undefined
+          ? <span class="pk-tr-line pk-tr-cmd" data-at={e.at}><span class="tr-dim">$ </span><span data-tr="typed">{e.cmd}</span>{'\n'}</span>
+          : <span class="pk-tr-line" data-at={e.at} set:html={paint(e.out) + '\n'} />
+      )}</pre>
+    )}
+  </div>
+  {(caption || frames) && (
+    <figcaption>
+      {frames && <span class="pk-tr-step" data-tr="caption" aria-live="polite">{cast.frames.at(-1).caption}</span>}
+      {caption && <span>{caption}</span>}
+    </figcaption>
+  )}
+</figure>
+
+<style is:global>
+  .pk-tr {
+    margin: 1.5rem 0;
+  }
+  .pk-tr-win {
+    --tr-bg: #1b1f27;
+    --tr-bar: #252a34;
+    --tr-ink: #d7dce5;
+    --tr-dim: #8590a3;
+    --tr-ok: #8fd18a;
+    --tr-warn: #f0c36a;
+    --tr-err: #f2777a;
+    border-radius: var(--pk-radius-lg, 10px);
+    background: var(--tr-bg);
+    color: var(--tr-ink);
+    border: 1px solid color-mix(in srgb, var(--tr-ink) 14%, transparent);
+    box-shadow: var(--pk-shadow, none);
+    overflow: hidden;
+  }
+  .pk-tr-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.45rem 0.75rem;
+    background: var(--tr-bar);
+    font-family: var(--pk-font-mono, monospace);
+    font-size: 0.75rem;
+    color: var(--tr-dim);
+  }
+  .pk-tr-dots {
+    display: inline-flex;
+    gap: 0.35rem;
+  }
+  .pk-tr-dots i {
+    inline-size: 0.6rem;
+    block-size: 0.6rem;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--tr-ink) 22%, transparent);
+  }
+  .pk-tr-title {
+    flex: 1;
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--tr-ink);
+  }
+  .pk-tr-tag {
+    padding: 0 0.4rem;
+    border: 1px solid color-mix(in srgb, var(--tr-dim) 50%, transparent);
+    border-radius: 999px;
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .pk-tr-btn {
+    display: inline-grid;
+    place-items: center;
+    inline-size: 1.5rem;
+    block-size: 1.5rem;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--tr-dim);
+    cursor: pointer;
+  }
+  .pk-tr-btn:hover,
+  .pk-tr-btn:focus-visible {
+    color: var(--tr-ink);
+    background: color-mix(in srgb, var(--tr-ink) 12%, transparent);
+  }
+  .pk-tr-btn svg {
+    inline-size: 0.9rem;
+    block-size: 0.9rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .pk-tr .i-play,
+  .pk-tr.playing .i-pause {
+    display: block;
+  }
+  .pk-tr .i-pause,
+  .pk-tr.playing .i-play {
+    display: none;
+  }
+  .pk-tr-screen {
+    margin: 0;
+    padding: 0.8rem 1rem 0.9rem;
+    overflow-x: auto;
+    background: transparent;
+    border: 0;
+    color: inherit;
+    font-family: var(--pk-font-mono, monospace);
+    font-size: 0.74rem;
+    line-height: 1.5;
+    white-space: pre;
+    tab-size: 8;
+  }
+  div.pk-tr-screen {
+    display: grid;
+  }
+  .pk-tr-frame {
+    grid-area: 1 / 1;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    color: inherit;
+    font: inherit;
+    line-height: 1.22;
+    white-space: pre;
+    visibility: hidden;
+  }
+  .pk-tr-frame:last-child,
+  .pk-tr.is-js .pk-tr-frame.is-on {
+    visibility: visible;
+  }
+  .pk-tr.is-js .pk-tr-frame:not(.is-on) {
+    visibility: hidden;
+  }
+  .pk-tr.is-js .pk-tr-line:not(.is-on) {
+    opacity: 0;
+  }
+  .pk-tr-cmd.is-typing [data-tr='typed']::after {
+    content: '▍';
+    color: var(--tr-ok);
+  }
+  .pk-tr .tr-g {
+    display: inline-block;
+    inline-size: 1ch;
+    font-style: normal;
+    text-align: center;
+    white-space: nowrap;
+  }
+  .pk-tr .tr-ok {
+    color: var(--tr-ok);
+  }
+  .pk-tr .tr-warn {
+    color: var(--tr-warn);
+  }
+  .pk-tr .tr-err {
+    color: var(--tr-err);
+  }
+  .pk-tr .tr-dim {
+    color: var(--tr-dim);
+  }
+  .pk-tr .tr-b {
+    font-weight: 700;
+    color: #fff;
+  }
+  .pk-tr figcaption {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.75rem;
+    margin-top: 0.5rem;
+    font-size: 0.82rem;
+    color: var(--pk-ink-3);
+  }
+  .pk-tr-step {
+    color: var(--pk-ink-2);
+  }
+  @media print {
+    .pk-tr-btn {
+      display: none;
+    }
+    .pk-tr.is-js .pk-tr-line:not(.is-on) {
+      opacity: 1;
+    }
+    .pk-tr.is-js .pk-tr-frame:not(.is-on) {
+      visibility: hidden;
+    }
+    .pk-tr.is-js .pk-tr-frame:last-child {
+      visibility: visible;
+    }
+    .pk-tr.is-js .pk-tr-frame.is-on:not(:last-child) {
+      visibility: hidden;
+    }
+  }
+</style>
+
+<script>
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  for (const tr of document.querySelectorAll<HTMLElement>('.pk-tr')) {
+    const frames = tr.dataset.mode === 'frames';
+    const loop = tr.dataset.loop !== undefined;
+    const playBtn = tr.querySelector<HTMLButtonElement>('[data-tr="play"]')!;
+    const restartBtn = tr.querySelector<HTMLButtonElement>('[data-tr="restart"]')!;
+    const caption = tr.querySelector<HTMLElement>('[data-tr="caption"]');
+    const items = [...tr.querySelectorAll<HTMLElement>(frames ? '.pk-tr-frame' : '.pk-tr-line')];
+    let cur = 0;
+    let timer: number | undefined;
+    let playing = false;
+
+    const show = (n: number) => {
+      // Lines: all lines before n are on. Frames: only frame n - 1 is on.
+      items.forEach((el, i) => el.classList.toggle('is-on', frames ? i === n - 1 : i < n));
+      if (frames && caption && n > 0) caption.textContent = items[n - 1].dataset.caption ?? '';
+    };
+    const setPlaying = (on: boolean) => {
+      playing = on;
+      tr.classList.toggle('playing', on);
+      playBtn.setAttribute('aria-label', on ? 'Pause' : 'Play');
+      if (!on) window.clearTimeout(timer);
+    };
+    const type = (el: HTMLElement, done: () => void) => {
+      const span = el.querySelector<HTMLElement>('[data-tr="typed"]')!;
+      const text = span.dataset.text ?? (span.dataset.text = span.textContent ?? '');
+      let i = 0;
+      span.textContent = '';
+      el.classList.add('is-typing');
+      const tick = () => {
+        if (!playing) return;
+        span.textContent = text.slice(0, ++i);
+        if (i < text.length) timer = window.setTimeout(tick, 45);
+        else {
+          el.classList.remove('is-typing');
+          timer = window.setTimeout(done, 350);
+        }
+      };
+      tick();
+    };
+    const step = () => {
+      if (!playing) return;
+      if (cur >= items.length) {
+        if (!loop) return setPlaying(false);
+        cur = 0;
+        if (!frames) show(0);
+      }
+      const el = items[cur];
+      cur += 1;
+      show(cur);
+      if (frames) {
+        timer = window.setTimeout(step, Number(el.dataset.hold) * 1000);
+        return;
+      }
+      const next = items[cur];
+      const wait = next ? Math.max(0.05, Number(next.dataset.at) - Number(el.dataset.at)) * 1000 : 2500;
+      if (el.classList.contains('pk-tr-cmd')) type(el, step);
+      else timer = window.setTimeout(step, Math.min(wait, 1500));
+    };
+    const reset = () => {
+      for (const s of tr.querySelectorAll<HTMLElement>('[data-tr="typed"]')) {
+        if (s.dataset.text) s.textContent = s.dataset.text;
+      }
+      for (const el of items) el.classList.remove('is-typing');
+    };
+    const start = () => {
+      window.clearTimeout(timer);
+      reset();
+      cur = 0;
+      show(0);
+      setPlaying(true);
+      step();
+    };
+
+    tr.classList.add('is-js');
+    playBtn.hidden = false;
+    restartBtn.hidden = false;
+    // Until the replay starts, show the end state: all lines, or the last frame.
+    show(items.length);
+    cur = items.length;
+
+    playBtn.addEventListener('click', () => {
+      if (playing) return setPlaying(false);
+      if (cur >= items.length) return start();
+      setPlaying(true);
+      step();
+    });
+    restartBtn.addEventListener('click', start);
+
+    if (!reduced.matches && 'IntersectionObserver' in window) {
+      const io = new IntersectionObserver(
+        (entries) => {
+          if (entries.some((e) => e.isIntersecting)) {
+            io.disconnect();
+            start();
+          }
+        },
+        { threshold: 0.4 },
+      );
+      io.observe(tr);
+    }
+  }
+</script>

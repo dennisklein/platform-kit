@@ -1,0 +1,86 @@
+---
+// One reconcile pass as a vertical flow: a numbered box for each step of the loop,
+// and, to the right of a step, where the pass stops early (a hold, a wait, a
+// failure). A back edge from the last step to the first carries `loop`: what
+// starts the next pass. The numbers match the numbered list under the figure.
+import Figure from '../diagram/Figure.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+
+interface Step {
+  label: string;
+  sub?: string;
+  /** Where the pass leaves the loop at this step. */
+  out?: string;
+  outSub?: string;
+  outVariant?: 'warn' | 'err' | 'ok' | 'soft';
+  /** The text on the arrow to the exit box. */
+  outEdge?: string;
+  variant?: 'accent' | 'ok' | 'warn' | 'err' | 'soft';
+  mono?: boolean;
+}
+interface Props {
+  title: string;
+  caption?: string;
+  steps: Step[];
+  loop?: string;
+}
+const { title, caption, steps, loop } = Astro.props;
+
+const W = 720;
+const mx = 40;
+const mw = 330;
+const ox = 430;
+const ow = 270;
+const h = 44;
+const gap = 22;
+const top = 14;
+const ys = steps.map((_, i) => top + i * (h + gap));
+const last = ys.at(-1)! + h;
+const H = last + (loop ? 46 : 16);
+const cx = mx + mw / 2;
+---
+
+<Figure title={title} caption={caption} width={W} height={H} wide class="pk-loopflow">
+  {steps.map((s, i) => (
+    <>
+      <Box x={mx} y={ys[i]} w={mw} h={h} label={s.label} sub={s.sub} variant={s.variant} mono={s.mono} />
+      <circle class="lf-num" cx={mx} cy={ys[i] + h / 2} r={11}></circle>
+      <text class="lf-num-t" x={mx} y={ys[i] + h / 2 + 4} text-anchor="middle">{i + 1}</text>
+      {i > 0 && <Edge points={[[cx, ys[i - 1] + h], [cx, ys[i]]]} />}
+      {s.out && (
+        <>
+          <Edge
+            points={[[mx + mw, ys[i] + h / 2], [ox, ys[i] + h / 2]]}
+            variant="muted"
+            label={s.outEdge}
+            at={[(mx + mw + ox) / 2, ys[i] + h / 2 - 6]}
+          />
+          <Box x={ox} y={ys[i]} w={ow} h={h} label={s.out} sub={s.outSub} variant={s.outVariant ?? 'warn'} />
+        </>
+      )}
+    </>
+  ))}
+  {loop && (
+    <>
+      <Edge
+        points={[[cx, last], [cx, last + 22], [12, last + 22], [12, ys[0] + h / 2], [mx - 12, ys[0] + h / 2]]}
+        variant="accent"
+      />
+      <text class="t-small t-label" x={cx + 10} y={last + 36}>{loop}</text>
+    </>
+  )}
+</Figure>
+
+<style is:global>
+  .pk-loopflow .lf-num {
+    fill: var(--pk-fig-box);
+    stroke: var(--c-ctrl);
+    stroke-width: 1.5;
+  }
+  .pk-loopflow .lf-num-t {
+    fill: var(--c-ctrl);
+    font-size: 11px;
+    font-weight: 700;
+  }
+</style>

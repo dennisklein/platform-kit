@@ -1,0 +1,27 @@
+---
+// Static diagram: BIOS convergence. Source: metal/internal/controller/convergence_controller.go (bios).
+import Figure from '../diagram/Figure.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+---
+
+<Figure
+  title="BIOS convergence. BiosProfiles merge by layer into one BiosSettings for each Host. The BiosSchema from the machine validates it. On drift the operator proposes a HostOperation that stages the values and reboots the machine."
+  caption="BIOS convergence for one Host. You write the profiles. The operator writes the rest."
+  width={800}
+  height={240}
+  wide
+>
+  <Box x={10} y={20} w={170} h={48} label="BiosProfile" sub="layer 0: hardware" cat="kind" href="/reference/kinds/biosprofile/" />
+  <Box x={10} y={100} w={170} h={48} label="BiosProfile" sub="layer 10: role" cat="kind" href="/reference/kinds/biosprofile/" />
+  <Box x={250} y={60} w={180} h={48} label="BiosSettings" sub="spec + provenance" cat="kind" href="/reference/kinds/biossettings/" variant="accent" />
+  <Box x={250} y={170} w={180} h={48} label="BiosSchema" sub="the attribute registry" cat="kind" href="/reference/kinds/biosschema/" />
+  <Box x={500} y={60} w={160} h={48} label="HostOperation" sub="applyBios + reboot" cat="kind" href="/reference/kinds/hostoperation/" variant="warn" />
+  <Box x={700} y={60} w={90} h={48} label="BMC" sub="Redfish" />
+  <Edge points={[[180, 44], [215, 44], [215, 76], [250, 76]]} />
+  <Edge points={[[180, 124], [215, 124], [215, 92], [250, 92]]} label="merge" at={[200, 160]} />
+  <Edge points={[[340, 170], [340, 108]]} label="validates" at={[348, 144]} anchor="start" />
+  <Edge points={[[430, 84], [500, 84]]} label="drift" at={[465, 76]} />
+  <Edge points={[[660, 84], [700, 84]]} label="approved" at={[680, 76]} />
+  <Edge points={[[745, 108], [745, 194], [430, 194]]} variant="muted" label="reads registry and values" at={[588, 214]} />
+</Figure>

@@ -1,0 +1,102 @@
+---
+// The flags of one command, or of one of its subcommands, from the generated data.
+// Each row has an anchor: `[](cli:approve#--yes)` links to the row `--yes`, and
+// `[](cli:backup#now.--wait)` to the flag `--wait` of the subcommand `now`.
+// The text of a flag is the help text of pk-metal, as the program prints it.
+import { command, flagId, flagText, flagValue, handFlags, type Flag } from './data';
+
+interface Props {
+  cmd: string;
+  sub?: string;
+  /** Flags to leave out, for a subcommand that parses a flag and does not use it. */
+  omit?: string[];
+}
+const { cmd, sub, omit = [] } = Astro.props;
+const c = command(cmd);
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+let all: Flag[];
+if (handFlags[`${cmd} ${sub}`]) all = handFlags[`${cmd} ${sub}`];
+else if (sub) {
+  const s = c.subcommands.find((x) => x.name === sub);
+  if (!s) throw new Error(`cli: pk-metal ${cmd} has no subcommand "${sub}"`);
+  all = s.flags;
+} else all = c.flags;
+
+const rows = all.filter((f) => !f.global && !omit.includes(f.name));
+const globals = all.some((f) => f.global) || c.needsCluster;
+
+function describe(f: Flag) {
+  const required = /\(required[;)]/.test(f.usage);
+  let text = f.usage.replace(/\s*\(required\)/, '').replace(/\(required; /, '(').replace(/`/g, '').trim();
+  text = text.charAt(0).toUpperCase() + text.slice(1);
+  if (!/[.!?]$/.test(text)) text += '.';
+  return { text, required };
+}
+function fallback(f: Flag) {
+  if (f.type === 'bool') return f.default || 'false';
+  if (f.default === '-1' && /required/.test(f.usage)) return '';
+  return f.default;
+}
+---
+
+{rows.length > 0 && (
+  <div class="pk-fields pk-cli-flags not-content">
+    <table>
+      <thead>
+        <tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr>
+      </thead>
+      <tbody>
+        {rows.map((f) => {
+          const d = describe(f);
+          const def = fallback(f);
+          const val = flagValue(f);
+          return (
+            <tr id={flagId(f, sub)}>
+              <td class="f-path">
+                <a href={`#${flagId(f, sub)}`} class="f-anchor"><code>{flagText(f)}</code></a>
+                {val && <code class="f-val">&lt;{val}&gt;</code>}
+                {d.required && <span class="f-req" title="required">required</span>}
+              </td>
+              <td class="f-type">{def ? <code>{def}</code> : <span class="f-none" aria-label="none">-</span>}</td>
+              <td class="f-desc">{d.text}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  </div>
+)}
+{rows.length === 0 && <p class="pk-cli-noflags">This {sub ? 'subcommand' : 'command'} has no flags of its own.</p>}
+{globals && (
+  <p class="pk-cli-globals">
+    This {sub ? 'subcommand' : 'command'} also accepts the{' '}
+    <a class="x" data-cat="cli" href={`${base}/reference/cli/global-flags/`}>global flags</a>{' '}
+    <code>--kubeconfig</code> and <code>--context</code>.
+  </p>
+)}
+
+<style is:global>
+  .pk-cli-flags .f-val {
+    margin-inline-start: 0.35rem;
+    padding: 0;
+    background: none;
+    color: var(--pk-ink-3);
+    font-size: 0.8rem;
+    font-style: italic;
+  }
+  .pk-cli-flags .f-type code {
+    color: var(--pk-ink-2);
+  }
+  .pk-cli-flags .f-type {
+    white-space: nowrap;
+  }
+  .pk-cli-flags .f-none {
+    color: var(--pk-ink-3);
+  }
+  .pk-cli-globals,
+  .pk-cli-noflags {
+    font-size: 0.875rem;
+    color: var(--pk-ink-2);
+  }
+</style>

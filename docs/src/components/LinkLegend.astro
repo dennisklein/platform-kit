@@ -1,0 +1,52 @@
+---
+// The legend of the link categories: icon, colour and name. The footer shows the
+// compact form; the "How to read" page shows the full table.
+import { categories } from '../data/categories.mjs';
+
+interface Props {
+  compact?: boolean;
+}
+const { compact } = Astro.props;
+const examples: Record<string, string> = {
+  kind: 'Host', ctrl: 'host', act: 'PowerCycle', cli: 'pk-metal approve', lab: 'mise run lab:up', ref: 'Phases',
+  concept: 'Approval', flow: 'Rack to running node', howto: 'Upgrade Talos', rb: 'Host in Mismatch',
+  tut: 'Your first cluster', term: 'BMC', ext: 'redfish.dmtf.org', src: 'host_types.go',
+};
+const shown = categories.filter((c) => c.id !== 'term');
+---
+
+{
+  compact ? (
+    <nav class="pk-legend not-content" aria-label="Link categories">
+      <p class="pk-legend-title">Link colours</p>
+      <ul>
+        {shown.map((c) => (
+          <li>
+            <span class="pk-chip" data-cat={c.id}>{c.label}</span>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  ) : (
+    <table class="pk-legend-table">
+      <thead>
+        <tr><th>Category</th><th>You write</th><th>You see</th></tr>
+      </thead>
+      <tbody>
+        {categories.map((c) => (
+          <tr>
+            <td>{c.label}</td>
+            <td><code>{c.scheme ? `[](${c.scheme}:…)` : c.id === 'ext' ? '[text](https://…)' : '[](/repo/<path>)'}</code></td>
+            <td>
+              {c.id === 'term' ? (
+                <span class="gl pk-sample" data-domain="hw">{examples[c.id]}</span>
+              ) : (
+                <span class={`x pk-sample${c.mono ? ' mono' : ''}`} data-cat={c.id}>{examples[c.id]}</span>
+              )}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}

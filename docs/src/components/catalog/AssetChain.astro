@@ -1,0 +1,36 @@
+---
+// Static diagram: from an Asset to a Host. Source: metal/internal/controller/asset_controller.go,
+// managementendpoint_controller.go and host_controller.go.
+import Figure from '../diagram/Figure.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+
+const w = 150;
+const h = 48;
+const xs = [10, 205, 400, 595];
+const y = 26;
+const mid = y + h / 2;
+---
+
+<Figure
+  title="You write an Asset and a Secret. The operator finds the address of the BMC in the ledger, makes a ManagementEndpoint, reads the BMC, and makes a Host."
+  caption="From an Asset to a Host. The operator makes the two objects on the right."
+  width={755}
+  height={186}
+  wide
+>
+  <Box x={xs[0]} y={y} w={w} h={h} label="Asset" sub="serial, bmcMac" variant="accent" cat="kind" href="/reference/kinds/asset/" />
+  <Box x={xs[1]} y={y} w={w} h={h} label="Ledger" sub="MAC to address" variant="soft" />
+  <Box x={xs[2]} y={y} w={w} h={h} label="ManagementEndpoint" sub="same name" cat="kind" href="/reference/kinds/managementendpoint/" />
+  <Box x={xs[3]} y={y} w={w} h={h} label="Host" sub="named by serial" cat="kind" href="/reference/kinds/host/" />
+  <Edge points={[[xs[0] + w, mid], [xs[1], mid]]} label="bmcMac" at={[xs[1] - 23, y - 8]} />
+  <Edge points={[[xs[1] + w, mid], [xs[2], mid]]} label="address" at={[xs[2] - 23, y - 8]} />
+  <Edge points={[[xs[2] + w, mid], [xs[3], mid]]} label="systems" at={[xs[3] - 23, y - 8]} />
+  <Box x={xs[0]} y={122} w={w} h={h} label="Secret" sub="username, password" variant="accent" />
+  <Box x={xs[2]} y={122} w={w} h={h} label="BMC" sub="Redfish" />
+  <Edge points={[[xs[0] + 75, y + h], [xs[0] + 75, 122]]} label="credentialsRef" at={[xs[0] + 83, 102]} anchor="start" />
+  <Edge points={[[xs[2] + 75, y + h], [xs[2] + 75, 122]]} label="reads" at={[xs[2] + 83, 102]} anchor="start" />
+  <text class="t-small t-label" x={xs[3]} y={140} text-anchor="start">The operator compares the</text>
+  <text class="t-small t-label" x={xs[3]} y={156} text-anchor="start">serial and the MAC address</text>
+  <text class="t-small t-label" x={xs[3]} y={172} text-anchor="start">with the Asset.</text>
+</Figure>

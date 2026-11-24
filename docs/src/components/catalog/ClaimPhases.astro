@@ -1,0 +1,27 @@
+---
+// Static diagram: the HostClaim phases. Source: metal/internal/phase/phase.go (ForClaim).
+import Figure from '../diagram/Figure.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+
+const w = 150;
+const h = 48;
+---
+
+<Figure
+  title="HostClaim phases. A claim is Pending until it binds one Host. It is Ambiguous when the BMC manages more than one machine and the claim names none."
+  caption="HostClaim phases. The phase tells you how many machines the claim found."
+  width={754}
+  height={176}
+  wide
+>
+  <Box x={10} y={64} w={w} h={h} label="Pending" sub="no Host" />
+  <Box x={388} y={14} w={w} h={h} label="Bound" sub="one Host" variant="ok" />
+  <Box x={388} y={114} w={w} h={h} label="Ambiguous" sub="two or more systems" variant="err" />
+  <Edge points={[[160, 78], [262, 78], [262, 38], [388, 38]]} label="Bound is True" at={[325, 30]} />
+  <Edge points={[[160, 98], [262, 98], [262, 138], [388, 138]]} variant="muted" label="AmbiguousSystem" at={[325, 156]} />
+  <text class="t-small t-label" x={556} y={34} text-anchor="start">The install starts when</text>
+  <text class="t-small t-label" x={556} y={50} text-anchor="start">the claim has spec.os.</text>
+  <text class="t-small t-label" x={556} y={134} text-anchor="start">Make a new claim</text>
+  <text class="t-small t-label" x={556} y={150} text-anchor="start">with spec.systemRef.</text>
+</Figure>

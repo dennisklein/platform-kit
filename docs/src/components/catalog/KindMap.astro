@@ -1,0 +1,71 @@
+---
+// Static diagram: how the kinds relate. Each box is a link to the page of the kind.
+// The build stops when the kinds here are not the kinds in src/data/generated/crds.
+import Figure from '../diagram/Figure.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+import Zone from '../diagram/Zone.astro';
+
+const crds = import.meta.glob('../../data/generated/crds/*.json', { eager: true }) as Record<string, { kind: string }>;
+const w = 150;
+const h = 40;
+const col = [30, 225, 420, 615];
+/** [kind, column, y, you write it] */
+const boxes: [string, number, number, boolean][] = [
+  ['Asset', 0, 38, true],
+  ['ManagementEndpoint', 1, 38, false],
+  ['Host', 2, 38, false],
+  ['HostOperation', 3, 38, false],
+  ['EndpointProfile', 1, 118, true],
+  ['HostClaim', 2, 118, true],
+  ['MaintenanceWindow', 3, 118, true],
+  ['BiosSchema', 0, 222, false],
+  ['BiosProfile', 1, 222, true],
+  ['BiosSettings', 2, 222, false],
+  ['FirmwareProfile', 3, 222, true],
+  ['TalosCluster', 0, 326, true],
+  ['TalosNode', 1, 326, true],
+  ['BootAsset', 2, 326, false],
+  ['EtcdBackupPolicy', 0, 406, true],
+  ['EtcdSnapshot', 1, 406, false],
+  ['TalosRollout', 2, 406, false],
+];
+const have = Object.values(crds).map((c) => c.kind).sort();
+const drawn = boxes.map((b) => b[0]).sort();
+if (have.join() !== drawn.join()) {
+  throw new Error(`catalog: KindMap draws [${drawn}] but the CRDs are [${have}]`);
+}
+const mid = (y: number) => y + h / 2;
+---
+
+<Figure
+  title="The kinds of pk-metal in three groups: machines, BIOS and firmware, and Talos. An Asset finds a ManagementEndpoint, which reports a Host. A HostClaim binds the Host. A HostOperation changes it."
+  caption="The 17 kinds. A filled box is a kind that you write. The operator writes the others."
+  width={795}
+  height={470}
+  wide
+>
+  <Zone x={10} y={10} w={775} h={164} label="Machines · metal.pk.io" />
+  <Zone x={10} y={194} w={775} h={84} label="BIOS and firmware · metal.pk.io" />
+  <Zone x={10} y={298} w={775} h={164} label="Talos · os.pk.io" />
+  {boxes.map(([kind, c, y, you]) => (
+    <Box x={col[c]} y={y} w={w} h={h} label={kind} variant={you ? 'accent' : undefined} cat="kind" href={`/reference/kinds/${kind.toLowerCase()}/`} />
+  ))}
+  <Edge points={[[col[0] + w, mid(38)], [col[1], mid(38)]]} label="finds" at={[col[1] - 23, 32]} />
+  <Edge points={[[col[1] + w, mid(38)], [col[2], mid(38)]]} label="reports" at={[col[2] - 23, 32]} />
+  <Edge points={[[col[3], mid(38)], [col[2] + w, mid(38)]]} label="changes" at={[col[3] - 23, 32]} />
+  <Edge points={[[col[1] + 75, 118], [col[1] + 75, 78]]} label="configures" at={[col[1] + 83, 102]} anchor="start" />
+  <Edge points={[[col[2] + 75, 118], [col[2] + 75, 78]]} label="binds" at={[col[2] + 83, 102]} anchor="start" />
+  <Edge points={[[col[3] + 75, 118], [col[3] + 75, 78]]} label="delays" at={[col[3] + 83, 102]} anchor="start" />
+  <Edge points={[[col[0] + w, mid(222)], [col[1], mid(222)]]} label="limits" at={[col[1] - 23, 258]} />
+  <Edge points={[[col[1] + w, mid(222)], [col[2], mid(222)]]} label="merge" at={[col[2] - 23, 216]} />
+  <Edge points={[[col[1], mid(326)], [col[0] + w, mid(326)]]} label="member" at={[col[1] - 23, 320]} />
+  <Edge points={[[col[2], mid(326)], [col[1] + w, mid(326)]]} label="media" at={[col[2] - 23, 320]} />
+  <Edge points={[[col[0] + w, mid(406)], [col[1], mid(406)]]} label="makes" at={[col[1] - 23, 400]} />
+  <Edge points={[[col[0] + 75, 406], [col[0] + 75, 366]]} label="backs up" at={[col[0] + 83, 390]} anchor="start" />
+  <Edge points={[[col[2] + 75, 406], [col[2] + 75, 386], [col[1] + 115, 386], [col[1] + 115, 366]]} label="changes" at={[col[2] + 83, 398]} anchor="start" />
+  <text class="t-small t-label" x={col[3]} y={332} text-anchor="start">A HostClaim names the</text>
+  <text class="t-small t-label" x={col[3]} y={348} text-anchor="start">TalosNode to install.</text>
+  <text class="t-small t-label" x={col[3]} y={412} text-anchor="start">A TalosRollout proposes</text>
+  <text class="t-small t-label" x={col[3]} y={428} text-anchor="start">one HostOperation for each node.</text>
+</Figure>

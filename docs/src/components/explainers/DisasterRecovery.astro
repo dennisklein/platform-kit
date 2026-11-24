@@ -1,0 +1,97 @@
+---
+// Explainer: from an etcd snapshot to a restored cluster (majority lost).
+// Sources: metal/internal/controller/etcdbackup_controller.go (snapshot, age,
+// verify), metal/cmd/pk-metal/restore.go (plan, propose, upload),
+// metal/internal/controller/hostoperation_etcdrecover.go (etcdRecover).
+import Explainer from '../Explainer.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+
+interface Props {
+  start?: number;
+}
+const { start = 0 } = Astro.props;
+const steps = [
+  {
+    title: 'Back up',
+    caption: 'An EtcdBackupPolicy takes a snapshot from a healthy member on a schedule. Taking a snapshot needs no approval.',
+    code: 'pk-metal backup now lab',
+    state: { pol: 'active', etcd: 'ok', e2op: 'flow', op: 'active' },
+    text: { 'etcd-ph': '3 healthy', 'snap-ph': '-', 'sink-ph': '-', 'ops-ph': '-' },
+  },
+  {
+    title: 'Encrypt and store',
+    caption: 'The operator encrypts the snapshot to your age public keys and sends it to the sink. It holds no secret key, so it cannot read the snapshot.',
+    code: 'spec.encryption.ageRecipients: [age1…]',
+    state: { pol: 'done', etcd: 'ok', op: 'active', op2sink: 'flow', sink: 'active' },
+    text: { 'etcd-ph': '3 healthy', 'snap-ph': 'Complete', 'sink-ph': 'ciphertext', 'ops-ph': '-' },
+  },
+  {
+    title: 'Verify',
+    caption: 'The operator reads the snapshot back and checks the hash. Only a Verified snapshot can be restored.',
+    code: 'pk-metal backup list lab',
+    state: { etcd: 'ok', op: 'done', sink: 'ok', snap: 'ok' },
+    text: { 'etcd-ph': '3 healthy', 'snap-ph': 'Verified', 'sink-ph': 'ciphertext', 'ops-ph': '-' },
+  },
+  {
+    title: 'Loss',
+    caption: 'Most control planes lose their etcd data. etcd stops. The operator does not bootstrap again, because that makes an empty cluster over your data.',
+    code: 'Bootstrapped=False EtcdDataLost',
+    state: { etcd: 'err', snap: 'ok', sink: 'ok' },
+    text: { 'etcd-ph': 'no majority', 'snap-ph': 'Verified', 'sink-ph': 'ciphertext', 'ops-ph': '-' },
+  },
+  {
+    title: 'Plan',
+    caption: 'restore plan asks each control plane about etcd and prints the case. With --propose it writes a reset for each stuck member and one etcdRecover.',
+    code: 'pk-metal restore plan lab --propose',
+    state: { you: 'active', you2plan: 'flow', etcd: 'err', ops: 'warn' },
+    text: { 'etcd-ph': 'no majority', 'snap-ph': 'Verified', 'sink-ph': 'ciphertext', 'ops-ph': 'AwaitingApproval' },
+  },
+  {
+    title: 'Approve and reset',
+    caption: 'A second person approves the operations one after the other. The resets wipe EPHEMERAL on the stuck control planes.',
+    code: 'pk-metal approve pk-metal/lab-etcd-reset-node-2',
+    state: { ops: 'active', ops2etcd: 'flow', etcd: 'warn' },
+    text: { 'etcd-ph': 'no etcd runs', 'snap-ph': 'Verified', 'sink-ph': 'ciphertext', 'ops-ph': 'Running' },
+  },
+  {
+    title: 'Upload',
+    caption: 'You decrypt the snapshot on your workstation and stream it to the node over the Talos API. The plaintext never touches a disk or the operator.',
+    code: 'pk-metal restore upload pk-metal/lab-etcd-recover-node-1 --identity ~/.config/age/keys.txt',
+    state: { sink: 'active', sink2you: 'flow', you: 'active', you2etcd: 'flow', etcd: 'active', ops: 'active' },
+    text: { 'etcd-ph': 'recover on node-1', 'snap-ph': 'Verified', 'sink-ph': 'ciphertext', 'ops-ph': 'Running' },
+  },
+  {
+    title: 'Restored',
+    caption: 'Talos starts etcd on one node from the snapshot. The other control planes join it. Bootstrapped is True again.',
+    code: 'kubectl get taloscluster lab',
+    state: { etcd: 'ok', ops: 'ok', snap: 'ok' },
+    text: { 'etcd-ph': '3 healthy', 'snap-ph': 'Verified', 'sink-ph': 'ciphertext', 'ops-ph': 'Succeeded' },
+  },
+];
+const k = (p: string) => `/reference/kinds/${p}/`;
+---
+
+<Explainer title="Back up and restore etcd" steps={steps as any} start={start}>
+  <svg viewBox="0 0 720 260" role="img" aria-labelledby="ex-dr-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
+    <title id="ex-dr-t">The operator takes encrypted etcd snapshots into a sink. After a loss, approved operations reset the stuck members, and a person uploads the decrypted snapshot to one control plane.</title>
+    <defs>
+      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
+      </marker>
+    </defs>
+    <Box node="pol" x={15} y={20} w={170} h={54} label="EtcdBackupPolicy" sub="interval, sink, keys" cat="kind" href={k('etcdbackuppolicy')} />
+    <Box node="op" x={275} y={20} w={170} h={54} label="Operator" sub="age encrypt" />
+    <Box node="sink" x={535} y={20} w={170} h={54} label="Sink" sub="-" text="sink-ph" />
+    <Box node="etcd" x={15} y={118} w={170} h={54} label="etcd" sub="-" text="etcd-ph" />
+    <Box node="snap" x={535} y={118} w={130} h={54} label="EtcdSnapshot" sub="-" text="snap-ph" cat="kind" href={k('etcdsnapshot')} />
+    <Box node="you" x={535} y={206} w={170} h={44} label="You" sub="age identity" variant="soft" />
+    <Box node="ops" x={275} y={206} w={170} h={44} label="Restore operations" sub="-" text="ops-ph" cat="kind" href={k('hostoperation')} />
+    <Edge node="e2op" points={[[185, 47], [275, 47]]} label="schedule" at={[230, 39]} />
+    <Edge node="op2sink" points={[[445, 47], [535, 47]]} label="ciphertext" at={[490, 39]} />
+    <Edge node="you2plan" points={[[535, 228], [445, 228]]} label="restore plan" at={[490, 220]} />
+    <Edge node="ops2etcd" points={[[275, 228], [100, 228], [100, 172]]} label="reset" at={[190, 220]} />
+    <Edge node="sink2you" points={[[690, 74], [690, 206]]} label="get" at={[698, 150]} anchor="start" />
+    <Edge node="you2etcd" points={[[560, 206], [560, 190], [150, 190], [150, 172]]} label="upload over Talos API" at={[360, 184]} />
+  </svg>
+</Explainer>

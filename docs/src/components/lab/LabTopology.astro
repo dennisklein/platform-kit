@@ -1,0 +1,53 @@
+---
+// Static diagram: what runs where in the virtual lab, for the default size (one control
+// plane and two workers). Sources: lab/README.md, lab/kind.yaml, lab/net.sh,
+// metal/internal/lab/render.go.
+import Figure from '../diagram/Figure.astro';
+import Zone from '../diagram/Zone.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+
+const rows = [62, 104, 146];
+---
+
+<Figure
+  title="The virtual lab on one workstation. The operator runs in a kind cluster. A fleet process serves one simulated BMC for each QEMU virtual machine. The bridge pkbr0 connects them."
+  caption="The virtual lab at the default size. Only the hardware is simulated."
+  width={760}
+  height={420}
+  wide
+>
+  <Zone x={10} y={10} w={740} h={400} label="Workstation or CI runner" />
+
+  <Zone x={30} y={38} w={200} h={202} label="kind cluster pk-metal" />
+  <Box x={46} y={62} w={168} h={58} label="pk-metal-manager" sub="the operator pod" cat="ctrl" href="/reference/controllers/manager/" />
+  <Box x={46} y={146} w={168} h={58} label="Media store" sub="NodePort 30443" />
+
+  <Zone x={262} y={38} w={200} h={202} label="pk-metal sim fleet" />
+  {rows.map((y, i) => (
+    <Box x={278} y={y} w={168} h={36} label={`BMC node-${i + 1}`} sub={`10.77.0.1:844${i + 1}`} />
+  ))}
+  <Box x={278} y={192} w={168} h={36} label="State endpoint" sub="127.0.0.1:8440/state" variant="soft" />
+
+  <Zone x={530} y={38} w={200} h={202} label="QEMU virtual machines" />
+  {rows.map((y, i) => (
+    <Box x={546} y={y} w={168} h={36} label={`node-${i + 1}`} sub={`10.77.0.1${i + 1}`} variant="ok" />
+  ))}
+  <Box x={546} y={192} w={168} h={36} label="Cluster VIP" sub="10.77.0.10" variant="soft" />
+
+  <Edge points={[[214, 82], [278, 82]]} variant="accent" label="Redfish" at={[246, 74]} />
+  <Edge points={[[278, 164], [246, 164], [246, 176], [214, 176]]} label="boot media" at={[246, 196]} />
+  {rows.map((y) => (
+    <Edge points={[[446, y + 18], [546, y + 18]]} />
+  ))}
+  <text class="t-small t-label" x={496} y={72} text-anchor="middle">power, media</text>
+
+  <Box x={30} y={282} w={700} h={46} label="Bridge pkbr0" sub="10.77.0.1/24 · one tap for each machine: pktap1, pktap2, pktap3" variant="accent" />
+  <Edge points={[[130, 240], [130, 282]]} both label="Talos API, Kubernetes API" at={[138, 266]} anchor="start" />
+  <Edge points={[[362, 240], [362, 282]]} variant="muted" label="listens on" at={[370, 266]} anchor="start" />
+  <Edge points={[[630, 240], [630, 282]]} both label="taps" at={[638, 266]} anchor="start" />
+
+  <Box x={30} y={356} w={232} h={40} label=".lab/" sub="disks, logs, kubeconfig, generated files" variant="soft" />
+  <Box x={530} y={356} w={200} h={40} label="NAT to the outside" sub="images, DNS, time" variant="soft" />
+  <Edge points={[[630, 328], [630, 356]]} variant="muted" />
+</Figure>

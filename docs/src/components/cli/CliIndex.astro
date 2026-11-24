@@ -1,0 +1,89 @@
+---
+// The table of all pk-metal commands, in groups by purpose. The commands and the
+// `changes` field come from the generated index; the text of each row is the
+// description of the command's page. The build stops when a command has no group.
+import { loadRegistry } from '../../../scripts/registry.mjs';
+import { groups, index } from './data';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const reg = loadRegistry(base);
+
+const grouped = new Set(groups.flatMap((g) => g.commands));
+const missing = index.commands.filter((c) => !grouped.has(c.name)).map((c) => c.name);
+if (missing.length) throw new Error(`cli: no group in components/cli/data.ts for: ${missing.join(', ')}`);
+
+const byName = new Map(index.commands.map((c) => [c.name, c]));
+const rows = (names: string[]) =>
+  names.map((name) => {
+    const c = byName.get(name);
+    if (!c) throw new Error(`cli: group names "${name}", which is not a pk-metal command`);
+    const e = reg.get(`cli:${name}`);
+    if (!e) throw new Error(`cli: no page or planned entry for cli:${name}`);
+    return { name, changes: c.changes, href: e.href, text: e.description ?? c.summary, planned: e.planned };
+  });
+---
+
+{groups.map((g) => (
+  <section class="pk-cli-group not-content" aria-labelledby={`group-${g.id}`}>
+    <header>
+      <h3 id={`group-${g.id}`}>{g.title}</h3>
+      <p>{g.lead}</p>
+    </header>
+    <div class="pk-fields">
+      <table>
+        <thead>
+          <tr><th scope="col">Command</th><th scope="col">What it does</th><th scope="col">Effect</th></tr>
+        </thead>
+        <tbody>
+          {rows(g.commands).map((r) => (
+            <tr>
+              <td class="f-path">
+                <a class="x" data-cat="cli" data-xref={`cli:${r.name}`} data-planned={r.planned ? '' : undefined} href={r.href}>pk-metal {r.name}</a>
+              </td>
+              <td class="f-desc">{r.text}</td>
+              <td class="f-effect">
+                {r.changes
+                  ? <span class="pk-cli-badge is-changes" title="This command can change a machine, or what the operator does.">changes machines</span>
+                  : <span class="pk-cli-badge is-reads" title="This command changes no machine.">changes no machine</span>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </section>
+))}
+
+<style is:global>
+  .pk-cli-group {
+    margin-block: 1.75rem;
+  }
+  .pk-cli-group header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.9rem;
+    margin-block-end: 0.5rem;
+  }
+  .pk-cli-group h3 {
+    margin: 0;
+    font-size: 1.05rem;
+    color: var(--pk-ink);
+  }
+  .pk-cli-group header p {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--pk-ink-2);
+  }
+  .pk-cli-group .pk-fields {
+    margin-block: 0;
+  }
+  .pk-cli-group .f-path {
+    inline-size: 11.5rem;
+  }
+  .pk-cli-group .f-effect {
+    inline-size: 1%;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+</style>

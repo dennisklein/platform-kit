@@ -1,0 +1,30 @@
+---
+// Diagram: what each group of pk-metal commands talks to.
+// Source: metal/cmd/pk-metal (newClient in cluster.go, mustConnect in main.go,
+// bootstrap.go, restore.go, render.go).
+import Figure from '../diagram/Figure.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+import Zone from '../diagram/Zone.astro';
+---
+
+<Figure
+  title="pk-metal talks to the Kubernetes API for most commands. The operator then acts on the BMC. A small set of commands talks to a BMC or to the Talos API directly."
+  caption="Most commands write an object or an annotation through the Kubernetes API. The operator does the work on the machine."
+  width={780}
+  height={300}
+  wide
+>
+  <Zone x={320} y={14} w={446} h={132} label="management cluster" />
+  <Zone x={320} y={164} w={446} h={122} label="machines" />
+  <Box x={14} y={118} w={150} h={64} label="pk-metal" sub="your workstation" variant="accent" mono />
+  <Box x={340} y={48} w={170} h={64} label="Kubernetes API" sub="objects of pk-metal" />
+  <Box x={580} y={48} w={170} h={64} label="Operator" sub="controllers" cat="ctrl" href="/reference/controllers/" />
+  <Box x={340} y={200} w={170} h={64} label="Talos API" sub="nodes" />
+  <Box x={580} y={200} w={170} h={64} label="BMC" sub="Redfish" />
+  <Edge points={[[164, 136], [196, 136], [196, 80], [340, 80]]} label="status, approve, scale ..." at={[204, 72]} anchor="start" />
+  <Edge points={[[510, 80], [580, 80]]} label="watch" at={[545, 72]} variant="muted" both />
+  <Edge points={[[665, 112], [665, 200]]} label="Redfish" at={[673, 160]} anchor="start" />
+  <Edge points={[[164, 164], [196, 164], [196, 220], [340, 220]]} label="bootstrap, restore" at={[204, 212]} anchor="start" variant="muted" />
+  <Edge points={[[89, 182], [89, 276], [665, 276], [665, 264]]} label="check, inventory, boot" at={[204, 268]} anchor="start" variant="muted" />
+</Figure>

@@ -1,0 +1,65 @@
+---
+// The badges of one command: "changes machines" or "reads only" (the `changes`
+// field of the command table), and "needs cluster" or "no cluster".
+import { command } from './data';
+
+interface Props {
+  cmd: string;
+}
+const c = command(Astro.props.cmd);
+---
+
+<p class="pk-cli-badges not-content">
+  {c.changes
+    ? <span class="pk-cli-badge is-changes" title="This command can change a machine, or what the operator does.">changes machines</span>
+    : <span class="pk-cli-badge is-reads" title="This command changes no machine.">changes no machine</span>}
+  {c.needsCluster
+    ? <span class="pk-cli-badge is-cluster" title="This command talks to the Kubernetes API of the management cluster.">needs the cluster</span>
+    : <span class="pk-cli-badge is-local" title="This command does not talk to the Kubernetes API.">no cluster necessary</span>}
+</p>
+
+<style is:global>
+  .pk-cli-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-block: 0 1rem;
+  }
+  .pk-cli-badge {
+    --b: var(--pk-ink-3);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.1rem 0.55rem;
+    border: 1px solid color-mix(in srgb, var(--b) 45%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--b) 9%, transparent);
+    color: var(--b);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    line-height: 1.6;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .pk-cli-badge::before {
+    content: '';
+    inline-size: 0.45rem;
+    block-size: 0.45rem;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .pk-cli-badge.is-changes {
+    --b: var(--pk-warn);
+  }
+  .pk-cli-badge.is-reads {
+    --b: var(--pk-ok);
+  }
+  .pk-cli-badge.is-cluster {
+    --b: var(--c-kind);
+  }
+  .pk-cli-badge.is-local::before,
+  .pk-cli-badge.is-cluster::before {
+    border-radius: 1px;
+  }
+</style>

@@ -1,0 +1,110 @@
+---
+// Explainer: one machine from the rack to a ready Talos node.
+// Sources: metal/internal/controller/asset_controller.go (ledger lookup),
+// managementendpoint_controller.go (Connecting .. Ready), host_controller.go,
+// hostclaim_controller.go and provisioning.go (bind, propose, provisionOp).
+import Explainer from '../Explainer.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+
+interface Props {
+  start?: number;
+}
+const { start = 0 } = Astro.props;
+const steps = [
+  {
+    title: 'Enrol',
+    caption: 'You write an Asset and a credentials Secret for the machine. The Asset gives the serial number and the MAC address of the BMC.',
+    code: 'kubectl apply -f asset.yaml',
+    state: { asset: 'active' },
+    text: { 'me-ph': '-', 'host-ph': '-', 'claim-ph': '-', 'op-ph': '-', 'm-ph': 'off' },
+  },
+  {
+    title: 'Find the BMC',
+    caption: 'The Asset controller finds the BMC MAC address in the ledger. It makes a ManagementEndpoint with the address.',
+    code: 'kubectl get managementendpoints',
+    state: { asset: 'done', ledger: 'active', a2l: 'flow', l2me: 'flow', me: 'active' },
+    text: { 'me-ph': 'Connecting', 'host-ph': '-', 'claim-ph': '-', 'op-ph': '-', 'm-ph': 'off' },
+  },
+  {
+    title: 'Read the BMC',
+    caption: 'The ManagementEndpoint controller logs in over Redfish. It reads the inventory and compares the serial number with the Asset.',
+    code: 'Connecting → Inventorying → Verifying → Ready',
+    state: { asset: 'done', ledger: 'done', a2l: 'done', l2me: 'done', me: 'active', me2bmc: 'flow', bmc: 'active' },
+    text: { 'me-ph': 'Verifying', 'host-ph': '-', 'claim-ph': '-', 'op-ph': '-', 'm-ph': 'off' },
+  },
+  {
+    title: 'Host',
+    caption: 'The operator makes a Host for the machine. The serial numbers agree, so the Host is Available.',
+    code: 'kubectl get hosts',
+    state: { asset: 'done', ledger: 'done', a2l: 'done', l2me: 'done', me: 'ok', me2bmc: 'done', bmc: 'done', me2host: 'flow', host: 'ok' },
+    text: { 'me-ph': 'Ready', 'host-ph': 'Available', 'claim-ph': '-', 'op-ph': '-', 'm-ph': 'off' },
+  },
+  {
+    title: 'Claim',
+    caption: 'You write a TalosNode and a HostClaim that names it. The HostClaim controller binds the Host to the claim.',
+    code: 'kubectl apply -f talosnode.yaml -f claim.yaml',
+    state: { me: 'done', host: 'active', tn: 'active', claim: 'active', c2tn: 'flow', c2host: 'flow' },
+    text: { 'me-ph': 'Ready', 'host-ph': 'Assigned', 'claim-ph': 'Bound', 'op-ph': '-', 'm-ph': 'off' },
+  },
+  {
+    title: 'Propose',
+    caption: 'The claim controller proposes one boot HostOperation. The operation waits for a person. The machine does not change.',
+    code: 'pk-metal status',
+    state: { me: 'done', host: 'done', tn: 'done', claim: 'done', c2tn: 'done', c2host: 'done', c2op: 'flow', op: 'warn' },
+    text: { 'me-ph': 'Ready', 'host-ph': 'Assigned', 'claim-ph': 'Bound', 'op-ph': 'AwaitingApproval', 'm-ph': 'off' },
+  },
+  {
+    title: 'Approve and boot',
+    caption: 'You approve. The operation mounts the installer and the node configuration, sets a one-time boot device and power cycles the machine.',
+    code: 'pk-metal approve -n pk-metal provision-simhw2288v5000398-…',
+    state: { me: 'done', host: 'active', tn: 'done', claim: 'done', c2op: 'done', you: 'active', you2op: 'flow', op: 'active', op2media: 'flow', media: 'active', media2m: 'flow', bmc: 'active', bmc2m: 'flow', m: 'active' },
+    text: { 'me-ph': 'Ready', 'host-ph': 'Provisioning', 'claim-ph': 'Bound', 'op-ph': 'Running', 'm-ph': 'installing' },
+  },
+  {
+    title: 'Check in',
+    caption: 'Talos installs to the disk and the node checks in. The operation ejects the media and succeeds. The Host is Provisioned.',
+    code: 'AwaitCheckIn → EjectMedia',
+    state: { me: 'done', host: 'ok', tn: 'ok', claim: 'ok', op: 'ok', you2op: 'done', op2media: 'done', media: 'done', media2m: 'done', bmc: 'done', bmc2m: 'done', m: 'ok', m2host: 'flow' },
+    text: { 'me-ph': 'Ready', 'host-ph': 'Provisioned', 'claim-ph': 'Bound', 'op-ph': 'Succeeded', 'm-ph': 'ready' },
+  },
+];
+const k = (p: string) => `/reference/kinds/${p}/`;
+---
+
+<Explainer title="Rack to running node" steps={steps as any} start={start}>
+  <svg viewBox="0 0 720 300" role="img" aria-labelledby="ex-r2n-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
+    <title id="ex-r2n-t">An Asset leads through the ledger to a ManagementEndpoint and a Host. A HostClaim binds the Host and proposes a HostOperation. After approval, the operation boots the machine from virtual media.</title>
+    <defs>
+      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
+      </marker>
+    </defs>
+    <Box node="asset" x={15} y={20} w={150} h={54} label="Asset" sub="you write" cat="kind" href={k('asset')} />
+    <Box node="ledger" x={195} y={20} w={150} h={54} label="Ledger" sub="MAC → address" />
+    <Box node="me" x={375} y={20} w={150} h={54} label="ManagementEndpoint" sub="-" text="me-ph" cat="kind" href={k('managementendpoint')} />
+    <Box node="bmc" x={555} y={20} w={150} h={54} label="BMC" sub="Redfish" />
+
+    <Box node="tn" x={15} y={118} w={150} h={54} label="TalosNode" sub="you write" cat="kind" href={k('talosnode')} />
+    <Box node="claim" x={195} y={118} w={150} h={54} label="HostClaim" sub="-" text="claim-ph" cat="kind" href={k('hostclaim')} />
+    <Box node="host" x={375} y={118} w={150} h={54} label="Host" sub="-" text="host-ph" cat="kind" href={k('host')} />
+    <Box node="m" x={555} y={118} w={150} h={54} label="Machine" sub="off" text="m-ph" />
+
+    <Box node="you" x={15} y={216} w={150} h={54} label="You" sub="approver" variant="soft" />
+    <Box node="op" x={195} y={216} w={150} h={54} label="HostOperation" sub="-" text="op-ph" cat="kind" href={k('hostoperation')} />
+    <Box node="media" x={375} y={216} w={150} h={54} label="Media store" sub="installer + config" />
+
+    <Edge node="a2l" points={[[165, 47], [195, 47]]} />
+    <Edge node="l2me" points={[[345, 47], [375, 47]]} />
+    <Edge node="me2bmc" points={[[525, 47], [555, 47]]} />
+    <Edge node="me2host" points={[[450, 74], [450, 118]]} label="makes" at={[458, 100]} anchor="start" />
+    <Edge node="c2tn" points={[[195, 145], [165, 145]]} />
+    <Edge node="c2host" points={[[345, 145], [375, 145]]} />
+    <Edge node="c2op" points={[[270, 172], [270, 216]]} label="proposes" at={[278, 198]} anchor="start" />
+    <Edge node="you2op" points={[[165, 243], [195, 243]]} />
+    <Edge node="op2media" points={[[345, 243], [375, 243]]} />
+    <Edge node="media2m" points={[[525, 243], [630, 243], [630, 172]]} label="virtual media" at={[575, 262]} />
+    <Edge node="bmc2m" points={[[630, 74], [630, 118]]} label="power cycle" at={[638, 100]} anchor="start" />
+    <Edge node="m2host" points={[[555, 158], [525, 158]]} />
+  </svg>
+</Explainer>

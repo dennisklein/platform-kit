@@ -1,0 +1,67 @@
+---
+// Explainer: how a maintenance window delays the start of an approved operation.
+// Source: metal/internal/controller/window.go (holdForWindow, decideWindow).
+import Explainer from '../Explainer.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+
+const steps = [
+  {
+    title: 'Approve',
+    caption: 'You approve an operation on a machine that a window covers. The window is closed.',
+    code: 'pk-metal approve pk-metal/<operation>',
+    state: { you: 'active', approve: 'flow', op: 'active' },
+    text: { 'op-ph': 'approved', 'win-ph': 'closed', 'host-ph': 'no change' },
+  },
+  {
+    title: 'Wait',
+    caption: 'Before the first action, the operator examines the windows. No window is open. The operation waits.',
+    code: 'BLOCKED  OutsideMaintenanceWindow',
+    state: { approve: 'done', op: 'warn', ask: 'flow', win: 'active' },
+    text: { 'op-ph': 'Proposed, blocked', 'win-ph': 'closed', 'host-ph': 'no change' },
+  },
+  {
+    title: 'Open',
+    caption: 'The window opens. The operator examines the windows again at that time.',
+    code: 'kubectl get maintenancewindows',
+    state: { approve: 'done', op: 'warn', ask: 'flow', win: 'ok' },
+    text: { 'op-ph': 'Proposed, blocked', 'win-ph': 'open', 'host-ph': 'no change' },
+  },
+  {
+    title: 'Start',
+    caption: 'The operation starts. No person is necessary for this step.',
+    state: { approve: 'done', ask: 'done', win: 'ok', op: 'active', run: 'flow', host: 'active' },
+    text: { 'op-ph': 'Running', 'win-ph': 'open', 'host-ph': 'actions run' },
+  },
+  {
+    title: 'Close',
+    caption: 'The window closes. The operation continues, because the operator examines the windows only before the start.',
+    state: { approve: 'done', ask: 'done', op: 'active', run: 'flow', host: 'active' },
+    text: { 'op-ph': 'Running', 'win-ph': 'closed', 'host-ph': 'actions run' },
+  },
+  {
+    title: 'Done',
+    caption: 'The operation comes to its end. The next approved operation waits for the next window.',
+    state: { approve: 'done', ask: 'done', op: 'ok', run: 'done', host: 'ok' },
+    text: { 'op-ph': 'Succeeded', 'win-ph': 'closed', 'host-ph': 'changed' },
+  },
+];
+---
+
+<Explainer title="An operation and its maintenance window" steps={steps as any}>
+  <svg viewBox="0 0 720 200" role="img" aria-labelledby="ex-win-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
+    <title id="ex-win-t">An approved HostOperation waits until a MaintenanceWindow opens. Then it starts, and it continues after the window closes.</title>
+    <defs>
+      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
+      </marker>
+    </defs>
+    <Box node="you" x={45} y={6} w={140} h={30} label="You" variant="soft" />
+    <Box node="op" x={20} y={84} w={190} h={56} label="HostOperation" sub="AwaitingApproval" text="op-ph" cat="kind" href="/reference/kinds/hostoperation/" />
+    <Box node="win" x={265} y={84} w={190} h={56} label="MaintenanceWindow" sub="closed" text="win-ph" cat="kind" href="/reference/kinds/maintenancewindow/" />
+    <Box node="host" x={510} y={84} w={190} h={56} label="Machine" sub="no change" text="host-ph" />
+    <Edge node="approve" points={[[115, 36], [115, 84]]} label="approves" at={[123, 64]} anchor="start" />
+    <Edge node="ask" points={[[210, 112], [265, 112]]} label="open?" at={[237, 104]} />
+    <Edge node="run" points={[[115, 140], [115, 176], [605, 176], [605, 140]]} label="does the actions" at={[360, 170]} />
+  </svg>
+</Explainer>

@@ -1,0 +1,95 @@
+---
+// Explainer: release a machine (delete its claim) and make it free again.
+// Sources: metal/internal/controller/removal.go (nodeExit, removalVerdict),
+// provisioning.go (releaseOp), host_wipe.go (wipeOp).
+import Explainer from '../Explainer.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+
+interface Props {
+  start?: number;
+}
+const { start = 0 } = Astro.props;
+const steps = [
+  {
+    title: 'Delete the claim',
+    caption: 'You delete the HostClaim. The finalizer keeps the claim until the release is complete.',
+    code: 'kubectl delete hostclaim -n default node-3',
+    state: { you: 'active', you2claim: 'flow', claim: 'warn' },
+    text: { 'cl-ph': 'deleting', 'op-ph': '-', 'host-ph': 'Provisioned', 'm-ph': 'node runs', 'disk-ph': 'node install' },
+  },
+  {
+    title: 'Propose the release',
+    caption: 'The node ran on this machine, so the release is one operation that waits for a person. A control plane leaves etcd only when etcd stays safe.',
+    code: 'pk-metal approve -n pk-metal release-simhw2288v5000398-…',
+    state: { claim: 'warn', c2op: 'flow', op: 'warn' },
+    text: { 'cl-ph': 'deleting', 'op-ph': 'AwaitingApproval', 'host-ph': 'Releasing', 'm-ph': 'node runs', 'disk-ph': 'node install' },
+  },
+  {
+    title: 'Drain and leave',
+    caption: 'After approval, the operation cordons and drains the node. A control plane gives etcd leadership to a peer, then leaves etcd.',
+    code: 'cordon → drain → etcdForfeitLeadership → etcdLeave',
+    state: { op: 'active', op2m: 'flow', m: 'active' },
+    text: { 'cl-ph': 'deleting', 'op-ph': 'Running', 'host-ph': 'Releasing', 'm-ph': 'drained', 'disk-ph': 'node install' },
+  },
+  {
+    title: 'Reset',
+    caption: 'Talos resets the node. The system disk is wiped, with the credentials of the cluster. The operation deletes the Kubernetes Node.',
+    code: 'talosReset → deleteKubernetesNode',
+    state: { op: 'active', op2m: 'flow', m: 'active', disk: 'ok' },
+    text: { 'cl-ph': 'deleting', 'op-ph': 'Running', 'host-ph': 'Releasing', 'm-ph': 'reset', 'disk-ph': 'wiped' },
+  },
+  {
+    title: 'Power off',
+    caption: 'The operation turns the machine off and ejects the media. The finalizer goes. The Host is Available for a new claim.',
+    code: 'powerOff → ejectMedia',
+    state: { op: 'ok', op2m: 'done', m: 'done', disk: 'ok', host: 'ok' },
+    text: { 'cl-ph': 'gone', 'op-ph': 'Succeeded', 'host-ph': 'Available', 'm-ph': 'off', 'disk-ph': 'wiped' },
+  },
+  {
+    title: 'If the node does not answer',
+    caption: 'A node that does not answer cannot drain or reset. The operation removes its etcd member by ID, deletes the Node and turns the machine off.',
+    code: 'etcdRemoveMember → deleteKubernetesNode → powerOff',
+    state: { op: 'warn', op2m: 'flow', m: 'err', disk: 'err', host: 'warn' },
+    text: { 'cl-ph': 'gone', 'op-ph': 'Succeeded', 'host-ph': 'DiskWiped=False', 'm-ph': 'off', 'disk-ph': 'node install' },
+  },
+  {
+    title: 'Wipe',
+    caption: 'The operator installs nothing on a Host with a node install on its disk. Ask for a wipe and approve it. The wipe image erases the system disk.',
+    code: 'pk-metal wipe simhw2288v5000398',
+    state: { you: 'active', you2host: 'flow', host: 'active', wipe: 'active', w2m: 'flow', m: 'active', disk: 'active' },
+    text: { 'cl-ph': 'gone', 'op-ph': '-', 'host-ph': 'wipe requested', 'm-ph': 'wipe boot', 'disk-ph': 'erasing' },
+  },
+  {
+    title: 'Free again',
+    caption: 'The wipe succeeds. The machine is in Talos maintenance mode with an empty disk. The mark goes and the Host is free.',
+    code: 'kubectl get host simhw2288v5000398',
+    state: { host: 'ok', wipe: 'ok', m: 'ok', disk: 'ok' },
+    text: { 'cl-ph': 'gone', 'op-ph': '-', 'host-ph': 'Available', 'm-ph': 'maintenance mode', 'disk-ph': 'empty' },
+  },
+];
+const k = (p: string) => `/reference/kinds/${p}/`;
+---
+
+<Explainer title="Release and reuse a machine" steps={steps as any} start={start}>
+  <svg viewBox="0 0 720 270" role="img" aria-labelledby="ex-rel-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
+    <title id="ex-rel-t">A deleted HostClaim gives a release operation. It drains the node, takes it out of etcd, resets it and turns the machine off. A machine that kept its install needs a wipe first.</title>
+    <defs>
+      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
+      </marker>
+    </defs>
+    <Box node="you" x={15} y={20} w={160} h={54} label="You" variant="soft" />
+    <Box node="claim" x={15} y={118} w={160} h={54} label="HostClaim" sub="-" text="cl-ph" cat="kind" href={k('hostclaim')} />
+    <Box node="op" x={250} y={118} w={170} h={54} label="Release operation" sub="-" text="op-ph" cat="kind" href={k('hostoperation')} />
+    <Box node="host" x={250} y={20} w={170} h={54} label="Host" sub="-" text="host-ph" cat="kind" href={k('host')} />
+    <Box node="wipe" x={250} y={206} w={170} h={54} label="Wipe operation" sub="after approval" cat="kind" href={k('hostoperation')} />
+    <Box node="m" x={530} y={118} w={175} h={54} label="Machine" sub="-" text="m-ph" />
+    <Box node="disk" x={530} y={206} w={175} h={54} label="System disk" sub="-" text="disk-ph" />
+    <Edge node="you2claim" points={[[95, 74], [95, 118]]} label="delete" at={[103, 100]} anchor="start" />
+    <Edge node="you2host" points={[[175, 47], [250, 47]]} label="wipe" at={[212, 39]} />
+    <Edge node="c2op" points={[[175, 145], [250, 145]]} label="proposes" at={[212, 137]} />
+    <Edge node="op2m" points={[[420, 145], [530, 145]]} label="Talos, BMC" at={[475, 137]} />
+    <Edge node="w2m" points={[[420, 233], [475, 233], [475, 160], [530, 160]]} />
+  </svg>
+</Explainer>

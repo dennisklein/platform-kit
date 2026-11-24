@@ -1,0 +1,27 @@
+---
+// A link to a key on the labels and annotations page, for use on that page:
+// <KeyRef k="metal.pk.io/hold" /> shows `hold`. `full` shows the whole key.
+import { keys } from './data';
+
+interface Props {
+  k: string;
+  full?: boolean;
+}
+const { k, full } = Astro.props;
+if (!keys.some((x) => x.key === k)) throw new Error(`catalog: keys.json has no key "${k}"`);
+---
+
+<a href={`#${k}`} class="k-ref"><code>{full ? k : k.split('/')[1]}</code></a>
+
+<style>
+  .k-ref {
+    text-decoration: none;
+  }
+  .k-ref code {
+    color: var(--pk-link);
+    white-space: nowrap;
+  }
+  .k-ref:hover code {
+    text-decoration: underline;
+  }
+</style>

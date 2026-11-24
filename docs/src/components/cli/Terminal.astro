@@ -1,0 +1,172 @@
+---
+// A terminal window with one session: commands and their output.
+// `text` holds the session. A line that starts with "$ " is a command, a line that
+// starts with "# " is a comment, all other lines are output. `mark` highlights the
+// output lines that contain one of its strings (for example the question of
+// pk-metal approve). With `replay`, the lines appear one after the other when the
+// window comes into view; without scripts or with reduced motion all lines show.
+// Indent each line of `text` by four spaces (see below).
+// The output is synthetic: host names, serial numbers and addresses are examples.
+interface Props {
+  title?: string;
+  text: string;
+  mark?: string[];
+  replay?: boolean;
+}
+const { title = 'terminal', text, mark = [], replay = false } = Astro.props;
+
+// MDX removes some of the indentation of a multi-line attribute. Authors indent
+// each line of the session by four spaces; the common indentation goes away here,
+// so the indentation of the output itself stays exact.
+const rawLines = text.replace(/^\n+|\s+$/g, '').split('\n');
+const indent = Math.min(...rawLines.filter((l) => l.trim()).map((l) => l.match(/^ */)![0].length));
+const lines = rawLines.map((l) => l.slice(indent)).map((raw) => {
+  if (raw.startsWith('$ ')) return { kind: 'cmd', body: raw.slice(2) };
+  if (raw.startsWith('# ')) return { kind: 'note', body: raw };
+  return { kind: mark.some((m) => raw.includes(m)) ? 'out mark' : 'out', body: raw };
+});
+---
+
+<div class:list={['pk-cliterm', 'not-content', { 'pk-cliterm-replay': replay }]}>
+  <div class="pk-cliterm-bar">
+    <span class="pk-cliterm-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span class="pk-cliterm-title">{title}</span>
+  </div>
+  <pre class="pk-cliterm-body" tabindex="0"><code>{lines.map((l, i) => (
+    <span class={`pk-cliterm-line ${l.kind}`} style={`--i:${i}`}>{l.kind === 'cmd' && <span class="pk-cliterm-prompt" aria-hidden="true">$ </span>}{l.body}{'\n'}</span>
+  ))}</code></pre>
+</div>
+
+<script>
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+  if (!reduced.matches && 'IntersectionObserver' in window) {
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) continue;
+          e.target.classList.add('is-playing');
+          io.unobserve(e.target);
+        }
+      },
+      { threshold: 0.35 },
+    );
+    for (const t of document.querySelectorAll('.pk-cliterm-replay')) {
+      // Windows that are in view at load stay as they are: no flash of empty content.
+      if (t.getBoundingClientRect().top < window.innerHeight * 0.8) continue;
+      t.classList.add('is-armed');
+      io.observe(t);
+    }
+  }
+</script>
+
+<style is:global>
+  .pk-cliterm {
+    margin-block: 1.25rem;
+    border: 1px solid var(--pk-rule-strong);
+    border-radius: var(--pk-radius-lg);
+    background: var(--pk-ex-bg, #0d1117);
+    box-shadow: var(--pk-shadow, none);
+    overflow: hidden;
+  }
+  .pk-cliterm-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.4rem 0.8rem;
+    border-bottom: 1px solid var(--pk-ex-rule, rgb(255 255 255 / 0.12));
+    color: var(--pk-ex-ink-2, #9aa4b2);
+    font-family: var(--pk-font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.02em;
+  }
+  .pk-cliterm-title {
+    flex: 1;
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pk-cliterm-dots {
+    flex: none;
+    display: inline-flex;
+    gap: 0.3rem;
+  }
+  .pk-cliterm-dots i {
+    display: block;
+    inline-size: 0.55rem;
+    block-size: 0.55rem;
+    border-radius: 50%;
+    background: var(--pk-ex-rule, rgb(255 255 255 / 0.2));
+  }
+  .pk-cliterm-body {
+    margin: 0;
+    padding: 0.8rem 1rem 0.9rem;
+    border: 0;
+    background: none;
+    color: var(--pk-ex-ink-2, #c9d1d9);
+    font-size: 0.8rem;
+    line-height: 1.55;
+    overflow-x: auto;
+    tab-size: 2;
+  }
+  .pk-cliterm-body code {
+    padding: 0;
+    background: none;
+    font-size: inherit;
+    color: inherit;
+  }
+  .pk-cliterm-line {
+    display: block;
+    min-block-size: 1.55em;
+  }
+  .pk-cliterm-line.cmd {
+    color: var(--pk-ex-ink, #f0f6fc);
+    font-weight: 600;
+  }
+  .pk-cliterm-line.cmd:not(:first-child) {
+    margin-block-start: 0.5em;
+  }
+  .pk-cliterm-prompt {
+    color: var(--pk-ex-active, var(--pk-accent));
+    user-select: none;
+  }
+  .pk-cliterm-line.note {
+    color: var(--pk-ex-dim, #6e7681);
+    font-style: italic;
+  }
+  .pk-cliterm-line.mark {
+    margin-inline: -1rem;
+    padding-inline: calc(1rem - 2px) 1rem;
+    border-inline-start: 2px solid var(--pk-ex-active, var(--pk-accent));
+    background: color-mix(in srgb, var(--pk-ex-active, var(--pk-accent)) 14%, transparent);
+    color: var(--pk-ex-ink, #f0f6fc);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .pk-cliterm.is-armed .pk-cliterm-line {
+      opacity: 0;
+    }
+    .pk-cliterm.is-armed.is-playing .pk-cliterm-line {
+      animation: pk-cliterm-in 0.25s ease-out forwards;
+      animation-delay: calc(var(--i) * 90ms);
+    }
+  }
+  @keyframes pk-cliterm-in {
+    from {
+      opacity: 0;
+      transform: translateY(0.3em);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @media print {
+    .pk-cliterm {
+      background: none;
+    }
+    .pk-cliterm-body,
+    .pk-cliterm-line.cmd {
+      color: inherit;
+    }
+  }
+</style>

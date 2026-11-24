@@ -1,0 +1,92 @@
+---
+// Explainer: the approval gate of a HostOperation, from proposal to result.
+// Sources: metal/config/policy/hostoperation-approval.yaml (admission rules),
+// metal/internal/controller/hostoperation_controller.go (gates before the start:
+// abort, approval, rollout, queue, maintenance, window, self-protection, cluster guard).
+import Explainer from '../Explainer.astro';
+import Box from '../diagram/Box.astro';
+import Edge from '../diagram/Edge.astro';
+
+interface Props {
+  start?: number;
+}
+const { start = 0 } = Astro.props;
+const steps = [
+  {
+    title: 'Propose',
+    caption: 'A controller writes a HostOperation with its own name in spec.proposedBy. The operation waits. Nothing changes on the machine.',
+    code: 'pk-metal status',
+    state: { ctrl: 'active', c2op: 'flow', op: 'warn' },
+    text: { 'op-ph': 'AwaitingApproval', 'gate-ph': '-', 'm-ph': 'no change', 'cl-ph': 'no hold' },
+  },
+  {
+    title: 'Read the plan',
+    caption: 'pk-metal approve prints each step in plain words. Read the plan before you answer. The question stops after five minutes.',
+    code: 'pk-metal approve -n pk-metal <operation>',
+    state: { ctrl: 'done', c2op: 'done', op: 'warn', you: 'active' },
+    text: { 'op-ph': 'AwaitingApproval', 'gate-ph': '-', 'm-ph': 'no change', 'cl-ph': 'no hold' },
+  },
+  {
+    title: 'Admission',
+    caption: 'You approve as yourself. The admission policy refuses an approval of your own proposal, and an approval that someone changes later.',
+    code: 'spec.approval.approvedBy: <you>',
+    state: { ctrl: 'done', op: 'active', you: 'active', you2op: 'flow', you2vap: 'flow', vap: 'ok' },
+    text: { 'op-ph': 'Approved', 'gate-ph': '-', 'm-ph': 'no change', 'cl-ph': 'no hold' },
+  },
+  {
+    title: 'Gates',
+    caption: 'Before the start, the executor checks the queue, maintenance mode, the maintenance windows and the guards. A closed gate is a wait, not a failure.',
+    code: 'blockedOn: OperationQueued | OutsideMaintenanceWindow | ClusterDisruption',
+    state: { op: 'done', vap: 'done', op2g: 'flow', gates: 'warn' },
+    text: { 'op-ph': 'Approved', 'gate-ph': 'waits', 'm-ph': 'no change', 'cl-ph': 'no hold' },
+  },
+  {
+    title: 'Run',
+    caption: 'All gates are open. The executor records a baseline, then runs the actions one at a time. Each action checks first, then acts.',
+    code: 'pk-metal top',
+    state: { op: 'active', op2g: 'done', gates: 'ok', g2e: 'flow', exec: 'active', e2m: 'flow', m: 'active' },
+    text: { 'op-ph': 'Running', 'gate-ph': 'open', 'm-ph': 'changes', 'cl-ph': 'no hold' },
+  },
+  {
+    title: 'Result',
+    caption: 'The operation is Succeeded, Failed or Aborted. The operator does not retry a failed operation. Use pk-metal retry after you fix the cause.',
+    code: 'pk-metal retry -n pk-metal <operation>',
+    state: { op: 'ok', gates: 'done', g2e: 'done', exec: 'done', e2m: 'done', m: 'ok' },
+    text: { 'op-ph': 'Succeeded', 'gate-ph': 'open', 'm-ph': 'done', 'cl-ph': 'no hold' },
+  },
+  {
+    title: 'Say no',
+    caption: 'To refuse a proposal, hold the claim or remove spec.os from it. If you delete a proposal, the operator proposes it again.',
+    code: 'pk-metal hold default/node-1',
+    state: { claim: 'warn', cl2ctrl: 'flow', ctrl: 'err', op: 'err' },
+    text: { 'op-ph': 'not proposed', 'gate-ph': '-', 'm-ph': 'no change', 'cl-ph': 'held' },
+  },
+];
+const k = (p: string) => `/reference/kinds/${p}/`;
+---
+
+<Explainer title="Approval gate" steps={steps as any} start={start}>
+  <svg viewBox="0 0 720 290" role="img" aria-labelledby="ex-appr-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
+    <title id="ex-appr-t">A controller proposes a HostOperation. A person approves it through the admission policy. The executor checks the gates, then runs the actions on the machine.</title>
+    <defs>
+      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
+      </marker>
+    </defs>
+    <Box node="ctrl" x={15} y={20} w={170} h={54} label="Controller" sub="proposer" cat="ctrl" href="/reference/controllers/" />
+    <Box node="op" x={275} y={20} w={170} h={54} label="HostOperation" sub="-" text="op-ph" cat="kind" href={k('hostoperation')} />
+    <Box node="you" x={535} y={20} w={170} h={54} label="You" sub="approver" variant="soft" />
+    <Box node="claim" x={15} y={128} w={170} h={54} label="HostClaim" sub="no hold" text="cl-ph" cat="kind" href={k('hostclaim')} />
+    <Box node="gates" x={275} y={128} w={170} h={54} label="Gates" sub="-" text="gate-ph" />
+    <Box node="vap" x={535} y={128} w={170} h={54} label="Admission policy" sub="who may approve" />
+    <Box node="exec" x={275} y={226} w={170} h={54} label="Executor" sub="one action at a time" cat="ctrl" href="/reference/controllers/hostoperation/" />
+    <Box node="m" x={535} y={226} w={170} h={54} label="Machine" sub="no change" text="m-ph" />
+    <Edge node="c2op" points={[[185, 47], [275, 47]]} label="proposes" at={[230, 39]} />
+    <Edge node="you2op" points={[[535, 47], [445, 47]]} label="approves" at={[490, 39]} />
+    <Edge node="you2vap" points={[[620, 74], [620, 128]]} label="checked" at={[628, 104]} anchor="start" />
+    <Edge node="op2g" points={[[360, 74], [360, 128]]} />
+    <Edge node="g2e" points={[[360, 182], [360, 226]]} />
+    <Edge node="e2m" points={[[445, 253], [535, 253]]} label="actions" at={[490, 245]} />
+    <Edge node="cl2ctrl" points={[[100, 128], [100, 74]]} label="hold" at={[108, 104]} anchor="start" />
+  </svg>
+</Explainer>

@@ -1,0 +1,52 @@
+---
+// A checkpoint in a tutorial: what the reader sees when a stage is complete.
+interface Props {
+  title?: string;
+}
+const { title = 'Checkpoint' } = Astro.props;
+---
+
+<aside class="pk-check" role="note">
+  <p class="pk-check-label">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"></circle><path d="m5.25 8.25 1.9 1.9 3.6-3.9"></path></svg>
+    {title}
+  </p>
+  <div class="pk-check-body"><slot /></div>
+</aside>
+
+<style is:global>
+  .pk-check {
+    --co: var(--pk-ok);
+    margin-block: 1.25rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid color-mix(in srgb, var(--co) 40%, transparent);
+    border-radius: var(--pk-radius);
+    background: color-mix(in srgb, var(--co) 6%, transparent);
+  }
+  .pk-check-label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--co);
+  }
+  .pk-check-label svg {
+    inline-size: 1rem;
+    block-size: 1rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .pk-check-body > :first-child {
+    margin-top: 0.3rem;
+  }
+  .pk-check-body > :last-child {
+    margin-bottom: 0;
+  }
+</style>
