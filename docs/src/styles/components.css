@@ -841,6 +841,11 @@ a.box-g:hover .box {
   gap: 1rem;
   margin-block: 1rem 2rem;
 }
+.pk-cards-note {
+  margin-block: -1rem 2rem;
+  font-size: 0.95rem;
+  color: var(--pk-ink-2);
+}
 .pk-navcard {
   display: flex;
   flex-direction: column;

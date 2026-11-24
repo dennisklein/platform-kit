@@ -1,20 +1,24 @@
 // The sidebar: the site's top-level groups, in reading order. Each group lists the
-// pages in its folder, and the planned pages from src/data/xref-planned.yaml (shown
-// with a "planned" mark) while that file exists. src/lib/tabs.ts maps the groups to the
+// pages in its folder, and the planned pages from the optional file
+// src/data/xref-planned.yaml (shown with a "planned" mark) when that file exists. src/lib/tabs.ts maps the groups to the
 // tabs of the header.
 import { loadPages, loadRegistry } from './registry.mjs';
 
-/** Top-level groups. `dir` is the folder under src/content/docs; `groups` nest one level. */
+/**
+ * Top-level groups. `dir` is the folder under src/content/docs; `groups` nest one level.
+ * `ordered`: the pages are in reading order, so each page sets a unique `sidebar.order`
+ * (the build fails otherwise). Other groups sort by title.
+ */
 export const layout = [
-  { label: 'Start', dir: 'start' },
-  { label: 'Learn', dir: 'learn' },
-  { label: 'Concepts', dir: 'concepts' },
-  { label: 'Workflows', dir: 'workflows' },
+  { label: 'Start', dir: 'start', ordered: true },
+  { label: 'Tutorials', dir: 'learn', ordered: true },
+  { label: 'Concepts', dir: 'concepts', ordered: true },
+  { label: 'Workflows', dir: 'workflows', ordered: true },
   {
     label: 'Operate',
     groups: [
-      { label: 'Day 1', dir: 'operate/day-1' },
-      { label: 'Day 2', dir: 'operate/day-2' },
+      { label: 'Day 1', dir: 'operate/day-1', ordered: true },
+      { label: 'Day 2', dir: 'operate/day-2', ordered: true },
       { label: 'Runbooks', dir: 'operate/runbooks' },
     ],
   },
@@ -24,7 +28,7 @@ export const layout = [
       { label: 'Kinds', dir: 'reference/kinds' },
       { label: 'Controllers', dir: 'reference/controllers' },
       { label: 'Commands', dir: 'reference/cli' },
-      { label: 'Lab', dir: 'reference/lab' },
+      { label: 'Lab', dir: 'reference/lab', ordered: true },
       { label: 'Security', dir: 'reference/security' },
       { label: 'Catalogs', dir: 'reference', flat: true },
     ],
@@ -35,15 +39,33 @@ export const layout = [
 /** Pages that are anchors targets of several ids, by path. */
 const anchorPages = { 'reference/actions/': 'Actions', 'reference/lab/tasks/': 'Lab tasks', 'reference/glossary/': 'Glossary' };
 
+/**
+ * Is the page at `slug` in the folder `dir`? A flat group takes only the pages
+ * directly in its folder: not the pages of a sub-folder, and not the index page of
+ * a sub-folder either (`reference/kinds/` belongs to Kinds, not to Catalogs).
+ */
+function inFolder(slug, dir, flat) {
+  if (!slug.startsWith(`${dir}/`)) return false;
+  if (!flat) return true;
+  return !slug.slice(dir.length + 1, -1).includes('/') && !folderIndexes().has(slug);
+}
+
+let indexes;
+/** The slugs of the index pages of folders: each slug that is a prefix of another page's slug. */
+function folderIndexes() {
+  if (indexes) return indexes;
+  const slugs = loadPages().map((p) => p.slug);
+  indexes = new Set(slugs.filter((s) => s && slugs.some((o) => o !== s && o.startsWith(s))));
+  return indexes;
+}
+
 function items(dir, flat, base) {
-  const inDir = (slug) => {
-    if (!slug.startsWith(`${dir}/`)) return false;
-    return !flat || !slug.slice(dir.length + 1, -1).includes('/');
-  };
+  const inDir = (slug) => inFolder(slug, dir, flat);
   const pages = loadPages()
     .filter((p) => inDir(p.slug) && p.data.type !== 'landing')
     .map((p) => ({
-      label: p.data.sidebar?.label ?? p.data.title,
+      // The index page of a folder is its "Overview", unless the page names itself.
+      label: p.data.sidebar?.label ?? (p.slug === `${dir}/` ? 'Overview' : p.data.title),
       link: `/${p.slug}`,
       order: p.data.sidebar?.order ?? (p.slug.endsWith(`${dir}/`) ? -1 : 100),
     }));
@@ -69,14 +91,53 @@ function checkFolders() {
   const dirs = layout.flatMap((g) => (g.groups ?? [g]).map((s) => s));
   for (const p of loadPages()) {
     if (p.data.type === 'landing' || p.slug === '404/') continue;
-    const ok = dirs.some((d) => p.slug.startsWith(`${d.dir}/`) && (!d.flat || !p.slug.slice(d.dir.length + 1, -1).includes('/')));
+    const ok = dirs.some((d) => inFolder(p.slug, d.dir, d.flat));
     if (!ok) throw new Error(`sidebar: ${p.file} is in a folder that no sidebar group shows. Add the folder to scripts/sidebar.mjs.`);
+  }
+}
+
+/**
+ * Pages that break the order rule today, as "file: reason". The check fails when an
+ * entry here is no longer needed, so the list only shrinks. Remove an entry in the
+ * same change that fixes the page's frontmatter.
+ */
+const orderExceptions = new Set([
+  'operate/day-2/upgrade-talos.mdx: no order',
+  'start/how-to-read.mdx: order 2 also in start/for-sysadmins.mdx',
+  'learn/lab-disaster-recovery.mdx: order 4 also in learn/first-real-server.mdx',
+]);
+
+/** In an ordered group, each page (except the folder index) has its own sidebar.order. */
+function checkOrder() {
+  const rel = (file) => file.split('/src/content/docs/')[1];
+  const found = [];
+  for (const d of layout.flatMap((g) => g.groups ?? [g]).filter((d) => d.ordered)) {
+    const seen = new Map();
+    const pages = loadPages()
+      .filter((p) => inFolder(p.slug, d.dir, d.flat) && p.slug !== `${d.dir}/` && p.data.type !== 'landing')
+      .sort((a, b) => a.file.localeCompare(b.file));
+    for (const p of pages) {
+      const order = p.data.sidebar?.order;
+      if (typeof order !== 'number') found.push(`${rel(p.file)}: no order`);
+      else if (seen.has(order)) found.push(`${rel(p.file)}: order ${order} also in ${rel(seen.get(order))}`);
+      else seen.set(order, p.file);
+    }
+  }
+  const errors = found.filter((f) => !orderExceptions.has(f));
+  const stale = [...orderExceptions].filter((e) => !found.includes(e));
+  if (errors.length || stale.length) {
+    throw new Error(
+      'sidebar: the pages of an ordered group (scripts/sidebar.mjs, `ordered: true`) each need a unique `sidebar.order`.\n' +
+        errors.map((e) => `  ${e}\n`).join('') +
+        stale.map((e) => `  fixed, remove from orderExceptions: ${e}\n`).join(''),
+    );
   }
 }
 
 /** The Starlight `sidebar` option. */
 export function sidebar({ base }) {
   checkFolders();
+  checkOrder();
   return layout
     .map((g) => {
       const entries = g.groups

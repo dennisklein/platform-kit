@@ -1,9 +1,10 @@
-// The top tabs. Each tab shows the sidebar groups that it owns.
+// The top tabs. Each tab shows the sidebar groups that it owns, and opens the
+// overview page of its layer.
 export const tabs = [
-  { label: 'Learn', groups: ['Start', 'Learn', 'Concepts', 'Workflows'], href: 'start/overview/' },
-  { label: 'Operate', groups: ['Operate'], href: 'operate/day-1/enrol-hosts/' },
-  { label: 'Reference', groups: ['Reference', 'Project'], href: 'reference/kinds/host/' },
-  { label: 'Lab', groups: ['Lab'], href: 'reference/lab/tasks/' },
+  { label: 'Learn', groups: ['Start', 'Tutorials', 'Concepts', 'Workflows'], href: 'start/overview/' },
+  { label: 'Operate', groups: ['Operate'], href: 'operate/day-1/' },
+  { label: 'Reference', groups: ['Reference', 'Project'], href: 'reference/kinds/' },
+  { label: 'Lab', groups: ['Lab'], href: 'reference/lab/' },
 ];
 
 type Entry = { type: 'link' | 'group'; label: string; isCurrent?: boolean; entries?: Entry[] };

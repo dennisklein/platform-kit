@@ -11,12 +11,14 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const kinds = Object.keys(import.meta.glob('../data/generated/crds/*.json')).length;
 const pages = loadPages();
 const count = (type: string) => pages.filter((p) => p.data.type === type && p.data.xref?.id !== 'index' && !/^day-\d$/.test(p.data.xref?.id ?? '')).length;
+const real = pages.find((p) => p.slug === 'learn/first-real-server/');
+if (!real) throw new Error('NavCards: the page learn/first-real-server is missing');
 const n = (k: number, one: string, many = `${one}s`) => `${k} ${k === 1 ? one : many}`;
 const cards = [
-  { cat: 'tut', title: 'Learn', href: '/learn/lab-first-cluster/', body: 'Make a Talos cluster in the virtual lab, step by step. No hardware is necessary.', more: n(count('tutorial'), 'tutorial') },
-  { cat: 'howto', title: 'Operate', href: '/operate/day-1/', body: 'Day 1: enrol and install machines. Day 2: upgrade, change and release them. Runbooks for each failure.', more: `${n(count('howto'), 'how-to')} · ${n(count('runbook'), 'runbook')}` },
+  { cat: 'tut', title: 'Tutorials', href: '/learn/lab-first-cluster/', body: 'Make a Talos cluster in the virtual lab, step by step. No hardware is necessary.', more: n(count('tutorial'), 'tutorial') },
+  { cat: 'howto', title: 'Operate', href: '/operate/day-1/', body: 'Day 1: enroll and install machines. Day 2: upgrade, change and release them. Runbooks for each failure.', more: `${n(count('howto'), 'how-to')} · ${n(count('runbook'), 'runbook')}` },
   { cat: 'kind', title: 'Reference', href: '/reference/kinds/', body: 'Each kind, controller, action and command on one page, with all fields and links.', more: `${n(kinds, 'kind')} · ${n(controllers.controllers.length, 'controller')} · ${n(cliIndex.commands.length, 'command')} · ${n(actions.actions.length, 'action')}` },
-  { cat: 'lab', title: 'Lab', href: '/reference/lab/tasks/', body: 'Simulated BMCs, virtual machines and a management cluster on one workstation.', more: 'mise run lab:*' },
+  { cat: 'lab', title: 'Lab', href: '/reference/lab/', body: 'Simulated BMCs, virtual machines and a management cluster on one workstation.', more: 'mise run lab:*' },
 ];
 ---
 
@@ -30,3 +32,6 @@ const cards = [
     </a>
   ))}
 </div>
+<p class="pk-cards-note not-content">
+  Real hardware? Start with the tutorial <a class="x" data-cat="tut" href={`${base}/${real.slug}`}>{real.data.title}</a>.
+</p>
