@@ -1,11 +1,10 @@
 # ASD-STE100 uses American English spelling. Each word here is the British form of
 # a word that the site uses; the swap gives the American form.
-# Level warning while pages that use "enrol" are renamed (operate/day-1/enrol-hosts
-# becomes enroll-hosts with a redirect); then make it an error.
+# operate/day-1/enrol-hosts is now enroll-hosts; the old address redirects.
 extends: substitution
 message: "Use the American spelling '%s', not '%s'."
 link: https://www.asd-ste100.org/
-level: warning
+level: error
 scope: ~text.frontmatter
 ignorecase: true
 swap:

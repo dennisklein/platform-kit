@@ -620,7 +620,7 @@ terms:
     kind: noun
     domain: k8s
     forms: [overlay, overlays, kustomize, Kustomize]
-    see: howto:enrol-hosts
+    see: howto:install-operator
     related: [ledger, kubectl]
     def: >-
       A folder with a kustomization.yaml that changes the base manifests of
@@ -1435,9 +1435,8 @@ terms:
     term: enroll
     kind: verb
     domain: ops
-    # The British forms stay until no page uses them (STE.American warns on them).
-    forms: [enroll, enrolls, enrolled, enrolling, enrol, enrols]
-    see: howto:enrol-hosts
+    forms: [enroll, enrolls, enrolled, enrolling]
+    see: howto:enroll-hosts
     related: [asset, ledger]
     def: >-
       To add a machine to the operator: write its Asset and its credentials

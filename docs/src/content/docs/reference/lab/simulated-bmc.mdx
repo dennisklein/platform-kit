@@ -69,7 +69,7 @@ One process, `pk-metal sim fleet`, serves all BMCs of the lab.
 
 A personality is a fixture file: the facts that the BMC serves and the dialect that it speaks.
 `generic` follows the DMTF specification and has no OEM extensions.
-The two vendor personalities copy the behaviour of real hardware, with its deviations.
+The two vendor personalities copy the behavior of real hardware, with its deviations.
 
 | Property | `generic` | `supermicro-x12` | `huawei-2288h-v5` |
 | --- | --- | --- | --- |
@@ -110,9 +110,9 @@ PK_LAB_SPEC=/tmp/lab-huawei.yaml mise run lab:up
 ### Other vendor shapes
 
 The simulator has no Dell or HPE personality.
-A fixture can copy two behaviours of those vendors for the BIOS settings. Tests use them.
+A fixture can copy two behaviors of those vendors for the BIOS settings. Tests use them.
 
-| Fixture field | Copies | Behaviour |
+| Fixture field | Copies | Behavior |
 | --- | --- | --- |
 | `bios.apply_time_required` | Dell iDRAC 9 | A change without an apply time stays pending after each reset. Only a change that asks for `OnReset` applies. |
 | `bios.pending_full_set` | HPE iLO 5 | The pending object shows all attributes, not only the changed attributes. |

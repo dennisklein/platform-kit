@@ -143,7 +143,7 @@ The operator refuses actions that would take down the cluster that it runs on, o
 ## What this model does not cover
 
 - A person with cluster admin can change the policies, the ConfigMap or the RBAC. Watch those objects.
-- A BMC with known default logins. Change them before enrolment.
+- A BMC with known default logins. Change them before enrollment.
 - A node that answers on the maintenance service. The manager reports it as `MaintenanceMode`, but a machine on the node network can pose as it. Take `MaintenanceMode` as a hint, not as proof.
 - The firmware that you flash. The operator checks the digest that you approved, not who built the image.
 
