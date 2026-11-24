@@ -97,7 +97,7 @@ func TestMergeIntoKeepsTheTargetsApproval(t *testing.T) {
 	cur := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": metalGV.String(), "kind": "HostOperation",
 		"metadata": map[string]any{"name": "op", "namespace": "lab", "uid": "dst"},
-		"spec": map[string]any{"reason": "Release", "approval": map[string]any{"approvedBy": "ada"}},
+		"spec":     map[string]any{"reason": "Release", "approval": map[string]any{"approvedBy": "ada"}},
 	}}
 	want := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": metalGV.String(), "kind": "HostOperation",

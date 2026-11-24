@@ -54,20 +54,20 @@ func TestRemovalVerdict(t *testing.T) {
 		acked   bool
 		want    string
 	}{
-		"3 to 2 leaves an even count":               {v: etcdViewOf(three, three, "cp-1"), node: "cp-3", want: metalv1alpha1.ReasonEtcdRiskRefused},
-		"3 to 2, acknowledged":                      {v: etcdViewOf(three, three, "cp-1"), node: "cp-3", acked: true},
-		"4 to 3":                                    {v: etcdViewOf([]string{"cp-1", "cp-2", "cp-3", "cp-4"}, []string{"cp-1", "cp-2", "cp-3", "cp-4"}, "cp-1"), node: "cp-4"},
-		"2 to 1":                                    {v: etcdViewOf([]string{"cp-1", "cp-2"}, []string{"cp-1", "cp-2"}, "cp-1"), node: "cp-2"},
-		"the last member":                           {v: etcdViewOf([]string{"cp-1"}, []string{"cp-1"}, "cp-1"), node: "cp-1", want: metalv1alpha1.ReasonEtcdRiskRefused},
+		"3 to 2 leaves an even count": {v: etcdViewOf(three, three, "cp-1"), node: "cp-3", want: metalv1alpha1.ReasonEtcdRiskRefused},
+		"3 to 2, acknowledged":        {v: etcdViewOf(three, three, "cp-1"), node: "cp-3", acked: true},
+		"4 to 3":                      {v: etcdViewOf([]string{"cp-1", "cp-2", "cp-3", "cp-4"}, []string{"cp-1", "cp-2", "cp-3", "cp-4"}, "cp-1"), node: "cp-4"},
+		"2 to 1":                      {v: etcdViewOf([]string{"cp-1", "cp-2"}, []string{"cp-1", "cp-2"}, "cp-1"), node: "cp-2"},
+		"the last member":             {v: etcdViewOf([]string{"cp-1"}, []string{"cp-1"}, "cp-1"), node: "cp-1", want: metalv1alpha1.ReasonEtcdRiskRefused},
 		"a dead member of 4 leaves 3 healthy of 3": {v: etcdViewOf([]string{"cp-1", "cp-2", "cp-3", "cp-4"}, three, "cp-1"), node: "cp-4"},
 		"a healthy member leaves too few healthy": {v: etcdViewOf([]string{"cp-1", "cp-2", "cp-3", "cp-4", "cp-5"}, []string{"cp-1", "cp-2", "cp-3"}, "cp-1"),
 			node: "cp-3", want: metalv1alpha1.ReasonEtcdRiskRefused},
-		"a learner is pending":                 {v: etcdViewOf([]string{"cp-1", "cp-2", "cp-3", "cp-4"}, three, "cp-1", "cp-4"), node: "cp-3", want: metalv1alpha1.ReasonRemovalWaiting},
-		"the leader waits for the others":      {v: etcdViewOf(three, three, "cp-1"), node: "cp-1", leaving: []string{"cp-1", "cp-2"}, acked: true, want: metalv1alpha1.ReasonRemovalWaiting},
-		"a follower goes first":                {v: etcdViewOf(three, three, "cp-1"), node: "cp-2", leaving: []string{"cp-1", "cp-2"}, acked: true},
-		"not a member: nothing changes":        {v: etcdViewOf(three, three, "cp-1"), node: "cp-9"},
-		"etcd unreadable waits":                {v: etcdView{}, node: "cp-1", want: metalv1alpha1.ReasonRemovalWaiting},
-		"etcd unreadable, acknowledged":        {v: etcdView{}, node: "cp-1", acked: true},
+		"a learner is pending":            {v: etcdViewOf([]string{"cp-1", "cp-2", "cp-3", "cp-4"}, three, "cp-1", "cp-4"), node: "cp-3", want: metalv1alpha1.ReasonRemovalWaiting},
+		"the leader waits for the others": {v: etcdViewOf(three, three, "cp-1"), node: "cp-1", leaving: []string{"cp-1", "cp-2"}, acked: true, want: metalv1alpha1.ReasonRemovalWaiting},
+		"a follower goes first":           {v: etcdViewOf(three, three, "cp-1"), node: "cp-2", leaving: []string{"cp-1", "cp-2"}, acked: true},
+		"not a member: nothing changes":   {v: etcdViewOf(three, three, "cp-1"), node: "cp-9"},
+		"etcd unreadable waits":           {v: etcdView{}, node: "cp-1", want: metalv1alpha1.ReasonRemovalWaiting},
+		"etcd unreadable, acknowledged":   {v: etcdView{}, node: "cp-1", acked: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			reason, msg := removalVerdict(tc.v, "no answer", tc.node, "lab", tc.leaving, tc.acked)
@@ -86,12 +86,12 @@ func TestJoinVerdict(t *testing.T) {
 		joining []string
 		want    string // a fragment of the message; "" to go ahead
 	}{
-		"healthy, nobody joining":        {v: etcdViewOf(one, one, "cp-1")},
-		"a learner waits for promotion":  {v: etcdViewOf([]string{"cp-1", "cp-2"}, one, "cp-1", "cp-2"), want: "still a learner"},
-		"an unhealthy member":            {v: etcdViewOf([]string{"cp-1", "cp-2"}, one, "cp-1"), want: "not healthy"},
-		"another control plane joining":  {v: etcdViewOf(one, one, "cp-1"), joining: []string{"cp-2"}, want: "join one at a time"},
+		"healthy, nobody joining":         {v: etcdViewOf(one, one, "cp-1")},
+		"a learner waits for promotion":   {v: etcdViewOf([]string{"cp-1", "cp-2"}, one, "cp-1", "cp-2"), want: "still a learner"},
+		"an unhealthy member":             {v: etcdViewOf([]string{"cp-1", "cp-2"}, one, "cp-1"), want: "not healthy"},
+		"another control plane joining":   {v: etcdViewOf(one, one, "cp-1"), joining: []string{"cp-2"}, want: "join one at a time"},
 		"a stale member of the same name": {v: etcdViewOf([]string{"cp-1", "cp-3"}, []string{"cp-1", "cp-3"}, "cp-1"), want: "still lists a member named cp-3"},
-		"etcd unreadable":                {v: etcdView{}, want: "no answer"},
+		"etcd unreadable":                 {v: etcdView{}, want: "no answer"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			msg := joinVerdict(tc.v, "no answer", "cp-3", "lab", tc.joining)

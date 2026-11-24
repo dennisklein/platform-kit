@@ -30,7 +30,7 @@ func planned() *osv1alpha1.TalosRollout {
 			CreationTimestamp: metav1.NewTime(time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC))},
 		Spec: osv1alpha1.TalosRolloutSpec{
 			ClusterRef: osv1alpha1.Reference{Name: "lab"}, Kind: osv1alpha1.RolloutTalosUpgrade,
-			Target:     &osv1alpha1.RolloutTarget{TalosVersion: "v1.14.7"}, ProposedBy: operator,
+			Target: &osv1alpha1.RolloutTarget{TalosVersion: "v1.14.7"}, ProposedBy: operator,
 		},
 		Status: osv1alpha1.TalosRolloutStatus{
 			Plan: []osv1alpha1.RolloutStep{

@@ -26,9 +26,9 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	"github.com/siderolabs/image-factory/pkg/schematic"
+	clientconfig "github.com/siderolabs/talos/pkg/machinery/client/config"
 	tconfig "github.com/siderolabs/talos/pkg/machinery/config"
 	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
-	clientconfig "github.com/siderolabs/talos/pkg/machinery/client/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.yaml.in/yaml/v4"

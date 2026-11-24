@@ -687,7 +687,7 @@ func TestConvergence(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "huawei-nights"},
 			Spec: metalv1alpha1.MaintenanceWindowSpec{
 				HostSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"metal.pk.io/vendor": "Huawei"}},
-				Once: []metalv1alpha1.OnceWindow{{Start: metav1.NewTime(opens), End: metav1.NewTime(opens.Add(time.Hour))}},
+				Once:         []metalv1alpha1.OnceWindow{{Start: metav1.NewTime(opens), End: metav1.NewTime(opens.Add(time.Hour))}},
 			},
 		}
 		require.NoError(t, cl.Create(ctx, window))
