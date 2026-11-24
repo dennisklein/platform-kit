@@ -199,8 +199,10 @@ const (
 
 // Reasons on the claim's Provisioned condition. All but HandedOff are False:
 // in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation,
-// Releasing) or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia,
-// OperationFailed, ReleaseFailed) that a person resolves.
+// Releasing), the install operation's gate (AwaitingApproval, shown as
+// blockedOn Approval(Provisioning)), or alert-and-hold stops
+// (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed)
+// that a person resolves.
 const (
 	// ReasonHandedOff on Provisioned=True: the machine checked in with the
 	// node's config.

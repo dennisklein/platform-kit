@@ -756,7 +756,7 @@
           "status": "True"
         }
       ],
-      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing) or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
+      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing), the install operation's gate (AwaitingApproval, shown as blockedOn Approval(Provisioning)), or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
     },
     {
       "name": "ReasonAwaitingRender",
@@ -765,7 +765,7 @@
       "source": "metal/api/v1alpha1/conditions.go",
       "description": "the TalosNode (or its cluster) is missing or has no rendered config yet.",
       "on": [],
-      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing) or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
+      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing), the install operation's gate (AwaitingApproval, shown as blockedOn Approval(Provisioning)), or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
     },
     {
       "name": "ReasonAwaitingBootAsset",
@@ -774,7 +774,7 @@
       "source": "metal/api/v1alpha1/conditions.go",
       "description": "the installer image, the config medium or the installer with the config built in is not built (Ready) for the current render yet.",
       "on": [],
-      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing) or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
+      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing), the install operation's gate (AwaitingApproval, shown as blockedOn Approval(Provisioning)), or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
     },
     {
       "name": "ReasonSingleMediumUnsupported",
@@ -783,7 +783,7 @@
       "source": "metal/api/v1alpha1/conditions.go",
       "description": "the endpoint can hold one virtual medium only, and the machine has no Talos to boot from disk. An installer with the config inside cannot help either. The Talos release of the cluster cannot read one (before 1.12), or the one slot does not boot an ISO.",
       "on": [],
-      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing) or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
+      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing), the install operation's gate (AwaitingApproval, shown as blockedOn Approval(Provisioning)), or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
     },
     {
       "name": "ReasonNoBootableMedia",
@@ -792,7 +792,7 @@
       "source": "metal/api/v1alpha1/conditions.go",
       "description": "the endpoint advertises no insertable media slot or no removable-media boot target.",
       "on": [],
-      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing) or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
+      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing), the install operation's gate (AwaitingApproval, shown as blockedOn Approval(Provisioning)), or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
     },
     {
       "name": "ReasonReleasing",
@@ -801,7 +801,7 @@
       "source": "metal/api/v1alpha1/conditions.go",
       "description": "the claim is being deleted; the release operation (power off, eject) runs before the machine is handed back.",
       "on": [],
-      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing) or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
+      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing), the install operation's gate (AwaitingApproval, shown as blockedOn Approval(Provisioning)), or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
     },
     {
       "name": "ReasonReleaseFailed",
@@ -810,7 +810,7 @@
       "source": "metal/api/v1alpha1/conditions.go",
       "description": "the release operation failed — the machine stays bound until a person deletes the failed operation (which retries it).",
       "on": [],
-      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing) or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
+      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing), the install operation's gate (AwaitingApproval, shown as blockedOn Approval(Provisioning)), or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
     },
     {
       "name": "ReasonHeldByUser",
@@ -819,7 +819,7 @@
       "source": "metal/api/v1alpha1/conditions.go",
       "description": "the claim carries the metal.pk.io/hold annotation — nothing is proposed for it until the annotation is removed.",
       "on": [],
-      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing) or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
+      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing), the install operation's gate (AwaitingApproval, shown as blockedOn Approval(Provisioning)), or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
     },
     {
       "name": "ReasonHostInMaintenance",
@@ -837,7 +837,7 @@
           "status": "Unknown"
         }
       ],
-      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing) or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
+      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing), the install operation's gate (AwaitingApproval, shown as blockedOn Approval(Provisioning)), or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
     },
     {
       "name": "ReasonSelfDisruption",
@@ -859,7 +859,7 @@
           "status": "Unknown"
         }
       ],
-      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing) or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
+      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing), the install operation's gate (AwaitingApproval, shown as blockedOn Approval(Provisioning)), or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
     },
     {
       "name": "ReasonEndpointMaterialized",

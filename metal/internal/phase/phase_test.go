@@ -194,6 +194,12 @@ func TestForClaim(t *testing.T) {
 				c(metalv1alpha1.ConditionProvisioned, metav1.ConditionFalse, metalv1alpha1.ReasonAwaitingOperation),
 			},
 			phase: metalv1alpha1.ClaimBound},
+		{name: "an install that waits for its approval blocks on a person",
+			conds: []metav1.Condition{
+				c(metalv1alpha1.ConditionBound, metav1.ConditionTrue, metalv1alpha1.ReasonHostBound),
+				c(metalv1alpha1.ConditionProvisioned, metav1.ConditionFalse, metalv1alpha1.ReasonAwaitingApproval),
+			},
+			phase: metalv1alpha1.ClaimBound, blocked: "Approval(Provisioning)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

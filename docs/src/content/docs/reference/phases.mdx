@@ -84,6 +84,7 @@ The same reason can show in more than one phase, thus it is a different field.
 | Host | The reason of `DiskWiped`, for example `InstalledNodeRemains` | `DiskWiped` is False |
 | Host | `HostInMaintenance` | The Host is in Maintenance and no other reason applies |
 | HostClaim | The reason of `Bound`, for example `HostAlreadyClaimed` | The claim holds no Host |
+| HostClaim | `Approval(Provisioning)` | `Provisioned` is False with the reason `AwaitingApproval`: the install operation waits for approval |
 | HostClaim | The reason of `Provisioned`, for example `HeldByUser` | The claim holds a Host, and a person must act |
 | HostOperation | The reason of `Approved`, for example `AwaitingApproval` | The operation has no approval |
 | HostOperation | The reason of `Executed`, for example `OutsideMaintenanceWindow` | The operation has an approval and waits |

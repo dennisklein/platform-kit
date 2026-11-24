@@ -114,6 +114,7 @@ The column BLOCKED of `kubectl get hostclaims -o wide` shows `status.blockedOn`.
 | `HostAlreadyClaimed` | A different claim holds the Host. | Delete that claim, or use a different machine. |
 | `AmbiguousSystem` | The BMC manages more than one machine. | Make a new claim with `spec.systemRef`. |
 | `SystemNotFound` | The BMC has no system with the name in `spec.systemRef`. | Correct `spec.systemRef` in a new claim. |
+| `Approval(Provisioning)` | The install operation waits for approval. The condition `Provisioned` has the reason `AwaitingApproval` and the command to run. | [](cli:approve) |
 | `Replacing` | You moved the claim to a different machine. The operator removes the node from the old machine first. | Approve the release of the old machine. See [](cli:replace). |
 | `HeldByUser` | The claim has the hold annotation. | [](cli:unhold) |
 | `HostInMaintenance` | The Host has the maintenance annotation. | [](howto:maintenance-mode) |
@@ -127,16 +128,16 @@ An empty `blockedOn` on a Pending claim means that the machine did not appear ye
 
 ### A claim that waits for approval
 
-The claim does not show that its operation waits for a person. Read the Host.
+The claim, its Host and the operation show the same wait.
 
 | Object | What it shows while the install waits for approval |
 | --- | --- |
-| HostClaim | Phase `Bound`, `Provisioned=False` with the reason `AwaitingOperation`, and an empty `blockedOn` |
+| HostClaim | Phase `Bound`, `Provisioned=False` with the reason `AwaitingApproval`, and `blockedOn: Approval(Provisioning)` |
 | [](kind:Host) | Phase `Assigned`, and `blockedOn: Approval(Provisioning)` |
 | [](kind:HostOperation) | Phase `AwaitingApproval` |
 
 ```sh
-kubectl get host "$(kubectl -n default get hostclaim node-2 -o jsonpath='{.status.hostRef.name}')" -o wide
+kubectl -n default get hostclaim node-2 -o wide
 ```
 
 [](cli:status) shows the same in one table.
@@ -175,7 +176,7 @@ spec:
 $ kubectl get hostclaims
 NAME     ASSET      HOST                NODE     PHASE   PROVISIONED         AGE
 node-1   asset-07   simhw2288v5000397   node-1   Bound   HandedOff           3d
-node-2   asset-08   simhw2288v5000398   node-2   Bound   AwaitingOperation   4m
+node-2   asset-08   simhw2288v5000398   node-2   Bound   AwaitingApproval    4m
 ```
 
 ## Stop the proposals for a claim

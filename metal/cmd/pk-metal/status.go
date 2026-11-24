@@ -238,6 +238,9 @@ func explain(conds []metav1.Condition, blockedOn string, failTypes ...string) st
 			if c := meta.FindStatusCondition(conds, metalv1alpha1.ConditionApprovalPending); c != nil && c.Message != "" {
 				return c.Message
 			}
+			// A claim has no ApprovalPending: its Provisioned condition
+			// waits with the reason AwaitingApproval.
+			blockedOn = metalv1alpha1.ReasonAwaitingApproval
 		}
 		for _, c := range conds {
 			if c.Reason == blockedOn && c.Message != "" {

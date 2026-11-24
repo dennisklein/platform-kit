@@ -394,7 +394,7 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 		logf.FromContext(ctx).Info("proposed boot operation", "operation", op.Namespace+"/"+op.Name,
 			"host", hostName, "node", node.Name, "approvalRequired", *op.Spec.Approval.Required)
 		if *op.Spec.Approval.Required {
-			return hold(metalv1alpha1.ReasonAwaitingOperation, awaitsApprovalMessage(claim, op, "boot", "install"))
+			return hold(metalv1alpha1.ReasonAwaitingApproval, awaitsApprovalMessage(claim, op, "boot", "install"))
 		}
 		return hold(metalv1alpha1.ReasonAwaitingOperation, fmt.Sprintf("boot operation %s/%s proposed", op.Namespace, op.Name))
 	}
@@ -416,7 +416,7 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 		set(metav1.ConditionTrue, metalv1alpha1.ReasonHandedOff, fmt.Sprintf("operation %s %s host %s with TalosNode %s", ref, verb, hostName, node.Name))
 		return nil
 	case current.AwaitsApproval():
-		return hold(metalv1alpha1.ReasonAwaitingOperation, awaitsApprovalMessage(claim, current, "boot", "install"))
+		return hold(metalv1alpha1.ReasonAwaitingApproval, awaitsApprovalMessage(claim, current, "boot", "install"))
 	case ex != nil && ex.Status == metav1.ConditionFalse:
 		return hold(metalv1alpha1.ReasonOperationFailed, fmt.Sprintf(
 			"boot operation %s failed: %s. To try again: pk-metal retry %s. To stop trying: pk-metal hold %s/%s",

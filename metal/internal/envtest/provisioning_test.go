@@ -555,6 +555,12 @@ func TestProvisioning(t *testing.T) {
 		waitHost(dualHost, func(h metalv1alpha1.Host) bool {
 			return h.Status.BlockedOn == "Approval(Provisioning)"
 		})
+		// The claim says the same: its install waits for a person.
+		waitClaim("dual", func(c metalv1alpha1.HostClaim) bool {
+			p := meta.FindStatusCondition(c.Status.Conditions, metalv1alpha1.ConditionProvisioned)
+			return c.Status.BlockedOn == "Approval(Provisioning)" && p != nil &&
+				p.Reason == metalv1alpha1.ReasonAwaitingApproval && strings.Contains(p.Message, "pk-metal approve")
+		})
 		st.settle(t, ctx, &c, 3)
 		assert.Len(t, opsFor(dualHost, "provision"), 1, "nothing is proposed twice")
 	})
@@ -577,7 +583,7 @@ func TestProvisioning(t *testing.T) {
 		annotate(`null`)
 		waitClaim("dual", func(c metalv1alpha1.HostClaim) bool {
 			p := provisioned(c)
-			return p != nil && strings.Contains(p.Message, "awaits approval") && c.Status.BlockedOn == ""
+			return p != nil && strings.Contains(p.Message, "awaits approval") && c.Status.BlockedOn == "Approval(Provisioning)"
 		})
 		require.Len(t, opsFor(dualHost, "provision"), 1, "lifted, the same plan is proposed again")
 	})

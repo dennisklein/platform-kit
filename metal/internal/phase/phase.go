@@ -116,6 +116,8 @@ func ForHost(conds []metav1.Condition, f HostFacts) (metalv1alpha1.HostPhase, st
 // ForClaim derives the HostClaim phase from its Bound condition. Reference
 // resolution maps 0/1/2+ matches to Pending/Bound/Ambiguous (naming rule 9);
 // HostNotDiscovered is in flight, not blocked — the machine just isn't there yet.
+// An install operation that waits for its gate shows as Approval(Provisioning),
+// the shape the Host uses for the same wait.
 func ForClaim(conds []metav1.Condition) (metalv1alpha1.ClaimPhase, string) {
 	b := meta.FindStatusCondition(conds, metalv1alpha1.ConditionBound)
 	switch {
@@ -123,8 +125,12 @@ func ForClaim(conds []metav1.Condition) (metalv1alpha1.ClaimPhase, string) {
 		return metalv1alpha1.ClaimPending, ""
 	case b.Status == metav1.ConditionTrue:
 		// Bound; whatever stops provisioning is why the claim isn't advancing.
-		if p := meta.FindStatusCondition(conds, metalv1alpha1.ConditionProvisioned); p != nil &&
-			p.Status == metav1.ConditionFalse && provisioningHolds[p.Reason] {
+		p := meta.FindStatusCondition(conds, metalv1alpha1.ConditionProvisioned)
+		switch {
+		case p == nil || p.Status != metav1.ConditionFalse:
+		case p.Reason == metalv1alpha1.ReasonAwaitingApproval:
+			return metalv1alpha1.ClaimBound, "Approval(Provisioning)"
+		case provisioningHolds[p.Reason]:
 			return metalv1alpha1.ClaimBound, p.Reason
 		}
 		return metalv1alpha1.ClaimBound, ""
