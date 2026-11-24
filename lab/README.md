@@ -77,23 +77,32 @@ follow [Day 2](https://dennisklein.github.io/platform-kit/operate/day-2/).
 
 ## Prerequisites
 
-Linux with KVM, cgroup v2, Docker Engine, QEMU with OVMF, `sudo`, about 12 GiB
-of free memory (for the default three machines) and 15 GiB of free disk.
-`mise install` brings go, kind, kubectl, talosctl, yq and jq at the versions
-the repository pins.
+Linux on x86-64 with KVM, cgroup v2, Docker Engine, QEMU with OVMF, `ip`,
+`iptables`, `curl`, `sudo`, about 12 GiB of free memory (for the default
+three machines) and 15 GiB of free disk. macOS does not work (no KVM, and
+Docker Desktop cannot reach the lab bridge); WSL2 and distributions other
+than the three below are not tested.
+[mise](https://mise.jdx.dev/getting-started.html) brings go, kind, kubectl,
+talosctl, yq and jq at the versions the repository pins.
 
 ```sh
 # Debian, Ubuntu
-sudo apt-get install qemu-system-x86 qemu-utils ovmf
+sudo apt-get install qemu-system-x86 qemu-utils ovmf curl iproute2 iptables
 # Fedora
-sudo dnf install qemu-system-x86-core qemu-img edk2-ovmf
+sudo dnf install qemu-system-x86-core qemu-img edk2-ovmf curl iproute iptables-nft
 # RHEL 9, Rocky, Alma: QEMU comes as /usr/libexec/qemu-kvm, which the fleet
 # finds on its own (PK_METAL_QEMU names any other binary)
-sudo dnf install qemu-kvm qemu-img edk2-ovmf iptables-nft
+sudo dnf install qemu-kvm qemu-img edk2-ovmf curl iproute iptables-nft
+# Docker Engine: https://docs.docker.com/engine/install/
 
+mise trust            # once per clone: let mise read mise.toml
 mise install
 mise run lab:doctor   # checks every item and prints the fix for each miss
 ```
+
+`mise run` puts the pinned tools on the PATH of each task. For the commands
+you type yourself (`kubectl`, `talosctl`), activate mise in your shell
+(`eval "$(mise activate bash)"`) or prefix them with `mise exec --`.
 
 `lab:doctor` changes nothing, but its sudo check may ask for your password.
 

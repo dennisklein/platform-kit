@@ -21,7 +21,7 @@ The virtual lab runs on a Linux workstation or a CI runner.
 
 <dl class="pk-glance">
   <dt>System</dt>
-  <dd>Linux with KVM and cgroup v2.</dd>
+  <dd>Linux on x86-64, with KVM and cgroup v2. See [Operating systems](#operating-systems).</dd>
   <dt>Memory</dt>
   <dd>About 12 GiB free for the default size. `3cp+2w` needs about 19 GiB.</dd>
   <dt>Disk</dt>
@@ -30,11 +30,22 @@ The virtual lab runs on a Linux workstation or a CI runner.
   <dd>Docker Engine, as root.</dd>
   <dt>Packages</dt>
   <dd>QEMU, `qemu-img`, OVMF, `ip`, `iptables`, `curl`, `sudo`</dd>
+  <dt>Tool manager</dt>
+  <dd>[mise](https://mise.jdx.dev/)</dd>
   <dt>Tools from mise</dt>
   <dd>`go`, `kind`, `kubectl`, `talosctl`, `yq`, `jq`</dd>
   <dt>Check</dt>
   <dd>[](lab:doctor)</dd>
 </dl>
+
+## Operating systems
+
+| System | Result | Reason |
+| --- | --- | --- |
+| Linux on x86-64, with `/dev/kvm` | Works | The lab is built and tested on it. |
+| Linux on ARM64 | Not supported | The machines are x86-64 QEMU machines. KVM runs them only on an x86-64 host. |
+| macOS | Does not work | There is no KVM, and Docker Desktop cannot get to the lab bridge. A Linux virtual machine with nested virtualization can work. Nobody tested it. |
+| Windows with WSL2 | Not tested | WSL2 must give `/dev/kvm`, cgroup v2 and Docker Engine in the WSL2 system, not Docker Desktop. |
 
 ## Install the packages
 
@@ -42,17 +53,36 @@ The virtual lab runs on a Linux workstation or a CI runner.
 
    | Distribution | Command |
    | --- | --- |
-   | Debian, Ubuntu | `sudo apt-get install qemu-system-x86 qemu-utils ovmf` |
-   | Fedora | `sudo dnf install qemu-system-x86-core qemu-img edk2-ovmf` |
-   | RHEL 9, Rocky, Alma | `sudo dnf install qemu-kvm qemu-img edk2-ovmf iptables-nft` |
+   | Debian, Ubuntu | `sudo apt-get install qemu-system-x86 qemu-utils ovmf curl iproute2 iptables` |
+   | Fedora | `sudo dnf install qemu-system-x86-core qemu-img edk2-ovmf curl iproute iptables-nft` |
+   | RHEL 9, Rocky, Alma | `sudo dnf install qemu-kvm qemu-img edk2-ovmf curl iproute iptables-nft` |
+   | Other distributions | Not tested. Install the same programs. If the doctor does not find them, set `PK_METAL_QEMU`, `PK_METAL_OVMF_CODE` and `PK_METAL_OVMF_VARS`. |
 
-2. Install the pinned tools.
+2. Install Docker Engine. Use the [instructions for your distribution](https://docs.docker.com/engine/install/). See [Container engine](#container-engine).
+
+3. Install mise. Use the [mise instructions](https://mise.jdx.dev/getting-started.html).
+
+4. In the root of the repository, let mise read the file `mise.toml`.
+
+   ```sh
+   mise trust
+   ```
+
+5. Install the pinned tools.
 
    ```sh
    mise install
    ```
 
-3. Check the workstation.
+6. Put the pinned tools on the `PATH` of your shell. The tasks (`mise run ...`) do not need this step. The commands that you type, for example `kubectl`, need it.
+
+   ```sh
+   eval "$(mise activate bash)"
+   ```
+
+   For zsh, use `mise activate zsh`. As an alternative, put `mise exec --` before each command.
+
+7. Check the workstation.
 
    ```sh
    mise run lab:doctor
