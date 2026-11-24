@@ -21,10 +21,12 @@ of state lives, and lists what is destructive.
 - **Nothing happens to a machine before somebody approves.** The approval is
   `pk-metal approve` (`mise run lab:approve` in the lab). To say no, remove
   `spec.os` from the claim, or hold it: `pk-metal hold default/node-1`.
-- **Deleting a HostClaim powers its machine off** (a graceful shutdown first,
-  then a hard power-off). For a machine that runs its node, that power-off
-  waits for an approval too. `kubectl delete -f .lab/generated/manifests/`
-  does this to every lab machine. It is not "remove from the inventory".
+- **Deleting a HostClaim removes its node and resets its machine**: the node
+  is drained and leaves the cluster, Talos wipes its system disk, and the
+  machine is powered off. For a machine that runs its node, that waits for an
+  approval too. `kubectl delete -f .lab/generated/manifests/` does this to
+  every lab machine. It is not "remove from the inventory". Adding, removing
+  and replacing nodes: [Scaling](../docs/metal/scaling.md).
 
 ## What runs where
 
