@@ -98,6 +98,42 @@ terms:
       the network. Use it to read the console of a node, because Talos has no
       shell.
 
+  - id: serial-console
+    term: serial console
+    kind: noun
+    domain: hw
+    forms: [serial console, serial consoles]
+    see: howto:collect-diagnostics
+    related: [sol, bmc]
+    def: >-
+      The text console of a server on its serial port. Talos writes its boot
+      messages to it. The BMC sends it over the network with SOL.
+
+  - id: iso
+    term: ISO
+    abbr: ISO 9660 disk image
+    kind: abbr
+    domain: hw
+    forms: [ISO, ISOs]
+    see: concept:virtual-media-boot
+    related: [virtual-media, installer-image, media-store]
+    def: >-
+      A file that holds the content of a CD or DVD. The BMC attaches an ISO as
+      virtual media, and the machine boots from it.
+
+  - id: dhcp
+    term: DHCP
+    abbr: Dynamic Host Configuration Protocol
+    kind: abbr
+    domain: hw
+    forms: [DHCP]
+    see: howto:network-checklist
+    related: [pxe]
+    def: >-
+      A protocol that gives a network address to a machine when it starts.
+      pk-metal does not need DHCP for the BMCs. Talos nodes can use it or
+      static addresses.
+
   - id: virtual-media
     term: virtual media
     kind: noun
@@ -505,6 +541,89 @@ terms:
       A file with the address of a Kubernetes cluster and the credentials to
       connect to it. kubectl and pk-metal read it.
 
+  - id: namespace
+    term: namespace
+    kind: noun
+    domain: k8s
+    forms: [namespace, namespaces]
+    see: concept:architecture
+    related: [secret, rbac]
+    def: >-
+      A named group of objects in a Kubernetes cluster. The operator keeps its
+      Secrets and its manager in the namespace pk-metal.
+
+  - id: secret
+    term: Secret
+    kind: api-kind
+    domain: k8s
+    forms: [Secret, Secrets]
+    see: concept:credentials
+    related: [credentialsref, namespace]
+    def: >-
+      The Kubernetes kind that holds secret data, such as BMC passwords and
+      Talos credentials. Only the operator and the administrators can read the
+      Secrets of the operator.
+
+  - id: rbac
+    term: RBAC
+    abbr: Role-Based Access Control
+    kind: abbr
+    domain: k8s
+    forms: [RBAC]
+    see: ref:rbac
+    related: [clusterrolebinding, impersonation, admission-policy]
+    def: >-
+      The access control of Kubernetes. A role lists the verbs that a user can
+      do on each kind. A RoleBinding or a ClusterRoleBinding gives the role to
+      users, groups or service accounts.
+
+  - id: clusterrolebinding
+    term: ClusterRoleBinding
+    kind: api-kind
+    domain: k8s
+    forms: [ClusterRoleBinding, ClusterRoleBindings]
+    see: ref:rbac
+    related: [rbac]
+    def: >-
+      The Kubernetes kind that gives a ClusterRole to users, groups or service
+      accounts in all namespaces. pk-metal uses them for the operator, the
+      approvers and the administrators.
+
+  - id: impersonation
+    term: impersonation
+    kind: noun
+    domain: k8s
+    forms: [impersonation, impersonate, impersonates]
+    see: ref:rbac
+    related: [rbac, approver]
+    def: >-
+      A request that a user sends as another user or group, with the kubectl
+      flags --as and --as-group. The API server checks the permission of the
+      user to impersonate.
+
+  - id: nodeport
+    term: NodePort
+    kind: noun
+    domain: k8s
+    forms: [NodePort, NodePorts]
+    see: ref:media-store
+    related: [media-service]
+    def: >-
+      A Kubernetes Service type that opens one port on each node of the
+      cluster. The BMCs can reach the media service through a NodePort.
+
+  - id: overlay
+    term: overlay
+    kind: noun
+    domain: k8s
+    forms: [overlay, overlays, kustomize, Kustomize]
+    see: howto:enrol-hosts
+    related: [ledger, kubectl]
+    def: >-
+      A folder with a kustomization.yaml that changes the base manifests of
+      pk-metal for one site: image, ledger, flags and bindings. Apply it with
+      kubectl apply -k.
+
   - id: pk-metal
     term: pk-metal
     kind: tool
@@ -770,6 +889,29 @@ terms:
     def: >-
       The gRPC API of a Talos node on TCP port 50000. It replaces SSH and the
       shell. The operator uses it to reboot, upgrade and reset nodes.
+
+  - id: vip
+    term: VIP
+    abbr: Virtual IP address
+    kind: abbr
+    domain: talos
+    forms: [VIP, VIPs]
+    see: howto:define-a-cluster
+    related: [control-plane]
+    def: >-
+      A shared address that one control plane of a Talos cluster holds at a
+      time. Clients reach the Kubernetes API at this address.
+
+  - id: bootstrap
+    term: bootstrap
+    kind: verb
+    domain: talos
+    forms: [bootstrap, bootstraps, bootstrapped]
+    see: cli:bootstrap
+    related: [etcd, control-plane]
+    def: >-
+      To start etcd on the first control plane of a new Talos cluster. The
+      operator does this one time, when all control planes answer.
 
   - id: taloscluster
     term: TalosCluster
@@ -1496,6 +1638,18 @@ terms:
       The private key that decrypts an etcd snapshot. The operator has only
       the public keys. Keep the identities away from the cluster.
 
+  - id: age
+    term: age
+    kind: tool
+    domain: ops
+    forms: [age]
+    guards: { not_before: '^\s+(of|limit)' }
+    see: cli:backup
+    related: [age-identity, etcdsnapshot]
+    def: >-
+      A file encryption tool. The operator encrypts each etcd snapshot with age
+      to public keys. Only a holder of an age identity can decrypt it.
+
   - id: pivot
     term: pivot
     kind: noun
@@ -1507,6 +1661,29 @@ terms:
       The move of the operator and its objects to another management cluster.
       For example, the operator moves from kind onto the Talos cluster that it
       built.
+
+  - id: bootstrap-cluster
+    term: bootstrap cluster
+    kind: noun
+    domain: ops
+    forms: [bootstrap cluster, bootstrap clusters, source cluster]
+    see: concept:pivot-model
+    related: [pivot, target-cluster, kind-tool]
+    def: >-
+      A small, temporary Kubernetes cluster, often kind on a workstation. The
+      operator starts in it and installs the first Talos cluster. In a pivot it
+      is the source cluster.
+
+  - id: target-cluster
+    term: target cluster
+    kind: noun
+    domain: ops
+    forms: [target cluster]
+    see: concept:pivot-model
+    related: [pivot, bootstrap-cluster, management-cluster]
+    def: >-
+      The cluster that a pivot moves the operator to. After the move, it is the
+      management cluster.
 
   - id: relay
     term: relay
@@ -1542,6 +1719,17 @@ terms:
     def: >-
       A complete site on one workstation: a kind cluster with the operator,
       simulated BMCs and QEMU machines. The lab simulates only the hardware.
+
+  - id: doctor
+    term: doctor
+    kind: tool
+    domain: lab
+    forms: [doctor]
+    see: lab:doctor
+    related: [virtual-lab]
+    def: >-
+      The lab task that checks the workstation before the first start: the
+      tools, Docker and the host resources that the lab needs.
 
   - id: kind-tool
     term: kind (the tool)
