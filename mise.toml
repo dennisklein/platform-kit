@@ -25,8 +25,8 @@ dir = "metal"
 run = "go test ./..."
 
 [tasks.lint]
-description = "golangci-lint and shellcheck"
-depends = ["lint:go", "lint:shell"]
+description = "golangci-lint, the phase invariant and shellcheck"
+depends = ["lint:go", "lint:phase", "lint:shell"]
 
 [tasks."lint:shell"]
 description = "bash -n and shellcheck over the hack scripts"
@@ -42,6 +42,13 @@ echo "lint:shell: clean"
 [tasks."lint:go"]
 dir = "metal"
 run = "golangci-lint run"
+
+[tasks."lint:phase"]
+description = "Only internal/phase writes .Status.Phase/.Status.BlockedOn, and reconcilers never read them (a typed check)"
+dir = "metal"
+# The check is a Go test: it loads the module with go/types, so it also sees writes
+# through an alias, a pointer or a composite literal, in every package.
+run = "go test -count=1 -run TestPhaseWriteSites ./internal/phase/"
 
 [tasks.generate]
 description = "Regenerate everything derived from the Go sources: deepcopy code, CRDs"
