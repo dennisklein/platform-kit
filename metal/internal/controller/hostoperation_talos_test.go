@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	godigest "github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/assert"
@@ -408,6 +409,8 @@ func TestEtcdForfeitLeadershipAndDeleteKubernetesNode(t *testing.T) {
 }
 
 func TestTalosResetAndShutdown(t *testing.T) {
+	// Each look moves the clock on, so the node's silence lasts long enough.
+	tickTalosClock(t, 20*time.Second)
 	t.Run("reset leaves etcd and wipes", func(t *testing.T) {
 		lab := newTalosLab(t, talosOp("cp-3", metalv1alpha1.HostOperationAction{TalosReset: &metalv1alpha1.TalosResetAction{
 			NodeRef: ref("cp-3"), Graceful: ptr.To(true), Mode: "All"}}))

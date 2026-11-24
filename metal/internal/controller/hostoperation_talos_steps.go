@@ -2,17 +2,20 @@ package controller
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/opencontainers/go-digest"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -302,7 +305,7 @@ func (x *exec) restart(ctx context.Context, i int, node *osv1alpha1.TalosNode, a
 			if err != nil {
 				return err
 			}
-			if booted.After(before) {
+			if restarted(before, booted) {
 				took = true // asked by a pass that died before recording it
 				return nil
 			}
@@ -318,7 +321,7 @@ func (x *exec) restart(ctx context.Context, i int, node *osv1alpha1.TalosNode, a
 			return stepState{}, fmt.Errorf("node %s refused the %s: %w", node.Name, what, err)
 		}
 		p = p.DeepCopy()
-		p.RequestedAt = ptrTime(metav1.Now())
+		p.RequestedAt = ptrTime(metav1.NewTime(talosClock()))
 		if !took && !restarts {
 			p.Mode = cmpOr(mode, "auto")
 		}
@@ -347,7 +350,7 @@ func (x *exec) restart(ctx context.Context, i int, node *osv1alpha1.TalosNode, a
 		if st, err = c.Status(ctx); err != nil {
 			return err
 		}
-		if !booted.After(before) || st.Stage != "running" || !st.Ready || ready == nil {
+		if !restarted(before, booted) || st.Stage != "running" || !st.Ready || ready == nil {
 			return nil
 		}
 		res, rerr = ready(ctx, c, st)
@@ -356,7 +359,7 @@ func (x *exec) restart(ctx context.Context, i int, node *osv1alpha1.TalosNode, a
 	switch {
 	case err != nil:
 		return waitingOn("node %s is restarting for the %s (%v)", node.Name, what, err), nil
-	case !booted.After(before):
+	case !restarted(before, booted):
 		return waitingOn("asked node %s for the %s; it has not restarted yet (booted at %s)",
 			node.Name, what, before.UTC().Format(time.RFC3339)), nil
 	case st.Stage != "running" || !st.Ready:
@@ -366,6 +369,18 @@ func (x *exec) restart(ctx context.Context, i int, node *osv1alpha1.TalosNode, a
 		return res, rerr
 	}
 	return stepDone, nil
+}
+
+// bootTimeSlack is how far a boot time must move on to count as a restart.
+// The machine API reads it from /proc/stat in whole seconds, as now minus the
+// uptime, so a clock step on the node (time sync, a leap second) moves it a
+// little without a restart; a real restart moves it by at least the time the
+// node ran before it, and a node is asked for a restart only once it runs.
+const bootTimeSlack = 30 * time.Second
+
+// restarted: the node booted again since before.
+func restarted(before, booted time.Time) bool {
+	return booted.Sub(before) > bootTimeSlack
 }
 
 func unmet(st talos.Status) string {
@@ -450,13 +465,71 @@ func (x *exec) talosApplyConfig(ctx context.Context, i int, a *metalv1alpha1.Tal
 	if a.TryTimeoutSeconds > 0 {
 		opts.TryTimeout = time.Duration(a.TryTimeoutSeconds) * time.Second
 	}
-	return x.restart(ctx, i, node, acc, "config apply", func(ctx context.Context, c talos.Client) (bool, string, error) {
+	st, err := x.restart(ctx, i, node, acc, "config apply", func(ctx context.Context, c talos.Client) (bool, string, error) {
 		res, err := c.ApplyConfiguration(ctx, cfg, opts)
 		if err != nil {
 			return false, "", err
 		}
 		return res.Mode == talos.ApplyReboot, string(res.Mode), nil
 	}, nil)
+	if err != nil || !st.done {
+		return st, err
+	}
+	if p := x.progress(i); p != nil && p.Mode == string(talos.ApplyTry) {
+		return x.confirmTry(ctx, node, acc, a, p)
+	}
+	return st, nil
+}
+
+// defaultTryTimeout is the node's own rollback window for a Try apply that
+// names none.
+const defaultTryTimeout = time.Minute
+
+// confirmTry keeps a config the node took in Try mode. Talos rolls a Try
+// apply back when its window ends, unless a later apply that is not a try
+// cancels the rollback; without one the approved change would silently
+// vanish. The step confirms only a node that runs and is ready on the new
+// config, with the same approved bytes in NoReboot mode. A node that is not
+// ready when the window ends is left to roll back, and the step fails.
+func (x *exec) confirmTry(ctx context.Context, node *osv1alpha1.TalosNode, acc *talosAccess,
+	a *metalv1alpha1.TalosApplyConfigAction, p *metalv1alpha1.TalosStepProgress) (stepState, error) {
+	window := defaultTryTimeout
+	if a.TryTimeoutSeconds > 0 {
+		window = time.Duration(a.TryTimeoutSeconds) * time.Second
+	}
+	cfg, err := x.pinnedConfig(ctx, a)
+	if err != nil {
+		return stepState{}, err
+	}
+	var (
+		st        talos.Status
+		confirmed bool
+	)
+	err = acc.with(ctx, nodeEndpoint(node), func(c talos.Client) error {
+		var err error
+		if st, err = c.Status(ctx); err != nil || st.Stage != "running" || !st.Ready {
+			return err
+		}
+		if _, err = c.ApplyConfiguration(ctx, cfg, talos.ApplyOptions{Mode: talos.ApplyNoReboot}); err != nil {
+			return err
+		}
+		confirmed = true
+		return nil
+	})
+	expired := p.RequestedAt != nil && talosClock().Sub(p.RequestedAt.Time) > window
+	switch {
+	case confirmed:
+		return stepDone, nil
+	case err != nil && !unavailable(err):
+		return stepState{}, fmt.Errorf("node %s refused to confirm the config it took in Try mode: %w", node.Name, err)
+	case expired:
+		return stepState{}, fmt.Errorf("node %s was not ready within the Try window of %s, so the config was not "+
+			"confirmed and Talos rolls it back", node.Name, window)
+	case err != nil:
+		return waitingOn("node %s took the config in Try mode and does not answer now (%v)", node.Name, err), nil
+	}
+	return waitingOn("node %s took the config in Try mode and is %s, not ready yet%s; it is confirmed once ready",
+		node.Name, cmpOr(st.Stage, "booting"), unmet(st)), nil
 }
 
 // applyModes maps the action's modes onto the machine API's.
@@ -486,9 +559,21 @@ func (x *exec) pinnedConfig(ctx context.Context, a *metalv1alpha1.TalosApplyConf
 	return cfg, nil
 }
 
-// talosReset wipes the node. Its goal shows as the node leaving: it stops
-// answering with the cluster's credentials (its config is gone, or it is
-// off), or it restarted with the partitions wiped that hold no config.
+// talosReset wipes the node. Its goal shows as the node leaving: it answers
+// but no longer to the cluster's credentials (its config is gone, it runs in
+// maintenance mode), it restarted with the partitions wiped that hold no
+// config, or it stays silent (it is off) for talosGoneAfter.
+//
+// One failed look proves nothing: a graceful reset drains and leaves etcd for
+// minutes while the node still runs, and a slow answer or a dropped
+// connection then reads like a node that is gone. The steps after a reset
+// (deleting the Node, the power-off, the release) must not run on a machine
+// that is still resetting.
+//
+// Talos takes a reset in the background and answers at once; a second
+// request while one runs is refused inside the node and changes nothing. So
+// a request whose answer was lost (RequestedAt not set), or a node that still
+// answers with its old boot time long after it accepted one, is asked again.
 func (x *exec) talosReset(ctx context.Context, i int, a *metalv1alpha1.TalosResetAction) (stepState, error) {
 	node, acc, err := x.talosNode(ctx, a.NodeRef)
 	if err != nil {
@@ -504,26 +589,40 @@ func (x *exec) talosReset(ctx context.Context, i int, a *metalv1alpha1.TalosRese
 	for _, p := range a.SystemPartitions {
 		opts.SystemPartitions = append(opts.SystemPartitions, string(p))
 	}
-	endpoint := nodeEndpoint(node)
-	if p := x.progress(i); p != nil && p.RequestedAt != nil {
-		var booted time.Time
-		err := acc.with(ctx, endpoint, func(c talos.Client) (err error) {
-			booted, err = c.BootTime(ctx)
-			return err
-		})
-		switch {
-		case unavailable(err):
-			// Wiped or off: the cluster's credentials no longer open it. The
-			// machine API client connects lazily, so a node that is gone shows
-			// as a call that fails Unavailable, not as a dial that fails.
-			return stepDone, nil
-		case err == nil && p.BootTime != nil && booted.After(p.BootTime.Time):
-			return stepDone, nil
-		}
-		return waitingOn("asked node %s to reset; it still answers with the cluster's credentials", node.Name), nil
+	p := x.progress(i)
+	if p == nil {
+		return x.askReset(ctx, i, node, acc, opts, nil)
 	}
 	var booted time.Time
-	err = acc.with(ctx, endpoint, func(c talos.Client) error {
+	err = acc.with(ctx, nodeEndpoint(node), func(c talos.Client) (err error) {
+		booted, err = c.BootTime(ctx)
+		return err
+	})
+	switch {
+	case err == nil && p.BootTime != nil && restarted(p.BootTime.Time, booted):
+		return x.left(i), nil
+	case untrusted(err):
+		// The node answers, but not to the cluster's CA: its STATE is
+		// wiped and it serves the maintenance certificate.
+		return x.left(i), nil
+	case err != nil && unavailable(err):
+		return x.silent(i, node, "reset", err), nil
+	case err != nil:
+		return waitingOn("asked node %s to reset; its boot time does not read (%v)", node.Name, err), nil
+	}
+	silences.forget(x.silenceKey(i))
+	if p.RequestedAt == nil || talosClock().Sub(p.RequestedAt.Time) >= talosResendAfter {
+		return x.askReset(ctx, i, node, acc, opts, p)
+	}
+	return waitingOn("asked node %s to reset at %s; it still answers with the cluster's credentials",
+		node.Name, p.RequestedAt.UTC().Format(time.RFC3339)), nil
+}
+
+// askReset sends the reset, prev being the progress of an earlier request.
+func (x *exec) askReset(ctx context.Context, i int, node *osv1alpha1.TalosNode, acc *talosAccess,
+	opts talos.ResetOptions, prev *metalv1alpha1.TalosStepProgress) (stepState, error) {
+	var booted time.Time
+	err := acc.with(ctx, nodeEndpoint(node), func(c talos.Client) error {
 		var err error
 		if booted, err = c.BootTime(ctx); err != nil {
 			return err
@@ -534,54 +633,185 @@ func (x *exec) talosReset(ctx context.Context, i int, a *metalv1alpha1.TalosRese
 		return stepState{}, fmt.Errorf("node %s refused the reset: %w", node.Name, err)
 	}
 	if err != nil && booted.IsZero() {
+		if prev != nil {
+			return x.silent(i, node, "reset", err), nil
+		}
 		// Not even the boot time read: the reset was never sent.
 		st := waitingOn("node %s does not answer, so it cannot be reset through Talos (%v)", node.Name, err)
 		st.hint = ". A node that cannot answer is wiped by installing it again instead"
 		return st, nil
 	}
-	p := &metalv1alpha1.TalosStepProgress{Step: int32(i), RequestedAt: ptrTime(metav1.Now())}
-	if !booted.IsZero() {
+	p := &metalv1alpha1.TalosStepProgress{Step: int32(i)}
+	switch {
+	case prev != nil && prev.BootTime != nil:
+		p.BootTime = prev.BootTime
+	case !booted.IsZero():
 		p.BootTime = &metav1.Time{Time: booted}
 	}
-	if err := x.record(p); err != nil {
-		return stepState{}, err
+	if err == nil {
+		p.RequestedAt = ptrTime(metav1.NewTime(talosClock()))
+	}
+	if rerr := x.record(p); rerr != nil {
+		return stepState{}, rerr
+	}
+	if err != nil {
+		// The node went quiet under the call: it may be resetting, or the
+		// request never arrived. The next look tells which.
+		return waitingOn("asked node %s to reset; it did not answer the request (%v)", node.Name, err), nil
 	}
 	return waitingOn("asked node %s to reset", node.Name), nil
 }
 
 // talosShutdown powers the node off through Talos; its goal shows as the
-// node no longer answering.
+// node staying silent for talosGoneAfter. A request whose answer was lost is
+// sent again when the node still answers; one the node accepted is not, since
+// Talos starts its shutdown sequence over on a second request.
 func (x *exec) talosShutdown(ctx context.Context, i int, a *metalv1alpha1.TalosShutdownAction) (stepState, error) {
 	node, acc, err := x.talosNode(ctx, a.NodeRef)
 	if err != nil {
 		return stepState{}, err
 	}
 	endpoint := nodeEndpoint(node)
-	asked := x.progress(i) != nil
-	err = acc.with(ctx, endpoint, func(c talos.Client) error {
-		if asked {
+	if p := x.progress(i); p != nil {
+		err = acc.with(ctx, endpoint, func(c talos.Client) error {
 			_, err := c.Version(ctx)
 			return err
+		})
+		switch {
+		case err != nil && unavailable(err):
+			// Like a reset, being off shows as a failing call: the client
+			// connects lazily, so its dial succeeds whether the node is there.
+			return x.silent(i, node, "shut down", err), nil
+		case err != nil:
+			return waitingOn("asked node %s to shut down; it answers with an error (%v)", node.Name, err), nil
 		}
+		silences.forget(x.silenceKey(i))
+		if p.RequestedAt != nil {
+			return waitingOn("asked node %s to shut down at %s; it still answers",
+				node.Name, p.RequestedAt.UTC().Format(time.RFC3339)), nil
+		}
+	}
+	err = acc.with(ctx, endpoint, func(c talos.Client) error {
 		return c.Shutdown(ctx, talos.ShutdownOptions{Force: a.Force})
 	})
 	var unreach *unreachableError
 	switch {
-	case asked && unavailable(err):
-		// Off. Like a reset, this shows as a failing call: the client
-		// connects lazily, so its dial succeeds whether the node is there.
-		return stepDone, nil
-	case asked:
-		return waitingOn("asked node %s to shut down; it still answers", node.Name), nil
 	case err != nil && errors.As(err, &unreach):
 		return waitingOn("node %s does not answer, so it cannot be asked to shut down (%v)", node.Name, err), nil
 	case err != nil && !unavailable(err):
 		return stepState{}, fmt.Errorf("node %s refused to shut down: %w", node.Name, err)
 	}
-	if err := x.record(&metalv1alpha1.TalosStepProgress{Step: int32(i), RequestedAt: ptrTime(metav1.Now())}); err != nil {
-		return stepState{}, err
+	np := &metalv1alpha1.TalosStepProgress{Step: int32(i)}
+	if err == nil {
+		np.RequestedAt = ptrTime(metav1.NewTime(talosClock()))
+	}
+	if rerr := x.record(np); rerr != nil {
+		return stepState{}, rerr
+	}
+	if err != nil {
+		return waitingOn("asked node %s to shut down; it did not answer the request (%v)", node.Name, err), nil
 	}
 	return waitingOn("asked node %s to shut down", node.Name), nil
+}
+
+// How a node that was asked to reset or shut down is seen to be gone.
+const (
+	// talosGoneAfter is how long the node must stay silent, and
+	// talosGoneLooks in how many looks in a row, before the step counts it
+	// as gone. A node that answers in between starts the count again.
+	talosGoneAfter = 30 * time.Second
+	talosGoneLooks = 3
+	// talosResendAfter is when a reset the node accepted, on a node that
+	// still answers with its old boot time, is asked for again: the first
+	// one failed inside the node (a drain or an etcd leave it gave up on).
+	talosResendAfter = 5 * time.Minute
+)
+
+// talosClock is the time the Talos steps read; tests move it.
+var talosClock = time.Now
+
+// silence is how long a node has been silent: since the first silent look
+// of the current run, and in how many looks.
+type silence struct {
+	since time.Time
+	looks int
+}
+
+type silenceKey struct {
+	r    *HostOperationReconciler
+	op   types.NamespacedName
+	uid  types.UID
+	step int
+}
+
+// silenceBook holds the silences in process memory, as the reconciler holds
+// its step clocks. A restart forgets them, which only makes a step wait one
+// more window.
+type silenceBook struct {
+	mu sync.Mutex
+	m  map[silenceKey]silence
+}
+
+var silences silenceBook
+
+// note adds a silent look and returns the silence so far.
+func (b *silenceBook) note(k silenceKey, now time.Time) silence {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.m == nil {
+		b.m = map[silenceKey]silence{}
+	}
+	s, ok := b.m[k]
+	if !ok {
+		s.since = now
+	}
+	s.looks++
+	b.m[k] = s
+	return s
+}
+
+func (b *silenceBook) forget(k silenceKey) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.m, k)
+}
+
+func (x *exec) silenceKey(i int) silenceKey {
+	return silenceKey{r: x.r, op: types.NamespacedName{Namespace: x.op.Namespace, Name: x.op.Name}, uid: x.op.UID, step: i}
+}
+
+// silent records one look at a node that did not answer, and reports the
+// step done once the silence is long enough.
+func (x *exec) silent(i int, node *osv1alpha1.TalosNode, what string, err error) stepState {
+	now := talosClock()
+	s := silences.note(x.silenceKey(i), now)
+	if s.looks >= talosGoneLooks && now.Sub(s.since) >= talosGoneAfter {
+		return x.left(i)
+	}
+	return waitingOn("asked node %s to %s; it has not answered since %s (%v); it counts as gone once it "+
+		"stays silent for %s", node.Name, what, s.since.UTC().Format(time.RFC3339), err, talosGoneAfter)
+}
+
+// left ends a reset or shutdown step: the node is gone.
+func (x *exec) left(i int) stepState {
+	silences.forget(x.silenceKey(i))
+	return stepDone
+}
+
+// untrusted: the node answered with a certificate the cluster's CA did not
+// sign. A reset node serves the maintenance service's own certificate.
+func untrusted(err error) bool {
+	if err == nil {
+		return false
+	}
+	var unknown x509.UnknownAuthorityError
+	if errors.As(err, &unknown) {
+		return true
+	}
+	// gRPC reports a failed handshake as text inside an Unavailable status.
+	msg := err.Error()
+	return strings.Contains(msg, "certificate signed by unknown authority") ||
+		strings.Contains(msg, "authentication handshake failed")
 }
 
 // controlPlanePeers lists the control planes of the node's cluster that the
