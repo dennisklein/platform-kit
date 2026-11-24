@@ -101,11 +101,7 @@ function checkFolders() {
  * entry here is no longer needed, so the list only shrinks. Remove an entry in the
  * same change that fixes the page's frontmatter.
  */
-const orderExceptions = new Set([
-  'operate/day-2/upgrade-talos.mdx: no order',
-  'start/how-to-read.mdx: order 2 also in start/for-sysadmins.mdx',
-  'learn/lab-disaster-recovery.mdx: order 4 also in learn/first-real-server.mdx',
-]);
+const orderExceptions = new Set([]);
 
 /** In an ordered group, each page (except the folder index) has its own sidebar.order. */
 function checkOrder() {
