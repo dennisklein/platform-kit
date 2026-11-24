@@ -14,12 +14,13 @@ SCRIPT=${0##*/}
 HELP="usage: $SCRIPT <verb>
 
   doctor       check the workstation for what the lab needs; every miss names its fix
-  up           network, kind cluster, operator, simulated fleet, lab manifests
+  render       render the lab from its spec into <lab directory>/generated
+  up           render, network, kind cluster, operator, simulated fleet, lab manifests
   status       the rack as the operator sees it, then every kind
   approve      approve every operation that waits for a person
   apply [path...]
                kubectl apply as a member of the admin group (pk-metal:admins), which
-               the claim policy asks for; default: lab/manifests/
+               the claim policy asks for; default: the rendered manifests
   kubeconfig   write the workload cluster's kubeconfig and talosconfig into the lab directory
   wait         approve and wait until every Host is Provisioned and every node Ready
   release <namespace/name>
@@ -29,13 +30,15 @@ HELP="usage: $SCRIPT <verb>
   down         stop the fleet, delete the kind cluster, remove the network; keeps disks and caches
   reset        wipe the machines' disks and firmware state (the lab must be down)
 
-  parts of up, for a partial rerun:
+  parts of up, for a partial rerun (they use what up rendered last):
   network | cluster | deploy | fleet | manifests
 
 environment variables:
   PK_LAB_DIR            where the lab keeps its state: kubeconfig, logs, generated
                         deployment, secrets bundle (default: <repo>/.lab)
-  PK_LAB_FLEET          the fleet definition (default: <repo>/lab/fleet.yaml)
+  PK_LAB_SPEC           the lab spec (default: <repo>/lab/lab.yaml)
+  PK_LAB_NODES          the lab's size as <control planes>cp+<workers>w, e.g. 3cp+2w
+                        (default: the counts in the spec); read by doctor, render and up
   PK_LAB_WAIT_TIMEOUT   seconds wait gives the lab to converge (default: 2400)
   PK_LAB_RELEASE_TIMEOUT
                         seconds release gives a machine to come back (default: 900)
@@ -47,8 +50,12 @@ environment variables:
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 # shellcheck source=lab/distro.sh
 source "$ROOT/lab/distro.sh"
-LAB_DIR=${PK_LAB_DIR:-$ROOT/.lab}
-FLEET=${PK_LAB_FLEET:-$ROOT/lab/fleet.yaml}
+LAB_DIR=$(realpath -m "${PK_LAB_DIR:-$ROOT/.lab}")
+SPEC=$(realpath -m "${PK_LAB_SPEC:-$ROOT/lab/lab.yaml}")
+SIZE=${PK_LAB_NODES:-}
+# Everything rendered from the spec. Generated, never edited, never committed.
+GEN=$LAB_DIR/generated
+FLEET=$GEN/fleet.yaml
 WAIT_TIMEOUT=${PK_LAB_WAIT_TIMEOUT:-2400}
 RELEASE_TIMEOUT=${PK_LAB_RELEASE_TIMEOUT:-900}
 MIN_FREE_GIB=${PK_LAB_MIN_FREE_GIB:-15}
@@ -56,13 +63,11 @@ KIND_CONFIG=${PK_LAB_KIND_CONFIG:-$ROOT/lab/kind.yaml}
 
 # Fixed names, shared with files that cannot read a variable: lab/kind.yaml names
 # the kind cluster, the manifests under metal/config name the namespace and the
-# Deployment, lab/manifests names the TalosCluster and the Secret its secretsRef
-# points at.
+# Deployment. The TalosCluster's name and the Secret its secretsRef points at
+# come from the spec, through the rendered lab.env.
 CLUSTER=pk-metal
 NAMESPACE=pk-metal
 DEPLOYMENT=pk-metal-manager
-TALOS_CLUSTER=lab
-BUNDLE_SECRET=lab-talos-secrets
 
 # Every kubectl, kind and pk-metal call below talks to the lab's own kubeconfig.
 # The person's ~/.kube/config is never read and never written.
@@ -81,24 +86,60 @@ step() { echo "== $*" >&2; }
 # directory outside the lab directory only when it carries this mark.
 STATE_MARK=.pk-metal-lab-state
 
+# ---------------------------------------------------------------- the spec
+
+# Renders the lab from its spec into a directory: the fleet file, the manifests,
+# the taps, the ledger and lab.env. The work is done in Go (metal/hack/labrender
+# and metal/internal/lab), where it is tested; this only runs it.
+render_into() {
+  local root=$1 spec=$2 size=$3 out=$4
+  [[ -r $spec ]] || die "the lab spec $spec is not readable. Point PK_LAB_SPEC at one, or unset it to use lab/lab.yaml"
+  have go || die "go is not on the PATH. Run the lab through mise (mise run lab:up), which puts it there"
+  mkdir -p "$out"
+  (cd "$root/metal" && go run ./hack/labrender --spec "$spec" --out "$out" --nodes "$size" --source "${spec#"$root"/}") \
+    || die "the lab spec does not render. The message above names what to fix in $spec${size:+ or in PK_LAB_NODES=$size}"
+}
+
+render() {
+  local root=$1 spec=$2 size=$3 gen=$4
+  step "render $spec${size:+ at size $size} into $gen"
+  render_into "$root" "$spec" "$size" "$gen"
+}
+
+# The parts of up and the later verbs work on what up rendered last, so that a
+# lab brought up at one size is not resized under its feet by a command run
+# without PK_LAB_NODES. Only a lab directory with nothing rendered yet is
+# rendered here.
+require_rendered() {
+  local root=$1 spec=$2 size=$3 gen=$4
+  [[ -s $gen/lab.env ]] || render "$root" "$spec" "$size" "$gen"
+}
+
+# Prints one value of a rendered lab.env. The values are names and numbers the
+# renderer validated; the file is read, never sourced.
+lab_value() {
+  local gen=$1 key=$2 line
+  [[ -r $gen/lab.env ]] || die "$gen/lab.env is missing. Render the lab: mise run lab:render"
+  while IFS= read -r line; do
+    if [[ $line == "$key="* ]]; then
+      echo "${line#*=}"
+      return 0
+    fi
+  done <"$gen/lab.env"
+  die "$gen/lab.env has no $key. Render the lab again: mise run lab:render"
+}
+
 # ---------------------------------------------------------------- fleet file
 
 fleet_query() {
   local fleet=$1 expression=$2
-  [[ -r $fleet ]] || die "$fleet is not readable. Point PK_LAB_FLEET at a fleet file, e.g.: PK_LAB_FLEET=lab/fleet.yaml"
+  [[ -r $fleet ]] || die "$fleet is not readable. Render the lab: mise run lab:render"
   yq -r "$expression" "$fleet"
 }
 
-# The expressions stay inside what jq and yq agree on, so the answers do not
+# The expression stays inside what jq and yq agree on, so the answer does not
 # depend on which of the two yq implementations is on the PATH.
-fleet_taps() { fleet_query "$1" '.machines[] | select(.backend == "qemu") | .qemu.tap'; }
 fleet_listens() { fleet_query "$1" '.machines[].listen'; }
-fleet_count() { fleet_query "$1" '.machines | length'; }
-
-fleet_memory_mib() {
-  fleet_query "$1" '.machines[] | select(.backend == "qemu") | .qemu.memoryMiB' \
-    | awk '{ sum += $1 } END { print sum + 0 }'
-}
 
 # The directory the fleet keeps disks and firmware state in. Relative paths in
 # the fleet file are relative to the repository root, which is where `fleet`
@@ -106,18 +147,11 @@ fleet_memory_mib() {
 fleet_state_dir() {
   local root=$1 fleet=$2 dir
   dir=$(fleet_query "$fleet" '.stateDir')
-  [[ -n $dir && $dir != null ]] || die "$fleet has no stateDir. Add one, e.g.: stateDir: .lab/state"
+  [[ -n $dir && $dir != null ]] || die "$fleet has no stateDir. Render the lab again: mise run lab:render"
   case "$dir" in
     /*) echo "$dir" ;;
     *) echo "$root/$dir" ;;
   esac
-}
-
-# The ledger the operator joins Assets against: BMC MAC -> the URL its simulator
-# listens on. Derived, never written by hand, so it cannot disagree with the fleet.
-fleet_ledger() {
-  fleet_query "$1" '.machines[] | .identity.bmcMAC + " " + .listen' \
-    | awk '{ printf "\"%s\": https://%s\n", tolower($1), $2 }'
 }
 
 # ---------------------------------------------------------------- doctor
@@ -250,10 +284,10 @@ enough_disk() {
 }
 
 doctor() {
-  local lab_dir=$1 fleet=$2 min_free_gib=$3 kind_config=$4
-  local missing=0 need_mib tool
+  local root=$1 lab_dir=$2 spec=$3 size=$4 min_free_gib=$5 kind_config=$6
+  local missing=0 need_mib tool preview problem
 
-  for tool in kind kubectl talosctl yq jq; do
+  for tool in go kind kubectl talosctl yq jq; do
     check "$tool" "mise install (the version is pinned in mise.toml)" have "$tool" || missing=$((missing + 1))
   done
   check "curl" "$(install_hint curl curl)" have curl || missing=$((missing + 1))
@@ -320,13 +354,25 @@ doctor() {
     "the machines pull from ghcr.io and registry.k8s.io through this host. Behind a proxy, give them one too (lab/README.md, 'Behind a proxy')" \
     reachable https://ghcr.io/ || missing=$((missing + 1))
 
-  if have yq; then
-    # The machines' memory plus room for the kind node and the fleet process.
-    need_mib=$(($(fleet_memory_mib "$fleet") + 3072))
-    check "$need_mib MiB of available memory" \
-      "close something, or give the machines less in $fleet (qemu.memoryMiB; a Talos control plane wants 2048, a worker 1024)" \
+  # The spec is rendered into a scratch directory: doctor changes nothing, and
+  # a lab that is up keeps the files it was rendered from.
+  # Its own messages are the fix, so they are shown instead of a generic one.
+  # The subshell keeps render_into's die from ending doctor.
+  preview=$(mktemp -d)
+  if problem=$( (render_into "$root" "$spec" "$size" "$preview") 2>&1 ); then
+    echo "ok    the lab spec renders${size:+ at size $size}" >&2
+    # The machines' memory, summed over the machines this size renders, plus
+    # room for the kind node and the fleet process.
+    need_mib=$(($(lab_value "$preview" MEMORY_MIB) + 3072))
+    check "$need_mib MiB of available memory for $(lab_value "$preview" NODES) machines" \
+      "close something, give the machines less in $spec (memoryMiB; a Talos control plane wants 2048, a worker 1024), or run fewer: PK_LAB_NODES=1cp+1w" \
       enough_memory "$need_mib" || missing=$((missing + 1))
+  else
+    echo "MISS  the lab spec renders${size:+ at size $size}" >&2
+    sed 's/^/      /' <<<"$problem" >&2
+    missing=$((missing + 1))
   fi
+  rm -rf "$preview"
   check "$min_free_gib GiB free under $lab_dir" \
     "free some space, move the lab (PK_LAB_DIR=/path/with/space), or lower the bar: PK_LAB_MIN_FREE_GIB=10" \
     enough_disk "$lab_dir" "$min_free_gib" || missing=$((missing + 1))
@@ -338,9 +384,9 @@ doctor() {
 # ---------------------------------------------------------------- up, in parts
 
 network_up() {
-  local root=$1 fleet=$2 taps
+  local root=$1 gen=$2 taps
   step "lab network"
-  mapfile -t taps < <(fleet_taps "$fleet")
+  mapfile -t taps <"$gen/taps"
   "$root/lab/net.sh" up "${taps[@]}"
 }
 
@@ -433,8 +479,9 @@ write_proxy_patch() {
 # and because the ledger ConfigMap's name follows its content, a changed fleet
 # rolls the manager without anybody restarting it.
 write_deploy_dir() {
-  local root=$1 lab_dir=$2 fleet=$3 image=$4
-  local dir=$lab_dir/deploy base proxy_patch
+  local root=$1 lab_dir=$2 gen=$3 image=$4
+  local dir=$lab_dir/deploy base proxy_patch bundle_secret
+  bundle_secret=$(lab_value "$gen" BUNDLE_SECRET)
   mkdir -p "$dir"
   chmod 700 "$dir"
 
@@ -449,10 +496,9 @@ write_deploy_dir() {
       || die "talosctl could not generate a secrets bundle. Check the tool: talosctl version --client"
   fi
 
-  {
-    echo "# Derived from the fleet definition (${fleet##*/}) by $SCRIPT. Do not edit."
-    fleet_ledger "$fleet"
-  } > "$dir/ledger.yaml"
+  # The ledger the operator joins Assets against: BMC MAC -> the URL its
+  # simulator listens on. Rendered with the fleet, so the two cannot disagree.
+  cp "$gen/ledger.yaml" "$dir/ledger.yaml"
 
   base=$(realpath --relative-to="$dir" "$root/metal/config/lab")
   proxy_patch=$(write_proxy_patch "$dir")
@@ -473,7 +519,7 @@ configMapGenerator:
     files:
       - ledger.yaml
 secretGenerator:
-  - name: $BUNDLE_SECRET
+  - name: $bundle_secret
     namespace: $NAMESPACE
     files:
       - secrets.yaml
@@ -489,7 +535,7 @@ EOF
 }
 
 deploy() {
-  local root=$1 lab_dir=$2 fleet=$3 cluster=$4
+  local root=$1 lab_dir=$2 gen=$3 cluster=$4
   local image
   step "operator image"
   image=$("$root/metal/hack/image.sh" build)
@@ -497,7 +543,7 @@ deploy() {
     || die "kind could not load $image into the cluster. Is the cluster up? mise run lab:up"
 
   step "operator deployment ($image)"
-  write_deploy_dir "$root" "$lab_dir" "$fleet" "$image"
+  write_deploy_dir "$root" "$lab_dir" "$gen" "$image"
   # Server-side apply: the CRDs are larger than the annotation client-side
   # apply would have to store them in.
   kubectl apply --server-side --force-conflicts -k "$lab_dir/deploy" >&2
@@ -528,7 +574,7 @@ mark_state_dir() {
     return 0
   fi
   mkdir -p "$dir"
-  echo "The virtual lab's machine disks (lab/fleet.yaml stateDir). mise run lab:reset removes this directory." \
+  echo "The virtual lab's machine disks (stateDir of the rendered fleet). mise run lab:reset removes this directory." \
     >"$dir/$STATE_MARK"
 }
 
@@ -542,6 +588,8 @@ fleet_up() {
   if fleet_running "$lab_dir" "$binary"; then
     echo "  already running (pid $(<"$lab_dir/fleet.pid"))" >&2
   else
+    # What the fleet was started with, for rerender_guard.
+    cp "$fleet" "$lab_dir/fleet.running.yaml"
     # Its own session, so it outlives this script and the terminal; started in
     # the repository root, which the relative paths in the fleet file refer to.
     (
@@ -575,7 +623,7 @@ fleet_down() {
   local root=$1 lab_dir=$2
   local binary=$root/metal/bin/pk-metal pid waited=0
   if ! fleet_running "$lab_dir" "$binary"; then
-    rm -f "$lab_dir/fleet.pid"
+    rm -f "$lab_dir/fleet.pid" "$lab_dir/fleet.running.yaml"
     return 0
   fi
   pid=$(<"$lab_dir/fleet.pid")
@@ -592,7 +640,7 @@ fleet_down() {
     sleep 1
     waited=$((waited + 1))
   done
-  rm -f "$lab_dir/fleet.pid"
+  rm -f "$lab_dir/fleet.pid" "$lab_dir/fleet.running.yaml"
 }
 
 # Applies manifests as a member of the platform admins. The claim policy lets
@@ -602,7 +650,7 @@ fleet_down() {
 admin_apply() {
   local path args=()
   for path in "$@"; do
-    [[ -e $path ]] || die "$path does not exist. Name manifest files or directories, e.g.: mise run lab:apply lab/manifests/30-claims.yaml"
+    [[ -e $path ]] || die "$path does not exist. Name manifest files or directories, e.g.: mise run lab:apply .lab/generated/manifests/30-claims.yaml"
     args+=(-f "$path")
   done
   kubectl apply --server-side --as=lab-admin --as-group=pk-metal:admins \
@@ -610,19 +658,41 @@ admin_apply() {
 }
 
 manifests_apply() {
-  local root=$1
+  local gen=$1
   step "lab manifests"
-  admin_apply "$root/lab/manifests/"
+  admin_apply "$gen/manifests/"
+}
+
+# A running lab is not resized or given other machines: the fleet reads its
+# file once, at the start, and wait, collect and reset go by the files rendered
+# for the lab that runs. So when the fleet runs, the spec must still render the
+# machines it was started with, before anything under the lab directory is
+# rendered anew. Other changes (versions, patches) are fine and are applied.
+rerender_guard() {
+  local root=$1 lab_dir=$2 spec=$3 size=$4 preview differs=0
+  fleet_running "$lab_dir" "$root/metal/bin/pk-metal" || return 0
+  # A fleet started by an older lab.sh has no copy to compare with.
+  [[ -e $lab_dir/fleet.running.yaml ]] || return 0
+  preview=$(mktemp -d)
+  render_into "$root" "$spec" "$size" "$preview"
+  cmp -s "$preview/fleet.yaml" "$lab_dir/fleet.running.yaml" || differs=1
+  rm -rf "$preview"
+  (( differs == 0 )) || die "the lab runs other machines than $spec${size:+ at size $size} describes now.
+  Take it down first, then bring it up at the new size:
+    mise run lab:down && mise run lab:reset && ${size:+PK_LAB_NODES=$size }mise run lab:up
+  (or run lab:up with the PK_LAB_NODES it was brought up with)"
 }
 
 up() {
-  local root=$1 lab_dir=$2 fleet=$3 cluster=$4 min_free_gib=$5 kind_config=$6
-  doctor "$lab_dir" "$fleet" "$min_free_gib" "$kind_config"
-  network_up "$root" "$fleet"
+  local root=$1 lab_dir=$2 spec=$3 size=$4 gen=$5 cluster=$6 min_free_gib=$7 kind_config=$8
+  doctor "$root" "$lab_dir" "$spec" "$size" "$min_free_gib" "$kind_config"
+  rerender_guard "$root" "$lab_dir" "$spec" "$size"
+  render "$root" "$spec" "$size" "$gen"
+  network_up "$root" "$gen"
   cluster_up "$lab_dir" "$cluster" "$kind_config"
-  deploy "$root" "$lab_dir" "$fleet" "$cluster"
-  fleet_up "$root" "$lab_dir" "$fleet"
-  manifests_apply "$root"
+  deploy "$root" "$lab_dir" "$gen" "$cluster"
+  fleet_up "$root" "$lab_dir" "$gen/fleet.yaml"
+  manifests_apply "$gen"
   cat >&2 <<EOF
 
 The lab is up. The operator now enrolls the machines and proposes to boot them.
@@ -781,10 +851,11 @@ converged() {
 # The unattended run: stands in for the person by approving whatever is
 # proposed, and holds until the lab has done what it is for.
 wait_converged() {
-  local root=$1 lab_dir=$2 fleet=$3 cluster_name=$4 timeout=$5
-  local want line last="" deadline=$((SECONDS + timeout))
+  local root=$1 lab_dir=$2 gen=$3 timeout=$4
+  local want cluster_name line last="" deadline=$((SECONDS + timeout))
   require_cluster "$lab_dir"
-  want=$(fleet_count "$fleet")
+  want=$(lab_value "$gen" NODES)
+  cluster_name=$(lab_value "$gen" TALOS_CLUSTER)
   step "waiting up to ${timeout}s for $want Provisioned hosts and $want Ready nodes (from $(date '+%F %T %Z'))"
   while true; do
     approve_pending "$root" >/dev/null || true
@@ -941,7 +1012,7 @@ reset() {
   state_dir_removable "$state_dir" "$root" "$lab_dir" \
     || die "stateDir in $fleet resolves to $state_dir. That is not inside $lab_dir and has no
   $STATE_MARK file, so it may not be the lab's (or it holds the repository). Nothing was removed.
-  Fix stateDir in $fleet, or remove the directory by hand if it really holds the lab's disks."
+  Remove the directory by hand if it really holds the lab's disks."
   rm -rf "$state_dir"
   echo "wiped $state_dir. The next lab:up installs every machine from scratch." >&2
 }
@@ -949,39 +1020,61 @@ reset() {
 main() {
   local verb=${1:-}
   case "$verb" in
-    doctor) doctor "$LAB_DIR" "$FLEET" "$MIN_FREE_GIB" "$KIND_CONFIG" ;;
-    up) up "$ROOT" "$LAB_DIR" "$FLEET" "$CLUSTER" "$MIN_FREE_GIB" "$KIND_CONFIG" ;;
-    network) network_up "$ROOT" "$FLEET" ;;
+    doctor) doctor "$ROOT" "$LAB_DIR" "$SPEC" "$SIZE" "$MIN_FREE_GIB" "$KIND_CONFIG" ;;
+    render) render "$ROOT" "$SPEC" "$SIZE" "$GEN" ;;
+    up) up "$ROOT" "$LAB_DIR" "$SPEC" "$SIZE" "$GEN" "$CLUSTER" "$MIN_FREE_GIB" "$KIND_CONFIG" ;;
+    network)
+      require_rendered "$ROOT" "$SPEC" "$SIZE" "$GEN"
+      network_up "$ROOT" "$GEN"
+      ;;
     cluster) cluster_up "$LAB_DIR" "$CLUSTER" "$KIND_CONFIG" ;;
     deploy)
       require_cluster "$LAB_DIR"
-      deploy "$ROOT" "$LAB_DIR" "$FLEET" "$CLUSTER"
+      require_rendered "$ROOT" "$SPEC" "$SIZE" "$GEN"
+      deploy "$ROOT" "$LAB_DIR" "$GEN" "$CLUSTER"
       ;;
-    fleet) fleet_up "$ROOT" "$LAB_DIR" "$FLEET" ;;
+    fleet)
+      require_rendered "$ROOT" "$SPEC" "$SIZE" "$GEN"
+      fleet_up "$ROOT" "$LAB_DIR" "$FLEET"
+      ;;
     manifests)
       require_cluster "$LAB_DIR"
-      manifests_apply "$ROOT"
+      require_rendered "$ROOT" "$SPEC" "$SIZE" "$GEN"
+      manifests_apply "$GEN"
       ;;
     apply)
       require_cluster "$LAB_DIR"
       shift
       if (( $# == 0 )); then
-        manifests_apply "$ROOT"
+        require_rendered "$ROOT" "$SPEC" "$SIZE" "$GEN"
+        manifests_apply "$GEN"
       else
         admin_apply "$@"
       fi
       ;;
     status) status "$ROOT" "$LAB_DIR" ;;
     approve) approve "$ROOT" "$LAB_DIR" ;;
-    kubeconfig) kubeconfig "$LAB_DIR" "$TALOS_CLUSTER" ;;
-    wait) wait_converged "$ROOT" "$LAB_DIR" "$FLEET" "$TALOS_CLUSTER" "$WAIT_TIMEOUT" ;;
+    kubeconfig)
+      require_rendered "$ROOT" "$SPEC" "$SIZE" "$GEN"
+      kubeconfig "$LAB_DIR" "$(lab_value "$GEN" TALOS_CLUSTER)"
+      ;;
+    wait)
+      require_rendered "$ROOT" "$SPEC" "$SIZE" "$GEN"
+      wait_converged "$ROOT" "$LAB_DIR" "$GEN" "$WAIT_TIMEOUT"
+      ;;
     release)
       (( $# == 2 )) || die "name one claim, e.g.: mise run lab:release default/node-3"
       release "$ROOT" "$LAB_DIR" "$2" "$RELEASE_TIMEOUT"
       ;;
-    collect) collect "$ROOT" "$LAB_DIR" "$FLEET" ;;
+    collect)
+      require_rendered "$ROOT" "$SPEC" "$SIZE" "$GEN"
+      collect "$ROOT" "$LAB_DIR" "$FLEET"
+      ;;
     down) down "$ROOT" "$LAB_DIR" "$CLUSTER" ;;
-    reset) reset "$ROOT" "$LAB_DIR" "$FLEET" ;;
+    reset)
+      require_rendered "$ROOT" "$SPEC" "$SIZE" "$GEN"
+      reset "$ROOT" "$LAB_DIR" "$FLEET"
+      ;;
     -h | --help | help) usage ;;
     *)
       usage

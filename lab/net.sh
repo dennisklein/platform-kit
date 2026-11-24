@@ -196,7 +196,7 @@ up_tap() {
   local tap=$1 bridge=$2 user=$3
   if link_exists "$tap"; then
     link_is_ours "$tap" || die "an interface named $tap exists and was not made by this script.
-  Remove it (sudo ip link del $tap) or rename the tap in lab/fleet.yaml."
+  Remove it (sudo ip link del $tap); the lab names its taps pktap1, pktap2, ..."
   else
     step "tap $tap (owner $user)"
     as_root ip tuntap add dev "$tap" mode tap user "$user"

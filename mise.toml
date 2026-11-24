@@ -147,8 +147,12 @@ run = "go test -tags e2e -count 1 -timeout 40m -run TestE2EQemu -v ./test/e2e/"
 description = "Check the workstation for what the virtual lab needs; every miss names its fix"
 run = "lab/lab.sh doctor"
 
+[tasks."lab:render"]
+description = "Render the lab from lab/lab.yaml (size: PK_LAB_NODES=3cp+2w) into .lab/generated; touches nothing else"
+run = "lab/lab.sh render"
+
 [tasks."lab:up"]
-description = "Bring the virtual lab up: network, kind, operator, simulated fleet, lab manifests"
+description = "Bring the virtual lab up: render lab/lab.yaml, network, kind, operator, simulated fleet, lab manifests"
 depends = ["build"]
 run = "lab/lab.sh up"
 
@@ -165,7 +169,7 @@ description = "Approve every operation that waits for a person"
 run = "lab/lab.sh approve"
 
 [tasks."lab:apply"]
-description = "Apply manifests as a member of the admin group the claim policy asks for (default: lab/manifests/)"
+description = "Apply manifests as a member of the admin group the claim policy asks for (default: the rendered lab manifests)"
 run = "lab/lab.sh apply"
 
 [tasks."lab:kubeconfig"]
