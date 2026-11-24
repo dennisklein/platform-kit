@@ -1411,7 +1411,7 @@ rollout_wait_proposed() {
 # checked: Complete=True, every step Succeeded.
 rollout_through() {
   local root=$1 lab_dir=$2 name=$3 timeout=$4
-  local conditions cluster single op resumed=0 line last="" deadline=$((SECONDS + timeout))
+  local conditions cluster single op resumed=0 line last="" deadline=$((SECONDS + timeout)) count look_until
   step "rollout $name: approve, check the first node, resume, wait (up to ${timeout}s)"
   "$root/metal/bin/pk-metal" rollout show "$name" >&2
   "$root/metal/bin/pk-metal" rollout approve --yes "$name" >&2
@@ -1451,10 +1451,18 @@ $("$root/metal/bin/pk-metal" rollout show "$name")
     fi
     if (( resumed == 0 )) && grep -qx 'Paused=True/PausedAfterFirstNode' <<<"$conditions"; then
       # The pause is the moment a person looks at the first node. The run
-      # looks at what the lab can see: every workload node is Ready.
-      converged "$lab_dir" "$(kubectl get talosnodes --output json | jq '.items | length')" \
-        || die "rollout $name paused after its first node, but not every workload node is Ready:
-$(kubectl --kubeconfig "$lab_dir/workload.kubeconfig" get nodes 2>&1)"
+      # looks at what the lab can see: every workload node is Ready. It
+      # gives that two minutes: the pause comes as soon as the first node is
+      # back, and a single control plane's API server, just restarted, can
+      # miss one 5s request, or a host its phase, for a moment.
+      look_until=$((SECONDS + 120))
+      count=$(kubectl get talosnodes --output json | jq '.items | length')
+      until converged "$lab_dir" "$count"; do
+        (( SECONDS < look_until )) || die "rollout $name paused after its first node, but not every workload node is Ready:
+$(kubectl --kubeconfig "$lab_dir/workload.kubeconfig" get nodes 2>&1)
+$(kubectl get hosts 2>&1)"
+        sleep 5
+      done
       "$root/metal/bin/pk-metal" rollout resume "$name" >&2
       resumed=1
     fi
