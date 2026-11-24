@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"Oem\":{\"VendorA\":{\"Actions\":{\"#X\":{\"target\":\"/a\"}}},\"VendorB\":{\"Actions\":{\"#X\":{\"target\":\"/b\"}}}}}")
