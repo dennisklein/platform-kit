@@ -16,6 +16,7 @@ package gofish
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -47,7 +48,23 @@ type Config struct {
 	// ReadOnly refuses every mutating call at this layer — the read-only rail: pointing the
 	// client at real hardware is safe by construction until explicitly unlocked.
 	ReadOnly bool
+	// RequestTimeout bounds one request, from the send to the last byte of
+	// the answer. Zero is DefaultRequestTimeout. A request that uploads a
+	// large body (a firmware image) gets UploadTimeout instead.
+	RequestTimeout time.Duration
 }
+
+// DefaultRequestTimeout bounds one Redfish request. A BMC that completes
+// the TLS handshake and then stops answering (a wedged web server, a
+// manager in the middle of a reboot) must not hold the caller forever.
+const DefaultRequestTimeout = 30 * time.Second
+
+// UploadTimeout bounds one request whose body is larger than bulkBody: a
+// firmware push over a slow management link takes minutes.
+const UploadTimeout = 15 * time.Minute
+
+// bulkBody is the request body size from which UploadTimeout applies.
+const bulkBody = 1 << 20
 
 type client struct {
 	api      *gf.APIClient
@@ -59,13 +76,20 @@ var errReadOnly = fmt.Errorf("bmc: mutating call refused (read-only client)")
 
 // Connect dials the endpoint and returns a bmc.Client. Basic auth — no Redfish
 // sessions, so an aborted run leaks nothing to clean up.
+//
+// gofish binds ctx to every request of the session, so cancelling ctx ends
+// the request in flight. Each request is also bounded on its own (see
+// Config.RequestTimeout). The session keeps its connections open between
+// requests: a TLS handshake with a BMC costs up to a second, and the small
+// connection tables of some BMCs fill up when every request opens a new one.
 func Connect(ctx context.Context, cfg Config) (bmc.Client, error) {
 	gcfg := gf.ClientConfig{
-		Endpoint:  cfg.Endpoint,
-		Username:  cfg.Username,
-		Password:  cfg.Password,
-		Insecure:  cfg.Insecure,
-		BasicAuth: true,
+		Endpoint:         cfg.Endpoint,
+		Username:         cfg.Username,
+		Password:         cfg.Password,
+		Insecure:         cfg.Insecure,
+		BasicAuth:        true,
+		ReuseConnections: true,
 	}
 	// The transport is built here, not left to gofish, so that every
 	// response passes the guard below, gofish's own reads included. It is
@@ -83,17 +107,25 @@ func Connect(ctx context.Context, cfg Config) (bmc.Client, error) {
 		// Lab BMCs with self-signed certs, asked for by the caller.
 		t.TLSClientConfig = &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12} //nolint:gosec
 	}
+	timeout := cmp.Or(cfg.RequestTimeout, DefaultRequestTimeout)
+	// The header timeout starts after the request body is sent, so it also
+	// holds for an upload.
+	t.ResponseHeaderTimeout = timeout
 	gcfg.Insecure = false
-	gcfg.HTTPClient = &http.Client{Transport: guard{next: t}}
+	gcfg.HTTPClient = &http.Client{Transport: guard{next: t, timeout: timeout}}
 	api, err := gf.ConnectContext(ctx, gcfg)
 	if err != nil {
+		t.CloseIdleConnections()
 		return nil, fmt.Errorf("bmc: connect %s: %w", cfg.Endpoint, err)
 	}
 	return &client{api: api, svc: api.GetService(), readOnly: cfg.ReadOnly}, nil
 }
 
+// Close logs out and closes the connections the session kept open. Each
+// session has a transport of its own, so nothing else would close them.
 func (c *client) Close() error {
 	c.api.Logout()
+	c.api.HTTPClient.CloseIdleConnections()
 	return nil
 }
 
@@ -146,17 +178,32 @@ func readBody(r io.Reader) ([]byte, error) {
 // resource is one: gofish decodes a JSON null into a nil collection and then
 // dereferences it in a goroutine of its own, which no recover in the caller
 // can catch, so such an answer must never reach it.
-type guard struct{ next http.RoundTripper }
+//
+// The guard also bounds each request, the body read included: gofish sets no
+// deadline of its own.
+type guard struct {
+	next    http.RoundTripper
+	timeout time.Duration
+}
 
 func (g guard) RoundTrip(req *http.Request) (*http.Response, error) {
-	resp, err := g.next.RoundTrip(req)
-	if err != nil || resp.Body == nil {
-		return resp, err
+	timeout := g.timeout
+	if req.ContentLength > bulkBody {
+		timeout = max(timeout, UploadTimeout)
+	}
+	ctx, cancel := context.WithTimeout(req.Context(), timeout)
+	defer cancel()
+	resp, err := g.next.RoundTrip(req.WithContext(ctx))
+	if err != nil {
+		return resp, g.explain(ctx, req, timeout, err)
+	}
+	if resp.Body == nil {
+		return resp, nil
 	}
 	body, err := readBody(resp.Body)
 	_ = resp.Body.Close()
 	if err != nil {
-		return nil, fmt.Errorf("%s %s: %w", req.Method, req.URL.Path, err)
+		return nil, fmt.Errorf("%s %s: %w", req.Method, req.URL.Path, g.explain(ctx, req, timeout, err))
 	}
 	if req.Method == http.MethodGet && resp.StatusCode/100 == 2 &&
 		resp.StatusCode != http.StatusAccepted && !jsonObjectOrEmpty(body) {
@@ -165,6 +212,23 @@ func (g guard) RoundTrip(req *http.Request) (*http.Response, error) {
 	resp.Body = io.NopCloser(bytes.NewReader(body))
 	resp.ContentLength = int64(len(body))
 	return resp, nil
+}
+
+// explain names the request timeout when it, and not the caller, ended the
+// request.
+func (guard) explain(ctx context.Context, req *http.Request, timeout time.Duration, err error) error {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) && req.Context().Err() == nil {
+		return fmt.Errorf("no answer within %s: %w", timeout, err)
+	}
+	return err
+}
+
+// CloseIdleConnections closes the kept-open connections of the transport
+// underneath, so that http.Client.CloseIdleConnections reaches them.
+func (g guard) CloseIdleConnections() {
+	if c, ok := g.next.(interface{ CloseIdleConnections() }); ok {
+		c.CloseIdleConnections()
+	}
 }
 
 // jsonObjectOrEmpty reports whether body is empty or one valid JSON object.
