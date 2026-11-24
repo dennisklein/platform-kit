@@ -132,16 +132,20 @@ func main() {
 	log.Info("operator identity", "username", proposer)
 
 	var media *asset.Service
+	var mediaCertReloader *asset.Reloading
 	if c.mediaURL != "" {
-		cert, err := mediaCertificate(restCfg, scheme, c.credsNS, c.mediaCert)
+		certs, err := mediaCertificates(restCfg, scheme, c.credsNS, c.mediaCert,
+			func(format string, args ...any) { log.Info(fmt.Sprintf(format, args...), "secret", c.mediaCert) })
 		if err != nil {
 			log.Error(err, "media certificate")
 			os.Exit(1)
 		}
-		if media, err = asset.NewService(c.mediaListen, c.mediaURL, cert); err != nil {
+		if media, err = asset.NewService(c.mediaListen, c.mediaURL, tls.Certificate{}); err != nil {
 			log.Error(err, "media service")
 			os.Exit(1)
 		}
+		media.Certs = certs
+		mediaCertReloader, _ = certs.(*asset.Reloading)
 		log.Info("media service", "listen", c.mediaListen, "url", c.mediaURL, "certSecret", c.mediaCert)
 	}
 	var store *asset.Store
@@ -206,6 +210,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	if mediaCertReloader != nil {
+		if err := mgr.Add(mediaCertReloader); err != nil {
+			log.Error(err, "media certificate reloader")
+			os.Exit(1)
+		}
+	}
+
 	if c.probeAddr != "0" {
 		if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 			log.Error(err, "add healthz")
@@ -261,21 +272,45 @@ func whoAmI(cfg *rest.Config, scheme *runtime.Scheme) (string, error) {
 	return ssr.Status.UserInfo.Username, nil
 }
 
-// mediaCertificate loads the media service's serving certificate from a
-// Secret, or mints an ephemeral one when none is named.
-func mediaCertificate(cfg *rest.Config, scheme *runtime.Scheme, namespace, name string) (tls.Certificate, error) {
+// mediaCertReload is how often the media certificate Secret is read again.
+// cert-manager renews well before expiry, so a minute's delay costs nothing.
+const mediaCertReload = time.Minute
+
+// mediaCertificates is where the media service's certificate comes from: the
+// named Secret, read again every mediaCertReload so a renewed certificate is
+// served without a restart, or, when none is named, a self-signed one that is
+// replaced before it expires. A named Secret is never swapped for a
+// self-signed certificate: while it cannot be read or does not parse, the last
+// good certificate stays in service.
+func mediaCertificates(cfg *rest.Config, scheme *runtime.Scheme, namespace, name string, logf func(string, ...any)) (asset.CertSource, error) {
 	if name == "" {
-		return asset.EphemeralCert()
+		return asset.NewSelfSigned()
 	}
 	cl, err := client.New(cfg, client.Options{Scheme: scheme})
 	if err != nil {
-		return tls.Certificate{}, err
+		return nil, err
 	}
-	sec := &corev1.Secret{}
-	if err := cl.Get(context.Background(), types.NamespacedName{Namespace: namespace, Name: name}, sec); err != nil {
-		return tls.Certificate{}, fmt.Errorf("secret %s/%s: %w", namespace, name, err)
+	r, err := asset.NewReloading(context.Background(), secretKeyPair(cl, types.NamespacedName{Namespace: namespace, Name: name}), mediaCertReload)
+	if err != nil {
+		return nil, err
 	}
-	return tls.X509KeyPair(sec.Data[corev1.TLSCertKey], sec.Data[corev1.TLSPrivateKeyKey])
+	r.Logf = logf
+	return r, nil
+}
+
+// secretKeyPair loads a kubernetes.io/tls Secret's key pair.
+func secretKeyPair(cl client.Reader, key types.NamespacedName) func(context.Context) (tls.Certificate, error) {
+	return func(ctx context.Context) (tls.Certificate, error) {
+		sec := &corev1.Secret{}
+		if err := cl.Get(ctx, key, sec); err != nil {
+			return tls.Certificate{}, fmt.Errorf("secret %s: %w", key, err)
+		}
+		pair, err := tls.X509KeyPair(sec.Data[corev1.TLSCertKey], sec.Data[corev1.TLSPrivateKeyKey])
+		if err != nil {
+			return tls.Certificate{}, fmt.Errorf("secret %s: %w", key, err)
+		}
+		return pair, nil
+	}
 }
 
 // config is what the command line sets.
@@ -332,7 +367,7 @@ func parseFlags(args []string, output io.Writer) (*config, error) {
 	fs.StringVar(&c.mediaURL, "media-url", "",
 		"https://host[:port] at which BMCs reach the media service (a NodePort or a load balancer); empty turns the media service off, and with it installing machines")
 	fs.StringVar(&c.mediaCert, "media-cert-secret", "",
-		"Secret (keys tls.crt, tls.key) with the media service's certificate; empty uses a self-signed one made at start-up (BMCs do not check it)")
+		"Secret (keys tls.crt, tls.key) with the media service's certificate, read again every minute so a renewed one is served without a restart; empty uses a self-signed one, replaced 10 days before it expires (BMCs do not check it)")
 	fs.StringVar(&c.mediaStore, "media-store", "",
 		"directory of the media store, where installers with a node's config built in rest (for BMCs that hold one virtual medium); empty: such machines are not installed")
 	fs.StringVar(&c.storeClaim, "media-store-claim", "",

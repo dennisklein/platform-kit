@@ -324,7 +324,11 @@ install runs but the console stays dark.
 - Every **BMC** reaches the operator's media service at the manager's
   `--media-url` (a NodePort or a load balancer, HTTPS). BMCs pull the
   installer and the node configuration from there. They do not verify its
-  certificate.
+  certificate. Still, the certificate stays within its validity period, for
+  firmware that checks it: one named with `--media-cert-secret` (for example
+  issued by cert-manager) is read again every minute and a renewed one is
+  served without a restart; without it the manager makes its own self-signed
+  certificate and replaces it ten days before it expires.
 - Every BMC also reaches the **Talos image factory** (`factory.talos.dev`, or
   your own, see "Offline") to fetch the installer ISO, unless you serve it
   from inside.

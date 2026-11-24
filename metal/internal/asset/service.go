@@ -29,9 +29,14 @@ type Service struct {
 	Listen string
 	// BaseURL is the https:// origin BMCs use to reach Listen.
 	BaseURL string
-	// Cert serves TLS. BMCs do not verify media certificates (PoC verdict), so
-	// an ephemeral self-signed one is fine where nothing else is configured.
+	// Cert serves TLS when Certs is nil. BMCs do not verify media
+	// certificates (PoC verdict), so an ephemeral self-signed one is fine
+	// where nothing else is configured.
 	Cert tls.Certificate
+	// Certs, when set, is asked for the certificate at every handshake
+	// instead of serving Cert: a certificate renewed while the manager runs
+	// is served without a restart.
+	Certs CertSource
 
 	// ready is closed once the listener is bound — tests wait on it.
 	ready chan struct{}
@@ -71,10 +76,13 @@ func (s *Service) Start(ctx context.Context) error {
 		defer cancel()
 		_ = srv.Shutdown(shutdown)
 	}()
-	err = srv.Serve(tls.NewListener(ln, &tls.Config{
-		Certificates: []tls.Certificate{s.Cert},
-		MinVersion:   tls.VersionTLS12,
-	}))
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	if s.Certs != nil {
+		cfg.GetCertificate = s.Certs.GetCertificate
+	} else {
+		cfg.Certificates = []tls.Certificate{s.Cert}
+	}
+	err = srv.Serve(tls.NewListener(ln, cfg))
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
