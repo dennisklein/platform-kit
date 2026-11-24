@@ -51,6 +51,8 @@ The operator writes the plan, a person approves its hash, and each node operatio
 3. Only one approved rollout runs on a cluster at a time.
 4. A failed or aborted rollout is not proposed again. Delete it to get a new proposal.
 5. The approver must not be the proposer or the operator. The approval is write once.
+6. While the operator holds the secrets bundle (`SecretsBundleHeld=True`), the operator proposes and plans no `Config` and no `KubernetesUpgrade` rollout. A config rendered then has the old CA. See [](howto:rotate-cluster-credentials).
+7. A `KubernetesUpgrade` moves one minor at a time. The plan refuses a skipped minor, also when someone changed the spec without [](cli:upgrade).
 
 ## Sequence
 

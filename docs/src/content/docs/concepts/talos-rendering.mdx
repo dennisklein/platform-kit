@@ -39,7 +39,7 @@ The operator renders the config of each node into a Secret.
   <dt>schematic</dt>
   <dd>The kernel arguments and system extensions of the installer image. The image factory builds the image from it.</dd>
   <dt>Rendered for</dt>
-  <dd>The Talos version that a config was rendered for: the version that the node runs, not the version that the cluster asks for.</dd>
+  <dd>The Talos version that the operator renders a config for. Usually this is the version of the cluster. A node that runs an older version that the renderer supports keeps that version until a TalosUpgrade moves it.</dd>
 </dl>
 
 ## Rules
