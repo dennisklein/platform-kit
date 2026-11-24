@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -11,6 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 )
 
@@ -99,4 +101,65 @@ func TestRetryMarksAConvergenceProposal(t *testing.T) {
 	assert.Contains(t, got.Annotations, metalv1alpha1.AnnotationRetry)
 	assert.Contains(t, out.String(), "marked pk-metal/box-1-bios-0123abcd for retry")
 	assert.Contains(t, out.String(), "new proposal of the same plan for host box-1")
+}
+
+// TestRetryNamesHowItComesBack: an operation that no claim stands behind is
+// not proposed again by the operator unless it proposed it. retry says what
+// brings the same plan back.
+func TestRetryNamesHowItComesBack(t *testing.T) {
+	ctx := context.Background()
+	failedAt := func(step string) metalv1alpha1.HostOperationStatus {
+		return metalv1alpha1.HostOperationStatus{
+			Steps: []metalv1alpha1.OperationStep{{Action: "cordon", Phase: "Succeeded"}, {Action: step, Phase: "Failed"}},
+			Conditions: []metav1.Condition{{Type: metalv1alpha1.ConditionExecuted, Status: metav1.ConditionFalse,
+				Reason: metalv1alpha1.ReasonStepFailed, Message: "step 2/5 " + step + ": gave up"}},
+		}
+	}
+	reboot := func(step string) *metalv1alpha1.HostOperation {
+		return &metalv1alpha1.HostOperation{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "pk-metal", Name: "reboot-w-1-x7k2p"},
+			Spec: metalv1alpha1.HostOperationSpec{
+				HostRef: metalv1alpha1.Reference{Name: "pk0004"}, Reason: "Reboot", ProposedBy: "alice",
+				Actions: rebootPlan("w-1", osv1alpha1.RoleWorker, rebootOptions{DrainTimeout: 15 * time.Minute}),
+			},
+			Status: failedAt(step),
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		op   func() *metalv1alpha1.HostOperation
+		want string
+	}{
+		{name: "a reboot whose drain stalled", op: func() *metalv1alpha1.HostOperation { return reboot("drain") },
+			want: "Propose it again: pk-metal reboot --drain-timeout 30m w-1 (the drain did not finish"},
+		{name: "a reboot that failed elsewhere", op: func() *metalv1alpha1.HostOperation { return reboot("waitNodeReady") },
+			want: "Nothing proposes a reboot again. Propose it again: pk-metal reboot w-1\n"},
+		{name: "a restore step", op: func() *metalv1alpha1.HostOperation {
+			op := reboot("etcdRecover")
+			op.Spec.Reason, op.Labels = restoreReason, map[string]string{labelRestoreCluster: "lab"}
+			return op
+		}, want: "pk-metal restore plan lab --propose"},
+		{name: "a rollout step", op: func() *metalv1alpha1.HostOperation {
+			op := reboot("drain")
+			op.Spec.RolloutRef = &metalv1alpha1.RolloutReference{Name: "lab-reboot-1"}
+			return op
+		}, want: "It was a step of rollout lab-reboot-1, which does not propose it again"},
+		{name: "the operator's own proposal", op: func() *metalv1alpha1.HostOperation {
+			op := reboot("drain")
+			op.Spec.Reason, op.Spec.ProposedBy = metalv1alpha1.OperationReasonWipe, operator
+			return op
+		}, want: "The operator proposed it, so it proposes it again in a few seconds"},
+		{name: "anything else a person made", op: func() *metalv1alpha1.HostOperation {
+			op := reboot("drain")
+			op.Spec.Reason = "Custom"
+			return op
+		}, want: "alice created it, so nothing proposes it again"},
+	} {
+		op := tc.op()
+		cl := fakeClient(op)
+		var out bytes.Buffer
+		require.NoError(t, retry(ctx, cl, op.Namespace, op.Name, &out), tc.name)
+		assert.Contains(t, out.String(), "deleted pk-metal/reboot-w-1-x7k2p.\n", tc.name)
+		assert.Contains(t, out.String(), tc.want, tc.name)
+	}
 }

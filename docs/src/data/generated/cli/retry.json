@@ -7,7 +7,7 @@
   ],
   "changes": true,
   "needsCluster": true,
-  "description": "A failed operation stays in the cluster, so that you can read why it failed\n(pk-metal status shows the reason). The operator does not try again while it\nis there. retry deletes it; the operator then proposes the same plan again,\nand the new operation waits for approval like the first one. A BIOS or\nfirmware proposal is not deleted by retry but marked for retry: the operator\nitself replaces it, because deleting a proposal is how it is refused.\n\nTo stop the operator from proposing it again instead, hold the claim:\n  pk-metal hold default/<claim>",
+  "description": "A failed operation stays in the cluster, so that you can read why it failed\n(pk-metal status shows the reason). The operator does not try again while it\nis there. retry deletes it; the operator then proposes the same plan again,\nand the new operation waits for approval like the first one. A BIOS or\nfirmware proposal is not deleted by retry but marked for retry: the operator\nitself replaces it, because deleting a proposal is how it is refused.\n\nOnly what the operator proposed comes back by itself. For an operation that a\nperson made (pk-metal reboot, pk-metal restore) or a step of a rollout, retry\ndeletes it and names the command that makes it again.\n\nTo stop the operator from proposing it again instead, hold the claim:\n  pk-metal hold default/<claim>",
   "examples": [],
   "exitStatus": [],
   "flags": [

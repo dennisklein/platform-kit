@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -23,6 +24,10 @@ is there. retry deletes it; the operator then proposes the same plan again,
 and the new operation waits for approval like the first one. A BIOS or
 firmware proposal is not deleted by retry but marked for retry: the operator
 itself replaces it, because deleting a proposal is how it is refused.
+
+Only what the operator proposed comes back by itself. For an operation that a
+person made (pk-metal reboot, pk-metal restore) or a step of a rollout, retry
+deletes it and names the command that makes it again.
 
 To stop the operator from proposing it again instead, hold the claim:
   pk-metal hold default/<claim>`
@@ -118,8 +123,7 @@ func retry(ctx context.Context, cl client.Client, namespace, name string, w io.W
 	}
 	fmt.Fprintf(w, "deleted %s.\n", ref)
 	if claim == "" {
-		fmt.Fprintln(w, "If the operator proposed it, it proposes it again in a few seconds; "+
-			"if a person created it, create it again.")
+		fmt.Fprintln(w, recreateHint(op))
 		return nil
 	}
 	fmt.Fprintf(w, "The operator proposes it again for claim %s in a few seconds; "+
@@ -131,6 +135,59 @@ func retry(ctx context.Context, cl client.Client, namespace, name string, w io.W
 		}
 	}
 	return nil
+}
+
+// recreateHint says how the same plan comes back after retry deleted an
+// operation that no claim stands behind. The operator proposes such an
+// operation again only if it proposed it in the first place; one a person
+// made, or a rollout's step, does not come back by itself.
+func recreateHint(op *metalv1alpha1.HostOperation) string {
+	if r := op.Spec.RolloutRef; r != nil {
+		return fmt.Sprintf("It was a step of rollout %s, which does not propose it again. "+
+			"Read the rollout: pk-metal rollout show %s. To make the change again, delete the rollout "+
+			"(kubectl delete talosrollout %s); the operator proposes a new one for a config or version change, "+
+			"and a reboot rollout you create again.", r.Name, r.Name, r.Name)
+	}
+	if cluster := op.Labels[labelRestoreCluster]; cluster != "" {
+		return fmt.Sprintf("Nothing proposes it again. Propose the repair again: pk-metal restore plan %s --propose", cluster)
+	}
+	if op.Spec.Reason == "Reboot" {
+		if node := rebootedNode(op); node != "" {
+			cmd := "pk-metal reboot " + node
+			if failedStep(op) == "drain" {
+				cmd = "pk-metal reboot --drain-timeout 30m " + node +
+					" (the drain did not finish: give it more time, or see --grace-period and --delete-emptydir-data)"
+			}
+			return "Nothing proposes a reboot again. Propose it again: " + cmd
+		}
+	}
+	if strings.HasPrefix(op.Spec.ProposedBy, "system:serviceaccount:") {
+		return "The operator proposed it, so it proposes it again in a few seconds; " +
+			"it then waits for approval: pk-metal approve"
+	}
+	return fmt.Sprintf("%s created it, so nothing proposes it again. Create it again if it is still needed.",
+		orDash(op.Spec.ProposedBy))
+}
+
+// rebootedNode is the node a reboot operation reboots, or "".
+func rebootedNode(op *metalv1alpha1.HostOperation) string {
+	for _, a := range op.Spec.Actions {
+		if a.TalosReboot != nil {
+			return a.TalosReboot.NodeRef.Name
+		}
+	}
+	return ""
+}
+
+// failedStep is the key of the step that failed ("drain", "talosReboot"),
+// or "" when the record does not say.
+func failedStep(op *metalv1alpha1.HostOperation) string {
+	for _, st := range op.Status.Steps {
+		if st.Phase == "Failed" {
+			return st.Action
+		}
+	}
+	return ""
 }
 
 func holdCmd(args []string) {
