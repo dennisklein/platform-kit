@@ -41,6 +41,11 @@ description = "Unit tests, and vet of the e2e build tag so the harness cannot ro
 dir = "metal"
 run = ["go test ./...", "go vet -tags e2e ./test/e2e/"]
 
+[tasks.fuzz]
+description = "Run every Go fuzz target for FUZZTIME each (default 10s); a local search, not part of CI"
+dir = "metal"
+run = "hack/fuzz.sh"
+
 [tasks.envtest]
 description = "Controller tests against a real kube-apiserver and etcd"
 dir = "metal"
