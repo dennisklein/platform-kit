@@ -120,36 +120,24 @@ type approval struct {
 	In              io.Reader
 	Interactive     bool
 	Out             io.Writer
+	// Expect is the plan the person saw and agreed to somewhere else (pk-metal
+	// top). When set, approve refuses if the plan reads differently now.
+	Expect string
 }
 
 // errDeclined: the person answered no. Nothing changed.
 var errDeclined = errors.New("not approved; nothing changed")
 
 func approve(ctx context.Context, cl client.Client, a approval) error {
-	op := &metalv1alpha1.HostOperation{}
-	if err := getNamed(ctx, cl, "operation", op, &metalv1alpha1.HostOperationList{}, a.Namespace, a.Name); err != nil {
-		return err
-	}
-	ref := op.Namespace + "/" + op.Name
-	switch {
-	case op.Spec.Approval.ApprovedBy != "":
-		return fmt.Errorf("operation %s is already approved by %s (an approval cannot be changed)",
-			ref, op.Spec.Approval.ApprovedBy)
-	case finished(op):
-		return fmt.Errorf("operation %s has finished (%s); there is nothing to approve", ref, opPhase(op))
-	case op.Spec.Approval.Required != nil && !*op.Spec.Approval.Required:
-		return fmt.Errorf("operation %s does not need approval; the operator runs it on its own", ref)
-	case op.Spec.ProposedBy == a.User:
-		// Admission refuses this too; saying it here names the rule instead
-		// of quoting a policy.
-		return fmt.Errorf("operation %s was proposed by you (%s); another person must approve it", ref, a.User)
-	}
-
-	pc, err := loadPlanContext(ctx, cl, op)
+	op, plan, err := approvalPlan(ctx, cl, a.Namespace, a.Name, a.User)
 	if err != nil {
 		return err
 	}
-	fmt.Fprint(a.Out, renderPlan(op, pc))
+	ref := op.Namespace + "/" + op.Name
+	if a.Expect != "" && plan != a.Expect {
+		return fmt.Errorf("the plan of %s changed since it was shown; nothing changed. Look at the new plan and approve again", ref)
+	}
+	fmt.Fprint(a.Out, plan)
 
 	if !a.Yes {
 		if !a.Interactive {
@@ -178,6 +166,34 @@ func approve(ctx context.Context, cl client.Client, a approval) error {
 	}
 	fmt.Fprintf(a.Out, "approved %s as %s; the operator starts it now. Follow it with: pk-metal status\n", ref, a.User)
 	return nil
+}
+
+// approvalPlan reads an operation, refuses one that user cannot approve, and
+// renders its plan: what a person must see before an approval.
+func approvalPlan(ctx context.Context, cl client.Client, namespace, name, user string) (*metalv1alpha1.HostOperation, string, error) {
+	op := &metalv1alpha1.HostOperation{}
+	if err := getNamed(ctx, cl, "operation", op, &metalv1alpha1.HostOperationList{}, namespace, name); err != nil {
+		return nil, "", err
+	}
+	ref := op.Namespace + "/" + op.Name
+	switch {
+	case op.Spec.Approval.ApprovedBy != "":
+		return nil, "", fmt.Errorf("operation %s is already approved by %s (an approval cannot be changed)",
+			ref, op.Spec.Approval.ApprovedBy)
+	case finished(op):
+		return nil, "", fmt.Errorf("operation %s has finished (%s); there is nothing to approve", ref, opPhase(op))
+	case op.Spec.Approval.Required != nil && !*op.Spec.Approval.Required:
+		return nil, "", fmt.Errorf("operation %s does not need approval; the operator runs it on its own", ref)
+	case op.Spec.ProposedBy == user:
+		// Admission refuses this too; saying it here names the rule instead
+		// of quoting a policy.
+		return nil, "", fmt.Errorf("operation %s was proposed by you (%s); another person must approve it", ref, user)
+	}
+	pc, err := loadPlanContext(ctx, cl, op)
+	if err != nil {
+		return nil, "", err
+	}
+	return op, renderPlan(op, pc), nil
 }
 
 // opPhase derives the operation's phase from its conditions. The stored

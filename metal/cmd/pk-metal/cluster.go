@@ -8,6 +8,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -46,6 +47,20 @@ func newScheme() *runtime.Scheme {
 // newClient connects to the cluster that --kubeconfig/--context name, or the
 // default the kubectl rules pick ($KUBECONFIG, ~/.kube/config, in-cluster).
 func newClient() (client.Client, error) {
+	cfg, err := restConfig()
+	if err != nil {
+		return nil, err
+	}
+	cl, err := client.New(cfg, client.Options{Scheme: newScheme()})
+	if err != nil {
+		return nil, fmt.Errorf("cannot connect to the cluster at %s: %w", cfg.Host, err)
+	}
+	return cl, nil
+}
+
+// restConfig loads the connection --kubeconfig/--context name, by the
+// kubectl rules.
+func restConfig() (*rest.Config, error) {
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()
 	rules.ExplicitPath = global.kubeconfig
 	cfg, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(rules,
@@ -53,11 +68,7 @@ func newClient() (client.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot load a kubeconfig: %w", err)
 	}
-	cl, err := client.New(cfg, client.Options{Scheme: newScheme()})
-	if err != nil {
-		return nil, fmt.Errorf("cannot connect to the cluster at %s: %w", cfg.Host, err)
-	}
-	return cl, nil
+	return cfg, nil
 }
 
 // splitRef reads "name" or "namespace/name", the form pk-metal status prints.
