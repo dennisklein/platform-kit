@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -359,6 +360,50 @@ func TestEtcdLeaveAndRemoveMember(t *testing.T) {
 		require.True(t, opSucceeded(op), "%+v", op.Status)
 		assert.Len(t, lab.etcd.Members(), 3)
 		assert.Equal(t, []uint64{id}, lab.machines["cp-2"].RemovedByID())
+	})
+}
+
+func TestEtcdForfeitLeadershipAndDeleteKubernetesNode(t *testing.T) {
+	t.Run("the leader hands leadership on", func(t *testing.T) {
+		lab := newTalosLab(t)
+		leader := ""
+		for _, m := range lab.etcd.Members() {
+			if m.ID == lab.etcd.Leader() {
+				leader = m.Hostname
+			}
+		}
+		require.NotEmpty(t, leader)
+		require.NoError(t, lab.r.Create(t.Context(), talosOp(leader, metalv1alpha1.HostOperationAction{
+			EtcdForfeitLeadership: &metalv1alpha1.EtcdForfeitLeadershipAction{NodeRef: ref(leader)}})))
+		op := runOp(t, lab.r)
+		require.True(t, opSucceeded(op), "%+v", op.Status)
+		assert.Len(t, lab.etcd.Members(), 3, "handing leadership on keeps every member")
+		for _, m := range lab.etcd.Members() {
+			if m.Hostname == leader {
+				assert.NotEqual(t, m.ID, lab.etcd.Leader(), "another member leads now")
+			}
+		}
+		assert.Empty(t, lab.machines[leader].Reboots(), "nothing restarts")
+	})
+
+	t.Run("a worker runs no member", func(t *testing.T) {
+		lab := newTalosLab(t, talosOp("w-1", metalv1alpha1.HostOperationAction{
+			EtcdForfeitLeadership: &metalv1alpha1.EtcdForfeitLeadershipAction{NodeRef: ref("w-1")}}))
+		op := runOp(t, lab.r)
+		assert.Equal(t, metalv1alpha1.OperationFailed, op.Status.Phase)
+		assert.Contains(t, executed(op).Message, "not a control plane")
+	})
+
+	t.Run("delete the Node, twice", func(t *testing.T) {
+		lab := newTalosLab(t, talosOp("w-1",
+			metalv1alpha1.HostOperationAction{DeleteKubernetesNode: &metalv1alpha1.DeleteKubernetesNodeAction{NodeRef: ref("w-1")}},
+			// Already gone is the goal met, not a failure.
+			metalv1alpha1.HostOperationAction{DeleteKubernetesNode: &metalv1alpha1.DeleteKubernetesNodeAction{NodeRef: ref("w-1")}}))
+		op := runOp(t, lab.r)
+		require.True(t, opSucceeded(op), "%+v", op.Status)
+		err := lab.kube.Get(t.Context(), client.ObjectKey{Name: "w-1"}, &corev1.Node{})
+		assert.True(t, apierrors.IsNotFound(err), "the Node is gone: %v", err)
+		assert.Zero(t, lab.bmcDials, "neither step needs the BMC")
 	})
 }
 

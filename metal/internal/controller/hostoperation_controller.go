@@ -1137,7 +1137,7 @@ var implementedActions = map[string]bool{
 	"cordon": true, "drain": true, "uncordon": true, "talosReboot": true, "talosShutdown": true,
 	"talosUpgrade": true, "talosApplyConfig": true, "etcdLeave": true, "etcdRemoveMember": true,
 	"talosReset": true, "waitNodeReady": true, "waitEtcdHealthy": true, "etcdRecover": true,
-	"stageFirmware": true,
+	"etcdForfeitLeadership": true, "deleteKubernetesNode": true, "stageFirmware": true,
 }
 
 // unimplementedAction returns the index and key of the first action step

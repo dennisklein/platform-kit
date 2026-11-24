@@ -287,7 +287,10 @@ func disrupts(op *metalv1alpha1.HostOperation) bool {
 
 // disruptsAction: the action takes the node down, or its etcd member away.
 // A config applied without a reboot, staged for the next one, or tried with
-// a rollback does not; Auto may reboot, so it counts.
+// a rollback does not; Auto may reboot, so it counts. Handing etcd
+// leadership on keeps every member (etcd elects among the healthy ones), and
+// deleting the Kubernetes Node or staging firmware leaves the machine
+// running, so none of them is held by a guard.
 func disruptsAction(a metalv1alpha1.HostOperationAction) bool {
 	switch {
 	case a.PowerCycle != nil, a.PowerOff != nil, a.TalosReboot != nil, a.TalosShutdown != nil,

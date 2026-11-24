@@ -146,6 +146,10 @@ func (x *exec) talosStep(ctx context.Context, i int) (st stepState, ok bool, err
 		st, err = x.waitNodeReady(ctx, a.WaitNodeReady)
 	case a.WaitEtcdHealthy != nil:
 		st, err = x.waitEtcdHealthy(ctx, a.WaitEtcdHealthy)
+	case a.EtcdForfeitLeadership != nil:
+		st, err = x.etcdForfeitLeadership(ctx, a.EtcdForfeitLeadership)
+	case a.DeleteKubernetesNode != nil:
+		st, err = x.deleteKubernetesNode(ctx, a.DeleteKubernetesNode)
 	default:
 		return stepState{}, false, nil
 	}
@@ -632,6 +636,68 @@ func (x *exec) etcdLeave(ctx context.Context, a *metalv1alpha1.EtcdLeaveAction) 
 		return stepState{}, fmt.Errorf("node %s could not leave etcd: %w", node.Name, err)
 	}
 	return waitingOn("node %s left etcd; waiting for %s to stop listing it", node.Name, via), nil
+}
+
+// etcdForfeitLeadership hands etcd leadership to another member when the
+// node's member leads, asked on the node itself; Talos leaves a follower as
+// it is, so the request is its own goal check. A node whose member is gone
+// already (a resumed removal) has nothing to hand on.
+func (x *exec) etcdForfeitLeadership(ctx context.Context, a *metalv1alpha1.EtcdForfeitLeadershipAction) (stepState, error) {
+	node, acc, err := x.talosNode(ctx, a.NodeRef)
+	if err != nil {
+		return stepState{}, err
+	}
+	if node.Spec.Role != osv1alpha1.RoleControlPlane {
+		return stepState{}, fmt.Errorf("node %s is a %s, not a control plane: it runs no etcd member", node.Name, node.Spec.Role)
+	}
+	peers, _, err := x.controlPlanePeers(ctx, node, false)
+	if err != nil {
+		return stepState{}, err
+	}
+	if len(peers) == 0 {
+		// No member to hand leadership to: the step changes nothing, and
+		// refusing it would only stop an operation the guard allowed.
+		return stepDone, nil
+	}
+	members, _, err := acc.membersVia(ctx, peers)
+	if err != nil {
+		return waitingOn("%v", err), nil
+	}
+	if !slices.ContainsFunc(members, func(m talos.EtcdMember) bool { return m.Hostname == node.Name }) {
+		return stepDone, nil // no member, no leadership
+	}
+	err = acc.with(ctx, nodeEndpoint(node), func(c talos.Client) error { return c.EtcdForfeitLeadership(ctx) })
+	switch {
+	case err != nil && unavailable(err):
+		st := waitingOn("node %s does not answer, so its member cannot hand leadership on (%v)", node.Name, err)
+		st.hint = ". A node that cannot answer leads no healthy etcd; its member is removed through a peer instead (etcdRemoveMember)"
+		return st, nil
+	case err != nil:
+		return stepState{}, fmt.Errorf("node %s could not hand etcd leadership on: %w", node.Name, err)
+	}
+	return stepDone, nil
+}
+
+// deleteKubernetesNode deletes the node's Node object through its cluster's
+// Kubernetes API. Already gone is the goal met; an API that does not answer
+// is a wait, as for the drain.
+func (x *exec) deleteKubernetesNode(ctx context.Context, a *metalv1alpha1.DeleteKubernetesNodeAction) (stepState, error) {
+	_, acc, err := x.talosNode(ctx, a.NodeRef)
+	if err != nil {
+		return stepState{}, err
+	}
+	kube, err := x.workload(ctx, acc)
+	if err != nil {
+		return stepState{}, err
+	}
+	err = kube.Delete(ctx, &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: a.NodeRef.Name}})
+	switch {
+	case err == nil, apierrors.IsNotFound(err):
+		return stepDone, nil
+	case unavailable(err), apierrors.IsServerTimeout(err), apierrors.IsTimeout(err), apierrors.IsServiceUnavailable(err):
+		return waitingOn("the Kubernetes API of cluster %s does not answer to delete Node %s (%v)", acc.cluster.Name, a.NodeRef.Name, err), nil
+	}
+	return stepState{}, fmt.Errorf("delete Kubernetes Node %s from cluster %s: %w", a.NodeRef.Name, acc.cluster.Name, err)
 }
 
 // membersVia lists the etcd members through the first node in via that
