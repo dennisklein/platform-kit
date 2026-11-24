@@ -216,7 +216,8 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 			Self:                   self,
 			Dial:                   o.TalosDial, CredentialsNamespace: o.CredentialsNamespace,
 		}
-		return "hostclaim", claims
+		// Wipes of released machines share the claims' configuration.
+		return "hostclaim", reconcilers{claims, &hostWipeReconciler{claims}}
 	case LaneProtection:
 		return "protection", &ProtectionReconciler{Client: c}
 	case LaneHostOperation:
@@ -240,11 +241,16 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 			Client: c, CredentialsNamespace: o.CredentialsNamespace, PollInterval: o.PollInterval,
 		}
 	case LaneTalosNode:
-		return "talosnode", &TalosNodeReconciler{
+		// The member finalizer rides with the node lane: every setup that
+		// renders nodes also holds their deletion until they left.
+		return "talosnode", reconcilers{&TalosNodeReconciler{
 			Client: c, Scheme: scheme, Namespace: o.CredentialsNamespace,
 			Factory: o.Factory, Dial: o.TalosDial,
 			CheckInterval: o.CheckInterval, ReadyInterval: o.ReadyInterval, DriftInterval: o.DriftInterval,
-		}
+		}, &TalosNodeMemberReconciler{
+			Client: c, Dial: o.TalosDial, CredentialsNamespace: o.CredentialsNamespace,
+			OperationsNamespace: o.OperationsNamespace,
+		}}
 	case LaneTalosCluster:
 		return "taloscluster", &TalosClusterReconciler{
 			Client: c, Scheme: scheme, Namespace: o.CredentialsNamespace,
