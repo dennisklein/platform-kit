@@ -185,15 +185,10 @@ func TestHooksFeedTheirSeries(t *testing.T) {
 	require.NoError(t, Register(prometheus.NewRegistry(), newReader(t), "pk-metal"),
 		"a second registry must take the process-wide hook series too")
 
-	at := time.Unix(1_700_000_000, 0)
-	SetEtcdBackupLastSuccess("c", at)
 	SetRolloutProgress("upgrade-1", "c", 1, 3)
-	assert.InDelta(t, float64(at.Unix()), testutil.ToFloat64(etcdBackupLastSuccess.WithLabelValues("c")), 0)
 	assert.InDelta(t, 1, testutil.ToFloat64(rolloutNodesDone.WithLabelValues("upgrade-1", "c")), 0)
 	assert.InDelta(t, 3, testutil.ToFloat64(rolloutNodesTotal.WithLabelValues("upgrade-1", "c")), 0)
 
-	SetEtcdBackupLastSuccess("c", time.Time{})
 	ForgetRollout("upgrade-1", "c")
-	assert.Equal(t, 0, testutil.CollectAndCount(etcdBackupLastSuccess), "a zero time must drop the series, not report 1970")
 	assert.Equal(t, 0, testutil.CollectAndCount(rolloutNodesDone))
 }

@@ -43,14 +43,35 @@ var (
 		"namespace", "operation", "host", "reason")
 	descBMCReachable = desc("bmc_reachable",
 		"1 when a ManagementEndpoint answers Redfish, 0 when it does not; absent while not yet probed.", "endpoint")
+	descOperationRunning = desc("operation_running_seconds",
+		"How long each running HostOperation has been in its current step (step is the action's key).",
+		"namespace", "operation", "host", "step")
 	descNodeReady = desc("talosnode_ready",
 		"1 when a TalosNode reports Ready, 0 otherwise.", "node", "cluster", "role")
+	// The same rule as pk-metal status: a node of a bootstrapped cluster that
+	// has answered once (it reported a version). A node still being installed
+	// is not expected to be Ready, and its alert would page for normal work.
+	descNodeExpectedReady = desc("talosnode_expected_ready",
+		"1 when a TalosNode is expected to be Ready: its cluster is bootstrapped and the node reported a version.",
+		"node", "cluster", "role")
 	descNodeVersion = desc("talosnode_info",
 		"1 per TalosNode, labelled with the Talos version it reports.", "node", "cluster", "version")
 	descClusterAvailable = desc("taloscluster_available",
 		"1 when a TalosCluster's Kubernetes API answers and every node is Ready.", "cluster")
+	descClusterExpectedAvailable = desc("taloscluster_expected_available",
+		"1 when a TalosCluster is expected to be available: it is bootstrapped.", "cluster")
 	descClusterMembers = desc("taloscluster_nodes",
 		"TalosCluster nodes by role and readiness.", "cluster", "role", "ready")
+	descRolloutCondition = desc("rollout_condition",
+		"1 for each TalosRollout that has not succeeded, with the reason it is where it is "+
+			"(AwaitingApproval, PlanBlocked, WaitingForHealth, PausedAfterFirstNode, RolloutFailed, …).",
+		"rollout", "cluster", "reason")
+	descBackupLastSuccess = desc("etcd_backup_last_success_timestamp_seconds",
+		"Unix time of the newest verified etcd snapshot of a TalosCluster, over all its EtcdBackupPolicies.", "cluster")
+	// The interval makes the age readable: a policy that runs once a day is
+	// not late at hour 13. Absent for a cluster without a policy.
+	descBackupInterval = desc("etcd_backup_interval_seconds",
+		"The shortest spec.interval of the EtcdBackupPolicies of a TalosCluster.", "cluster")
 	descCredentialExpiry = desc("credentials_expiry_timestamp_seconds",
 		"Unix time at which a published admin credential's client certificate expires.", "cluster", "kind")
 	// The issue time is what makes the expiry readable: the operator renews
@@ -72,8 +93,9 @@ type Collector struct {
 func (c *Collector) Describe(ch chan<- *prometheus.Desc) {
 	for _, d := range []*prometheus.Desc{
 		descHostPhase, descHostBlocked, descOperations, descOperationFailed, descAwaitingApproval,
-		descOperationBlocked, descBMCReachable, descNodeReady, descNodeVersion, descClusterAvailable,
-		descClusterMembers, descCredentialExpiry, descCredentialIssued,
+		descOperationBlocked, descOperationRunning, descBMCReachable, descNodeReady, descNodeExpectedReady,
+		descNodeVersion, descClusterAvailable, descClusterExpectedAvailable, descClusterMembers,
+		descRolloutCondition, descBackupLastSuccess, descBackupInterval, descCredentialExpiry, descCredentialIssued,
 	} {
 		ch <- d
 	}
@@ -94,6 +116,8 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 	c.endpoints(ctx, ch)
 	c.nodes(ctx, ch)
 	c.clusters(ctx, ch)
+	c.rollouts(ctx, ch)
+	c.backups(ctx, ch)
 }
 
 func gauge(ch chan<- prometheus.Metric, d *prometheus.Desc, v float64, labels ...string) {
@@ -151,11 +175,34 @@ func (c *Collector) operations(ctx context.Context, ch chan<- prometheus.Metric,
 			gauge(ch, descAwaitingApproval, now.Sub(op.CreationTimestamp.Time).Seconds(), labels...)
 		case op.Status.BlockedOn != "":
 			gauge(ch, descOperationBlocked, 1, append(labels[:3:3], op.Status.BlockedOn)...)
+		case op.Status.Phase == metalv1alpha1.OperationRunning:
+			if step, since, ok := currentStep(op); ok {
+				gauge(ch, descOperationRunning, now.Sub(since).Seconds(), append(labels[:3:3], step)...)
+			}
 		}
 	}
 	for k, n := range counts {
 		gauge(ch, descOperations, float64(n), k.phase, k.action)
 	}
+}
+
+// currentStep is the action a running operation is in and when it entered
+// it: when the step before it finished, or when execution started for the
+// first step. ok is false when the status does not say.
+func currentStep(op *metalv1alpha1.HostOperation) (step string, since time.Time, ok bool) {
+	i := len(op.Status.Steps)
+	if i >= len(op.Spec.Actions) {
+		return "", time.Time{}, false
+	}
+	switch {
+	case i > 0 && op.Status.Steps[i-1].FinishedAt != nil:
+		since = op.Status.Steps[i-1].FinishedAt.Time
+	case i == 0 && op.Status.Baseline != nil && op.Status.Baseline.CapturedAt != nil:
+		since = op.Status.Baseline.CapturedAt.Time
+	default:
+		return "", time.Time{}, false
+	}
+	return op.Spec.Actions[i].Key(), since, true
 }
 
 // awaitingApproval mirrors the executor's gate: approval required (the
@@ -189,10 +236,21 @@ func (c *Collector) nodes(ctx context.Context, ch chan<- prometheus.Metric) {
 	if err := c.Reader.List(ctx, nodes); err != nil {
 		return
 	}
+	// A cluster that cannot be read counts as not bootstrapped: the node
+	// is then not expected to be Ready, which errs towards no page.
+	bootstrapped := map[string]bool{}
+	clusters := &osv1alpha1.TalosClusterList{}
+	if err := c.Reader.List(ctx, clusters); err == nil {
+		for i := range clusters.Items {
+			bootstrapped[clusters.Items[i].Name] = clusters.Items[i].Status.BootstrappedAt != nil
+		}
+	}
 	for i := range nodes.Items {
 		n := &nodes.Items[i]
 		ready := meta.IsStatusConditionTrue(n.Status.Conditions, osv1alpha1.ConditionReady)
 		gauge(ch, descNodeReady, boolValue(ready), n.Name, n.Spec.ClusterRef.Name, string(n.Spec.Role))
+		gauge(ch, descNodeExpectedReady, boolValue(bootstrapped[n.Spec.ClusterRef.Name] && n.Status.Version != ""),
+			n.Name, n.Spec.ClusterRef.Name, string(n.Spec.Role))
 		if n.Status.Version != "" {
 			gauge(ch, descNodeVersion, 1, n.Name, n.Spec.ClusterRef.Name, n.Status.Version)
 		}
@@ -209,6 +267,7 @@ func (c *Collector) clusters(ctx context.Context, ch chan<- prometheus.Metric) {
 		st := cl.Status
 		gauge(ch, descClusterAvailable,
 			boolValue(meta.IsStatusConditionTrue(st.Conditions, osv1alpha1.ConditionAvailable)), cl.Name)
+		gauge(ch, descClusterExpectedAvailable, boolValue(st.BootstrappedAt != nil), cl.Name)
 		gauge(ch, descClusterMembers, float64(st.ReadyControlPlanes), cl.Name, string(osv1alpha1.RoleControlPlane), "true")
 		gauge(ch, descClusterMembers, float64(st.ControlPlanes-st.ReadyControlPlanes), cl.Name, string(osv1alpha1.RoleControlPlane), "false")
 		gauge(ch, descClusterMembers, float64(st.ReadyWorkers), cl.Name, string(osv1alpha1.RoleWorker), "true")
@@ -224,6 +283,62 @@ func (c *Collector) clusters(ctx context.Context, ch chan<- prometheus.Metric) {
 				gauge(ch, descCredentialExpiry, float64(v.NotAfter.Unix()), cl.Name, "talosconfig")
 				gauge(ch, descCredentialIssued, float64(v.NotBefore.Unix()), cl.Name, "talosconfig")
 			}
+		}
+	}
+}
+
+func (c *Collector) rollouts(ctx context.Context, ch chan<- prometheus.Metric) {
+	ros := &osv1alpha1.TalosRolloutList{}
+	if err := c.Reader.List(ctx, ros); err != nil {
+		return
+	}
+	for i := range ros.Items {
+		ro := &ros.Items[i]
+		st := RolloutStateOf(ro)
+		if st.Succeeded {
+			continue
+		}
+		gauge(ch, descRolloutCondition, 1, ro.Name, ro.Spec.ClusterRef.Name, st.Reason)
+	}
+}
+
+// backups reads the backup facts from the EtcdBackupPolicies, which the
+// backup controller keeps current. A cluster backed up by two policies is as
+// fresh as the fresher one, and is due as often as the more frequent one
+// says. A cluster whose last policy is deleted has no series any more.
+func (c *Collector) backups(ctx context.Context, ch chan<- prometheus.Metric) {
+	policies := &osv1alpha1.EtcdBackupPolicyList{}
+	if err := c.Reader.List(ctx, policies); err != nil {
+		return
+	}
+	type facts struct {
+		last     time.Time
+		interval time.Duration
+	}
+	byCluster := map[string]*facts{}
+	for i := range policies.Items {
+		p := &policies.Items[i]
+		if !p.DeletionTimestamp.IsZero() {
+			continue
+		}
+		f := byCluster[p.Spec.ClusterRef.Name]
+		if f == nil {
+			f = &facts{}
+			byCluster[p.Spec.ClusterRef.Name] = f
+		}
+		if iv := p.Spec.Interval.Duration; iv > 0 && (f.interval == 0 || iv < f.interval) {
+			f.interval = iv
+		}
+		if last := p.Status.LastSuccessfulSnapshot; last != nil && last.TakenAt.After(f.last) {
+			f.last = last.TakenAt.Time
+		}
+	}
+	for cluster, f := range byCluster {
+		if f.interval > 0 {
+			gauge(ch, descBackupInterval, f.interval.Seconds(), cluster)
+		}
+		if !f.last.IsZero() {
+			gauge(ch, descBackupLastSuccess, float64(f.last.Unix()), cluster)
 		}
 	}
 }
