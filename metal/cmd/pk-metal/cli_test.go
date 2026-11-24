@@ -2,7 +2,10 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -67,4 +70,17 @@ func TestParseFlagsAfterArguments(t *testing.T) {
 	parseFlags(fs, []string{"node-2", "--host", "pklab0005", "--", "--not-a-flag"})
 	assert.Equal(t, "pklab0005", *host)
 	assert.Equal(t, []string{"node-2", "--not-a-flag"}, fs.Args(), "after -- everything is an argument")
+}
+
+// TestSignalContext: Ctrl-C (SIGINT) ends a verb's context instead of the
+// process, so that a wait on the cluster or on an answer ends cleanly.
+func TestSignalContext(t *testing.T) {
+	ctx, stop := signalContext()
+	defer stop()
+	require.NoError(t, syscall.Kill(os.Getpid(), syscall.SIGINT))
+	select {
+	case <-ctx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("SIGINT did not cancel the context")
+	}
 }

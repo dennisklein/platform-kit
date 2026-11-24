@@ -72,7 +72,8 @@ func rebootCmd(args []string) {
 	if err != nil {
 		die(err)
 	}
-	ctx := context.Background()
+	ctx, stop := signalContext()
+	defer stop()
 	if opts.User, err = whoAmI(ctx, cl); err != nil {
 		die(err)
 	}

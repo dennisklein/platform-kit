@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 )
 
 // command is one verb: what it does in a plain line, how to call it, and
@@ -223,6 +226,13 @@ func badUsage(fs *flag.FlagSet, msg string) {
 	}
 	fmt.Fprintf(os.Stderr, "run: pk-metal help %s\n", verb)
 	os.Exit(1)
+}
+
+// signalContext is the context of one verb that talks to the cluster: Ctrl-C
+// or SIGTERM cancels it, so that a call that hangs on a slow API server ends,
+// and a question that waits for an answer ends with "nothing changed".
+func signalContext() (ctx context.Context, stop context.CancelFunc) {
+	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 }
 
 // die prints the error as "pk-metal: <message>" on stderr and exits 1.

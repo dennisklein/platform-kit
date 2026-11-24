@@ -55,7 +55,9 @@ func retryCmd(args []string) {
 	if err != nil {
 		die(err)
 	}
-	if err := retry(context.Background(), cl, namespace, name, os.Stdout); err != nil {
+	ctx, stop := signalContext()
+	defer stop()
+	if err := retry(ctx, cl, namespace, name, os.Stdout); err != nil {
 		die(err)
 	}
 }
@@ -161,7 +163,9 @@ func setHold(fs *flag.FlagSet, ns *string, reason string, on bool) {
 	if err != nil {
 		die(err)
 	}
-	if err := hold(context.Background(), cl, namespace, name, reason, on, os.Stdout); err != nil {
+	ctx, stop := signalContext()
+	defer stop()
+	if err := hold(ctx, cl, namespace, name, reason, on, os.Stdout); err != nil {
 		die(err)
 	}
 }

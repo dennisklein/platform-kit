@@ -54,7 +54,8 @@ func abortCmd(args []string) {
 	if err != nil {
 		die(err)
 	}
-	ctx := context.Background()
+	ctx, stop := signalContext()
+	defer stop()
 	user, err := whoAmI(ctx, cl)
 	if err != nil {
 		die(err)

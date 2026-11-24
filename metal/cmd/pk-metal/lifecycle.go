@@ -89,7 +89,9 @@ func wipeCmd(args []string) {
 	if err != nil {
 		die(err)
 	}
-	if err := wipe(context.Background(), cl, fs.Arg(0), *version, os.Stdout); err != nil {
+	ctx, stop := signalContext()
+	defer stop()
+	if err := wipe(ctx, cl, fs.Arg(0), *version, os.Stdout); err != nil {
 		die(err)
 	}
 }
@@ -135,7 +137,9 @@ func reinstallCmd(args []string) {
 	if err != nil {
 		die(err)
 	}
-	if err := reinstall(context.Background(), cl, *ns, fs.Arg(0), *ack, os.Stdout); err != nil {
+	ctx, stop := signalContext()
+	defer stop()
+	if err := reinstall(ctx, cl, *ns, fs.Arg(0), *ack, os.Stdout); err != nil {
 		die(err)
 	}
 }
@@ -202,7 +206,9 @@ func replaceCmd(args []string) {
 	if err != nil {
 		die(err)
 	}
-	if err := replace(context.Background(), cl, *ns, fs.Arg(0), *hostName, *ack, os.Stdout); err != nil {
+	ctx, stop := signalContext()
+	defer stop()
+	if err := replace(ctx, cl, *ns, fs.Arg(0), *hostName, *ack, os.Stdout); err != nil {
 		die(err)
 	}
 }
@@ -299,7 +305,8 @@ func scaleCmd(args []string) {
 	if err != nil {
 		die(err)
 	}
-	ctx := context.Background()
+	ctx, stop := signalContext()
+	defer stop()
 	plan, err := planScale(ctx, cl, fs.Arg(0), *cps, *workers, *ns)
 	if err != nil {
 		die(err)
