@@ -259,7 +259,7 @@ spec:
                     - type
                   x-kubernetes-list-type: map
                 controlPlanes:
-                  description: ControlPlanes and Workers count the TalosNodes that name this cluster; the Ready counts are the ones whose Ready condition is True.
+                  description: 'ControlPlanes and Workers count the TalosNodes that name this cluster and that a machine is handed (a Host''s spec.os names them); the Ready counts are the ones whose Ready condition is True. A TalosNode with no machine yet, or one being removed, is counted in UnassignedNodes instead: it is not a member, so it does not hold Available at False.'
                   format: int32
                   type: integer
                 kubeconfigSecretRef:
@@ -293,6 +293,10 @@ spec:
                     - name
                     - namespace
                   type: object
+                unassignedNodes:
+                  description: 'UnassignedNodes counts the TalosNodes that name this cluster but run on no machine: not handed to a Host yet, or being removed.'
+                  format: int32
+                  type: integer
                 workers:
                   format: int32
                   type: integer

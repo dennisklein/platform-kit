@@ -128,6 +128,20 @@ spec:
                         required:
                           - nodeRef
                         type: object
+                      deleteKubernetesNode:
+                        description: DeleteKubernetesNode deletes the node's Node object from its cluster's Kubernetes API, the last trace of a removed node there. Already gone is success.
+                        properties:
+                          nodeRef:
+                            description: NodeRef names the TalosNode (os.pk.io); its name is the Kubernetes Node's name, and its cluster says which Kubernetes API to ask.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                        required:
+                          - nodeRef
+                        type: object
                       drain:
                         description: 'Drain evicts the pods on the node through the Eviction API, so that PodDisruptionBudgets hold: an eviction a budget refuses is waited out, not forced, until the timeout fails the step. The node stays cordoned either way. A node not yet cordoned is cordoned first.'
                         properties:
@@ -166,6 +180,20 @@ spec:
                             type: string
                         required:
                           - mediaId
+                        type: object
+                      etcdForfeitLeadership:
+                        description: EtcdForfeitLeadership hands etcd leadership to another member when the node's member leads, asked on the node itself; a follower is left as it is. A control plane that is about to leave or go down does it first, so that its departure does not cost an election under load.
+                        properties:
+                          nodeRef:
+                            description: NodeRef names the control-plane TalosNode (os.pk.io) whose member gives up leadership.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                        required:
+                          - nodeRef
                         type: object
                       etcdLeave:
                         description: 'EtcdLeave makes the node''s etcd member leave the cluster, asked on the node itself: the orderly removal of a control plane that still answers.'

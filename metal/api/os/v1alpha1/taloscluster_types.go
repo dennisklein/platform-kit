@@ -155,8 +155,11 @@ type TalosClusterStatus struct {
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// ControlPlanes and Workers count the TalosNodes that name this cluster;
-	// the Ready counts are the ones whose Ready condition is True.
+	// ControlPlanes and Workers count the TalosNodes that name this cluster
+	// and that a machine is handed (a Host's spec.os names them); the Ready
+	// counts are the ones whose Ready condition is True. A TalosNode with no
+	// machine yet, or one being removed, is counted in UnassignedNodes
+	// instead: it is not a member, so it does not hold Available at False.
 	// +optional
 	ControlPlanes int32 `json:"controlPlanes,omitempty"`
 	// +optional
@@ -165,6 +168,10 @@ type TalosClusterStatus struct {
 	Workers int32 `json:"workers,omitempty"`
 	// +optional
 	ReadyWorkers int32 `json:"readyWorkers,omitempty"`
+	// UnassignedNodes counts the TalosNodes that name this cluster but run
+	// on no machine: not handed to a Host yet, or being removed.
+	// +optional
+	UnassignedNodes int32 `json:"unassignedNodes,omitempty"`
 
 	// KubernetesVersion is the version the Kubernetes API reports, empty
 	// while it does not answer.
