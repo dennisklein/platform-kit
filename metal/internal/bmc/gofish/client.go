@@ -41,7 +41,7 @@ import (
 )
 
 type Config struct {
-	Endpoint string // https://[fd6b:…]:443 or http://127.0.0.1:8000 (sim)
+	Endpoint string // https://[2001:db8:0:100::14]:443 or http://127.0.0.1:8000 (sim)
 	Username string
 	Password string
 	Insecure bool // skip TLS verification (lab BMCs with self-signed certs)

@@ -40,7 +40,7 @@ func TestIdentityInvariant(t *testing.T) {
 		Manufacturer: "Huawei",
 		Model:        "2288H V5",
 	}
-	epA := endpointFor("ci-a", "https://[fd6b::14]", "6.72", sys)
+	epA := endpointFor("ci-a", "https://[2001:db8:0:100::14]", "6.72", sys)
 	epB := endpointFor("ci-b", "https://127.0.0.1:8443", "6.58", sys)
 
 	idA := identity.Normalize(epA.Status.Vendor, epA.Status.BoardSerial, epA.Status.Systems[0])
