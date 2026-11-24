@@ -75,8 +75,11 @@ spec:
                       description: 'ReaderTalosconfig also publishes <cluster>-talosconfig-reader: a talosconfig with the os:reader role, for monitoring, which can read but not change a machine.'
                       type: boolean
                     ttl:
-                      description: TTL is how long a published admin kubeconfig and talosconfig are valid. A credential is minted again once less than a third of it is left. Default 24h.
+                      description: 'TTL is how long a published admin kubeconfig and talosconfig are valid. A credential is minted again once less than a third of it is left. Default 24h, at most 720h (30 days): a longer one stays valid long after the person who copied it has gone.'
                       type: string
+                      x-kubernetes-validations:
+                        - message: 'ttl must be at most 720h: a published credential cannot be revoked short of a CA rotation'
+                          rule: duration(self) <= duration('720h')
                   type: object
                 endpoint:
                   description: 'Endpoint is the Kubernetes API URL every member enrolls against and the admin kubeconfig names: the control-plane VIP or a DNS name for it, with the port (https://10.77.0.10:6443).'

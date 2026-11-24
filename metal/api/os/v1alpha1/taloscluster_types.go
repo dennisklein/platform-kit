@@ -77,7 +77,9 @@ type TalosClusterSpec struct {
 type CredentialsSpec struct {
 	// TTL is how long a published admin kubeconfig and talosconfig are
 	// valid. A credential is minted again once less than a third of it is
-	// left. Default 24h.
+	// left. Default 24h, at most 720h (30 days): a longer one stays valid
+	// long after the person who copied it has gone.
+	// +kubebuilder:validation:XValidation:rule="duration(self) <= duration('720h')",message="ttl must be at most 720h: a published credential cannot be revoked short of a CA rotation"
 	// +optional
 	TTL *metav1.Duration `json:"ttl,omitempty"`
 

@@ -125,7 +125,13 @@
       "depth": 2,
       "type": "string",
       "required": false,
-      "description": "TTL is how long a published admin kubeconfig and talosconfig are valid. A credential is minted again once less than a third of it is left. Default 24h."
+      "description": "TTL is how long a published admin kubeconfig and talosconfig are valid. A credential is minted again once less than a third of it is left. Default 24h, at most 720h (30 days): a longer one stays valid long after the person who copied it has gone.",
+      "validations": [
+        {
+          "rule": "duration(self) <= duration('720h')",
+          "message": "ttl must be at most 720h: a published credential cannot be revoked short of a CA rotation"
+        }
+      ]
     },
     {
       "path": "spec.endpoint",
