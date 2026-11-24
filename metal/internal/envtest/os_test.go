@@ -248,8 +248,11 @@ func TestOSLane(t *testing.T) {
 		tc, err := clientconfig.FromBytes(secretData(c.Status.TalosconfigSecretRef, controller.TalosconfigKey))
 		require.NoError(t, err)
 		assert.Equal(t, []string{"10.77.0.11"}, tc.Contexts[tc.Context].Endpoints, "every control-plane address")
-		assert.EqualValues(t, 1, c.Status.ControlPlanes)
-		assert.EqualValues(t, 2, c.Status.Workers)
+		// No machine runs any of the nodes yet: they are written ahead, not
+		// members, and do not hold the cluster down.
+		assert.EqualValues(t, 0, c.Status.ControlPlanes)
+		assert.EqualValues(t, 0, c.Status.Workers)
+		assert.EqualValues(t, 3, c.Status.UnassignedNodes)
 
 		// Re-reconciles keep the credential instead of minting a new one.
 		before := secretData(c.Status.KubeconfigSecretRef, controller.KubeconfigKey)

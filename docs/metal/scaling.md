@@ -130,6 +130,13 @@ line erases the system disk, and leaves the machine in maintenance mode
 with nothing on its disk. When it succeeded the mark goes and the machine
 is free.
 
+If you know the disk holds nothing any more (it was replaced, or erased some
+other way), remove the mark yourself; the operator takes your word for it:
+
+```sh
+kubectl annotate host <host> metal.pk.io/disk-not-wiped-
+```
+
 ## Replacing a node
 
 **Hardware that still works: add first, remove after.** Write a new

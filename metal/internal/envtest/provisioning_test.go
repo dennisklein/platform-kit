@@ -707,6 +707,17 @@ func TestProvisioning(t *testing.T) {
 			_, err := claimOf("single")
 			return apierrors.IsNotFound(err)
 		}, waitFor, tick, "the claim goes once the machine is back")
+
+		// This executor runs no Talos reset, so the release could only power
+		// the machine off: its disk keeps node-single, and the host says so.
+		// A person who knows the disk is blank clears the mark; the next
+		// subtest installs on the same machine.
+		h := waitHost(singleHost, func(h metalv1alpha1.Host) bool {
+			return h.Annotations[metalv1alpha1.AnnotationDiskNotWiped] != ""
+		})
+		assert.Equal(t, "lab/node-single", h.Annotations[metalv1alpha1.AnnotationDiskNotWiped])
+		delete(h.Annotations, metalv1alpha1.AnnotationDiskNotWiped)
+		require.NoError(t, cl.Update(ctx, &h))
 	})
 
 	st.run(t, "a one-slot BMC configures a machine that runs Talos from disk", func(t *testing.T) {
