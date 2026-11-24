@@ -1085,8 +1085,9 @@ func (x *exec) waitEtcdHealthy(ctx context.Context, a *metalv1alpha1.WaitEtcdHea
 
 // acted: step i already did something to the machine that only finishing
 // the step completes: the off half of a power cycle seen, a graceful
-// shutdown asked for, a Talos request on its way. Such a step is finished
-// before anything stops the operation (an abort, the cluster guard).
+// shutdown asked for, a firmware image sent to the BMC, a Talos request on
+// its way. Such a step is finished before anything stops the operation (an
+// abort, the cluster guard).
 func (x *exec) acted(i int) bool {
 	a := x.op.Spec.Actions[i]
 	switch {
@@ -1094,6 +1095,9 @@ func (x *exec) acted(i int) bool {
 		return x.op.Status.OffObserved != nil
 	case a.PowerOff != nil:
 		return x.op.Status.ShutdownRequested != nil
+	case a.FlashFirmware != nil, a.StageFirmware != nil:
+		// A manager that is still writing an image is not left halfway.
+		return x.upload(i) != nil
 	}
 	return x.progress(i) != nil
 }
