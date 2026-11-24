@@ -1,0 +1,106 @@
+---
+title: pk-metal abort
+description: Stops an operation before its next step. The operator then removes what the operation left on the machine.
+type: cli
+eyebrow: Command · pk-metal
+xref: { cat: cli, id: abort }
+sidebar: { label: abort }
+sources:
+  - /repo/metal/cmd/pk-metal/abort.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import CliBadges from '../../../../components/cli/CliBadges.astro';
+import CliExit from '../../../../components/cli/CliExit.astro';
+import CliFlags from '../../../../components/cli/CliFlags.astro';
+import CliSynopsis from '../../../../components/cli/CliSynopsis.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+<CliBadges cmd="abort" />
+
+`pk-metal abort` asks the operator to stop one [](kind:HostOperation).
+The operator stops before the next step and then removes the media, the boot override and the cordon of the operation.
+
+## Synopsis
+
+<CliSynopsis cmd="abort" />
+
+<dl>
+  <dt>`<operation>`</dt>
+  <dd>The name of the operation, as [](cli:status) prints it: `pk-metal/<name>`, or the name only with `-n`.</dd>
+</dl>
+
+## Flags
+
+<CliFlags cmd="abort" />
+
+## What it does
+
+1. The command asks the API server for your user name.
+2. It reads the operation. It refuses an operation that has a result.
+3. It sets the annotation `metal.pk.io/abort` to your user name and the reason.
+4. The [](ctrl:hostoperation) stops the operation:
+   - An operation that did not start ends immediately. The machine did not change.
+   - An operation that runs stops before its next step.
+5. The operator removes what the operation left behind.
+6. The phase of the operation becomes Aborted. The last step says what the operator removed.
+
+### What the operator finishes first
+
+A step that already acted on the machine completes before the operation stops.
+
+- The operator waits for a reboot that it already asked for.
+- If a [](act:PowerCycle) already turned the machine off, the operator turns it on again.
+
+### What the operator removes
+
+- The virtual media that the operation mounted ([](act:EjectMedia)).
+- The boot override that the operation set.
+- The cordon of the Kubernetes node, if the operation cordoned it. A node that a person cordoned before stays cordoned.
+
+<Callout type="caution">
+Do not use abort to get the state before the operation. A reboot, an applied configuration, an upgrade and a removed etcd member stay as they are.
+</Callout>
+
+If you delete an operation, it also stops. But the operator then removes nothing from the machine.
+
+## Examples
+
+<Terminal
+title="pk-metal abort"
+text={`
+    $ pk-metal abort --reason "wrong node" pk-metal/reboot-w-1-x7k2p
+    asked to abort pk-metal/reboot-w-1-x7k2p. It stops before its next step (a step that already acted on the machine is finished first), then ejects its media, clears its boot override and uncordons the node it cordoned.
+    Follow it: pk-metal status, or kubectl get hostoperation -n pk-metal reboot-w-1-x7k2p
+`}
+/>
+
+Abort an operation that waits for approval. Nothing changes on the machine.
+
+<Terminal
+title="pk-metal abort"
+text={`
+    $ pk-metal abort reboot-cp-2-m4q8z
+    asked to abort pk-metal/reboot-cp-2-m4q8z. It has not started, so it ends now and nothing is done to host simhw2288v5000398.
+`}
+/>
+
+## Objects
+
+| Object | Access | Purpose |
+| --- | --- | --- |
+| `SelfSubjectReview` | create | Gets your user name from the API server. |
+| [](kind:HostOperation) | get, list, patch | Sets the annotation `metal.pk.io/abort`. |
+
+## Exit status
+
+<CliExit cmd="abort" />
+
+A second abort of the same operation changes nothing and gives code 0.
+
+## Related
+
+- [](cli:retry) deletes the aborted operation, so that the operator proposes it again.
+- [](cli:rollout) has its own `abort` for a full rollout.
+- [](howto:approve-hold-retry)
+- [](rb:operation-failed)

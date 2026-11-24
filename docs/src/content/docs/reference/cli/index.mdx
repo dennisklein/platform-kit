@@ -1,0 +1,90 @@
+---
+title: Commands
+description: All pk-metal commands. A badge marks each command that changes machines.
+type: cli
+eyebrow: Reference · pk-metal
+xref: { cat: cli, id: index }
+sidebar: { order: -1 }
+sources:
+  - /repo/metal/cmd/pk-metal/cli.go
+---
+
+import CliExit from '../../../../components/cli/CliExit.astro';
+import CliIndex from '../../../../components/cli/CliIndex.astro';
+import CliMap from '../../../../components/cli/CliMap.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+`pk-metal` is the command line program of the operator. It has 25 commands.
+Each command has one page with its flags, its steps and the objects that it reads and writes.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Program</dt>
+  <dd>`pk-metal`, one binary.</dd>
+  <dt>Form</dt>
+  <dd>`pk-metal [--kubeconfig file] [--context name] <command> [flags] [arguments]`</dd>
+  <dt>Help</dt>
+  <dd>`pk-metal help <command>`, or `pk-metal <command> -h`.</dd>
+  <dt>Cluster access</dt>
+  <dd>The [](cli:global-flags) select the cluster, as for `kubectl`.</dd>
+  <dt>Approval</dt>
+  <dd>No command changes a machine by itself, with one exception: [](cli:boot). See [](concept:approval).</dd>
+  <dt>Source</dt>
+  <dd>[cli.go](/repo/metal/cmd/pk-metal/cli.go)</dd>
+</dl>
+
+## What the commands talk to
+
+<CliMap />
+
+Most commands write an object or an annotation in the management cluster.
+The operator then proposes a [](kind:HostOperation), and a person approves it with [](cli:approve).
+
+## Commands by purpose
+
+A badge shows the effect of each command.
+
+<dl>
+  <dt>changes machines</dt>
+  <dd>The command can change a machine, or it can change what the operator does.</dd>
+  <dt>changes no machine</dt>
+  <dd>The command only reads, or it writes files on your workstation.</dd>
+</dl>
+
+<CliIndex />
+
+## Read the help
+
+Each command prints its own help. The help of the program lists all commands.
+
+<Terminal
+title="help"
+text={`
+    $ pk-metal help approve
+    pk-metal approve: show what a proposed operation will do to a machine, then let it run; without a name, list the operations that wait for approval
+
+    usage: pk-metal approve [-n namespace] [--yes] [<operation> | <namespace>/<operation>]
+    ...
+    flags:
+      -n string
+        	namespace of the operation (default "pk-metal")
+      -yes
+        	approve without asking (for scripts); the plan is still printed
+`}
+/>
+
+A flag can have one dash or two dashes: `-yes` and `--yes` are the same flag.
+
+## Exit status
+
+<CliExit />
+
+A wrong flag or a wrong argument also gives code 1. The program then prints the usage line of the command.
+
+## Related
+
+- [](cli:global-flags)
+- [](concept:approval)
+- [](howto:approve-hold-retry)
+- [](tut:lab-first-cluster)

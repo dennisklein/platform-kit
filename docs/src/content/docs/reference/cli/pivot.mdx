@@ -1,0 +1,123 @@
+---
+title: pk-metal pivot
+description: Moves the operator and its objects from this cluster to a different cluster.
+type: cli
+eyebrow: Command · pk-metal
+xref: { cat: cli, id: pivot }
+sidebar: { label: pivot }
+sources:
+  - /repo/metal/cmd/pk-metal/pivot.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import CliBadges from '../../../../components/cli/CliBadges.astro';
+import CliExit from '../../../../components/cli/CliExit.astro';
+import CliFlags from '../../../../components/cli/CliFlags.astro';
+import CliSynopsis from '../../../../components/cli/CliSynopsis.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+<CliBadges cmd="pivot" />
+
+`pk-metal pivot` moves the operator from the cluster that it runs in to a different cluster.
+The usual case: the operator ran in a kind cluster and installed a Talos cluster. Now it moves onto that Talos cluster.
+
+Nothing on the machines changes. The operator in the source cluster stops, and its objects stay there.
+
+## Synopsis
+
+<CliSynopsis cmd="pivot" />
+
+The command takes no arguments. The [](cli:global-flags) select the source cluster. [`--to`](cli:pivot#--to) selects the target cluster.
+
+## Flags
+
+<CliFlags cmd="pivot" />
+
+## What it does
+
+1. **Check.** No operation runs or waits for approval, and the target cluster runs no operator.
+2. **Ask.** The command prints what the target cluster must reach, and asks `Move? [y/N]`.
+3. **Stop.** It sets the operator in the source cluster to zero replicas and waits until it stops.
+4. **Install.** It installs the operator in the target cluster: CRDs, admission policies, RBAC, the namespace and the claim for the media store.
+5. **Copy.** It copies the objects of the operator with their status, and the Secrets in the namespace `pk-metal`.
+6. **Start.** It starts the operator in the target cluster.
+7. **Watch.** For the time of [`--settle`](cli:pivot#--settle), it makes sure that the new operator proposes no new operation.
+
+The command cannot test the network. Before you answer, make sure that the target cluster can reach the BMCs, the Talos API and the media service.
+
+<Callout type="caution">
+Do not start the operator in the source cluster again while the operator in the target cluster runs. Two operators then act on the same machines.
+</Callout>
+
+If the command fails, run it again. It continues where it stopped.
+
+### The media store
+
+The media store holds the installers for BMCs with one virtual media slot. Its files do not move. The new operator builds the installers again.
+
+<dl>
+  <dt>`--media-store=copy`</dt>
+  <dd>The default. The target cluster needs the claim, or a default StorageClass to make it. Without storage, the command refuses.</dd>
+  <dt>`--media-store=ephemeral`</dt>
+  <dd>The operator mounts an `emptyDir`. It starts empty, and each restart deletes it. The operator builds no installer for a one-slot BMC until the claim exists.</dd>
+</dl>
+
+### Operations that wait
+
+The check refuses when an operation waits for approval. With [`--force-waiting`](cli:pivot#--force-waiting), the command moves such operations, and they wait in the target cluster.
+
+## Examples
+
+<Terminal
+title="pk-metal pivot"
+replay
+mark={['Move? [y/N]']}
+text={`
+    $ pk-metal --context kind-pk-metal pivot --to mgmt.kubeconfig
+    pk-metal pivot: move the operator from kind-pk-metal to admin@lab
+
+    From admin@lab, the operator must reach (pivot cannot test this):
+      ...
+
+    The operator on kind-pk-metal stops now. No machine is touched.
+    Move? [y/N] y
+      paused the manager on kind-pk-metal
+      installed 17 CRDs
+      installed the operator in namespace pk-metal (Deployment pk-metal-manager at 0 replicas)
+      started the manager on admin@lab (1 replica)
+      the manager on admin@lab settled: no new operation in 1m30s
+
+    The operator runs on admin@lab now.
+`}
+/>
+
+To move back, run the command from the new cluster with [`--to`](cli:pivot#--to) set to the kubeconfig of the old cluster.
+
+```sh
+pk-metal --kubeconfig mgmt.kubeconfig pivot --to kind.kubeconfig
+```
+
+## Objects
+
+| Object | Source cluster | Target cluster |
+| --- | --- | --- |
+| Deployment of the operator | Set to zero replicas. | Made, then started. |
+| CRDs, admission policies, RBAC, namespace | Read. | Made. |
+| All kinds of the operator, for example [](kind:Host), [](kind:HostClaim), [](kind:HostOperation) and [](kind:TalosCluster) | Read. They stay. | Made, with their status. |
+| Secrets in `pk-metal` | Read. | Made. |
+| PersistentVolumeClaim of the media store | Not moved. | Made empty, or an `emptyDir`. |
+
+If the target cluster holds an older copy of the objects, the command removes the objects that the source cluster no longer has.
+
+## Exit status
+
+<CliExit cmd="pivot" />
+
+An answer other than `y` or `yes` gives code 1. Nothing changed.
+
+## Related
+
+- [](concept:pivot-model) explains why the move is safe.
+- [](howto:pivot) is the procedure.
+- [](tut:lab-first-cluster)
+- [](cli:status) shows the machines from the new cluster after the move.

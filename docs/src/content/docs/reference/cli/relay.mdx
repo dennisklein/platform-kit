@@ -1,0 +1,95 @@
+---
+title: pk-metal relay
+description: Runs on a host that can reach the BMCs and passes the boot media traffic to pk-metal boot.
+type: cli
+eyebrow: Command · pk-metal
+xref: { cat: cli, id: relay }
+sidebar: { label: relay }
+sources:
+  - /repo/metal/cmd/pk-metal/relay.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import CliBadges from '../../../../components/cli/CliBadges.astro';
+import CliExit from '../../../../components/cli/CliExit.astro';
+import CliFlags from '../../../../components/cli/CliFlags.astro';
+import CliSynopsis from '../../../../components/cli/CliSynopsis.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+<CliBadges cmd="relay" />
+
+`pk-metal relay` runs on a host that can reach the BMCs, when your workstation cannot.
+The BMCs download boot media from the relay, and the relay passes that traffic to [](cli:boot).
+
+## Synopsis
+
+<CliSynopsis cmd="relay" />
+
+The command takes no arguments. It runs until you stop it.
+
+## Flags
+
+<CliFlags cmd="relay" />
+
+## What it does
+
+<dl>
+  <dt>Front address</dt>
+  <dd>The BMCs connect here to download the image. Put it on the BMC network.</dd>
+  <dt>Tunnel address</dt>
+  <dd>`pk-metal boot` connects here. It receives the downloads of the BMCs, and its Redfish calls go out to the BMCs through the relay.</dd>
+  <dt>Secret</dt>
+  <dd>Each connection to the tunnel must prove that it has the shared secret of the relay.</dd>
+</dl>
+
+The relay does not decrypt the traffic. TLS ends in `pk-metal boot`.
+
+### The secret
+
+1. Set `PK_METAL_RELAY_SECRET`, or give a file with [`--secret-file`](cli:relay#--secret-file). Do not give the two.
+2. If the file does not exist, the relay writes a new secret there. Only you can read the file.
+3. The relay does not replace a file that exists.
+4. Give the same secret to `pk-metal boot`.
+
+<Callout type="caution">
+Keep the tunnel address on loopback, and connect to it through `ssh -L`. The secret proves who connects. It does not encrypt the tunnel.
+</Callout>
+
+The relay is for the first machines of a site. The operator does not use it.
+
+## Examples
+
+On the host that can reach the BMCs:
+
+<Terminal
+title="relay host"
+text={`
+    $ pk-metal relay --front 10.0.0.2:8443 --secret-file ~/.config/pk-metal/relay.secret
+    relay: wrote a new secret to /home/admin/.config/pk-metal/relay.secret; give the same secret to pk-metal boot
+    relay: front 10.0.0.2:8443 (advertised 10.0.0.2:8443), tunnel 127.0.0.1:9443
+`}
+/>
+
+On your workstation, open the tunnel and boot a machine through it:
+
+```sh
+ssh -N -L 9443:127.0.0.1:9443 admin@relay-host &
+pk-metal boot --config clusterconfig/cp-1.yaml --node cp-1 \
+  --relay 127.0.0.1:9443 --relay-secret-file relay.secret https://192.0.2.11
+```
+
+## Objects
+
+The command reads and writes no object in the cluster. It does not talk to a BMC by itself.
+
+## Exit status
+
+<CliExit cmd="relay" />
+
+The command gives code 1 if it has no secret, or if it cannot listen on one of the two addresses.
+
+## Related
+
+- [](concept:relay) explains the protocol and the secret.
+- [](cli:boot) is the program on the other end of the tunnel.
+- [](howto:bootstrap-without-operator)

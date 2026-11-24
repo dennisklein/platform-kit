@@ -1,0 +1,157 @@
+---
+title: pk-metal approve
+description: Shows the plan of a proposed operation, asks, and approves it as your cluster user.
+type: cli
+eyebrow: Command · pk-metal
+xref: { cat: cli, id: approve }
+sidebar: { label: approve }
+sources:
+  - /repo/metal/cmd/pk-metal/approve.go
+  - /repo/metal/cmd/pk-metal/describe_talos.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import ApproveFlow from '../../../../components/cli/ApproveFlow.astro';
+import CliBadges from '../../../../components/cli/CliBadges.astro';
+import CliExit from '../../../../components/cli/CliExit.astro';
+import CliFlags from '../../../../components/cli/CliFlags.astro';
+import CliSynopsis from '../../../../components/cli/CliSynopsis.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+<CliBadges cmd="approve" />
+
+`pk-metal approve` shows what a proposed [](kind:HostOperation) does to a machine. Then it asks you, and it approves the operation as your cluster user.
+The operator does not act on a machine before a person approves the plan.
+
+## Synopsis
+
+<CliSynopsis cmd="approve" />
+
+<dl>
+  <dt>No argument</dt>
+  <dd>The command lists the operations that wait for approval.</dd>
+  <dt>`<operation>`</dt>
+  <dd>The name of the operation, as [](cli:status) prints it: `pk-metal/<name>`, or the name only with `-n`.</dd>
+</dl>
+
+## Flags
+
+<CliFlags cmd="approve" />
+
+## What it does
+
+<ApproveFlow />
+
+1. The command asks the API server for your user name.
+2. It reads the operation. It stops if one of these conditions is true:
+   - A person approved the operation before. An approval cannot change.
+   - The operation has a result.
+   - The operation needs no approval.
+   - You proposed the operation. A different person must approve it.
+3. It reads the [](kind:Host), its BMC paths, the boot assets and the TalosNodes that the plan names.
+4. It prints the plan: the machine, the BMC, each [action](act:index) in order, the media and the boot target.
+   For an install, the plan also shows the node, its address and the disk that the install overwrites.
+5. It asks `Approve as <user>? [y/N]`. The question waits five minutes.
+6. After a yes, it reads the operation again. The operation must be the same object, and the plan must read the same.
+7. It writes your user name into [`spec.approval.approvedBy`](kind:HostOperation#spec.approval.approvedBy).
+   The patch carries the UID and the resource version of the object that you saw.
+8. The [](ctrl:hostoperation) starts the operation.
+
+If the operation changed after the command showed the plan, nothing changes. Run the command again and read the new plan.
+
+<Callout type="caution">
+Read the full plan before you answer. An approved install overwrites the disk that the plan names.
+</Callout>
+
+### Without a terminal
+
+In a script or a pipe, the command cannot ask. It prints the plan and refuses, unless you give [`--yes`](cli:approve#--yes).
+With `--yes`, the command does not read the operation a second time. The patch still fails if the object changed.
+
+## Examples
+
+List the operations that wait for approval.
+
+<Terminal
+title="pk-metal approve"
+text={`
+    $ pk-metal approve
+    OPERATION                                       HOST               WHY           STEPS  PROPOSED BY                              AGE
+    pk-metal/provision-simhw2288v5000397-1a2b3c4d   simhw2288v5000397  Provisioning  6      system:serviceaccount:pk-metal:pk-metal  4m
+    pk-metal/reboot-w-1-x7k2p                       simhw2288v5000401  Reboot        5      alice                                    30s
+
+    See the plan of one and approve it: pk-metal approve <namespace>/<operation>
+`}
+/>
+
+Read the plan of an install and approve it. This machine has one virtual media slot.
+
+<Terminal
+title="pk-metal approve pk-metal/provision-simhw2288v5000397-1a2b3c4d"
+replay
+mark={['Approve as', 'everything on that disk']}
+text={`
+    $ pk-metal approve pk-metal/provision-simhw2288v5000397-1a2b3c4d
+    operation pk-metal/provision-simhw2288v5000397-1a2b3c4d
+      why:         Provisioning
+      proposed by: system:serviceaccount:pk-metal:pk-metal
+    host simhw2288v5000397 (asset ci-00397, serial SIMHW2288V5000397)
+      BMC: https://192.0.2.11 (endpoint ci-00397)
+    steps, in this order:
+       1. eject whatever is mounted on virtual media slot CD
+       2. mount the Talos v1.14.6 installer with the machine config of TalosNode cp-1 built in (boot asset cp-1-embedded) on virtual media slot CD (content sha256:9f2c41d07ab3…)
+       3. boot from Cd at the next start only, in UEFI mode
+       4. power cycle: if the machine is on, force it off (no clean shutdown) and on again; if it is off, power it on
+       5. wait up to 30m for TalosNode cp-1 to report in at 10.0.0.11
+       6. eject whatever is mounted on virtual media slot CD
+    note: the installer on slot CD carries the machine config of TalosNode cp-1, with its keys and tokens. It is built for this node only, the BMC fetches it under a grant made for this boot, and it is ejected when the node reports in
+    boots TalosNode cp-1: address 10.0.0.11, role controlplane
+      installs Talos onto the disk that matches serial=SIMDISK000397; everything on that disk is overwritten
+
+    Approve as bob? [y/N] y
+    approved pk-metal/provision-simhw2288v5000397-1a2b3c4d as bob; the operator starts it now. Follow it with: pk-metal status
+`}
+/>
+
+Approve in a script. The command prints the plan and does not ask.
+
+```sh
+pk-metal approve --yes provision-simhw2288v5000397-1a2b3c4d
+```
+
+## Messages
+
+| Message | Cause | What to do |
+| --- | --- | --- |
+| `was proposed by you` | You proposed the operation, for example with [](cli:reboot). | Ask a different person to approve it. |
+| `is already approved by` | A person approved it before. | Follow it with [](cli:status). |
+| `changed since its plan was shown` | The object or its plan changed while you read. | Run the command again and read the new plan. |
+| `no answer within 5m` | The question got no answer in five minutes. | Run the command again. |
+| `stdin is not a terminal` | The command cannot ask in a script. | Read the plan, then give [`--yes`](cli:approve#--yes). |
+| `no operation ... in namespace` | The name or the namespace is wrong. | Use the name that the message or `pk-metal status` shows. |
+
+## Objects
+
+| Object | Access | Purpose |
+| --- | --- | --- |
+| `SelfSubjectReview` | create | Gets your user name from the API server. |
+| [](kind:HostOperation) | get, list, patch | Reads the plan. Writes `spec.approval.approvedBy`. |
+| [](kind:Host), [](kind:ManagementEndpoint) | get | Shows the machine and its BMC paths in the plan. |
+| [](kind:BootAsset), [](kind:TalosNode) | get | Shows the media, the node, its address and its install disk. |
+
+If you have no permission to read one of the last four kinds, the plan says that the object is not found.
+
+## Exit status
+
+<CliExit cmd="approve" />
+
+An answer other than `y` or `yes` gives code 1 and the message `not approved; nothing changed`.
+
+## Related
+
+- [](concept:approval) explains why a person approves each plan.
+- [](flow:approval-flow) shows the full path from proposal to result.
+- [](howto:approve-hold-retry) is the procedure.
+- [](cli:rollout) approves a [](kind:TalosRollout), which covers the operations of all its nodes.
+- [](cli:top) approves with the key `a`.
+- [](cli:abort) stops an approved operation.

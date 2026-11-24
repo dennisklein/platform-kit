@@ -1,0 +1,97 @@
+---
+title: pk-metal reinstall
+description: Asks the operator to wipe a node and install it again on the same machine.
+type: cli
+eyebrow: Command · pk-metal
+xref: { cat: cli, id: reinstall }
+sidebar: { label: reinstall }
+sources:
+  - /repo/metal/cmd/pk-metal/lifecycle.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import CliBadges from '../../../../components/cli/CliBadges.astro';
+import CliExit from '../../../../components/cli/CliExit.astro';
+import CliFlags from '../../../../components/cli/CliFlags.astro';
+import CliSynopsis from '../../../../components/cli/CliSynopsis.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+<CliBadges cmd="reinstall" />
+
+`pk-metal reinstall` asks for a new install of one node on the machine that it runs on.
+Use it for a damaged install, or after you replace a disk. The operator proposes one operation, and a person approves it.
+
+## Synopsis
+
+<CliSynopsis cmd="reinstall" />
+
+<dl>
+  <dt>`<claim>` or `<node>`</dt>
+  <dd>The name of the [](kind:HostClaim), or the name of the [](kind:TalosNode) that a claim names.</dd>
+</dl>
+
+## Flags
+
+<CliFlags cmd="reinstall" />
+
+## What it does
+
+1. The command finds the claim by its name. If no claim has the name, it finds the claim that names the node.
+2. It refuses a claim that has no completed install. Such a claim installs by itself.
+3. It sets the annotation `metal.pk.io/reinstall` on the claim. The value is the time of the install that it replaces.
+4. With [`--ack-etcd-risk`](cli:reinstall#--ack-etcd-risk), it also sets `metal.pk.io/ack-etcd-risk` to your reason.
+5. The [](ctrl:hostclaim) proposes one [](kind:HostOperation). Approve it with [](cli:approve).
+
+The operation does these steps:
+
+1. It drains the node.
+2. For a control plane, it removes the node from etcd.
+3. It resets the system disk.
+4. It boots the installer.
+5. It waits until the node checks in again.
+
+<Callout type="warning">
+Make sure that the node has no data that you must keep. The operation wipes the system disk of the machine.
+</Callout>
+
+<Callout type="caution">
+Give `--ack-etcd-risk` only when you accept the risk. A cluster with three control planes has two etcd members while one control plane reinstalls. The operator refuses that even number without the flag.
+</Callout>
+
+If you replaced the disk, change `installDiskSelector` of the TalosNode before you run the command.
+
+## Examples
+
+<Terminal
+title="pk-metal reinstall"
+text={`
+    $ pk-metal reinstall w-1
+    claim default/w-1: reinstall of node w-1 on host simhw2288v5000400 asked for (the install of 2026-11-20T08:15:02Z).
+    The operator proposes one operation: drain, leave etcd (control plane), reset the system disk, install, wait for the check-in.
+    Approve it with: pk-metal approve. pk-metal status shows what it waits for.
+`}
+/>
+
+Reinstall a control plane of a cluster with three control planes.
+
+```sh
+pk-metal reinstall --ack-etcd-risk "corrupt install, ticket 456" cp-3
+```
+
+## Objects
+
+| Object | Access | Purpose |
+| --- | --- | --- |
+| [](kind:HostClaim) | get, list, patch | Sets `metal.pk.io/reinstall` and, with the flag, `metal.pk.io/ack-etcd-risk`. |
+
+## Exit status
+
+<CliExit cmd="reinstall" />
+
+## Related
+
+- [](cli:replace) moves the node to a different machine, for hardware that failed.
+- [](cli:wipe) wipes a released machine without a new install.
+- [](howto:replace-a-node)
+- [](howto:remove-a-node)
+- [](rb:node-not-ready)

@@ -1,0 +1,115 @@
+---
+title: pk-metal upgrade
+description: Sets the Talos or Kubernetes version that a cluster asks for, and shows the rollout that the operator proposes.
+type: cli
+eyebrow: Command · pk-metal
+xref: { cat: cli, id: upgrade }
+sidebar: { label: upgrade }
+sources:
+  - /repo/metal/cmd/pk-metal/upgrade.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import CliBadges from '../../../../components/cli/CliBadges.astro';
+import CliExit from '../../../../components/cli/CliExit.astro';
+import CliFlags from '../../../../components/cli/CliFlags.astro';
+import CliSynopsis from '../../../../components/cli/CliSynopsis.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+<CliBadges cmd="upgrade" />
+
+`pk-metal upgrade` changes the version in the spec of a [](kind:TalosCluster).
+Then it waits for the [](kind:TalosRollout) that the operator proposes, and prints its plan.
+Nothing on a machine changes until a person approves that plan.
+
+## Synopsis
+
+<CliSynopsis cmd="upgrade" />
+
+<dl>
+  <dt>`talos` or `kubernetes`</dt>
+  <dd>What to upgrade.</dd>
+  <dt>`<cluster>`</dt>
+  <dd>The name of the TalosCluster.</dd>
+  <dt>`<version>`</dt>
+  <dd>The new version, in the form `v1.2.3`.</dd>
+</dl>
+
+## Flags
+
+<CliFlags cmd="upgrade" />
+
+## What it does
+
+1. The command reads the TalosCluster.
+2. It examines the step. It refuses these steps and changes nothing:
+   - A version that is not in the form `v1.2.3`.
+   - A version that is older than the current one.
+   - A Talos upgrade from a release that Talos does not support as a source.
+   - A pair of Talos and Kubernetes versions that Talos does not support.
+3. It writes the version into `spec.talosVersion` or `spec.kubernetesVersion`.
+4. It waits for the rollout, at most the time of [`--wait`](cli:upgrade#--wait).
+5. It prints the plan of the rollout and the command that approves it.
+
+<dl>
+  <dt>Talos upgrade</dt>
+  <dd>The operator drains each node, upgrades it with the installer for that version and reboots it. Control planes go first.</dd>
+  <dt>Kubernetes upgrade</dt>
+  <dd>Each node gets the new kubelet and the new control plane images. Then kube-proxy follows.</dd>
+</dl>
+
+If the cluster already asks for the version, the command changes nothing and shows the rollout.
+With `--wait 0`, the command does not wait for the rollout.
+
+## Examples
+
+<Terminal
+title="pk-metal upgrade"
+replay
+mark={['Nothing runs until']}
+text={`
+    $ pk-metal upgrade talos lab v1.14.7
+    cluster lab now asks for talos v1.14.7 (was v1.14.6); nothing on a machine changed yet
+
+    rollout lab-talosupgrade-1a2b3c4d: TalosUpgrade on cluster lab to Talos v1.14.7
+      proposed by system:serviceaccount:pk-metal:pk-metal
+      state AwaitingApproval
+
+    plan sha256:5b0c9e41a7d2…: control planes one at a time, then up to 1 worker(s) at once; it pauses after the first node
+      1. cp-1 (controlplane, host simhw2288v5000397): v1.14.6 -> v1.14.7, REBOOTS
+      2. cp-2 (controlplane, host simhw2288v5000398): v1.14.6 -> v1.14.7, REBOOTS
+      3. cp-3 (controlplane, host simhw2288v5000399): v1.14.6 -> v1.14.7, REBOOTS
+      4. w-1 (worker, host simhw2288v5000400): v1.14.6 -> v1.14.7, REBOOTS
+      5. w-2 (worker, host simhw2288v5000401): v1.14.6 -> v1.14.7, REBOOTS
+
+    Nothing runs until someone approves it: pk-metal rollout approve lab-talosupgrade-1a2b3c4d
+`}
+/>
+
+Upgrade Kubernetes.
+
+```sh
+pk-metal upgrade kubernetes lab v1.36.3
+```
+
+## Objects
+
+| Object | Access | Purpose |
+| --- | --- | --- |
+| [](kind:TalosCluster) | get, patch | Writes the version. The patch carries the UID and the resource version of the object that the command read. |
+| [](kind:TalosRollout) | list | Finds the rollout that the operator proposes for the version. |
+
+If you keep the TalosCluster in git, change the version there. The command and git must not disagree.
+
+## Exit status
+
+<CliExit cmd="upgrade" />
+
+The command gives code 1 if no rollout has a plan when the time of [`--wait`](cli:upgrade#--wait) ends. The version in the spec stays.
+
+## Related
+
+- [](cli:rollout) approves the rollout and continues it after the pause.
+- [](howto:upgrade-talos)
+- [](flow:day-2-change)
+- [](ctrl:taloscluster) and [](ctrl:talosrollout)

@@ -1,0 +1,134 @@
+---
+title: pk-metal backup
+description: Takes an etcd snapshot now, lists the snapshots, downloads one, or decrypts one on your workstation.
+type: cli
+eyebrow: Command · pk-metal
+xref: { cat: cli, id: backup }
+sidebar: { label: backup }
+sources:
+  - /repo/metal/cmd/pk-metal/backup.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import CliBadges from '../../../../components/cli/CliBadges.astro';
+import CliExit from '../../../../components/cli/CliExit.astro';
+import CliFlags from '../../../../components/cli/CliFlags.astro';
+import CliSynopsis from '../../../../components/cli/CliSynopsis.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+<CliBadges cmd="backup" />
+
+`pk-metal backup` works with the etcd snapshots of a Talos cluster.
+The operator takes the snapshots on the schedule of an [](kind:EtcdBackupPolicy) and keeps them encrypted.
+
+The operator has no private key. It can store a snapshot, but it cannot read one.
+To decrypt, you need an age identity that agrees with a public key in the policy, on your workstation.
+
+## Synopsis
+
+<CliSynopsis cmd="backup" />
+
+## Subcommands
+
+| Subcommand | Effect | Changes the cluster |
+| --- | --- | --- |
+| `now` | Takes a snapshot now and waits until the operator has it in the sink. | Yes: one [](kind:EtcdSnapshot) |
+| `list` | Lists the snapshots, the newest first. | No |
+| `get` | Downloads one encrypted snapshot. | No |
+| `decrypt` | Decrypts a snapshot on your workstation and makes sure that it is intact. | No |
+
+You can put the flags before or after the arguments.
+
+### now
+
+`pk-metal backup now <cluster>`
+
+<CliFlags cmd="backup" sub="now" />
+
+1. The command finds the policy: the EtcdBackupPolicy with that name, or the one policy of the TalosCluster with that name.
+2. It makes an EtcdSnapshot with the name `<policy>-manual-<time>`.
+3. It waits until the operator stored and verified the snapshot, and prints each progress message.
+
+If the cluster has more than one policy, give the name of a policy.
+
+### list
+
+`pk-metal backup list [<cluster>]`
+
+<CliFlags cmd="backup" sub="list" />
+
+The `STATE` column is `Taking`, `Failed`, `Unverified` or `Verified`.
+
+### get
+
+`pk-metal backup get <snapshot> -o <file>`
+
+<CliFlags cmd="backup" sub="get" />
+
+The command downloads from an S3 sink. It reads the credentials of the sink from a Secret in the namespace `pk-metal`.
+It cannot read a snapshot on the backup volume of the operator (a `pvc` sink). Copy the file from the volume first.
+
+### decrypt
+
+`pk-metal backup decrypt (<snapshot> | --in <file.age>) --identity <file> [-o <file.db>]`
+
+<CliFlags cmd="backup" sub="decrypt" />
+
+1. The command reads the age identity file.
+2. It decrypts the snapshot, from the sink or from the file of `--in`.
+3. It makes sure that the result is an intact etcd snapshot.
+4. For a snapshot from the sink, it compares the SHA-256 with the record in the EtcdSnapshot.
+5. With `-o`, it also writes the plaintext.
+
+<Callout type="warning">
+Delete the plaintext file when the work is complete. It holds each Secret of the cluster. The command writes it with mode `0600` and does not replace a file that exists.
+</Callout>
+
+With `--in`, the command does not talk to the cluster.
+
+## Examples
+
+<Terminal
+title="pk-metal backup"
+replay
+text={`
+    $ pk-metal backup now lab
+    requested snapshot lab-daily-manual-20261124-093000 of cluster lab (policy lab-daily)
+    stored and verified: s3://backups/lab/lab-daily-manual-20261124-093000.db.age, 18.4MiB, from cp-1, sha256:3d1f0a9c5b7e42d86a1c0f9e8b7d6c5a4f3e2d1c0b9a8f7e6d5c4b3a29180716
+    $ pk-metal backup list lab
+    NAME                              CLUSTER  TAKEN    FROM  SIZE     STATE     LOCATION
+    lab-daily-manual-20261124-093000  lab      12s ago  cp-1  18.4MiB  Verified  s3://backups/lab/lab-daily-manual-20261124-093000.db.age
+    lab-daily-20261124-060000         lab      3h ago   cp-2  18.3MiB  Verified  s3://backups/lab/lab-daily-20261124-060000.db.age
+    $ pk-metal backup decrypt lab-daily-20261124-060000 --identity ~/.config/age/keys.txt
+    intact etcd snapshot: 18.3MiB, sha256:8a7b6c5d4e3f20112233445566778899aabbccddeeff00112233445566778899, bbolt transaction 48213
+`}
+/>
+
+Download a snapshot and decrypt the file later.
+
+```sh
+pk-metal backup get lab-daily-20261124-060000 -o lab.db.age
+pk-metal backup decrypt --in lab.db.age --identity ~/.config/age/keys.txt
+```
+
+## Objects
+
+| Object | Access | Purpose |
+| --- | --- | --- |
+| [](kind:EtcdBackupPolicy) | get, list | Finds the policy and the sink. |
+| [](kind:EtcdSnapshot) | create | `now`: the request for a snapshot. |
+| [](kind:EtcdSnapshot) | get, list | `list`, `get`, `decrypt`, and the wait of `now`. |
+| Secret in `pk-metal` | get | `get` and `decrypt`: the credentials and the CA of the S3 sink. |
+
+## Exit status
+
+<CliExit cmd="backup" />
+
+`now` gives code 1 if the snapshot fails, if the operator stored it but did not verify it, or if the time of `--timeout` ends.
+
+## Related
+
+- [](cli:restore) uses a verified snapshot to restore etcd.
+- [](cli:status) shows the backup state of each cluster in the `BACKUP` column.
+- [](howto:back-up-etcd)
+- [](howto:restore-etcd)

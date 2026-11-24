@@ -1,0 +1,73 @@
+---
+title: pk-metal hold
+description: Stops the operator from new proposals for one claim. Nothing on the machine changes.
+type: cli
+eyebrow: Command · pk-metal
+xref: { cat: cli, id: hold }
+sidebar: { label: hold }
+sources:
+  - /repo/metal/cmd/pk-metal/ops.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import CliBadges from '../../../../components/cli/CliBadges.astro';
+import CliExit from '../../../../components/cli/CliExit.astro';
+import CliFlags from '../../../../components/cli/CliFlags.astro';
+import CliSynopsis from '../../../../components/cli/CliSynopsis.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+<CliBadges cmd="hold" />
+
+`pk-metal hold` tells the operator to propose no new operation for one [](kind:HostClaim).
+It changes nothing on the machine.
+
+## Synopsis
+
+<CliSynopsis cmd="hold" />
+
+<dl>
+  <dt>`<claim>`</dt>
+  <dd>The name of the claim. The default namespace is `default`. You can also write `<namespace>/<claim>`.</dd>
+</dl>
+
+## Flags
+
+<CliFlags cmd="hold" />
+
+## What it does
+
+1. The command reads the claim.
+2. It sets the annotation `metal.pk.io/hold` on the claim. The value is the reason.
+3. The operator proposes no new operation for the claim: no install, no reinstall, no BIOS change and no firmware change.
+
+A hold does not change the operations that are there. Approve them, abort them or delete them yourself.
+[](cli:status) shows the claim with the mark `(on hold)`.
+
+## Examples
+
+<Terminal
+title="pk-metal hold"
+text={`
+    $ pk-metal hold --reason "disk swap, ticket 123" default/cp-2
+    claim default/cp-2 is on hold: the operator proposes no new operation for it.
+    Existing operations are not changed. Remove the hold with: pk-metal unhold default/cp-2
+`}
+/>
+
+## Objects
+
+| Object | Access | Purpose |
+| --- | --- | --- |
+| [](kind:HostClaim) | get, list, patch | Sets the annotation `metal.pk.io/hold`. |
+
+## Exit status
+
+<CliExit cmd="hold" />
+
+## Related
+
+- [](cli:unhold) removes the hold.
+- [](cli:top) holds a claim with the key `h`.
+- [](howto:approve-hold-retry)
+- [](howto:maintenance-mode) takes a machine out of the hands of the operator for hardware work.
+- [](concept:approval)

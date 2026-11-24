@@ -1,0 +1,57 @@
+---
+title: pk-metal version
+description: Prints the version of the pk-metal program.
+type: cli
+eyebrow: Command · pk-metal
+xref: { cat: cli, id: version }
+sidebar: { label: version }
+sources:
+  - /repo/metal/cmd/pk-metal/cli.go
+  - /repo/metal/cmd/pk-metal/main.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import CliBadges from '../../../../components/cli/CliBadges.astro';
+import CliExit from '../../../../components/cli/CliExit.astro';
+import CliFlags from '../../../../components/cli/CliFlags.astro';
+import CliSynopsis from '../../../../components/cli/CliSynopsis.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+<CliBadges cmd="version" />
+
+`pk-metal version` prints the version of the program on one line.
+
+## Synopsis
+
+<CliSynopsis cmd="version" />
+
+The command takes no arguments and has no flags.
+
+## What it does
+
+The build writes the version into the binary. A binary from a release prints the release tag.
+A binary that you build without a tag prints `dev`.
+
+## Examples
+
+<Terminal
+title="pk-metal version"
+text={`
+    $ pk-metal version
+    v0.9.0
+`}
+/>
+
+## Objects
+
+The command reads and writes no object. It does not talk to the cluster or to a BMC.
+
+## Exit status
+
+<CliExit cmd="version" />
+
+## Related
+
+- [](cli:index)
+- [](howto:collect-diagnostics) asks for the version of the program.
+- [](cli:approve) can show `unknown step` when the program is older than the operator. Then install a newer program.

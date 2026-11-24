@@ -1,0 +1,84 @@
+---
+title: pk-metal check
+description: Tests that a BMC answers, and lists its virtual media slots and its systems.
+type: cli
+eyebrow: Command · pk-metal
+xref: { cat: cli, id: check }
+sidebar: { label: check }
+sources:
+  - /repo/metal/cmd/pk-metal/main.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import CliBadges from '../../../../components/cli/CliBadges.astro';
+import CliExit from '../../../../components/cli/CliExit.astro';
+import CliFlags from '../../../../components/cli/CliFlags.astro';
+import CliSynopsis from '../../../../components/cli/CliSynopsis.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+<CliBadges cmd="check" />
+
+`pk-metal check` tests one BMC before you enrol the machine. It reads only.
+The command talks to the BMC directly. It does not use the operator or the cluster.
+
+## Synopsis
+
+<CliSynopsis cmd="check" />
+
+<dl>
+  <dt>`<bmc-url>`</dt>
+  <dd>The address of the BMC, for example `https://192.0.2.11`. Give one address.</dd>
+</dl>
+
+## Flags
+
+<CliFlags cmd="check" />
+
+The password comes from the environment variable `PK_METAL_BMC_PASSWORD`. It is never a flag.
+
+## What it does
+
+1. The command opens a read-only Redfish session on the BMC.
+2. It reads the manager: the vendor and the firmware version.
+3. It reads each virtual media slot and the dialect that the slot uses to mount an image.
+4. It reads each system: the serial number and the power state.
+5. It prints `check: OK (read-only)`.
+
+The session cannot change the BMC. The client refuses all requests that write.
+
+## Examples
+
+<Terminal
+title="pk-metal check"
+text={`
+    $ export PK_METAL_BMC_PASSWORD=...
+    $ pk-metal check --user admin https://192.0.2.11
+    manager:  Huawei fw 6.76
+    media:    CD             dialect=vmm-control
+    system:   1 serial=SIMHW2288V5000397 power=On
+    check:    OK (read-only)
+`}
+/>
+
+A BMC in the lab has a self-signed certificate. Add [`--insecure`](cli:check#--insecure) only for such a BMC.
+
+```sh
+pk-metal check --insecure https://10.77.0.1:8441
+```
+
+## Objects
+
+The command reads and writes no object in the cluster.
+The operator does the same checks when it reconciles a [](kind:ManagementEndpoint).
+
+## Exit status
+
+<CliExit cmd="check" />
+
+## Related
+
+- [](cli:inventory) reads the full hardware inventory.
+- [](howto:check-a-bmc)
+- [](howto:enrol-hosts)
+- [](rb:bmc-unreachable)
+- [](concept:virtual-media-boot) explains why the media slots are important.

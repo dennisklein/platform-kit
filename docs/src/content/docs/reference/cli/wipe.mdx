@@ -1,0 +1,99 @@
+---
+title: pk-metal wipe
+description: Asks the operator to wipe a released machine that can still hold the install of a node.
+type: cli
+eyebrow: Command · pk-metal
+xref: { cat: cli, id: wipe }
+sidebar: { label: wipe }
+sources:
+  - /repo/metal/cmd/pk-metal/lifecycle.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import CliBadges from '../../../../components/cli/CliBadges.astro';
+import CliExit from '../../../../components/cli/CliExit.astro';
+import CliFlags from '../../../../components/cli/CliFlags.astro';
+import CliSynopsis from '../../../../components/cli/CliSynopsis.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+<CliBadges cmd="wipe" />
+
+`pk-metal wipe` asks for a wipe of one released machine.
+The operator proposes an operation that boots a Talos image, and that image erases the system disk. A person approves it.
+
+## Synopsis
+
+<CliSynopsis cmd="wipe" />
+
+<dl>
+  <dt>`<host>`</dt>
+  <dd>The name of the [](kind:Host).</dd>
+</dl>
+
+## Flags
+
+<CliFlags cmd="wipe" />
+
+## When a machine needs a wipe
+
+Usually, the operator resets a machine through Talos when it releases the Host.
+If the node did not answer at that time, the operator could not reset it. The disk can still hold the node, with the credentials of its cluster.
+
+The operator then marks the Host:
+
+- The annotation `metal.pk.io/disk-not-wiped` names the cluster and the node.
+- The condition `DiskWiped` is False.
+- The operator installs nothing on the Host until the wipe is complete.
+
+## What it does
+
+1. The command reads the Host. It refuses a Host that has no such mark.
+2. It finds the Talos version for the wipe image. The default is the version of the cluster that the node was in.
+3. It sets the annotation `metal.pk.io/wipe` on the Host. The value is the Talos version.
+4. The operator proposes a [](kind:HostOperation) with the reason `Wipe`. Approve it with [](cli:approve).
+5. The operation boots the image. The image erases the system disk and stops there.
+
+If the cluster of the node does not exist, give the version with [`--talos-version`](cli:wipe#--talos-version).
+
+<Callout type="warning">
+Make sure that the name of the Host is correct. The operation erases the system disk of that machine.
+</Callout>
+
+## Examples
+
+<Terminal
+title="pk-metal wipe"
+text={`
+    $ pk-metal wipe simhw2288v5000400
+    host simhw2288v5000400: wipe asked for (it may still hold node lab/w-1).
+    The operator proposes an operation that boots a Talos v1.14.6 image which erases the system disk; approve it with: pk-metal approve
+`}
+/>
+
+A Host that the operator reset through Talos needs no wipe.
+
+<Terminal
+title="pk-metal wipe"
+text={`
+    $ pk-metal wipe simhw2288v5000399
+    pk-metal: host simhw2288v5000399 is not marked as holding an install (metal.pk.io/disk-not-wiped); a release that reset it through Talos wiped it already
+`}
+/>
+
+## Objects
+
+| Object | Access | Purpose |
+| --- | --- | --- |
+| [](kind:Host) | get, patch | Reads the mark. Sets the annotation `metal.pk.io/wipe`. |
+| [](kind:TalosCluster) | get | Reads the Talos version, when you do not give [`--talos-version`](cli:wipe#--talos-version). |
+
+## Exit status
+
+<CliExit cmd="wipe" />
+
+## Related
+
+- [](howto:release-a-host)
+- [](cli:replace) and [](cli:scale) need a wiped Host.
+- [](cli:reinstall) wipes a node and installs it again.
+- [](ctrl:host)

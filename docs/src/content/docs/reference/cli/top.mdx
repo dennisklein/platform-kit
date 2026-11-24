@@ -1,0 +1,108 @@
+---
+title: pk-metal top
+description: Shows a live view of each machine, with keys to approve, hold and retry.
+type: cli
+eyebrow: Command · pk-metal
+xref: { cat: cli, id: top }
+sidebar: { label: top }
+sources:
+  - /repo/metal/cmd/pk-metal/top.go
+  - /repo/metal/cmd/pk-metal/top_model.go
+  - /repo/metal/cmd/pk-metal/top_view.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import CliBadges from '../../../../components/cli/CliBadges.astro';
+import CliExit from '../../../../components/cli/CliExit.astro';
+import CliFlags from '../../../../components/cli/CliFlags.astro';
+import CliSynopsis from '../../../../components/cli/CliSynopsis.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+<CliBadges cmd="top" />
+
+`pk-metal top` shows one tile for each machine and updates the tiles when the cluster changes.
+Three keys do the same work as [](cli:approve), [](cli:hold) and [](cli:retry).
+
+## Synopsis
+
+<CliSynopsis cmd="top" />
+
+The command takes no arguments. It needs a terminal. In a script, use [](cli:status).
+
+## Flags
+
+<CliFlags cmd="top" />
+
+## What it shows
+
+<dl>
+  <dt>Header</dt>
+  <dd>Each [](kind:TalosCluster) and the number of its nodes that are Ready.</dd>
+  <dt>Tile</dt>
+  <dd>One machine: its BMC, the phase of the [](kind:Host) and its block, the claim, the operation and the [](kind:TalosNode).</dd>
+  <dt>Operation line</dt>
+  <dd>The step that runs, for example `5/9 setBootOverride`, or a mark that the operation waits for approval.</dd>
+  <dt>With [`--fleet`](cli:top#--fleet)</dt>
+  <dd>The state of the simulated BMC: power, media, boot override and the last Redfish call. Also the state of the virtual machine and the last console lines.</dd>
+  <dt>With [`--workload-kubeconfig`](cli:top#--workload-kubeconfig)</dt>
+  <dd>The Ready condition of each node in the workload cluster.</dd>
+</dl>
+
+Without `--fleet`, the command works the same with real hardware.
+
+## Keys
+
+| Key | Effect |
+| --- | --- |
+| <kbd>Tab</kbd>, arrows | Select a machine. |
+| <kbd>a</kbd> | Show the plan of the operation that waits for approval. Then <kbd>y</kbd> approves it. All other keys change nothing. |
+| <kbd>h</kbd> | Hold the claim of the machine, or remove the hold. |
+| <kbd>r</kbd> | Retry the failed operation of the machine. |
+| <kbd>q</kbd>, <kbd>Escape</kbd> | Stop the program. |
+
+The key <kbd>a</kbd> follows the rules of [](cli:approve).
+If the plan is on the screen for more than five minutes, <kbd>y</kbd> approves nothing. Push <kbd>a</kbd> again.
+If the operation or its plan changed after the program showed it, the approval fails and nothing changes.
+
+<Callout type="caution">
+Read the plan before you push <kbd>y</kbd>. An approved install overwrites the disk that the plan names.
+</Callout>
+
+## Examples
+
+Watch real hardware.
+
+```sh
+pk-metal top
+```
+
+Watch the virtual lab. The simulator serves the state of its machines on port 8440.
+
+```sh
+pk-metal --kubeconfig .lab/kubeconfig top --fleet http://127.0.0.1:8440/state
+```
+
+In the lab, [](lab:up) prints this command with the correct paths.
+
+## Objects
+
+| Object | Access | Purpose |
+| --- | --- | --- |
+| [](kind:Host), [](kind:ManagementEndpoint), [](kind:HostClaim), [](kind:HostOperation) | list, watch | The tiles. |
+| [](kind:TalosCluster), [](kind:TalosNode) | list, watch | The header and the node line. |
+| [](kind:HostOperation) | patch, delete | The keys <kbd>a</kbd> and <kbd>r</kbd>. |
+| [](kind:HostClaim) | patch | The key <kbd>h</kbd>. |
+| Nodes of the workload cluster | list, watch | Only with [`--workload-kubeconfig`](cli:top#--workload-kubeconfig). |
+
+## Exit status
+
+<CliExit cmd="top" />
+
+The command gives code 1 if stdin or stdout is not a terminal.
+
+## Related
+
+- [](cli:status) gives the same facts for scripts.
+- [](lab:page/simulated-bmc) describes the state endpoint of the simulator.
+- [](howto:approve-hold-retry)
+- [](tut:lab-first-cluster)

@@ -1,0 +1,86 @@
+---
+title: Global flags
+description: The flags that all pk-metal commands that talk to the cluster accept.
+type: cli
+eyebrow: Reference · pk-metal
+xref: { cat: cli, id: global-flags }
+sidebar: { order: 0 }
+sources:
+  - /repo/metal/cmd/pk-metal/cli.go
+  - /repo/metal/cmd/pk-metal/cluster.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+Two flags select the cluster that a command talks to.
+They follow the rules of `kubectl`.
+
+## Flags
+
+<div class="pk-fields pk-cli-flags not-content">
+  <table>
+    <thead>
+      <tr><th scope="col">Flag</th><th scope="col">Default</th><th scope="col">Description</th></tr>
+    </thead>
+    <tbody>
+      <tr id="--kubeconfig">
+        <td class="f-path"><a href="#--kubeconfig" class="f-anchor"><code>--kubeconfig</code></a><code class="f-val">&lt;file&gt;</code></td>
+        <td class="f-type"><span class="f-none">-</span></td>
+        <td class="f-desc">The kubeconfig file. Without the flag, the program uses <code>$KUBECONFIG</code>, then <code>~/.kube/config</code>, then the account of the pod that it runs in.</td>
+      </tr>
+      <tr id="--context">
+        <td class="f-path"><a href="#--context" class="f-anchor"><code>--context</code></a><code class="f-val">&lt;name&gt;</code></td>
+        <td class="f-type"><span class="f-none">-</span></td>
+        <td class="f-desc">The context in the kubeconfig. Without the flag, the program uses the current context.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+## Where to put them
+
+Put the global flags before the command or after it. The two forms are equal.
+The flags of a command can also come after its arguments. After `--`, each word is an argument.
+
+<Terminal
+title="global flags"
+text={`
+    $ pk-metal --context kind-pk-metal status
+    $ pk-metal status --context kind-pk-metal
+    $ pk-metal --kubeconfig .lab/kubeconfig top
+`}
+/>
+
+## Commands that accept them
+
+All commands that talk to the Kubernetes API accept the global flags:
+
+- [](cli:status) and [](cli:top)
+- [](cli:approve), [](cli:retry), [](cli:abort), [](cli:hold), [](cli:unhold) and [](cli:rollout)
+- [](cli:reboot), [](cli:upgrade), [](cli:scale), [](cli:reinstall), [](cli:replace) and [](cli:wipe)
+- [](cli:backup) and [](cli:restore)
+- [](cli:pivot)
+
+These commands do not talk to the Kubernetes API, and they refuse the global flags after the command:
+[](cli:check), [](cli:inventory), [](cli:render), [](cli:boot), [](cli:bootstrap), [](cli:relay), [](cli:sim) and [](cli:version).
+
+<Callout type="note">
+Give [](cli:pivot) the source cluster with the global flags. Give it the target cluster with `--to` and `--to-context`.
+</Callout>
+
+## Other inputs
+
+Some commands read a secret from the environment. A secret is never a flag, so it does not show in the process list.
+
+| Variable | Used by | Content |
+| --- | --- | --- |
+| `KUBECONFIG` | All commands that talk to the cluster | The kubeconfig file, when [`--kubeconfig`](cli:global-flags#--kubeconfig) is not set. |
+| `PK_METAL_BMC_PASSWORD` | [](cli:check), [](cli:inventory), [](cli:boot) | The password of the BMC user. |
+| `PK_METAL_RELAY_SECRET` | [](cli:relay), [](cli:boot) | The shared secret of the relay. |
+
+## Related
+
+- [](cli:index)
+- [](howto:install-hosts)
+- [](lab:up)

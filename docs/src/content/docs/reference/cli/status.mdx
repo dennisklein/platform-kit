@@ -1,0 +1,158 @@
+---
+title: pk-metal status
+description: Shows the machines, the BMCs, the claims, the operations and the clusters, with the reason for each block.
+type: cli
+eyebrow: Command · pk-metal
+xref: { cat: cli, id: status }
+sidebar: { label: status }
+sources:
+  - /repo/metal/cmd/pk-metal/status.go
+  - /repo/metal/cmd/pk-metal/status_clusters.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import CliBadges from '../../../../components/cli/CliBadges.astro';
+import CliExit from '../../../../components/cli/CliExit.astro';
+import CliFlags from '../../../../components/cli/CliFlags.astro';
+import CliSynopsis from '../../../../components/cli/CliSynopsis.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+<CliBadges cmd="status" />
+
+`pk-metal status` shows the state of all machines in one view. It reads only.
+Below each table, it gives the reason for each row that has a block or a failure, and the command to run next.
+
+## Synopsis
+
+<CliSynopsis cmd="status" />
+
+The command takes no arguments.
+
+## Flags
+
+<CliFlags cmd="status" />
+
+## What it does
+
+1. The command lists the objects of the operator in the management cluster.
+2. It makes one row for each object and finds the rows that need a person.
+3. It prints the tables, or one JSON object with `-o json`.
+4. It exits with code 2 if one row or more needs a person.
+
+### Tables
+
+| Table | Rows | Columns |
+| --- | --- | --- |
+| `HOST` | Each [](kind:Host) | Asset, vendor, phase, claim, node and address, BMC paths that answer, block |
+| `OPERATION` | Each [](kind:HostOperation) that did not succeed | Host, phase, approver, block |
+| `ENDPOINT` | Each [](kind:ManagementEndpoint) | Asset, vendor, phase, address, block |
+| `CLAIM` | Each [](kind:HostClaim) that has no machine | Asset, phase, block. A hold shows as `(on hold)`. |
+| `CLUSTER` | Each [](kind:TalosCluster) | Talos and Kubernetes versions (spec and nodes), ready nodes, etcd, backup, API |
+| `NODE` | Each [](kind:TalosNode) | Cluster, role, host, address, version, boot stage, readiness |
+
+The command shows `OPERATION` and `CLAIM` only when they have rows.
+A failed operation stays in the table until you run [](cli:retry).
+
+### Rows that need a person
+
+<dl>
+  <dt>Host</dt>
+  <dd>The Host or its claim has a block, or the phase is Failed.</dd>
+  <dt>Operation</dt>
+  <dd>The phase is Failed or Aborted, or the operation has a block. This includes an operation that waits for approval.</dd>
+  <dt>Endpoint</dt>
+  <dd>The endpoint has a block, or the phase is Unreachable or Mismatch.</dd>
+  <dt>Claim</dt>
+  <dd>The claim has a block, or the phase is Ambiguous.</dd>
+  <dt>Cluster</dt>
+  <dd>The cluster is bootstrapped and its etcd or its Kubernetes API is not healthy. Or the backup is not current.</dd>
+  <dt>Node</dt>
+  <dd>The cluster is bootstrapped, the node reported a version, and the node is not Ready.</dd>
+</dl>
+
+Two blocks of an operation need no person: `OperationQueued` and `OutsideMaintenanceWindow`. The operator continues by itself.
+
+## Examples
+
+<Terminal
+title="pk-metal status"
+mark={['waits for approval']}
+text={`
+    $ pk-metal status
+    HOST               ASSET     VENDOR  PHASE        CLAIM         NODE              PATHS  BLOCKED
+    simhw2288v5000397  ci-00397  Huawei  Provisioned  default/cp-1  cp-1 (10.0.0.11)  1/1
+    simhw2288v5000398  ci-00398  Huawei  Assigned     default/cp-2  cp-2 (10.0.0.12)  1/1    Approval(provision-simhw2288v5000398-5e6f7a8b)
+    simhw2288v5000399  ci-00399  Huawei  Available    -             -                 1/1
+      simhw2288v5000398: operation provision-simhw2288v5000398-5e6f7a8b waits for approval
+
+    OPERATION                                       HOST               PHASE             APPROVED  BLOCKED
+    pk-metal/provision-simhw2288v5000398-5e6f7a8b   simhw2288v5000398  AwaitingApproval  -         AwaitingApproval
+      pk-metal/provision-simhw2288v5000398-5e6f7a8b: waits for approval; see the plan and approve: pk-metal approve pk-metal/provision-simhw2288v5000398-5e6f7a8b
+
+    ENDPOINT  ASSET     VENDOR  PHASE  ADDRESS             BLOCKED
+    ci-00397  ci-00397  Huawei  Ready  https://192.0.2.11
+    ci-00398  ci-00398  Huawei  Ready  https://192.0.2.12
+    ci-00399  ci-00399  Huawei  Ready  https://192.0.2.13
+
+    CLUSTER  TALOS WANT/RUN     K8S WANT/RUN       CP   WORKERS  ETCD         BOOTSTRAPPED          BACKUP          AVAILABLE
+    lab      v1.14.6 / v1.14.6  v1.36.2 / v1.36.2  1/3  0/0      EtcdRunning  2026-11-24T06:12:40Z  SnapshotRecent  ClusterAvailable
+
+    NODE  CLUSTER  ROLE          HOST               ADDRESS    VERSION  STAGE    READY
+    cp-1  lab      controlplane  simhw2288v5000397  10.0.0.11  v1.14.6  running  Ready
+    cp-2  lab      controlplane  -                  10.0.0.12  -        -        -
+    $ echo $?
+    2
+`}
+/>
+
+Use the JSON output in a script. The exit status tells the script if a person must act.
+
+```sh
+pk-metal status -o json | jq '.hosts[] | select(.needsAttention)'
+```
+
+Show the status again each 10 seconds.
+
+```sh
+watch -n 10 pk-metal status
+```
+
+## JSON output
+
+`-o json` prints the same facts as one object.
+
+| Key | Content |
+| --- | --- |
+| `version` | `1`. Keys do not change while the version is 1. New keys can come. |
+| `needsAttention` | `true` if one row or more needs a person. |
+| `hosts` | `name`, `asset`, `vendor`, `phase`, `claim`, `node` (`name`, `address`, or `null`), `pathsUp`, `pathsTotal`, `blockedOn`, `message`, `needsAttention` |
+| `operations` | `namespace`, `name`, `host`, `phase`, `approvedBy`, `blockedOn`, `message`, `needsAttention` |
+| `endpoints` | `name`, `asset`, `vendor`, `phase`, `address`, `blockedOn`, `message`, `needsAttention` |
+| `claims` | `namespace`, `name`, `asset`, `host`, `phase`, `blockedOn`, `message`, `onHold`, `needsAttention` |
+| `clusters` | `name`, `talosVersion`, `talosVersionsRunning`, `kubernetesVersion`, `kubernetesVersionRunning`, `controlPlanes`, `readyControlPlanes`, `workers`, `readyWorkers`, `available`, `etcd`, `bootstrappedAt`, `backup`, `backupMessage`, `message`, `needsAttention` |
+| `nodes` | `name`, `cluster`, `role`, `host`, `address`, `version`, `stage`, `ready`, `message`, `needsAttention` |
+
+Each key is always there. An empty value is `""`.
+The lists `operations` and `claims` hold all objects, also the operations that succeeded and the claims that are bound.
+
+## Objects
+
+| Object | Access | Purpose |
+| --- | --- | --- |
+| [](kind:Host), [](kind:ManagementEndpoint), [](kind:HostClaim), [](kind:HostOperation) | list | The first four tables. The command fails if it cannot read them. |
+| [](kind:TalosCluster), [](kind:TalosNode) | list | The cluster and node tables. A cluster without these kinds shows no such tables. |
+| [](kind:EtcdBackupPolicy) | list | The `BACKUP` column. Without permission, the column is empty. |
+
+The command writes nothing.
+
+## Exit status
+
+<CliExit cmd="status" />
+
+## Related
+
+- [](cli:top) shows the same objects as a live view.
+- [](cli:approve), [](cli:retry) and [](cli:rollout) are the commands that the notes name.
+- [](concept:phases-and-conditions) explains the phase and the block.
+- [](rb:operation-failed), [](rb:bmc-unreachable), [](rb:host-mismatch) and [](rb:node-not-ready) start from this output.
+- [](howto:collect-diagnostics)

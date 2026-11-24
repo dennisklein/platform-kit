@@ -1,0 +1,143 @@
+---
+title: pk-metal rollout
+description: Lists the rollouts of a Talos cluster, shows a plan, and approves, pauses, resumes or aborts a rollout.
+type: cli
+eyebrow: Command · pk-metal
+xref: { cat: cli, id: rollout }
+sidebar: { label: rollout }
+sources:
+  - /repo/metal/cmd/pk-metal/rollout.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import CliBadges from '../../../../components/cli/CliBadges.astro';
+import CliExit from '../../../../components/cli/CliExit.astro';
+import CliFlags from '../../../../components/cli/CliFlags.astro';
+import CliSynopsis from '../../../../components/cli/CliSynopsis.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+<CliBadges cmd="rollout" />
+
+`pk-metal rollout` controls a [](kind:TalosRollout). A rollout changes the nodes of one Talos cluster one at a time.
+The operator proposes a rollout. It does not start one. A person approves the plan.
+
+## Synopsis
+
+<CliSynopsis cmd="rollout" />
+
+<dl>
+  <dt>`<rollout>`</dt>
+  <dd>The name of the rollout, as `pk-metal rollout list` prints it. A rollout has no namespace.</dd>
+</dl>
+
+## Subcommands
+
+| Subcommand | Effect |
+| --- | --- |
+| `list` | Shows each rollout with its cluster, kind, target, progress and state. The newest is last. |
+| `show` | Shows the plan: each node in order, the change, if the node reboots, and the progress. |
+| `approve` | Shows the plan, asks, and approves this plan. |
+| `resume` | Continues after a pause. |
+| `pause` | Stops before the next node. The node that runs completes. |
+| `abort` | Stops the rollout permanently. The node that runs completes. |
+
+## Flags
+
+<CliFlags cmd="rollout" sub="approve" />
+
+Only `approve` and `abort` have `--yes`. It skips the question and nothing else: `approve --yes` still prints the plan and approves only the rollout that it read.
+
+## What it does
+
+A rollout has one of four kinds: a configuration change, a Talos upgrade, a Kubernetes upgrade or a reboot of all nodes.
+The plan puts control planes first, one at a time. Workers follow.
+
+### approve
+
+1. The command asks the API server for your user name.
+2. It reads the rollout. It refuses a rollout that has an approval, that a person aborted, that has no plan, or that you proposed.
+3. It prints the plan and asks `Approve plan <hash> as <user>? [y/N]`. The question waits five minutes.
+4. After a yes, it reads the rollout again. The object and the hash of the plan must be the same, and you must still be able to approve it.
+5. It writes your user name and the hash of the plan into `spec.approval`. The patch names the object (`uid`) and its version (`resourceVersion`), so the API server refuses it if the rollout changed after the read.
+6. On such a conflict, the command reads the rollout again. It approves only the same rollout with the same plan. Otherwise it stops and changes nothing.
+7. The [](ctrl:talosrollout) starts the first node.
+
+The approval names the plan by its hash. One approval covers the [](kind:HostOperation) of each node.
+If the plan changes before the first node starts, the approval does not cover it. The rollout ends as `PlanChanged`, and the operator proposes a new one.
+
+### pause and resume
+
+The rollout always pauses after the first node. Examine that node, then run `resume`.
+
+- `pause` sets `spec.paused`. No more nodes start.
+- `resume` removes `spec.paused` and sets the annotation `os.pk.io/resume` to the hash of the plan. The next node starts when the cluster is healthy.
+- `resume` refuses a rollout that is not approved.
+
+### abort
+
+`abort` asks `Abort rollout <name> for good?` and then sets `spec.abort`.
+
+<Callout type="caution">
+Do not abort a rollout that you want to continue later. An abort is permanent. Use `pause` to stop for a short time.
+</Callout>
+
+After an abort, some nodes have the change and some do not. Delete the rollout when you want the operator to propose the change again.
+
+## Examples
+
+<Terminal
+title="pk-metal rollout"
+replay
+mark={['Approve plan']}
+text={`
+    $ pk-metal rollout list
+    ROLLOUT                    CLUSTER  KIND          TARGET         NODES  STATE             APPROVED BY  AGE
+    lab-talosupgrade-1a2b3c4d  lab      TalosUpgrade  Talos v1.14.7  0/5    AwaitingApproval  -            2m
+    $ pk-metal rollout approve lab-talosupgrade-1a2b3c4d
+    rollout lab-talosupgrade-1a2b3c4d: TalosUpgrade on cluster lab to Talos v1.14.7
+      proposed by system:serviceaccount:pk-metal:pk-metal
+      state AwaitingApproval
+
+    plan sha256:5b0c9e41a7d2…: control planes one at a time, then up to 1 worker(s) at once; it pauses after the first node
+      1. cp-1 (controlplane, host simhw2288v5000397): v1.14.6 -> v1.14.7, REBOOTS
+      2. cp-2 (controlplane, host simhw2288v5000398): v1.14.6 -> v1.14.7, REBOOTS
+      3. cp-3 (controlplane, host simhw2288v5000399): v1.14.6 -> v1.14.7, REBOOTS
+      4. w-1 (worker, host simhw2288v5000400): v1.14.6 -> v1.14.7, REBOOTS
+      5. w-2 (worker, host simhw2288v5000401): v1.14.6 -> v1.14.7, REBOOTS
+
+    Approve plan sha256:5b0c9e41a7d2… as bob? [y/N] y
+    approved rollout lab-talosupgrade-1a2b3c4d (plan sha256:5b0c9e41a7d2…) as bob; the first node starts now and the rollout pauses after it. Follow it with: pk-metal rollout show lab-talosupgrade-1a2b3c4d
+`}
+/>
+
+Continue after the first node.
+
+<Terminal
+title="pk-metal rollout resume"
+text={`
+    $ pk-metal rollout resume lab-talosupgrade-1a2b3c4d
+    resumed rollout lab-talosupgrade-1a2b3c4d; the next node starts once the cluster is healthy
+`}
+/>
+
+## Objects
+
+| Object | Access | Purpose |
+| --- | --- | --- |
+| `SelfSubjectReview` | create | `approve`: gets your user name from the API server. |
+| [](kind:TalosRollout) | get, list | `list` and `show`. |
+| [](kind:TalosRollout) | patch | `approve`: `spec.approval`. `pause` and `resume`: `spec.paused`. `abort`: `spec.abort`. |
+
+Each patch carries the UID of the rollout that the command read. The API server refuses it if a new rollout has the same name.
+
+## Exit status
+
+<CliExit cmd="rollout" />
+
+## Related
+
+- [](cli:upgrade) sets the version and shows the rollout that the operator proposes.
+- [](howto:upgrade-talos)
+- [](flow:day-2-change) shows the path from a changed spec to the last node.
+- [](cli:approve) approves one operation that is not part of a rollout.
+- [](concept:approval)

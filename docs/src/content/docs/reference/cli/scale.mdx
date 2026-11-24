@@ -1,0 +1,120 @@
+---
+title: pk-metal scale
+description: Shows which machines a cluster gets or gives back to reach a size. With --apply, it writes the claims.
+type: cli
+eyebrow: Command · pk-metal
+xref: { cat: cli, id: scale }
+sidebar: { label: scale }
+sources:
+  - /repo/metal/cmd/pk-metal/lifecycle.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import CliBadges from '../../../../components/cli/CliBadges.astro';
+import CliExit from '../../../../components/cli/CliExit.astro';
+import CliFlags from '../../../../components/cli/CliFlags.astro';
+import CliSynopsis from '../../../../components/cli/CliSynopsis.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+<CliBadges cmd="scale" />
+
+`pk-metal scale` prints the plan that takes a Talos cluster to the size that you give: so many control planes and so many workers.
+Nothing changes without [`--apply`](cli:scale#--apply). With `--apply`, the command makes and deletes [HostClaims](kind:HostClaim), and the operator proposes the operations.
+
+## Synopsis
+
+<CliSynopsis cmd="scale" />
+
+<dl>
+  <dt>`<cluster>`</dt>
+  <dd>The name of the [](kind:TalosCluster).</dd>
+</dl>
+
+## Flags
+
+<CliFlags cmd="scale" />
+
+## What it does
+
+1. The command reads the TalosNodes of the cluster, all claims and all Hosts.
+2. It counts the members: the TalosNodes that have a claim.
+3. It makes the plan and prints it.
+4. With [`--apply`](cli:scale#--apply), it makes the new claims first. Then it deletes the claims of the nodes that go.
+5. The operator proposes one operation for each change. Approve each one with [](cli:approve).
+
+### To add nodes
+
+- Write the [](kind:TalosNode) of each new node before you scale. The network, the disk and the role are your decision.
+- Each new node needs a free Host: Available, not claimed and wiped.
+- The command prefers the Host whose asset has the name of the node.
+- Each new node gets a HostClaim with the name of the node, in the namespace of `-n`.
+- Control planes join one at a time.
+
+### To remove nodes
+
+- The command deletes the claims of the nodes with the highest names.
+- The operator drains each node and removes it from the cluster. Then it resets the machine, and the Host is free again.
+- The TalosNodes stay, without a machine, for the next time that you add nodes.
+- Control planes go one at a time. The etcd leader goes last.
+
+<Callout type="caution">
+Do not go through an even number of control planes unless it is necessary. An even number tolerates no more failures than the odd number below it. The command refuses such a plan unless you give [`--ack-etcd-risk`](cli:scale#--ack-etcd-risk) with a reason.
+</Callout>
+
+The command refuses zero control planes.
+
+## Examples
+
+<Terminal
+title="pk-metal scale"
+mark={['Nothing changed']}
+text={`
+    $ pk-metal scale --control-planes 3 --workers 4 lab
+    cluster lab: 3 control plane(s) and 2 worker(s) now, 3 and 4 wanted
+     1. add worker w-3 on host simhw2288v5000402: claim default/w-3; installed
+     2. add worker w-4 on host simhw2288v5000403: claim default/w-4; installed
+    check: each added TalosNode's install disk and network links must fit the host it is paired with
+
+    Nothing changed. To do it: add --apply
+    $ pk-metal scale --control-planes 3 --workers 4 --apply lab
+    ...
+    created claim default/w-3
+    created claim default/w-4
+    The operator proposes the operations; approve each with: pk-metal approve
+`}
+/>
+
+A plan that the command cannot do shows the cause. [`--apply`](cli:scale#--apply) then changes nothing.
+
+<Terminal
+title="pk-metal scale"
+text={`
+    $ pk-metal scale --control-planes 3 --workers 6 lab
+    cluster lab: 3 control plane(s) and 4 worker(s) now, 3 and 6 wanted
+    cannot: 2 more worker TalosNode(s) of cluster lab are needed: write them (address, disk, links) first
+`}
+/>
+
+## Objects
+
+| Object | Access | Purpose |
+| --- | --- | --- |
+| [](kind:TalosCluster) | get | Makes sure that the cluster exists. |
+| [](kind:TalosNode), [](kind:Host) | list | Finds the members, the spare nodes and the free machines. |
+| [](kind:HostClaim) | list, create, delete | The plan. Only with [`--apply`](cli:scale#--apply). |
+| [](kind:HostClaim) | patch | Sets `metal.pk.io/ack-etcd-risk` before it deletes a claim, with [`--ack-etcd-risk`](cli:scale#--ack-etcd-risk). |
+
+The claims that the command writes are not in git. If you keep your claims in git, write the claims of the plan there.
+
+## Exit status
+
+<CliExit cmd="scale" />
+
+## Related
+
+- [](howto:scale-control-planes)
+- [](howto:add-a-node) and [](howto:remove-a-node)
+- [](howto:release-a-host) describes what the operator does when a claim goes.
+- [](cli:wipe) makes a released machine free again when the operator could not reset it.
+- [](cli:replace) moves one node to a different machine.
+- [](ctrl:hostclaim)

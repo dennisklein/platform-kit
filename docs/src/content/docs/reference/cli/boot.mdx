@@ -1,0 +1,143 @@
+---
+title: pk-metal boot
+description: Mounts a machine configuration ISO through a BMC and restarts the machine into it, without the operator.
+type: cli
+eyebrow: Command · pk-metal
+xref: { cat: cli, id: boot }
+sidebar: { label: boot }
+sources:
+  - /repo/metal/cmd/pk-metal/boot.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import CliBadges from '../../../../components/cli/CliBadges.astro';
+import CliExit from '../../../../components/cli/CliExit.astro';
+import CliFlags from '../../../../components/cli/CliFlags.astro';
+import CliSynopsis from '../../../../components/cli/CliSynopsis.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+<CliBadges cmd="boot" />
+
+`pk-metal boot` starts one machine from a rendered machine configuration. It works without the operator.
+Use it for the first machines of a site, before a management cluster is there.
+
+<Callout type="warning">
+Do not run this command on a machine that does work. If the machine is on, the command does a hard reset, and all that runs there stops without a clean shutdown.
+</Callout>
+
+This is the only command that changes a machine without an approval. It prints its steps first, and it refuses a machine that is on unless you give [`--yes`](cli:boot#--yes).
+
+## Synopsis
+
+<CliSynopsis cmd="boot" />
+
+<dl>
+  <dt>`<bmc-url>`</dt>
+  <dd>The address of the BMC, for example `https://192.0.2.11`. Give one address.</dd>
+</dl>
+
+## Flags
+
+<CliFlags cmd="boot" />
+
+Give `--listen` or `--relay`, not the two. The BMC must reach the address that serves the image.
+
+## What it does
+
+1. The command packs the machine configuration into an ISO.
+2. It opens a Redfish session on the BMC and prints its plan.
+3. It ejects the media that is in the virtual media slot.
+4. It serves the ISO through HTTPS, with a user and a password that it makes for this one boot.
+5. It mounts the ISO as virtual media.
+6. It sets the boot override to that medium for the next start only.
+7. It turns the machine on. If the machine is on, it does a hard reset. This needs [`--yes`](cli:boot#--yes).
+8. It waits until the machine reads the full image, at most the time of [`--ttl`](cli:boot#--ttl).
+9. It ejects the medium and stops the server.
+
+### Options for the power step
+
+<dl>
+  <dt>`--yes`, [`--force-restart`](cli:boot#--force-restart)</dt>
+  <dd>Let the command do the hard reset of a machine that is on. The two flags are equal.</dd>
+  <dt>[`--no-power`](cli:boot#--no-power)</dt>
+  <dd>The command does not touch the power. Restart the machine yourself, for example from the web console of the BMC. The command waits until the machine reads the image.</dd>
+  <dt>[`--hold`](cli:boot#--hold)</dt>
+  <dd>The command keeps the medium mounted and continues to serve it until you push <kbd>Ctrl</kbd>+<kbd>C</kbd>.</dd>
+</dl>
+
+### Inputs from the environment
+
+| Variable | Content |
+| --- | --- |
+| `PK_METAL_BMC_PASSWORD` | The password of the BMC user. It is never a flag. |
+| `PK_METAL_RELAY_SECRET` | The shared secret of the relay, when you use [`--relay`](cli:boot#--relay) without [`--relay-secret-file`](cli:boot#--relay-secret-file). |
+
+## Examples
+
+<Terminal
+title="pk-metal boot"
+replay
+mark={['REBOOT', 'hard reset']}
+text={`
+    $ export PK_METAL_BMC_PASSWORD=...
+    $ pk-metal boot --config clusterconfig/cp-1.yaml --node cp-1 --listen 10.0.0.2:8443 https://192.0.2.11
+    boot: plan for system 1 (media slot CD, vmm-control):
+    boot:   1. eject whatever is mounted on slot CD
+    boot:   2. serve the config ISO for node cp-1 for up to 10m0s, under a one-time user and password
+    boot:   3. mount it on slot CD
+    boot:   4. boot from Cd at the next start only
+    boot:   5. power the machine on
+    boot:   6. wait until the machine has read the image, then eject it and stop serving
+    boot: media mounted
+    boot: boot override Cd (once)
+    boot: power On
+    boot: image read complete
+    boot: media ejected
+    boot: grant revoked
+    boot: OK, the machine read the 1474560 byte image (1474560 bytes served)
+`}
+/>
+
+A machine that is on gives this message. Nothing on the BMC changed.
+
+<Terminal
+title="pk-metal boot"
+text={`
+    $ pk-metal boot --config clusterconfig/cp-1.yaml --node cp-1 --listen 10.0.0.2:8443 https://192.0.2.11
+    pk-metal: the machine is on, and booting it means a hard reset that kills what runs there. Nothing on the BMC was changed. Rerun with --yes to allow the reset, or with --no-power to mount the medium only and restart the machine yourself
+`}
+/>
+
+Serve the image through a relay, when your workstation is not on the BMC network.
+
+```sh
+pk-metal boot --config clusterconfig/cp-1.yaml --node cp-1 \
+  --relay 127.0.0.1:9443 --relay-secret-file ~/.config/pk-metal/relay.secret \
+  https://192.0.2.11
+```
+
+## Objects
+
+The command reads and writes no object in the cluster. It changes the BMC directly:
+
+| Part of the BMC | Change |
+| --- | --- |
+| Virtual media slot | Eject, mount, eject. |
+| Boot override | One-time boot from the medium. |
+| Power | Power on or hard reset, unless you give [`--no-power`](cli:boot#--no-power). |
+
+With the operator, a [](kind:HostOperation) does the same steps after an approval: [](act:InsertMedia), [](act:SetBootOverride) and [](act:PowerCycle).
+
+## Exit status
+
+<CliExit cmd="boot" />
+
+The command gives code 1 if the machine does not read the full image before the time of [`--ttl`](cli:boot#--ttl) ends.
+
+## Related
+
+- [](cli:render) makes the machine configuration.
+- [](cli:relay) serves the image from a host on the BMC network.
+- [](cli:bootstrap) is the next step.
+- [](howto:bootstrap-without-operator)
+- [](concept:virtual-media-boot)

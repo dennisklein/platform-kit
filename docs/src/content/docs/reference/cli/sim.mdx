@@ -1,0 +1,113 @@
+---
+title: pk-metal sim
+description: Runs simulated BMCs for tests - one BMC, or a fleet with a virtual machine behind each BMC.
+type: cli
+eyebrow: Command · pk-metal
+xref: { cat: cli, id: sim }
+sidebar: { label: sim }
+sources:
+  - /repo/metal/cmd/pk-metal/main.go
+  - /repo/metal/cmd/pk-metal/fleet.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import CliBadges from '../../../../components/cli/CliBadges.astro';
+import CliExit from '../../../../components/cli/CliExit.astro';
+import CliFlags from '../../../../components/cli/CliFlags.astro';
+import CliSynopsis from '../../../../components/cli/CliSynopsis.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+<CliBadges cmd="sim" />
+
+`pk-metal sim` serves simulated BMCs that speak Redfish. Use it for tests and for the virtual lab.
+It does not talk to the cluster, and it touches no real machine.
+
+## Synopsis
+
+<CliSynopsis cmd="sim" />
+
+## Subcommands
+
+| Subcommand | Effect |
+| --- | --- |
+| `serve` | Serves one simulated BMC from a fixture. No machine is behind it. |
+| `fleet` | Serves many simulated BMCs from one file. Behind each BMC is nothing, a QEMU virtual machine or a Talos container. |
+
+The two subcommands run until you stop them. When `fleet` stops, it turns its machines off.
+
+### serve
+
+`pk-metal sim serve [--fixture <name|path>] [--listen addr] [--tls] [--verbose]`
+
+<CliFlags cmd="sim" sub="serve" />
+
+A fixture describes one BMC: its vendor, its accounts, its virtual media slots and its behaviour.
+The program has three built-in fixtures: `generic`, `huawei-2288h-v5` and `supermicro-x12`.
+
+The operator accepts only HTTPS addresses for a BMC. Give `--tls` when you enrol the simulated BMC.
+
+### fleet
+
+`pk-metal sim fleet --config <file> [--verbose] [--state-listen addr]`
+
+<CliFlags cmd="sim" sub="fleet" />
+
+The fleet file gives each machine an HTTPS endpoint, a personality, an identity and a backend.
+The fleet also serves the state of all machines as JSON on the state endpoint. [](cli:top) reads it with `--fleet`.
+
+<Callout type="caution">
+Keep the state endpoint on loopback. It is plain HTTP and has no authentication.
+</Callout>
+
+### The log
+
+The simulator logs each request that changes state: power, media and boot override. It also logs the small JSON body.
+With `--verbose`, it logs the read requests too. The log shows `***` in place of each password. The start line of `serve` shows the account of the fixture, which is not a secret.
+
+## Examples
+
+<Terminal
+title="pk-metal sim serve"
+text={`
+    $ pk-metal sim serve --fixture generic --listen 127.0.0.1:8000 --tls
+    sim: serving generic (Generic) on https://127.0.0.1:8000/redfish/v1 (account admin / admin-pass)
+    sim: POST /redfish/v1/SessionService/Sessions -> 201 {"UserName":"admin","Password":"***"}
+    sim: POST /redfish/v1/Systems/1/Actions/ComputerSystem.Reset -> 200 {"ResetType":"ForceRestart"}
+`}
+/>
+
+Test the simulated BMC from a second terminal.
+
+```sh
+PK_METAL_BMC_PASSWORD=admin-pass pk-metal check --insecure https://127.0.0.1:8000
+```
+
+Run a fleet. In the virtual lab, [](lab:up) does this for you.
+
+<Terminal
+title="pk-metal sim fleet"
+text={`
+    $ pk-metal sim fleet --config .lab/generated/fleet.yaml
+    sim fleet: node-1: huawei-2288h-v5 BMC on https://10.77.0.1:8441/redfish/v1 (account admin), backend qemu
+    sim fleet: node-2: supermicro-x12 BMC on https://10.77.0.1:8442/redfish/v1 (account admin), backend qemu
+    sim fleet: state of every machine on http://127.0.0.1:8440/state (read-only; watch it with: pk-metal top --fleet http://127.0.0.1:8440/state)
+`}
+/>
+
+## Objects
+
+The command reads and writes no object in the cluster.
+The operator sees a simulated BMC as a normal [](kind:ManagementEndpoint).
+
+## Exit status
+
+<CliExit cmd="sim" />
+
+`fleet` gives code 1 if one of its machines fails.
+
+## Related
+
+- [](lab:page/simulated-bmc) describes the fixtures, the fleet file and the state endpoint.
+- [](lab:up) starts the fleet, the virtual machines and the management cluster.
+- [](cli:top) shows the state of the fleet.
+- [](tut:lab-first-cluster)

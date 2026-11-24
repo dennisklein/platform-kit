@@ -1,0 +1,96 @@
+---
+title: pk-metal retry
+description: Deletes a failed or aborted operation, so that the operator proposes the same plan again.
+type: cli
+eyebrow: Command · pk-metal
+xref: { cat: cli, id: retry }
+sidebar: { label: retry }
+sources:
+  - /repo/metal/cmd/pk-metal/ops.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import CliBadges from '../../../../components/cli/CliBadges.astro';
+import CliExit from '../../../../components/cli/CliExit.astro';
+import CliFlags from '../../../../components/cli/CliFlags.astro';
+import CliSynopsis from '../../../../components/cli/CliSynopsis.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+<CliBadges cmd="retry" />
+
+`pk-metal retry` removes a [](kind:HostOperation) that failed or that a person aborted.
+The operator then proposes the same plan again, and the new operation waits for approval.
+
+## Synopsis
+
+<CliSynopsis cmd="retry" />
+
+<dl>
+  <dt>`<operation>`</dt>
+  <dd>The name of the operation, as [](cli:status) prints it: `pk-metal/<name>`, or the name only with `-n`.</dd>
+</dl>
+
+## Flags
+
+<CliFlags cmd="retry" />
+
+The command does not ask. It has no `--yes`.
+
+## What it does
+
+A failed operation stays in the cluster, so that you can read why it failed.
+While it is there, the operator does not try again.
+
+1. The command reads the operation. It refuses an operation that is not Failed or Aborted.
+2. It prints why the operation failed.
+3. It deletes the operation.
+4. The operator proposes the same plan again in a few seconds.
+5. The new operation waits for approval. Approve it with [](cli:approve).
+
+Two cases are different:
+
+<dl>
+  <dt>BIOS or firmware proposal</dt>
+  <dd>The command does not delete the operation. It sets the annotation `metal.pk.io/retry`, and the operator replaces the operation. If you delete such a proposal, the operator reads this as a refusal.</dd>
+  <dt>Operation that a person made</dt>
+  <dd>The operator does not propose it again. Make it again, for example with [](cli:reboot).</dd>
+</dl>
+
+If the claim is on hold, the operator proposes nothing until you run [](cli:unhold). The command tells you.
+
+## Examples
+
+<Terminal
+title="pk-metal retry"
+text={`
+    $ pk-metal retry pk-metal/provision-simhw2288v5000398-5e6f7a8b
+    operation pk-metal/provision-simhw2288v5000398-5e6f7a8b failed: step 5/6 awaitCheckIn: TalosNode cp-2 did not report in within 30m
+    deleted pk-metal/provision-simhw2288v5000398-5e6f7a8b.
+    The operator proposes it again for claim default/cp-2 in a few seconds; it then waits for approval: pk-metal approve
+`}
+/>
+
+To stop the operator from a new proposal, hold the claim before you retry.
+
+```sh
+pk-metal hold --reason "disk fault" default/cp-2
+```
+
+## Objects
+
+| Object | Access | Purpose |
+| --- | --- | --- |
+| [](kind:HostOperation) | get, list, delete | Reads the result and deletes the operation. |
+| [](kind:HostOperation) | patch | Sets `metal.pk.io/retry` on a BIOS or firmware proposal. |
+| [](kind:HostClaim) | get | Finds if the claim is on hold. |
+
+## Exit status
+
+<CliExit cmd="retry" />
+
+## Related
+
+- [](rb:operation-failed) is the runbook for a failed operation.
+- [](howto:approve-hold-retry)
+- [](cli:hold) stops new proposals for a claim.
+- [](ctrl:hostclaim) and [](ctrl:convergence) propose the new operation.

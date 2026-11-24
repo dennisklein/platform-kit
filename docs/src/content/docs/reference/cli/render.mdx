@@ -1,0 +1,96 @@
+---
+title: pk-metal render
+description: Writes the Talos machine configs, the talosconfig and the kubeconfig from manifest files. It touches no machine.
+type: cli
+eyebrow: Command · pk-metal
+xref: { cat: cli, id: render }
+sidebar: { label: render }
+sources:
+  - /repo/metal/cmd/pk-metal/render.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import CliBadges from '../../../../components/cli/CliBadges.astro';
+import CliExit from '../../../../components/cli/CliExit.astro';
+import CliFlags from '../../../../components/cli/CliFlags.astro';
+import CliSynopsis from '../../../../components/cli/CliSynopsis.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+<CliBadges cmd="render" />
+
+`pk-metal render` makes the Talos machine configuration of each node from files on your workstation.
+It does not talk to the cluster, to a BMC or to a machine.
+
+## Synopsis
+
+<CliSynopsis cmd="render" />
+
+The command takes no arguments.
+
+## Flags
+
+<CliFlags cmd="render" />
+
+## What it does
+
+1. The command reads the manifests in [`--dir`](cli:render#--dir): one [](kind:TalosCluster), its [TalosNodes](kind:TalosNode) and the ConfigMaps with patches.
+2. It reads the secrets bundle. Make the bundle with `talosctl gen secrets`.
+3. It computes the installer image of each node from the schematic and the Talos version.
+4. It renders one machine configuration for each node, with the patches of the cluster and of the node.
+5. It writes the files into [`--out`](cli:render#--out). Only you can read the files.
+
+| File | Content |
+| --- | --- |
+| `<node>.yaml` | The machine configuration of one node. |
+| `talosconfig` | The client configuration for `talosctl`. The certificate is valid for one year. |
+| `kubeconfig` | The administrator kubeconfig of the new cluster. The certificate is valid for one year. |
+
+<Callout type="caution">
+Keep the output directory private. Each file holds keys of the cluster.
+</Callout>
+
+Without [`--register`](cli:render#--register), the command computes the schematic id offline. The network is not necessary.
+With `--register`, it also sends each schematic to the image factory.
+
+## Examples
+
+<Terminal
+title="pk-metal render"
+text={`
+    $ talosctl gen secrets -o secrets.yaml
+    $ pk-metal render --dir manifests/ --secrets secrets.yaml
+    rendered 5 node configs, talosconfig and kubeconfig for lab into clusterconfig
+    $ ls clusterconfig
+    cp-1.yaml  cp-2.yaml  cp-3.yaml  kubeconfig  talosconfig  w-1.yaml  w-2.yaml
+`}
+/>
+
+Read the secrets bundle from stdin, for example from a secret store.
+
+```sh
+sops -d secrets.enc.yaml | pk-metal render --dir manifests/ --secrets -
+```
+
+## Objects
+
+The command reads files, not objects in the cluster. The files have the same form as the objects:
+
+| File content | Purpose |
+| --- | --- |
+| [](kind:TalosCluster) | Versions, endpoint and cluster patches. |
+| [](kind:TalosNode) | Role, address, install disk, links and node patches. |
+| ConfigMap | The patches that the cluster and the nodes name. |
+
+In the cluster, the [](ctrl:talosnode) renders the same configuration.
+
+## Exit status
+
+<CliExit cmd="render" />
+
+## Related
+
+- [](cli:boot) boots a machine into one rendered configuration.
+- [](cli:bootstrap) starts the cluster on the machines.
+- [](howto:bootstrap-without-operator)
+- [](concept:talos-rendering)
+- [](howto:air-gapped-site) uses [`--image-factory`](cli:render#--image-factory).

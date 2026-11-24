@@ -1,0 +1,110 @@
+---
+title: pk-metal replace
+description: Moves a node to a different machine, for hardware that failed. The operator releases the old machine first.
+type: cli
+eyebrow: Command · pk-metal
+xref: { cat: cli, id: replace }
+sidebar: { label: replace }
+sources:
+  - /repo/metal/cmd/pk-metal/lifecycle.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import CliBadges from '../../../../components/cli/CliBadges.astro';
+import CliExit from '../../../../components/cli/CliExit.astro';
+import CliFlags from '../../../../components/cli/CliFlags.astro';
+import CliSynopsis from '../../../../components/cli/CliSynopsis.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+<CliBadges cmd="replace" />
+
+`pk-metal replace` moves one node to a different machine. Use it when the hardware failed.
+The command points the [](kind:HostClaim) at the new machine. The operator then proposes the operations, and a person approves each one.
+
+<Callout type="note">
+Only a member of the admin group can run this command. A move puts the config of a node, with the keys of the cluster on a control plane, on another machine. The admission policy [`hostclaim-provisioning`](ref:admission-policies#hostclaim-provisioning) refuses all other users.
+</Callout>
+
+## Synopsis
+
+<CliSynopsis cmd="replace" />
+
+<dl>
+  <dt>`<claim>` or `<node>`</dt>
+  <dd>The name of the HostClaim, or the name of the [](kind:TalosNode) that a claim names.</dd>
+</dl>
+
+## Flags
+
+<CliFlags cmd="replace" />
+
+## What it does
+
+1. The command finds the claim, as [](cli:reinstall) does.
+2. It reads the new [](kind:Host). The Host must be Available, not claimed and wiped.
+3. It writes the asset of the new Host into `spec.assetRef` of the claim.
+4. With [`--ack-etcd-risk`](cli:replace#--ack-etcd-risk), it also sets the annotation `metal.pk.io/ack-etcd-risk` to your reason.
+5. The [](ctrl:hostclaim) releases the old machine first.
+6. Then it proposes the install of the node on the new machine.
+
+### What happens to the old machine
+
+<dl>
+  <dt>The machine answers</dt>
+  <dd>The node leaves the cluster, and the operator removes its etcd member. The operator resets the machine.</dd>
+  <dt>The machine does not answer</dt>
+  <dd>The operator turns the machine off and marks the Host for a wipe. Run [](cli:wipe) before you use the machine again.</dd>
+</dl>
+
+The node keeps its name. Thus its etcd member must go before the node joins again.
+
+<Callout type="caution">
+Give `--ack-etcd-risk` only when you accept the risk. A cluster with three control planes has two etcd members between the release and the new install.
+</Callout>
+
+<Callout type="note">
+Examine the TalosNode before you replace. If it names its install disk by serial number or its network link by MAC address, it fits one machine only. Change these values to the values of the new machine.
+</Callout>
+
+For hardware that still works, add the new node first and remove the old node after that. Then etcd always has enough members.
+
+## Examples
+
+<Terminal
+title="pk-metal replace"
+text={`
+    $ pk-metal replace --host simhw2288v5000402 w-1
+    claim default/w-1 now selects host simhw2288v5000402 (asset ci-00402); it ran on host simhw2288v5000400.
+    The operator first releases the old machine (its node leaves the cluster; a machine that does not answer is powered off and marked for a wipe),
+    then installs the node on the new one. Each step waits for: pk-metal approve
+`}
+/>
+
+A Host that is not free gives the cause.
+
+<Terminal
+title="pk-metal replace"
+text={`
+    $ pk-metal replace --host simhw2288v5000403 w-1
+    pk-metal: host simhw2288v5000403 cannot take the node: not wiped (pk-metal wipe simhw2288v5000403)
+`}
+/>
+
+## Objects
+
+| Object | Access | Purpose |
+| --- | --- | --- |
+| [](kind:HostClaim) | get, list, patch | Writes `spec.assetRef`, `spec.systemRef` and, with the flag, `metal.pk.io/ack-etcd-risk`. |
+| [](kind:Host) | get | Makes sure that the new machine is free. Reads its asset. |
+
+## Exit status
+
+<CliExit cmd="replace" />
+
+## Related
+
+- [](howto:replace-a-node)
+- [](howto:add-a-node) adds a node before you remove one.
+- [](cli:reinstall) installs the node again on the same machine.
+- [](howto:remove-a-node)
+- [](concept:identity)

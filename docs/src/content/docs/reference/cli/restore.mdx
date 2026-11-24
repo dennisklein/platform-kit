@@ -1,0 +1,138 @@
+---
+title: pk-metal restore
+description: Finds what is wrong with the etcd of a cluster, proposes the operations that restore it, and uploads an approved snapshot.
+type: cli
+eyebrow: Command · pk-metal
+xref: { cat: cli, id: restore }
+sidebar: { label: restore }
+sources:
+  - /repo/metal/cmd/pk-metal/restore.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import CliBadges from '../../../../components/cli/CliBadges.astro';
+import CliExit from '../../../../components/cli/CliExit.astro';
+import CliFlags from '../../../../components/cli/CliFlags.astro';
+import CliSynopsis from '../../../../components/cli/CliSynopsis.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+<CliBadges cmd="restore" />
+
+`pk-metal restore` examines the etcd of a Talos cluster on each control plane. It says what is wrong and what repairs it.
+The command changes nothing on a machine by itself. With `--propose`, it makes the operations of the plan, and a different person approves each one.
+
+## Synopsis
+
+<CliSynopsis cmd="restore" />
+
+## Subcommands
+
+| Subcommand | Effect |
+| --- | --- |
+| `plan` | Examines etcd on each control plane and prints the plan. With `--propose`, makes the operations. |
+| `upload` | For an approved [](act:EtcdRecover) operation: decrypts the snapshot on your workstation and sends it to the node. |
+
+The two subcommands talk to the Talos API of the nodes.
+They read the talosconfig from the Secret that the cluster publishes, unless you give `--talosconfig`.
+
+### plan
+
+`pk-metal restore plan <cluster> [--snapshot name] [--node name] [--propose]`
+
+<CliFlags cmd="restore" sub="plan" />
+
+The command asks each control plane for its etcd state and its list of members. Then it selects one of two cases.
+
+<dl>
+  <dt>One member lost</dt>
+  <dd>One control plane or more lists the members, so the majority holds. For each member with a fault, the plan has one operation: [](act:EtcdRemoveMember), then [](act:TalosReset) of the `EPHEMERAL` partition, then [](act:WaitEtcdHealthy). The node then joins again.</dd>
+  <dt>Majority lost</dt>
+  <dd>No control plane lists etcd members. The plan wipes the etcd data of each member that runs a stuck etcd. Then one operation restores one control plane from a snapshot with [](act:EtcdRecover). The other control planes join it.</dd>
+</dl>
+
+For the second case, the command uses the newest verified [](kind:EtcdSnapshot), unless `--snapshot` names one.
+It restores on the first control plane that answers, unless `--node` names one.
+
+<Callout type="warning">
+Read the note about the snapshot before you approve. A restore loses each change that the cluster got after the time of the snapshot.
+</Callout>
+
+Each operation has the reason `EtcdRestore` and the name `<cluster>-etcd-<step>-<node>`. You are the proposer.
+The operations ignore the maintenance window and the cluster guard, because they are the repair.
+
+Replace one member at a time. Approve the next operation only after the one before succeeded.
+
+### upload
+
+`pk-metal restore upload <operation> --identity <file> [--from-file <file.age>]`
+
+<CliFlags cmd="restore" sub="upload" />
+
+1. The command reads the operation. It refuses an operation that has no approval, or that has a result.
+2. It gets the encrypted snapshot from the sink, or from the file of `--from-file`.
+3. It decrypts the snapshot with your age identity and makes sure that it is intact.
+4. It compares the SHA-256 with the value that the approver saw in the plan.
+5. It sends the snapshot to the node through the Talos API.
+6. It records the upload in the annotation `metal.pk.io/etcd-snapshot-uploaded` of the operation.
+7. The operator starts etcd from the snapshot.
+
+The plaintext goes from your workstation to the node. The operator never has it.
+
+## Examples
+
+<Terminal
+title="pk-metal restore plan"
+replay
+mark={['every change made to the cluster after it is lost']}
+text={`
+    $ pk-metal restore plan lab --propose
+    cluster lab: etcd lost: no control plane lists etcd members
+      cp-1             10.0.0.11       stopped (etcd does not run)
+      cp-2             10.0.0.12       stopped (etcd does not run)
+      cp-3             10.0.0.13       stopped (etcd does not run)
+    plan, one operation per machine, in this order:
+      1. pk-metal/lab-etcd-recover-cp-1 on host simhw2288v5000397:
+           - RESTORE etcd of the node's cluster on TalosNode cp-1 from snapshot lab-daily-20261124-060000 (sha256:8a7b6c5d4e3f…): after approval a person uploads the snapshot (pk-metal restore upload), then Talos starts etcd from it; everything written to the cluster after the snapshot is lost
+    note: restores snapshot lab-daily-20261124-060000 (taken 2026-11-24T06:00:00Z from cp-2, sha256:8a7b6c5d4e3f20112233445566778899aabbccddeeff00112233445566778899); every change made to the cluster after it is lost
+    note: after the restore operation is approved, upload the snapshot: pk-metal restore upload pk-metal/lab-etcd-recover-cp-1 --identity <age identity file>
+    note: the other control planes join the restored etcd by themselves once their etcd data is gone; pk-metal restore plan lab shows any that do not
+    proposed pk-metal/lab-etcd-recover-cp-1
+    each waits for approval by another person: pk-metal approve
+`}
+/>
+
+A different person approves the operation. Then upload the snapshot.
+
+<Terminal
+title="pk-metal restore upload"
+text={`
+    $ pk-metal restore upload pk-metal/lab-etcd-recover-cp-1 --identity ~/.config/age/keys.txt
+    decrypted and checked: 18.3MiB, sha256:8a7b6c5d4e3f20112233445566778899aabbccddeeff00112233445566778899
+    uploaded to cp-1 (10.0.0.11)
+    recorded on pk-metal/lab-etcd-recover-cp-1; the operator now starts etcd from it. Follow it with: pk-metal status
+`}
+/>
+
+## Objects
+
+| Object | Access | Purpose |
+| --- | --- | --- |
+| [](kind:TalosCluster), [](kind:TalosNode), [](kind:Host) | get, list | `plan`: finds the control planes and their machines. |
+| [](kind:EtcdSnapshot), [](kind:EtcdBackupPolicy) | get, list | Selects the snapshot and finds the sink. |
+| Secret `<cluster>-talosconfig` in `pk-metal` | get | The talosconfig for the Talos API. |
+| [](kind:HostOperation) | create | `plan --propose`: the operations of the plan. |
+| [](kind:HostOperation) | get, patch | `upload`: reads the approved step and records the upload. |
+
+## Exit status
+
+<CliExit cmd="restore" />
+
+`plan` gives code 1 if no control plane answers, or if the cluster has no verified snapshot.
+
+## Related
+
+- [](howto:restore-etcd) is the procedure for each case.
+- [](cli:backup) lists the snapshots and decrypts one.
+- [](cli:approve) approves each operation of the plan.
+- [](howto:remove-a-node)
+- [](rb:etcd-unhealthy)

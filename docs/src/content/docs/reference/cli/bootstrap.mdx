@@ -1,0 +1,89 @@
+---
+title: pk-metal bootstrap
+description: Starts a new Talos cluster on machines that run Talos, and waits until each node is ready, without the operator.
+type: cli
+eyebrow: Command · pk-metal
+xref: { cat: cli, id: bootstrap }
+sidebar: { label: bootstrap }
+sources:
+  - /repo/metal/cmd/pk-metal/bootstrap.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import CliBadges from '../../../../components/cli/CliBadges.astro';
+import CliExit from '../../../../components/cli/CliExit.astro';
+import CliFlags from '../../../../components/cli/CliFlags.astro';
+import CliSynopsis from '../../../../components/cli/CliSynopsis.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+<CliBadges cmd="bootstrap" />
+
+`pk-metal bootstrap` starts etcd on a new Talos cluster and waits until each node is ready.
+It works without the operator. It talks to the Talos API of the nodes directly.
+
+## Synopsis
+
+<CliSynopsis cmd="bootstrap" />
+
+The command takes no arguments.
+
+## Flags
+
+<CliFlags cmd="bootstrap" />
+
+`--endpoint` needs `--node`.
+
+## What it does
+
+1. The command reads the manifests and the secrets bundle, as [](cli:render) does.
+2. It renders the machine configuration of each node and a talosconfig with a short life.
+3. With [`--apply-insecure`](cli:bootstrap#--apply-insecure), it sends the configuration to each node that has none.
+4. It bootstraps etcd on the control planes. It tries again until etcd runs.
+5. It waits until each node runs and is ready.
+6. It stops with an error when the time of [`--timeout`](cli:bootstrap#--timeout) ends.
+
+You can run the command again. It does not send a configuration to a node that has one, and it does not bootstrap a cluster a second time.
+
+<Callout type="caution">
+Do not use `--apply-insecure` on real hardware. It sends the configuration, with the keys of the cluster, through the maintenance API, which has no authentication. On real hardware, [](cli:boot) sends the configuration through the BMC.
+</Callout>
+
+## Examples
+
+<Terminal
+title="pk-metal bootstrap"
+text={`
+    $ pk-metal bootstrap --dir manifests/ --secrets secrets.yaml
+    bootstrap: cp-1 is already configured
+    bootstrap: cp-2 is already configured
+    bootstrap: cp-3 is already configured
+    bootstrap: cp-1 running and ready
+    bootstrap: cp-2 running and ready
+    bootstrap: cp-3 running and ready
+    bootstrap: OK: lab is bootstrapped and its nodes are ready
+`}
+/>
+
+Work on one node only, at an address that is not in its manifest.
+
+```sh
+pk-metal bootstrap --dir manifests/ --secrets secrets.yaml --node cp-1 --endpoint 10.0.0.11
+```
+
+## Objects
+
+The command reads files, not objects in the cluster: the [](kind:TalosCluster) and [](kind:TalosNode) manifests in [`--dir`](cli:bootstrap#--dir).
+On the nodes, it uses the Talos API to apply the configuration, to bootstrap etcd and to read the state.
+
+With the operator, the [](ctrl:taloscluster) bootstraps the cluster.
+
+## Exit status
+
+<CliExit cmd="bootstrap" />
+
+## Related
+
+- [](cli:render) and [](cli:boot) come before this command.
+- [](cli:pivot) moves the operator onto the new cluster.
+- [](howto:bootstrap-without-operator)
+- [](rb:node-not-ready)

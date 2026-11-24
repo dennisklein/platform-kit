@@ -1,0 +1,70 @@
+---
+title: pk-metal unhold
+description: Removes a hold from a claim, so that the operator proposes operations for it again.
+type: cli
+eyebrow: Command · pk-metal
+xref: { cat: cli, id: unhold }
+sidebar: { label: unhold }
+sources:
+  - /repo/metal/cmd/pk-metal/ops.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import CliBadges from '../../../../components/cli/CliBadges.astro';
+import CliExit from '../../../../components/cli/CliExit.astro';
+import CliFlags from '../../../../components/cli/CliFlags.astro';
+import CliSynopsis from '../../../../components/cli/CliSynopsis.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+<CliBadges cmd="unhold" />
+
+`pk-metal unhold` removes the hold that [](cli:hold) set on a [](kind:HostClaim).
+The operator then proposes operations for the claim again.
+
+## Synopsis
+
+<CliSynopsis cmd="unhold" />
+
+<dl>
+  <dt>`<claim>`</dt>
+  <dd>The name of the claim. The default namespace is `default`. You can also write `<namespace>/<claim>`.</dd>
+</dl>
+
+## Flags
+
+<CliFlags cmd="unhold" />
+
+## What it does
+
+1. The command reads the claim.
+2. If the claim is not on hold, the command says so and changes nothing.
+3. It removes the annotation `metal.pk.io/hold` from the claim.
+4. The operator proposes the operations that the claim needs. Each one waits for approval.
+
+## Examples
+
+<Terminal
+title="pk-metal unhold"
+text={`
+    $ pk-metal unhold default/cp-2
+    claim default/cp-2 is no longer on hold: the operator proposes operations for it again
+    $ pk-metal unhold default/cp-2
+    claim default/cp-2 is not on hold; nothing changed
+`}
+/>
+
+## Objects
+
+| Object | Access | Purpose |
+| --- | --- | --- |
+| [](kind:HostClaim) | get, list, patch | Removes the annotation `metal.pk.io/hold`. |
+
+## Exit status
+
+<CliExit cmd="unhold" />
+
+## Related
+
+- [](cli:hold)
+- [](cli:approve) approves the operations that the operator proposes after the hold.
+- [](howto:approve-hold-retry)

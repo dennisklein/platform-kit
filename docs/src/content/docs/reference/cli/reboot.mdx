@@ -1,0 +1,112 @@
+---
+title: pk-metal reboot
+description: Proposes a clean reboot of one Talos node - cordon, drain, reboot, wait, uncordon.
+type: cli
+eyebrow: Command · pk-metal
+xref: { cat: cli, id: reboot }
+sidebar: { label: reboot }
+sources:
+  - /repo/metal/cmd/pk-metal/reboot.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import CliBadges from '../../../../components/cli/CliBadges.astro';
+import CliExit from '../../../../components/cli/CliExit.astro';
+import CliFlags from '../../../../components/cli/CliFlags.astro';
+import CliSynopsis from '../../../../components/cli/CliSynopsis.astro';
+import Terminal from '../../../../components/cli/Terminal.astro';
+
+<CliBadges cmd="reboot" />
+
+`pk-metal reboot` proposes a clean reboot of one Talos node as a [](kind:HostOperation).
+Nothing changes until a different person approves the operation.
+
+## Synopsis
+
+<CliSynopsis cmd="reboot" />
+
+<dl>
+  <dt>`<node>`</dt>
+  <dd>The name of the [](kind:TalosNode). It is also the name of the Kubernetes node.</dd>
+</dl>
+
+## Flags
+
+<CliFlags cmd="reboot" />
+
+`--grace-period` is at most 3600 seconds.
+
+## What it does
+
+1. The command asks the API server for your user name.
+2. It reads the TalosNode and finds the [](kind:Host) that runs it.
+3. It makes a HostOperation with the reason `Reboot` in the namespace `pk-metal`. You are the proposer.
+4. The operation waits for approval. You cannot approve your own proposal.
+
+### The plan
+
+| Step | Action | Effect |
+| --- | --- | --- |
+| 1 | [](act:Cordon) | Kubernetes schedules no new pods on the node. |
+| 2 | [](act:Drain) | Evicts the pods, so that each PodDisruptionBudget holds. DaemonSet pods and static pods stay. |
+| 3 | [](act:TalosReboot) | Reboots the node through Talos. With `--mode powercycle`, a cold power cycle follows. |
+| 4 | [](act:WaitNodeReady) | Waits until the node is ready in Talos and in Kubernetes. |
+| 5 | [](act:WaitEtcdHealthy) | Control plane only. Waits until etcd is healthy again. |
+| 6 | [](act:Uncordon) | Kubernetes schedules pods on the node again. |
+
+### Guards
+
+<dl>
+  <dt>Control plane</dt>
+  <dd>The operator reboots it only while all other etcd members are healthy and no other control plane of the cluster is down. Until then, the approved operation waits with the block `ClusterDisruption`.</dd>
+  <dt>Drain</dt>
+  <dd>If a PodDisruptionBudget holds a pod, the drain waits for the time of [`--drain-timeout`](cli:reboot#--drain-timeout). Then the operation fails and the node stays cordoned.</dd>
+  <dt>`emptyDir` data</dt>
+  <dd>A pod with `emptyDir` data fails the drain, unless you give [`--delete-emptydir-data`](cli:reboot#--delete-emptydir-data). With the flag, the pods lose that data.</dd>
+</dl>
+
+## Examples
+
+<Terminal
+title="pk-metal reboot"
+text={`
+    $ pk-metal reboot cp-2
+    proposed pk-metal/reboot-cp-2-m4q8z: a clean reboot of TalosNode cp-2 on host simhw2288v5000398 (6 steps).
+    Another person approves it after reading the plan: pk-metal approve pk-metal/reboot-cp-2-m4q8z
+    It is a control plane of cluster lab: once approved, it waits until every other etcd member is healthy and no other control plane is down.
+    To withdraw it: pk-metal abort pk-metal/reboot-cp-2-m4q8z
+`}
+/>
+
+Give the pods more time, and let the drain wait longer.
+
+```sh
+pk-metal reboot --drain-timeout 30m --grace-period 60 cp-2
+```
+
+Do a cold start, for example after a firmware change.
+
+```sh
+pk-metal reboot --mode powercycle --delete-emptydir-data w-1
+```
+
+## Objects
+
+| Object | Access | Purpose |
+| --- | --- | --- |
+| `SelfSubjectReview` | create | Gets your user name from the API server. |
+| [](kind:TalosNode) | get | Reads the role and the cluster of the node. |
+| [](kind:Host) | list | Finds the machine that runs the node. |
+| [](kind:HostOperation) | create | The proposal. |
+
+## Exit status
+
+<CliExit cmd="reboot" />
+
+## Related
+
+- [](cli:approve) lets the operation run.
+- [](cli:abort) removes the proposal or stops the reboot.
+- [](cli:rollout) reboots all nodes of a cluster, one at a time.
+- [](howto:reboot-a-node)
+- [](ctrl:hostoperation)
