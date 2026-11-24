@@ -31,6 +31,7 @@ const (
 	LaneProtection
 	LaneHostOperation
 	LaneConvergence
+	LaneEndpointConvergence
 	LaneTalosNode
 	LaneTalosCluster
 	LaneBootAsset
@@ -41,7 +42,7 @@ const (
 // AllLanes is every lane: what the manager runs.
 var AllLanes = []Lane{
 	LaneEndpoint, LaneHost, LaneHostClaim, LaneProtection, LaneHostOperation,
-	LaneConvergence, LaneTalosNode, LaneTalosCluster, LaneBootAsset,
+	LaneConvergence, LaneEndpointConvergence, LaneTalosNode, LaneTalosCluster, LaneBootAsset,
 	LaneMaintenanceWindow,
 }
 
@@ -203,6 +204,10 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 			Client: c, CredentialsNamespace: o.CredentialsNamespace,
 			OperationsNamespace: o.OperationsNamespace, Proposer: o.Proposer,
 			PollInterval: o.PollInterval, Self: self,
+		}
+	case LaneEndpointConvergence:
+		return "endpoint convergence", &EndpointConvergenceReconciler{
+			Client: c, CredentialsNamespace: o.CredentialsNamespace, PollInterval: o.PollInterval,
 		}
 	case LaneTalosNode:
 		return "talosnode", &TalosNodeReconciler{
