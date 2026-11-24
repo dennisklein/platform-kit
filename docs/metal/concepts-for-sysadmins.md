@@ -263,9 +263,14 @@ everything on it is gone after the install. Think of it as kickstart's
 Deleting a claim releases the machine. If a boot of that claim ran on it, the
 operator powers it off and ejects its virtual media: a graceful shutdown
 first (ACPI, like `ipmitool chassis power soft`), then a hard power-off if
-the machine is still on after a while. When the machine runs its node (Host
-phase Provisioned), that release is proposed as an operation and waits for
-approval, like an install.
+the machine is still on after a while. When the machine runs its node, or
+ran it, that release is proposed as an operation and waits for approval,
+like an install. "Ran it" is read from the records, not from whether the node
+answers at that moment: the claim's hand-off names the machine, or a boot of
+the claim recorded its check-in step. A node that is not ready for a minute,
+during a Talos upgrade or a network flap, still gets a release that waits for
+a person. Only a machine no boot ever got to its check-in is powered off
+without asking.
 
 This is not "remove from the inventory". `kubectl delete -f <dir>`, or a
 GitOps tool that prunes a deleted file, does it too. To stop managing a

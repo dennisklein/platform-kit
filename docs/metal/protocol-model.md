@@ -67,7 +67,7 @@ The model does not copy decision logic. It builds real API objects from the
 model state and calls the same helpers the controllers call: `opFinished`,
 `opAwaitsApproval`, `opActive`, `opSucceeded`, `approvalRequired`,
 `hostHolder`, `bootRan`, `handedOff`, `powerOffDecided`, `approvalWaived`,
-`disruptionVerdict`,
+`releaseNeedsPerson`, `disruptionVerdict`,
 and the phase functions in `internal/phase`. Only the control flow around these helpers is written
 again in the test. Comments name the branch of the real code that each part
 mirrors. If you change a branch in the controller, change its mirror too.
@@ -85,8 +85,11 @@ mirrors. If you change a branch in the controller, change its mirror too.
 6. The claim finalizer is removed only when no host is bound to the claim.
 7. A release made while the claim is held starts only after a person
    approved it.
-8. A release of a machine that runs a node waits for a person, unless the
-   claim waived approval.
+8. A release of a machine that runs its node, or ran it on record, waits
+   for a person, unless the claim waived approval. On record means the
+   claim's hand-off, or the boot's recorded check-in step. The node may stop
+   answering for a while, so readiness at the moment of the release is not
+   enough.
 9. The host phase, derived by `internal/phase` from conditions, follows the
    bind and the claim's deletion.
 10. An operation that reboots or powers off an installed control plane of
@@ -108,11 +111,11 @@ mirrors. If you change a branch in the controller, change its mirror too.
 | Operations | boot, release, one BIOS proposal |
 | Turns | 14 by default, 10 with `go test -short` |
 | Person actions | one hold, one maintenance, one retry, one refused step, one BIOS proposal, one allowance of self-disruption; a hold, a maintenance and the allowance can also be lifted |
-| Machine actions | the node checks in; on the control plane of the operator's own cluster it may also stop answering once and answer again |
+| Machine actions | the node checks in; where approval is required it may also stop answering once and answer again |
 | Claims at start | one with approval required, one with approval waived, one on a control plane of the operator's own cluster |
 | Cache lag | one turn, per object kind |
 
-At 14 turns the model visits about 1,100,000 states in about 40 seconds. Set
+At 14 turns the model visits about 1,200,000 states in about 40 seconds. Set
 `PK_MODEL_DEPTH` to explore further, for example:
 
 ```sh

@@ -898,7 +898,7 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 					continue
 				}
 				var waiting string
-				if op, waiting, err = r.releaseOp(ctx, claim, host, name); err != nil {
+				if op, waiting, err = r.releaseOp(ctx, claim, host, name, provisionOps); err != nil {
 					return false, err
 				}
 				if op == nil {
@@ -916,7 +916,7 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 			switch {
 			case opAwaitsApproval(op):
 				set(metalv1alpha1.ReasonReleasing, fmt.Sprintf(
-					"host %s runs a node, so releasing it waits for a person: the release shuts the machine down "+
+					"host %s runs or ran its node, so releasing it waits for a person: the release shuts the machine down "+
 						"(forced off after %s) and ejects its media. To go ahead: pk-metal approve %s/%s. "+
 						"To keep the machine running for now: pk-metal hold %s/%s",
 					host.Name, r.releaseShutdownTimeout(), op.Namespace, op.Name, claim.Namespace, claim.Name))
@@ -1041,13 +1041,16 @@ func handedOff(claim *metalv1alpha1.HostClaim, hostName string) bool {
 // releaseOp shuts the machine down — the OS first, forced off after the
 // release shutdown timeout — and empties every insertable slot.
 //
-// A machine that runs a node (its Host reports OSReady) is a running server,
-// and turning it off is as disruptive as installing it: the release then
-// waits for a person, as a boot does, unless the claim waived approval
-// (provisioning.approval: Automatic). A machine that never got that far —
-// a boot that failed or is still going — is released pre-cleared: deleting
-// the claim was the decision, and admission lets only the operator create
-// such an operation.
+// A machine that runs its node is a server, and turning it off is as
+// disruptive as installing it: the release then waits for a person, as a
+// boot does, unless the claim waived approval (provisioning.approval:
+// Automatic). Whether it runs its node is read from the records, not only
+// from its readiness now (installedOnRecord): readiness drops for a Talos
+// upgrade, a kubelet restart or one failed dial, and a release made in such
+// a moment would power off a production node with nobody asked. A machine
+// that never got that far — no hand-off, no boot that reached its check-in
+// — is released pre-cleared: deleting the claim was the decision, and
+// admission lets only the operator create such an operation.
 //
 // The gate is decided once, here. A node that comes up after a pre-cleared
 // release was created does not make that release wait for a person: the
@@ -1058,7 +1061,8 @@ func handedOff(claim *metalv1alpha1.HostClaim, hostName string) bool {
 // the host, releaseOp returns nil and says what it waits for; the endpoint
 // and host watches bring the claim back when that changes. The power-off
 // could not run before then either.
-func (r *HostClaimReconciler) releaseOp(ctx context.Context, claim *metalv1alpha1.HostClaim, host *metalv1alpha1.Host, name string) (*metalv1alpha1.HostOperation, string, error) {
+func (r *HostClaimReconciler) releaseOp(ctx context.Context, claim *metalv1alpha1.HostClaim, host *metalv1alpha1.Host, name string,
+	provisionOps []metalv1alpha1.HostOperation) (*metalv1alpha1.HostOperation, string, error) {
 	shape, err := r.endpointShape(ctx, host)
 	if err != nil {
 		return nil, "", err
@@ -1083,15 +1087,47 @@ func (r *HostClaimReconciler) releaseOp(ctx context.Context, claim *metalv1alpha
 			ProposedBy:              r.Proposer,
 			Reason:                  reasonRelease,
 			Actions:                 actions,
-			Approval:                metalv1alpha1.OperationApproval{Required: ptr.To(runsNode(host) && !approvalWaived(claim))},
+			Approval:                metalv1alpha1.OperationApproval{Required: ptr.To(releaseNeedsPerson(claim, host, provisionOps))},
 			TTLSecondsAfterFinished: ptr.To(releaseTTL),
 		},
 	}, "", nil
 }
 
+// releaseNeedsPerson: the release of host waits for a person. It does when
+// the machine runs its node now or ran it on record, unless the claim waived
+// approval.
+func releaseNeedsPerson(claim *metalv1alpha1.HostClaim, host *metalv1alpha1.Host, provisionOps []metalv1alpha1.HostOperation) bool {
+	return !approvalWaived(claim) && (runsNode(host) || installedOnRecord(claim, host.Name, provisionOps))
+}
+
 // runsNode: the host reports a running, ready OS.
 func runsNode(host *metalv1alpha1.Host) bool {
 	return meta.IsStatusConditionTrue(host.Status.Conditions, metalv1alpha1.ConditionOSReady)
+}
+
+// installedOnRecord: a record says the host ran the claim's node, whether or
+// not it answers now. Either the claim's hand-off names the host (an install
+// of ours, or a node found already running), or a boot of the claim on the
+// host recorded its check-in step: the node ran its config, and only the
+// hand-off was not written yet.
+func installedOnRecord(claim *metalv1alpha1.HostClaim, hostName string, provisionOps []metalv1alpha1.HostOperation) bool {
+	if h := claim.Status.HandOff; h != nil && h.Host == hostName {
+		return true
+	}
+	return slices.ContainsFunc(provisionOps, func(op metalv1alpha1.HostOperation) bool {
+		return op.Spec.HostRef.Name == hostName && checkInRecorded(&op)
+	})
+}
+
+// checkInRecorded: the operation recorded an awaitCheckIn step as succeeded.
+func checkInRecorded(op *metalv1alpha1.HostOperation) bool {
+	n := recordedSteps(op)
+	for i := range n {
+		if op.Spec.Actions[i].AwaitCheckIn != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // approvalWaived: the claim's provisioning approval is Automatic.

@@ -237,7 +237,14 @@ func TestReleaseOfARunningNodeWaitsForAPerson(t *testing.T) {
 			if tc.automatic {
 				claim.Spec.Provisioning = &metalv1alpha1.ClaimProvisioning{Approval: metalv1alpha1.ProvisioningApprovalAutomatic}
 			}
-			claim.Status.HandOff = &metalv1alpha1.ClaimHandOff{Host: "host-a", Node: "node-b", Operation: "pk-metal/boot", At: metav1.Now()}
+			// A node that came up is on record; a boot that never finished
+			// (it ran, it did not check in) is not.
+			var objs []client.Object
+			if tc.running {
+				claim.Status.HandOff = &metalv1alpha1.ClaimHandOff{Host: "host-a", Node: "node-b", Operation: "pk-metal/boot", At: metav1.Now()}
+			} else {
+				objs = append(objs, bootOp("boot", "node-b", false, true))
+			}
 			host := &metalv1alpha1.Host{
 				ObjectMeta: metav1.ObjectMeta{Name: "host-a"},
 				Spec: metalv1alpha1.HostSpec{
@@ -247,7 +254,7 @@ func TestReleaseOfARunningNodeWaitsForAPerson(t *testing.T) {
 			if tc.running {
 				host.Status.Conditions = osReady
 			}
-			r := claimReconcilerFor(t, onPath(host))
+			r := claimReconcilerFor(t, append(objs, onPath(host))...)
 
 			done, err := r.release(t.Context(), claim, []metalv1alpha1.Host{*host})
 			require.NoError(t, err)

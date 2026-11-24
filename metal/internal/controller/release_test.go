@@ -144,8 +144,8 @@ func TestHoldWithdrawsAPendingReleaseProposal(t *testing.T) {
 
 func TestHoldDoesNotStopAnApprovedRelease(t *testing.T) {
 	claim := testClaim("node-b")
-	claim.Status.HandOff = &metalv1alpha1.ClaimHandOff{Host: "host-a", Node: "node-b", Operation: "pk-metal/boot", At: metav1.Now()}
-	r := claimReconcilerFor(t, boundHost(claim))
+	// The boot ran and never checked in: no hand-off, no check-in on record.
+	r := claimReconcilerFor(t, boundHost(claim), bootOp("boot", "node-b", false, true))
 
 	require.False(t, releasePass(t, r, claim))
 	rel := releaseOps(t, r, claim)

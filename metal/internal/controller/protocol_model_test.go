@@ -45,8 +45,9 @@ import (
 // Every decision the real code makes through a pure helper is made here by
 // that helper, over real API objects built from the model state: opFinished,
 // opAwaitsApproval, opActive, opSucceeded, approvalRequired, hostHolder,
-// bootRan, handedOff, powerOffDecided, heldBy, inMaintenance, runsNode,
-// approvalWaived, and the phase derivations. The control flow around them
+// bootRan, handedOff, powerOffDecided, heldBy, inMaintenance,
+// releaseNeedsPerson, approvalWaived, disruptionVerdict, and the phase
+// derivations. The control flow around them
 // (release, provision, the executor's Reconcile) is mirrored by hand, branch
 // by branch; the comments name the branch. Reads the real code makes through
 // the API reader (the hosts of a deleted claim, bootRanUncached,
@@ -165,6 +166,24 @@ func opObj(o mOp) *metalv1alpha1.HostOperation {
 		set(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonOperationQueued)
 	case o.Started:
 		set(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonExecuting)
+	}
+	return op
+}
+
+// bootObj is the boot as the release reads it: with its recorded steps, so
+// that the check-in step is on record once the boot passed it.
+func bootObj(o mOp) *metalv1alpha1.HostOperation {
+	op := opObj(o)
+	actions := []metalv1alpha1.HostOperationAction{
+		{InsertMedia: &metalv1alpha1.InsertMediaAction{MediaID: "cd"}},
+		{PowerCycle: &metalv1alpha1.PowerCycleAction{}},
+		{AwaitCheckIn: &metalv1alpha1.AwaitCheckInAction{NodeRef: metalv1alpha1.Reference{Name: "node-a"}}},
+		{EjectMedia: &metalv1alpha1.EjectMediaAction{MediaID: "cd"}},
+	}
+	op.Spec.HostRef.Name = "host-a"
+	op.Spec.Actions = actions
+	for i := range o.Steps {
+		op.Status.Steps = append(op.Status.Steps, metalv1alpha1.OperationStep{Action: actionName(actions[i]), Phase: "Succeeded"})
 	}
 	return op
 }
@@ -480,7 +499,13 @@ func (p *pass) release(v view) {
 					break
 				}
 				if op == nil {
-					required := runsNode(hostObj(host)) && !approvalWaived(claim)
+					var boots []metalv1alpha1.HostOperation
+					if boot.Exists {
+						boots = append(boots, *bootObj(boot))
+					}
+					h := hostObj(host)
+					h.Name = "host-a"
+					required := releaseNeedsPerson(claim, h, boots)
 					p.create(slotRelease, required)
 					op = opObj(mOp{Exists: true, Required: required})
 				}
@@ -834,11 +859,19 @@ var protocolInvariants = []invariant{
 		},
 	},
 	{
-		name: "a release of a machine that runs a node waits for a person, unless the claim waived it",
+		name: "a release of a machine that runs its node, or ran it on record, waits for a person, unless the claim waived it",
 		check: func(p *pass) string {
 			w := p.next
-			if p.createdRelease && w.Host.OSReady && !w.Claim.Waived && !w.Ops[slotRelease].Required {
+			if !p.createdRelease || w.Claim.Waived || w.Ops[slotRelease].Required {
+				return ""
+			}
+			switch {
+			case w.Host.OSReady:
 				return "a pre-cleared release of a running node"
+			case p.s.Cur.Claim.HandOff:
+				return "a pre-cleared release of a node the claim's hand-off records"
+			case w.Ops[slotBoot].Exists && w.Ops[slotBoot].Steps > 2:
+				return "a pre-cleared release of a node whose boot recorded its check-in"
 			}
 			return ""
 		},
@@ -978,6 +1011,10 @@ func TestProtocolModel(t *testing.T) {
 		w := world{
 			Claim: mClaim{Exists: true, Waived: waived},
 			Holds: 1, Maints: 1, Retries: 1, Fails: 1, Proposals: 1,
+		}
+		if !waived {
+			// The node may stop answering once: readiness is not a record.
+			w.Flaps = 1
 		}
 		initial = append(initial, state{Cur: w, Prev: w})
 	}
