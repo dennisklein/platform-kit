@@ -649,7 +649,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `username` _string_ | Username of the operator's managed account (role Administrator — the<br />executor flashes firmware and resets the manager over it). |  | Pattern: `^[a-z][a-z0-9-]\{0,15\}$` <br /> |
-| `maxAge` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#duration-v1-meta)_ | MaxAge rotates the managed password when the Secret grows older than<br />this. Unset rotates only when the Secret is missing or names another<br />account. |  | Optional: \{\} <br /> |
+| `maxAge` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#duration-v1-meta)_ | MaxAge rotates the managed password when the Secret grows older than<br />this. Unset rotates only when the Secret is missing or names another<br />account. A rotation sets the new password through the managed<br />account's own session first, so it works when the factory login no<br />longer does. |  | Optional: \{\} <br /> |
 
 
 #### DiscoveredMedia
@@ -782,7 +782,7 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `match` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#labelselector-v1-meta)_ | Match selects ManagementEndpoints by label. Endpoints carry only<br />discovered facts (vendor, model, vlan) — there is no claim, hence no<br />intent axis. An empty selector matches every endpoint. |  |  |
 | `layer` _integer_ | Layer orders overlapping profiles: higher layers override lower ones,<br />stanza by stanza. Profiles on the same layer must agree. | 0 | Optional: \{\} <br /> |
-| `credentials` _[CredentialsPolicy](#credentialspolicy)_ | Credentials makes the operator run its own account on the manager:<br />created through the asset's factory credentials, password kept in a<br />managed Secret, rotated on cadence. The factory account is left<br />untouched — it is the standing break-glass, and the reason every<br />credential fault self-heals instead of locking the operator out. |  | Optional: \{\} <br /> |
+| `credentials` _[CredentialsPolicy](#credentialspolicy)_ | Credentials makes the operator run its own account on the manager:<br />created through the asset's factory credentials, password kept in a<br />managed Secret, rotated on cadence. A new password is kept beside the<br />working one (keys next-username, next-password) and replaces it only<br />after a login with it succeeds, so a manager that refuses it leaves the<br />working password in place. The factory account is left untouched: it is<br />the way back in after the managed password was changed behind the<br />operator's back, and the way in at adoption. |  | Optional: \{\} <br /> |
 | `ntp` _[NTPPolicy](#ntppolicy)_ | NTP converges the manager's own clock sources. A skewed BMC clock is<br />not cosmetic: it rejects freshly-issued certificates (NotBefore in its<br />future) and mistimes every log line. |  | Optional: \{\} <br /> |
 | `tls` _[IdentityPolicy](#identitypolicy)_ | TLS runs the manager's HTTPS identity: a cert-manager-signed<br />certificate for bmc-<endpoint>.<domain>, pushed over the vendor's<br />dialect and renewed on cadence. The factory certificate is replaced<br />and cannot be restored — a CA-signed identity is strictly better and<br />the intended end state. |  | Optional: \{\} <br /> |
 

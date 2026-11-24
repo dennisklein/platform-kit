@@ -147,8 +147,9 @@ const (
 	// the endpoint is not Verified — nothing is written to an unproven box.
 	ReasonAwaitingVerification = "AwaitingVerification"
 	// ReasonRotationFailed on Configured=False: the managed account could not
-	// be brought to the managed Secret's password — neither the managed nor
-	// the factory credentials produced a working session.
+	// be brought to the managed Secret's password, or a new password was not
+	// accepted: neither the managed nor the factory session set one that logs
+	// in. The working password stays in the Secret.
 	ReasonRotationFailed = "RotationFailed"
 	// ReasonNTPFailed on Configured=False: the manager's time sources could
 	// not be converged — the write failed or did not read back.

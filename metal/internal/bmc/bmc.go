@@ -74,9 +74,10 @@ type Client interface {
 	// password — created when absent, password reset when present, enabled
 	// either way. Role is always Administrator (the executor flashes firmware
 	// and resets the manager over it). Idempotent: converging to a password
-	// already set is a success. The session driving this call is never the
-	// account being ensured — rotation always writes through another account
-	// (the factory break-glass), so a half-applied change cannot lock out.
+	// already set is a success. The session driving this call may be the
+	// account being ensured (a rotation through the managed session): the
+	// caller keeps the old password until a login with the new one succeeds,
+	// so an error here, even one after the change landed, cannot lock out.
 	EnsureAccount(ctx context.Context, username, password string) error
 
 	// NTP reads the manager's time-source configuration. Two vendor shapes

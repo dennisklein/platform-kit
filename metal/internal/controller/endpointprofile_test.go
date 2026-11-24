@@ -4,6 +4,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -109,11 +110,27 @@ func TestRandomPassword(t *testing.T) {
 	require.NoError(t, err)
 	b, err := randomPassword()
 	require.NoError(t, err)
-	assert.Len(t, a, 16)
 	assert.NotEqual(t, a, b)
-	for _, r := range a {
-		assert.True(t, r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9',
-			"alphanumeric only, got %q", r)
+	for range 200 {
+		pw, err := randomPassword()
+		require.NoError(t, err)
+		require.Len(t, pw, 16)
+		var lower, upper, digit, special bool
+		for _, r := range pw {
+			switch {
+			case r >= 'a' && r <= 'z':
+				lower = true
+			case r >= 'A' && r <= 'Z':
+				upper = true
+			case r >= '0' && r <= '9':
+				digit = true
+			case strings.ContainsRune(passwordSpecials, r):
+				special = true
+			default:
+				t.Fatalf("%q: character %q is outside the safe set", pw, r)
+			}
+		}
+		assert.True(t, lower && upper && digit && special, "%q: every class the strictest vendor rule asks for", pw)
 	}
 }
 

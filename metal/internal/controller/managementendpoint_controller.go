@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -176,7 +177,11 @@ func endpointClientConfig(ctx context.Context, c client.Client, credentialsNames
 	if err != nil {
 		return cfg, reason, err
 	}
-	if cfg.Username, cfg.Password, err = secretCreds(ctx, c, credentialsNamespace, managedCredsName(ep.Name)); apierrors.IsNotFound(err) {
+	cfg.Username, cfg.Password, err = secretCreds(ctx, c, credentialsNamespace, managedCredsName(ep.Name))
+	// A managed Secret that holds only a parked candidate (the first rotation,
+	// not yet accepted by the manager) has no working password: the factory
+	// login is still the way in.
+	if apierrors.IsNotFound(err) || errors.Is(err, errNoCredentials) {
 		if ep.Spec.CredentialsRef == nil {
 			return cfg, "CredentialsMissing", fmt.Errorf("spec.credentialsRef is not set")
 		}
@@ -216,6 +221,10 @@ func endpointTLSConfig(ctx context.Context, c client.Client, credentialsNamespac
 	return cfg, "", nil
 }
 
+// errNoCredentials: a credentials Secret exists but lacks the username or the
+// password key.
+var errNoCredentials = errors.New("needs username and password keys")
+
 // secretCreds reads username/password out of one credentials Secret. The
 // NotFound goes back verbatim so callers can distinguish an absent Secret
 // (fall back / adopt) from a malformed one (hold).
@@ -230,7 +239,7 @@ func secretCreds(ctx context.Context, c client.Client, namespace, name string) (
 	}
 	user, pass := string(creds.Data["username"]), string(creds.Data["password"])
 	if user == "" || pass == "" {
-		return "", "", fmt.Errorf("credentials secret %s: needs username and password keys", key)
+		return "", "", fmt.Errorf("credentials secret %s: %w", key, errNoCredentials)
 	}
 	return user, pass, nil
 }

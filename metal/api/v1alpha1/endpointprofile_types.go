@@ -24,9 +24,12 @@ type EndpointProfileSpec struct {
 
 	// Credentials makes the operator run its own account on the manager:
 	// created through the asset's factory credentials, password kept in a
-	// managed Secret, rotated on cadence. The factory account is left
-	// untouched — it is the standing break-glass, and the reason every
-	// credential fault self-heals instead of locking the operator out.
+	// managed Secret, rotated on cadence. A new password is kept beside the
+	// working one (keys next-username, next-password) and replaces it only
+	// after a login with it succeeds, so a manager that refuses it leaves the
+	// working password in place. The factory account is left untouched: it is
+	// the way back in after the managed password was changed behind the
+	// operator's back, and the way in at adoption.
 	// +optional
 	Credentials *CredentialsPolicy `json:"credentials,omitempty"`
 
@@ -54,7 +57,9 @@ type CredentialsPolicy struct {
 
 	// MaxAge rotates the managed password when the Secret grows older than
 	// this. Unset rotates only when the Secret is missing or names another
-	// account.
+	// account. A rotation sets the new password through the managed
+	// account's own session first, so it works when the factory login no
+	// longer does.
 	// +optional
 	MaxAge *metav1.Duration `json:"maxAge,omitempty"`
 }

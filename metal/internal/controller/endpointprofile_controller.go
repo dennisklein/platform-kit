@@ -39,12 +39,13 @@ const rotatedAtAnnotation = labelDomain + "rotated-at"
 // condition, which it alone maintains; the observing endpoint reconciler
 // leaves it untouched.
 //
-// The credentials lane runs the operator's own account: the desired password
-// is persisted to the managed Secret FIRST, then the account is converged to
-// it — always through a session on ANOTHER account (the asset's factory
-// credentials, deliberately left untouched as standing break-glass). Every
-// crash window therefore heals on a later pass instead of locking out, and
-// a lost managed Secret is a repair, not an incident.
+// The credentials lane runs the operator's own account. A new password is
+// parked in the managed Secret as a candidate beside the working one, set on
+// the manager (through the managed session, or the asset's factory
+// credentials, which are left untouched as standing break-glass), and
+// promoted only once it logs in. Every crash window therefore heals on a later
+// pass, a refused password leaves the working one in place, and a lost
+// managed Secret is a repair through the factory login, not an incident.
 type EndpointConvergenceReconciler struct {
 	client.Client
 	// CredentialsNamespace is where credential Secrets live (factory and managed).
@@ -194,8 +195,33 @@ func (r *EndpointConvergenceReconciler) withdrawIdentity(ctx context.Context, ep
 	return nil
 }
 
-// credentials converges the operator's managed account: Secret first (the
-// desired state), then the account on the manager, then a proving login.
+// Keys of the managed-credential Secret. username and password are the
+// credential every lane dials with, and they only ever hold a password the
+// manager has been seen to accept. A rotation parks its candidate under the
+// next-* keys and promotes it only after a login with it succeeded.
+const (
+	keyNextUsername = "next-username"
+	keyNextPassword = "next-password"
+)
+
+// managedCred is one username and password pair out of the managed Secret.
+type managedCred struct{ user, pass string }
+
+func (c managedCred) set() bool { return c.user != "" && c.pass != "" }
+
+// credentials converges the operator's managed account in two phases. The
+// working password in the managed Secret is never replaced by one the
+// manager has not accepted yet:
+//
+//  1. a new password is parked in the Secret as a candidate (next-username,
+//     next-password) beside the working one, so a crash after the manager took
+//     it cannot lose it;
+//  2. the candidate is set on the manager, through the managed account's own
+//     session first and the factory session second, and promoted to username
+//     and password only once a login with it succeeds.
+//
+// A rotation the manager refuses therefore leaves every lane dialling with the
+// password that still works, whether or not the factory login does.
 func (r *EndpointConvergenceReconciler) credentials(ctx context.Context, ep *metalv1alpha1.ManagementEndpoint, pol *metalv1alpha1.CredentialsPolicy) (metav1.ConditionStatus, string, string, error) {
 	sec := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
 		Name: managedCredsName(ep.Name), Namespace: r.CredentialsNamespace,
@@ -204,43 +230,159 @@ func (r *EndpointConvergenceReconciler) credentials(ctx context.Context, ep *met
 	if err != nil && !apierrors.IsNotFound(err) {
 		return "", "", "", err
 	}
-	if apierrors.IsNotFound(err) || string(sec.Data["username"]) != pol.Username || rotationDue(sec, pol.MaxAge) {
+	exists := err == nil
+	cur := managedCred{string(sec.Data["username"]), string(sec.Data["password"])}
+	next := managedCred{string(sec.Data[keyNextUsername]), string(sec.Data[keyNextPassword])}
+	curOK := cur.set() && r.probe(ctx, ep, cur.user, cur.pass) == nil
+	// One account holds one password: while the working password still logs
+	// in to the candidate's account, the candidate is not on the manager, and
+	// trying it would only add a failed login towards the lockout counter.
+	sameAccount := next.user == cur.user
+	nextProbed := false
+
+	if next.set() && (!curOK || !sameAccount) {
+		// A candidate from an earlier pass that may have landed before that
+		// pass ended (a crash, a lost Secret write).
+		nextProbed = true
+		if r.probe(ctx, ep, next.user, next.pass) == nil {
+			return r.promote(ctx, ep, sec, next)
+		}
+	}
+	if next.set() && next.user != pol.Username {
+		next = managedCred{} // parked for an account the profile no longer names
+	}
+
+	if !next.set() {
+		due := !cur.set() || cur.user != pol.Username || rotationDue(sec, pol.MaxAge)
+		if !due {
+			return r.keep(ctx, ep, cur, curOK)
+		}
 		pw, err := randomPassword()
 		if err != nil {
 			return "", "", "", err
 		}
-		if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, sec, func() error {
-			if err := controllerutil.SetControllerReference(ep, sec, r.Scheme()); err != nil {
-				return err
-			}
-			if sec.Annotations == nil {
-				sec.Annotations = map[string]string{}
-			}
-			sec.Annotations[rotatedAtAnnotation] = time.Now().UTC().Format(time.RFC3339)
-			sec.Data = map[string][]byte{
-				"username": []byte(pol.Username),
-				"password": []byte(pw),
-			}
-			return nil
-		}); err != nil {
-			return "", "", "", fmt.Errorf("managed credentials %s: %w", sec.Name, err)
+		next = managedCred{pol.Username, pw}
+		if err := r.park(ctx, ep, sec, exists, next); err != nil {
+			return "", "", "", err
 		}
-		logf.FromContext(ctx).Info("rotated managed credentials", "endpoint", ep.Name, "account", pol.Username)
+		sameAccount, nextProbed = next.user == cur.user, false
 	}
 
-	user, pass := string(sec.Data["username"]), string(sec.Data["password"])
-	if r.probe(ctx, ep, user, pass) == nil {
-		return metav1.ConditionTrue, metalv1alpha1.ReasonInSync, "account " + user + " managed", nil
+	// landed decides whether the manager now holds the candidate after one
+	// attempt to set it. A refused write costs no failed login at all while
+	// the working password still answers for the same account.
+	landed := func(setErr error) bool {
+		if setErr != nil {
+			if curOK && sameAccount && r.probe(ctx, ep, cur.user, cur.pass) == nil {
+				return false
+			}
+			if nextProbed {
+				return false
+			}
+		}
+		nextProbed = true
+		return r.probe(ctx, ep, next.user, next.pass) == nil
 	}
-	if err := r.repair(ctx, ep, user, pass); err != nil {
+
+	var failures []string
+	if curOK {
+		cfg, _, err := endpointTLSConfig(ctx, r.Client, r.CredentialsNamespace, ep, false)
+		if err != nil {
+			return "", "", "", err
+		}
+		cfg.Username, cfg.Password = cur.user, cur.pass
+		setErr := withSession(ctx, r.Dial, cfg, func(ctx context.Context, cl bmc.Client) error {
+			return cl.EnsureAccount(ctx, next.user, next.pass)
+		})
+		if landed(setErr) {
+			return r.promote(ctx, ep, sec, next)
+		}
+		failures = append(failures, "managed session: "+errText(setErr))
+	}
+	setErr := r.repair(ctx, ep, next.user, next.pass)
+	if landed(setErr) {
+		return r.promote(ctx, ep, sec, next)
+	}
+	failures = append(failures, errText(setErr))
+
+	kept := "no managed password works yet"
+	if curOK {
+		kept = "the working password of " + cur.user + " is kept"
+	}
+	return metav1.ConditionFalse, metalv1alpha1.ReasonRotationFailed,
+		"the new password for " + next.user + " was not accepted (" + strings.Join(failures, "; ") + "); " + kept, nil
+}
+
+// keep holds the managed password when no rotation is due. One that stopped
+// working was changed behind the operator's back: it is put back through the
+// factory session, and the Secret is not touched.
+func (r *EndpointConvergenceReconciler) keep(ctx context.Context, ep *metalv1alpha1.ManagementEndpoint, cur managedCred, curOK bool) (metav1.ConditionStatus, string, string, error) {
+	if curOK {
+		return metav1.ConditionTrue, metalv1alpha1.ReasonInSync, "account " + cur.user + " managed", nil
+	}
+	if err := r.repair(ctx, ep, cur.user, cur.pass); err != nil {
 		return metav1.ConditionFalse, metalv1alpha1.ReasonRotationFailed, err.Error(), nil
 	}
-	if err := r.probe(ctx, ep, user, pass); err != nil {
+	if err := r.probe(ctx, ep, cur.user, cur.pass); err != nil {
 		return metav1.ConditionFalse, metalv1alpha1.ReasonRotationFailed,
-			"account " + user + " reset but login still fails: " + err.Error(), nil
+			"account " + cur.user + " reset but login still fails: " + err.Error(), nil
 	}
-	logf.FromContext(ctx).Info("converged managed account", "endpoint", ep.Name, "account", user)
-	return metav1.ConditionTrue, metalv1alpha1.ReasonInSync, "account " + user + " managed", nil
+	logf.FromContext(ctx).Info("repaired managed account", "endpoint", ep.Name, "account", cur.user)
+	return metav1.ConditionTrue, metalv1alpha1.ReasonInSync, "account " + cur.user + " managed", nil
+}
+
+// errText is an error's text, or what a nil error meant to the rotation: the
+// manager answered success but the password does not log in.
+func errText(err error) string {
+	if err == nil {
+		return "accepted, but a login with it fails"
+	}
+	return err.Error()
+}
+
+// park stores a candidate beside the working credential, creating the
+// managed Secret when it is missing. The working keys are left as they are.
+func (r *EndpointConvergenceReconciler) park(ctx context.Context, ep *metalv1alpha1.ManagementEndpoint, sec *corev1.Secret, exists bool, next managedCred) error {
+	if sec.Data == nil {
+		sec.Data = map[string][]byte{}
+	}
+	sec.Data[keyNextUsername] = []byte(next.user)
+	sec.Data[keyNextPassword] = []byte(next.pass)
+	if !exists {
+		if err := controllerutil.SetControllerReference(ep, sec, r.Scheme()); err != nil {
+			return err
+		}
+		if err := r.Create(ctx, sec); err != nil {
+			return fmt.Errorf("managed credentials %s: %w", sec.Name, err)
+		}
+		return nil
+	}
+	// An update, not a patch: a Secret that changed since the read makes this
+	// pass fail and the next one start from what is stored.
+	if err := r.Update(ctx, sec); err != nil {
+		return fmt.Errorf("managed credentials %s: %w", sec.Name, err)
+	}
+	return nil
+}
+
+// promote makes a candidate the managed credential once a login with it has
+// succeeded, and stamps the rotation time.
+func (r *EndpointConvergenceReconciler) promote(ctx context.Context, ep *metalv1alpha1.ManagementEndpoint, sec *corev1.Secret, next managedCred) (metav1.ConditionStatus, string, string, error) {
+	if sec.Annotations == nil {
+		sec.Annotations = map[string]string{}
+	}
+	sec.Annotations[rotatedAtAnnotation] = time.Now().UTC().Format(time.RFC3339)
+	sec.Data = map[string][]byte{
+		"username": []byte(next.user),
+		"password": []byte(next.pass),
+	}
+	// A failed write leaves the candidate parked: the next pass finds the
+	// old password dead and the candidate alive, and promotes it then.
+	if err := r.Update(ctx, sec); err != nil {
+		return "", "", "", fmt.Errorf("managed credentials %s: %w", sec.Name, err)
+	}
+	logf.FromContext(ctx).Info("rotated managed credentials", "endpoint", ep.Name, "account", next.user)
+	return metav1.ConditionTrue, metalv1alpha1.ReasonInSync, "account " + next.user + " managed", nil
 }
 
 // ntp converges the manager's time sources: read, write on drift, prove by
@@ -297,9 +439,8 @@ func (r *EndpointConvergenceReconciler) probe(ctx context.Context, ep *metalv1al
 	})
 }
 
-// repair brings the managed account to the Secret's password through a
-// factory session — the break-glass path, and the only writer: rotation
-// never saws off the branch its own session sits on.
+// repair sets the managed account's password through a factory session —
+// the break-glass path, and the only way in while no managed password works.
 func (r *EndpointConvergenceReconciler) repair(ctx context.Context, ep *metalv1alpha1.ManagementEndpoint, user, pass string) error {
 	if ep.Spec.CredentialsRef == nil {
 		return errors.New("no factory credentialsRef to repair through")
@@ -413,18 +554,50 @@ func rotationDue(sec *corev1.Secret, maxAge *metav1.Duration) bool {
 	return time.Since(t) > maxAge.Duration
 }
 
-// randomPassword draws 16 unbiased alphanumeric characters — inside every
-// vendor's password rules (8-20 chars, no special-character requirement met
-// by mixed classes).
+// passwordSpecials are the punctuation a generated password may hold:
+// characters that no vendor rule or Basic authentication treats specially,
+// and that a "special character required" rule counts.
+const passwordSpecials = "-_."
+
+// randomPassword draws a 16-character password that meets the strictest
+// vendor rule met so far: at least one lower-case letter, one upper-case
+// letter, one digit and one special character (the iBMC's complexity check
+// asks for the last), inside every vendor's length limits.
 func randomPassword() (string, error) {
-	const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	out := make([]byte, 16)
-	for i := range out {
-		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(alphabet))))
+	const (
+		lower  = "abcdefghijklmnopqrstuvwxyz"
+		upper  = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+		digits = "0123456789"
+		length = 16
+	)
+	pick := func(n int) (int, error) {
+		v, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
+		if err != nil {
+			return 0, err
+		}
+		return int(v.Int64()), nil
+	}
+	out := make([]byte, 0, length)
+	all := lower + upper + digits + passwordSpecials
+	for _, class := range []string{lower, upper, digits, passwordSpecials, all} {
+		for len(out) < length {
+			i, err := pick(len(class))
+			if err != nil {
+				return "", err
+			}
+			out = append(out, class[i])
+			if class != all {
+				break // one from each required class, the rest from all
+			}
+		}
+	}
+	// Shuffle, so the required classes sit at no predictable position.
+	for i := len(out) - 1; i > 0; i-- {
+		j, err := pick(i + 1)
 		if err != nil {
 			return "", err
 		}
-		out[i] = alphabet[n.Int64()]
+		out[i], out[j] = out[j], out[i]
 	}
 	return string(out), nil
 }
