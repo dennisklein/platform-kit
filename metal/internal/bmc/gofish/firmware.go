@@ -136,6 +136,62 @@ func (c *client) UpdateFirmware(ctx context.Context, image []byte) error {
 	return nil
 }
 
+// StageFirmware pushes a system component's image over the multipart push
+// URI with apply time OnReset and the inventory entry as the target. The
+// answer is not followed to its end: a task for a staged update stays
+// pending until the system resets, which is a later step's business.
+func (c *client) StageFirmware(_ context.Context, image []byte, entryID string) error {
+	if c.readOnly {
+		return errReadOnly
+	}
+	us, err := c.updateService()
+	if err != nil {
+		return err
+	}
+	if us.PushURI == "" {
+		return fmt.Errorf("bmc: endpoint advertises no multipart push URI")
+	}
+	if !slices.Contains(us.ApplyTime.SupportedValues, "OnReset") {
+		return fmt.Errorf("bmc: the push URI does not support apply time OnReset (it lists %v); system firmware is only staged for the next reset",
+			us.ApplyTime.SupportedValues)
+	}
+	inv, err := c.svc.UpdateService()
+	if err != nil {
+		return fmt.Errorf("bmc: update service: %w", err)
+	}
+	entries, err := inv.FirmwareInventory()
+	if err != nil {
+		return fmt.Errorf("bmc: firmware inventory: %w", err)
+	}
+	target := ""
+	for _, e := range entries {
+		if e.ID == entryID {
+			target = e.ODataID
+		}
+	}
+	if target == "" {
+		return fmt.Errorf("bmc: firmware inventory has no entry %q", entryID)
+	}
+	params, err := json.Marshal(map[string]any{
+		"Targets":                     []string{target},
+		"@Redfish.OperationApplyTime": "OnReset",
+	})
+	if err != nil {
+		return err
+	}
+	body, contentType, err := updateForm(params, image)
+	if err != nil {
+		return err
+	}
+	resp, err := c.api.RunRawRequestWithHeaders(http.MethodPost, us.PushURI,
+		bytes.NewReader(body), contentType, nil)
+	if err != nil {
+		return fmt.Errorf("bmc: firmware upload: %w", err)
+	}
+	defer resp.Body.Close()
+	return nil
+}
+
 // updateParameters builds the UpdateParameters part for this endpoint.
 func (c *client) updateParameters(us *updateService) ([]byte, error) {
 	m, err := c.manager()

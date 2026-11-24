@@ -53,6 +53,14 @@ type Client interface {
 	// reliable proof is Manager LastResetTime advancing plus the version reading
 	// back — this firmware answers success to actions it silently declines.
 	UpdateFirmware(ctx context.Context, image []byte) error
+	// StageFirmware pushes a system firmware image (BIOS/UEFI, NIC, RAID) for
+	// one FirmwareInventory entry, to apply at the system's next reset
+	// (@Redfish.OperationApplyTime OnReset). Refused where the push URI does
+	// not list OnReset among its supported apply times: an image pushed with
+	// another apply time either flashes at once under a running OS or stages
+	// where nothing ever installs it. Acceptance proves only that it is
+	// staged; the inventory version after the reset is the proof it applied.
+	StageFirmware(ctx context.Context, image []byte, entryID string) error
 	// ResetManager reboots the BMC itself (Manager.Reset) — host power untouched.
 	// GracefulRestart or ForceRestart; graceful is refused mid-update, force also
 	// discards a stuck staged image (the recorded X12 wedge cure).

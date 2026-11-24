@@ -332,6 +332,11 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 				return ctrl.Result{RequeueAfter: r.guardInterval()}, client.IgnoreNotFound(flush())
 			}
 		}
+		// Work on a machine a maintenance window covers starts only while
+		// one of its windows is open (window.go).
+		if res, held, err := r.holdForWindow(ctx, op, host, setCond, flush); held {
+			return res, err
+		}
 	}
 
 	// One context bounds the whole BMC pass (dial + steps + closing observation):
@@ -909,7 +914,7 @@ func passTimeout(op *metalv1alpha1.HostOperation) time.Duration {
 		switch {
 		case a.TalosUpgrade != nil:
 			budget = max(budget, talosUpgradePass)
-		case a.FlashFirmware != nil:
+		case a.FlashFirmware != nil, a.StageFirmware != nil:
 			budget = max(budget, flashTimeout)
 		}
 	}
@@ -933,7 +938,7 @@ func usesBMC(op *metalv1alpha1.HostOperation) bool {
 // Kubernetes actions are not; awaitCheckIn reads the TalosNode.
 func actionUsesBMC(a metalv1alpha1.HostOperationAction) bool {
 	return a.PowerCycle != nil || a.PowerOff != nil || a.SetBootOverride != nil || a.InsertMedia != nil ||
-		a.EjectMedia != nil || a.ApplyBios != nil || a.FlashFirmware != nil
+		a.EjectMedia != nil || a.ApplyBios != nil || a.FlashFirmware != nil || a.StageFirmware != nil
 }
 
 // approvalRequired: nil is a closed gate — the safe default for every client
@@ -1132,6 +1137,7 @@ var implementedActions = map[string]bool{
 	"cordon": true, "drain": true, "uncordon": true, "talosReboot": true, "talosShutdown": true,
 	"talosUpgrade": true, "talosApplyConfig": true, "etcdLeave": true, "etcdRemoveMember": true,
 	"talosReset": true, "waitNodeReady": true, "waitEtcdHealthy": true, "etcdRecover": true,
+	"stageFirmware": true,
 }
 
 // unimplementedAction returns the index and key of the first action step

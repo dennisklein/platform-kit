@@ -356,6 +356,40 @@ func Run(t *testing.T, c bmc.Client, f *sim.Fixture, readOnly bool) {
 		}
 	})
 
+	t.Run("stage-system-firmware", func(t *testing.T) {
+		entry := ""
+		for _, e := range f.Update.Inventory {
+			if !e.BMC && !e.Staging && e.Updateable && entry == "" {
+				entry = e.ID
+			}
+		}
+		image := []byte("mock system image SIMFW 77.7.7 trailer")
+		if fixtureUpdateDialect(f) != bmc.DialectMultipartPush || !f.Update.OnReset || entry == "" {
+			if entry != "" {
+				assert.Error(t, c.StageFirmware(ctx, image, entry),
+					"staging without OnReset among the supported apply times must be refused")
+			}
+			return
+		}
+		version := func() string {
+			inv, err := c.FirmwareInventory(ctx)
+			require.NoError(t, err)
+			for _, e := range inv {
+				if e.ID == entry {
+					return e.Version
+				}
+			}
+			return ""
+		}
+		before := version()
+		require.NoError(t, c.StageFirmware(ctx, image, entry))
+		assert.Equal(t, before, version(), "a staged image changes nothing before the reset")
+		id := f.Systems[0].ID
+		require.NoError(t, c.SetPower(ctx, id, bmc.ActionForceOff))
+		require.NoError(t, c.SetPower(ctx, id, bmc.ActionOn))
+		assert.Equal(t, "77.7.7", version(), "the next boot of the system installs the staged image")
+	})
+
 	t.Run("manager-reset", func(t *testing.T) {
 		base, err := c.Manager(ctx)
 		require.NoError(t, err)

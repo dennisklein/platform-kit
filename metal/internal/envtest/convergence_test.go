@@ -15,16 +15,19 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc/sim"
@@ -70,6 +73,9 @@ func TestConvergence(t *testing.T) {
 
 	huawei, _ := simServer(t, "huawei-2288h-v5")
 	smc, smcState := simServer(t, "supermicro-x12")
+	// System firmware stages for the next reset here (before anything
+	// serves a request: the fixture is read live).
+	smcState.Fixture().Update.OnReset = true
 	registry, imageRef := fakeRegistry(t, []byte("SIMFW 02.00.00 fake x12 bmc image"))
 
 	led := writeLedger(t, `
@@ -99,7 +105,7 @@ func TestConvergence(t *testing.T) {
 		PollInterval:         pollInterval,
 		RegistryClient:       registry.Client(),
 	}, controller.LaneAsset, controller.LaneEndpoint, controller.LaneHost, controller.LaneHostClaim,
-		controller.LaneHostOperation, controller.LaneConvergence))
+		controller.LaneHostOperation, controller.LaneConvergence, controller.LaneMaintenanceWindow))
 	runManager(t, ctx, mgr)
 
 	for _, a := range []*metalv1alpha1.Asset{
@@ -481,7 +487,7 @@ func TestConvergence(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "x12-fw"},
 			Spec: metalv1alpha1.FirmwareProfileSpec{
 				Match:   metav1.LabelSelector{MatchLabels: map[string]string{"metal.pk.io/model": "X12DPi-N6"}},
-				Manager: metalv1alpha1.FirmwareTarget{Version: "02.00.00", Image: imageRef},
+				Manager: &metalv1alpha1.FirmwareTarget{Version: "02.00.00", Image: imageRef},
 			}}
 		require.NoError(t, cl.Create(ctx, fw))
 		h := waitHost(smcHost, func(h metalv1alpha1.Host) bool {
@@ -534,7 +540,7 @@ func TestConvergence(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "ibmc-fw"},
 			Spec: metalv1alpha1.FirmwareProfileSpec{
 				Match:   metav1.LabelSelector{MatchLabels: map[string]string{"metal.pk.io/vendor": "Huawei"}},
-				Manager: metalv1alpha1.FirmwareTarget{Version: "9.99", Image: imageRef},
+				Manager: &metalv1alpha1.FirmwareTarget{Version: "9.99", Image: imageRef},
 			}}
 		require.NoError(t, cl.Create(ctx, fw))
 		h := waitHost(huaweiHost, func(h metalv1alpha1.Host) bool {
@@ -567,5 +573,154 @@ func TestConvergence(t *testing.T) {
 			err := cl.Get(ctx, client.ObjectKey{Namespace: "default", Name: "ttl-cycle"}, &got)
 			return err != nil
 		}, waitFor, tick, "the finished operation never expired")
+	})
+	st.run(t, "system firmware is staged and applied at the next reset", func(t *testing.T) {
+		sysCond := func(h metalv1alpha1.Host) *metav1.Condition {
+			return meta.FindStatusCondition(h.Status.Conditions, metalv1alpha1.ConditionSystemFirmwareConverged)
+		}
+		bad := &metalv1alpha1.FirmwareProfile{
+			ObjectMeta: metav1.ObjectMeta{Name: "x12-raid"},
+			Spec: metalv1alpha1.FirmwareProfileSpec{
+				Match:  metav1.LabelSelector{MatchLabels: map[string]string{"metal.pk.io/model": "X12DPi-N6"}},
+				System: []metalv1alpha1.SystemFirmwareTarget{{Component: "RAID.*", Version: "1", Image: imageRef}},
+			}}
+		require.NoError(t, cl.Create(ctx, bad))
+		h := waitHost(smcHost, func(h metalv1alpha1.Host) bool {
+			c := sysCond(h)
+			return c != nil && c.Reason == metalv1alpha1.ReasonNoMatchingComponent
+		})
+		assert.Contains(t, sysCond(h).Message, "BIOS", "the hold lists what the BMC does serve")
+		require.NoError(t, cl.Delete(ctx, bad))
+
+		fw := &metalv1alpha1.FirmwareProfile{
+			ObjectMeta: metav1.ObjectMeta{Name: "x12-bios-fw"},
+			Spec: metalv1alpha1.FirmwareProfileSpec{
+				Match:  metav1.LabelSelector{MatchLabels: map[string]string{"metal.pk.io/model": "X12DPi-N6"}},
+				System: []metalv1alpha1.SystemFirmwareTarget{{Component: "BIOS", Version: "02.00.00", Image: imageRef}},
+			}}
+		require.NoError(t, cl.Create(ctx, fw))
+		t.Cleanup(func() { _ = cl.Delete(ctx, fw) })
+		h = waitHost(smcHost, func(h metalv1alpha1.Host) bool {
+			c := sysCond(h)
+			return c != nil && c.Reason == metalv1alpha1.ReasonAwaitingOperation && h.Status.SystemFirmwareProposed != nil
+		})
+		ref := h.Status.SystemFirmwareProposed.Operation
+		ns, name, _ := strings.Cut(ref, "/")
+		op := metalv1alpha1.HostOperation{}
+		require.NoError(t, cl.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &op))
+		require.Len(t, op.Spec.Actions, 2, "no node runs here: staged, then a power cycle")
+		require.NotNil(t, op.Spec.Actions[0].StageFirmware)
+		assert.Equal(t, []string{"BIOS"}, op.Spec.Actions[0].StageFirmware.Targets)
+		assert.NotNil(t, op.Spec.Actions[1].PowerCycle)
+
+		approve(ref)
+		waitOpSucceeded(ref)
+		waitHost(smcHost, func(h metalv1alpha1.Host) bool {
+			c := sysCond(h)
+			return c != nil && c.Status == metav1.ConditionTrue && h.Status.SystemFirmwareProposed == nil
+		})
+		inv, err := smcState.FirmwareInventory(ctx)
+		require.NoError(t, err)
+		for _, e := range inv {
+			if e.ID == "BIOS" {
+				assert.Equal(t, "02.00.00", e.Version, "the reset installed the staged image")
+			}
+		}
+	})
+
+	st.run(t, "a running node is drained around a BIOS change", func(t *testing.T) {
+		// The claim records that the machine runs a control plane: the
+		// install is done, so a BIOS change must move the node's work off
+		// first and wait for it (and its etcd member) to come back.
+		node := &osv1alpha1.TalosNode{
+			ObjectMeta: metav1.ObjectMeta{Name: "conv-cp"},
+			Spec: osv1alpha1.TalosNodeSpec{ClusterRef: osv1alpha1.Reference{Name: "conv"}, Role: osv1alpha1.RoleControlPlane,
+				Address: "192.0.2.31", InstallDiskSelector: osv1alpha1.DiskSelector{Serial: "sim-disk"}},
+		}
+		require.NoError(t, cl.Create(ctx, node))
+		require.Eventually(t, func() bool {
+			claim := &metalv1alpha1.HostClaim{}
+			if err := cl.Get(ctx, client.ObjectKey{Namespace: "default", Name: "fleet-conv"}, claim); err != nil {
+				return false
+			}
+			claim.Status.HandOff = &metalv1alpha1.ClaimHandOff{Host: smcHost, Node: node.Name, At: metav1.Now()}
+			return cl.Status().Update(ctx, claim) == nil
+		}, waitFor, tick)
+
+		role := &metalv1alpha1.BiosProfile{}
+		require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: "role-worker"}, role))
+		role.Spec.Attributes["QuietBoot"] = jv(t, false)
+		require.NoError(t, cl.Update(ctx, role))
+		bs := waitSettings(smcHost, func(bs metalv1alpha1.BiosSettings) bool {
+			return settingsReason(metalv1alpha1.ReasonAwaitingOperation)(bs) && bs.Status.Proposed != nil &&
+				string(bs.Spec.Attributes["QuietBoot"].Raw) == "false"
+		})
+		ns, name, _ := strings.Cut(bs.Status.Proposed.Operation, "/")
+		op := metalv1alpha1.HostOperation{}
+		require.NoError(t, cl.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &op))
+		var keys []string
+		for _, a := range op.Spec.Actions {
+			keys = append(keys, a.Key())
+		}
+		assert.Equal(t, []string{"applyBios", "waitEtcdHealthy", "cordon", "drain", "talosReboot",
+			"waitNodeReady", "waitEtcdHealthy", "uncordon"}, keys,
+			"staged first, etcd checked, drained, rebooted in order through the firmware, waited for, given back")
+		assert.Equal(t, node.Name, op.Spec.Actions[2].Cordon.NodeRef.Name)
+		assert.Equal(t, "PowerCycle", op.Spec.Actions[4].TalosReboot.Mode, "a kexec reboot would skip the firmware")
+
+		// The node goes away while nobody approved: the proposal names it in
+		// every drain step, so it is taken back and nothing reboots the
+		// machine until the record and the node agree again.
+		require.NoError(t, cl.Delete(ctx, node))
+		held := waitSettings(smcHost, settingsReason(metalv1alpha1.ReasonInstalledNodeMissing))
+		assert.Contains(t, converged(held).Message, "conv-cp")
+		assert.Nil(t, held.Status.Proposed, "the withdrawn plan is forgotten, not remembered as refused")
+		require.Eventually(t, func() bool {
+			return apierrors.IsNotFound(cl.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &metalv1alpha1.HostOperation{}))
+		}, waitFor, tick, "the unapproved proposal is withdrawn")
+	})
+	st.run(t, "an approved operation waits for its maintenance window", func(t *testing.T) {
+		// The window opens a few seconds from now: long enough to see the
+		// operation held, short enough to see it start by itself.
+		opens := time.Now().Add(6 * time.Second).Truncate(time.Second)
+		window := &metalv1alpha1.MaintenanceWindow{
+			ObjectMeta: metav1.ObjectMeta{Name: "huawei-nights"},
+			Spec: metalv1alpha1.MaintenanceWindowSpec{
+				HostSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"metal.pk.io/vendor": "Huawei"}},
+				Once: []metalv1alpha1.OnceWindow{{Start: metav1.NewTime(opens), End: metav1.NewTime(opens.Add(time.Hour))}},
+			},
+		}
+		require.NoError(t, cl.Create(ctx, window))
+		t.Cleanup(func() { _ = cl.Delete(ctx, window) })
+		require.Eventually(t, func() bool {
+			got := metalv1alpha1.MaintenanceWindow{}
+			return cl.Get(ctx, client.ObjectKeyFromObject(window), &got) == nil &&
+				got.Status.NextChange != nil && got.Status.NextChange.Equal(&metav1.Time{Time: opens}) && !got.Status.Open
+		}, waitFor, tick, "the window's status shows when it opens")
+
+		op := &metalv1alpha1.HostOperation{
+			ObjectMeta: metav1.ObjectMeta{Name: "window-cycle", Namespace: "default"},
+			Spec: metalv1alpha1.HostOperationSpec{
+				HostRef:    metalv1alpha1.Reference{Name: huaweiHost},
+				ProposedBy: operator,
+				Actions:    []metalv1alpha1.HostOperationAction{{PowerCycle: &metalv1alpha1.PowerCycleAction{}}},
+			},
+		}
+		require.NoError(t, cl.Create(ctx, op))
+		approve("default/window-cycle")
+		var got metalv1alpha1.HostOperation
+		require.Eventually(t, func() bool {
+			return cl.Get(ctx, client.ObjectKeyFromObject(op), &got) == nil &&
+				got.Status.BlockedOn == metalv1alpha1.ReasonOutsideMaintenanceWindow
+		}, waitFor, tick, "approved, but held outside the window")
+		require.True(t, time.Now().Before(opens), "the hold must be seen before the window opens for this test to mean anything")
+		assert.Nil(t, got.Status.Baseline, "nothing was done to the machine")
+		assert.Contains(t, meta.FindStatusCondition(got.Status.Conditions, metalv1alpha1.ConditionExecuted).Message,
+			"huawei-nights")
+
+		waitOpSucceeded("default/window-cycle")
+		require.NoError(t, cl.Get(ctx, client.ObjectKeyFromObject(op), &got))
+		require.NotNil(t, got.Status.Baseline)
+		assert.False(t, got.Status.Baseline.CapturedAt.Time.Before(opens), "it started only once the window was open")
 	})
 }

@@ -71,3 +71,23 @@ spec:
   manager:
     version: "01.07.09"
     image: registry.pk.internal:5000/firmware/x12-bmc@sha256:0000000000000000000000000000000000000000000000000000000000000000
+---
+# System firmware: BIOS/UEFI, network cards, RAID controllers, as the BMC's
+# FirmwareInventory names them (kubectl describe managementendpoint lists
+# them). Each image is staged to install at the next reset; on a machine that
+# runs a node the proposal drains it first and waits for it after.
+apiVersion: metal.pk.io/v1alpha1
+kind: FirmwareProfile
+metadata:
+  name: compute-system-firmware
+spec:
+  match:
+    matchLabels:
+      metal.pk.io/vendor: Generic
+  system:
+    - component: BIOS
+      version: "1.9.0"
+      image: registry.pk.internal:5000/firmware/generic-bios@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    - component: NIC\.Slot\.[0-9]+
+      version: "22.31.6"
+      image: registry.pk.internal:5000/firmware/generic-nic@sha256:0000000000000000000000000000000000000000000000000000000000000000

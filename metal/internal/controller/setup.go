@@ -41,6 +41,7 @@ const (
 	LaneBootAsset
 	LaneEtcdBackup
 	LaneTalosRollout
+	LaneMaintenanceWindow
 	laneCount
 )
 
@@ -50,6 +51,7 @@ var AllLanes = []Lane{
 	LaneConvergence, LaneEndpointConvergence, LaneTalosNode, LaneTalosCluster, LaneBootAsset,
 	LaneEtcdBackup,
 	LaneTalosRollout,
+	LaneMaintenanceWindow,
 }
 
 // Options is what the reconcilers are configured with. The manager fills it
@@ -271,6 +273,8 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 			},
 			propose: &RolloutProposer{Client: c, Proposer: o.Proposer},
 		}
+	case LaneMaintenanceWindow:
+		return "maintenancewindow", &MaintenanceWindowReconciler{Client: c}
 	default: // LaneBootAsset; SetupAll has checked the range
 		return "bootasset", &BootAssetReconciler{
 			Client: c, Scheme: scheme, Namespace: o.CredentialsNamespace, Factory: o.Factory,

@@ -143,6 +143,11 @@ type HostStatus struct {
 	// +optional
 	FirmwareProposed *ProposedPlan `json:"firmwareProposed,omitempty"`
 
+	// SystemFirmwareProposed is the system-firmware lane's plan memory, the
+	// same guard as firmwareProposed for the components a reset applies.
+	// +optional
+	SystemFirmwareProposed *ProposedPlan `json:"systemFirmwareProposed,omitempty"`
+
 	// Conditions are the truth — the only thing reconcilers branch on.
 	// +listType=map
 	// +listMapKey=type

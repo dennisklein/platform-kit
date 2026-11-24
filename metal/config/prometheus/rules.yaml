@@ -1,0 +1,85 @@
+# Alert rules for the pk-metal operator's domain metrics (internal/metrics).
+#
+# A PrometheusRule for the Prometheus Operator. It is not part of
+# config/default: a cluster without the Prometheus Operator has no such kind,
+# and applying it there would fail the whole install. Apply it on its own where
+# the kind exists:
+#
+#   kubectl apply -f metal/config/prometheus/rules.yaml
+#
+# The thresholds are starting points; docs/metal/observability.md says what
+# each alert means and what to do about it.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: pk-metal
+  namespace: pk-metal
+  labels:
+    app.kubernetes.io/name: pk-metal
+spec:
+  groups:
+    - name: pk-metal.operations
+      rules:
+        - alert: PkMetalOperationFailed
+          # A failed operation is never retried on its own: it waits for a
+          # person to read it and run pk-metal retry, or delete it.
+          expr: max by (namespace, operation, host, reason) (pk_metal_operation_failed) == 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "HostOperation {{ $labels.namespace }}/{{ $labels.operation }} on {{ $labels.host }} failed"
+            description: "Read it with kubectl describe hostoperation -n {{ $labels.namespace }} {{ $labels.operation }}, fix the cause, then pk-metal retry {{ $labels.namespace }}/{{ $labels.operation }}."
+        - alert: PkMetalApprovalWaiting
+          expr: max by (namespace, operation, host, reason) (pk_metal_operation_awaiting_approval_seconds) > 24 * 3600
+          labels:
+            severity: info
+          annotations:
+            summary: "HostOperation {{ $labels.namespace }}/{{ $labels.operation }} has waited for approval for more than a day"
+            description: "pk-metal approve {{ $labels.namespace }}/{{ $labels.operation }} to run it, or delete it to refuse it."
+    - name: pk-metal.hardware
+      rules:
+        - alert: PkMetalBMCUnreachable
+          expr: max by (endpoint) (pk_metal_bmc_reachable) == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "BMC {{ $labels.endpoint }} does not answer Redfish"
+            description: "No operation can reach the machines behind it. kubectl describe managementendpoint {{ $labels.endpoint }} shows the last error."
+    - name: pk-metal.clusters
+      rules:
+        - alert: PkMetalNodeNotReady
+          expr: max by (cluster, node, role) (pk_metal_talosnode_ready) == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "TalosNode {{ $labels.node }} ({{ $labels.role }}) in cluster {{ $labels.cluster }} is not Ready"
+            description: "pk-metal status shows the node table; kubectl describe talosnode {{ $labels.node }} shows why."
+        - alert: PkMetalClusterUnavailable
+          expr: max by (cluster) (pk_metal_taloscluster_available) == 0
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "TalosCluster {{ $labels.cluster }} is not available"
+            description: "Its Kubernetes API does not answer or a node is not Ready. kubectl describe taloscluster {{ $labels.cluster }}."
+        - alert: PkMetalEtcdBackupStale
+          # Twice the default six-hour schedule: one missed backup is not yet
+          # an alert, two in a row are.
+          expr: time() - max by (cluster) (pk_metal_etcd_backup_last_success_timestamp_seconds) > 12 * 3600
+          labels:
+            severity: critical
+          annotations:
+            summary: "The newest verified etcd backup of cluster {{ $labels.cluster }} is older than 12 hours"
+            description: "Without a recent backup a lost quorum loses recent cluster state. See docs/metal/disaster-recovery.md."
+        - alert: PkMetalCredentialsExpiring
+          # The operator renews its published credentials 30 days before they
+          # expire; one still this close to expiry means renewal is failing.
+          expr: max by (cluster, kind) (pk_metal_credentials_expiry_timestamp_seconds) - time() < 14 * 24 * 3600
+          labels:
+            severity: warning
+          annotations:
+            summary: "The {{ $labels.kind }} of cluster {{ $labels.cluster }} expires in less than 14 days"
+            description: "The operator should have renewed it 30 days before expiry. Check the operator log and kubectl describe taloscluster {{ $labels.cluster }}."

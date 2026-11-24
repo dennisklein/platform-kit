@@ -15,11 +15,14 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
+	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	"github.com/dennisklein/platform-kit/metal/internal/phase"
@@ -65,6 +68,8 @@ type ConvergenceReconciler struct {
 // +kubebuilder:rbac:groups=metal.pk.io,resources=biossettings;biosschemas,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups=metal.pk.io,resources=biossettings/status,verbs=update
 // +kubebuilder:rbac:groups=metal.pk.io,resources=hostoperations,verbs=get;list;watch;create;delete
+// +kubebuilder:rbac:groups=metal.pk.io,resources=hostclaims,verbs=get;list;watch
+// +kubebuilder:rbac:groups=os.pk.io,resources=talosnodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch,namespace=pk-metal
 
 // Reconcile compares a Host's BIOS and firmware against the matching profiles
@@ -93,11 +98,17 @@ func (r *ConvergenceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		setCondition(&host.Status.Conditions, host.Generation, t, s, reason, msg)
 	}
 
-	fwConverged, err := r.firmware(ctx, host, fwProfiles, setCond)
+	// Manager firmware first, then the system's, then BIOS settings: each
+	// can change what the next one offers.
+	fwConverged, err := r.firmware(ctx, host, managerProfiles(fwProfiles), setCond)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	requeue, err := r.bios(ctx, host, biosProfiles, fwConverged, setCond)
+	sysConverged, err := r.systemFirmware(ctx, host, fwProfiles, fwConverged, setCond)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	requeue, err := r.bios(ctx, host, biosProfiles, fwConverged && sysConverged, setCond)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -330,7 +341,23 @@ func (r *ConvergenceReconciler) bios(ctx context.Context, host *metalv1alpha1.Ho
 			msg = "drift on " + strings.Join(drifted, ", ") + " — firmware converges first"
 			break
 		}
-		hash := planHash(desired)
+		// A host that runs a node gets the change applied the way a running
+		// node needs: drained first, waited for after (disruptivePlan).
+		node, nodeHold, err := r.installedNode(ctx, host)
+		if err != nil {
+			return false, err
+		}
+		if nodeHold != "" {
+			// A proposal made while the node was there names it in every
+			// drain step: take it back while nobody approved it yet.
+			if err := r.withdrawPlan(ctx, &settings.Status.Proposed); err != nil {
+				return false, err
+			}
+			reason = metalv1alpha1.ReasonInstalledNodeMissing
+			msg = "drift on " + strings.Join(drifted, ", ") + "; " + nodeHold
+			break
+		}
+		hash := disruptiveHash(desired, node)
 		if plan := settings.Status.Proposed; plan != nil && plan.PlanHash == hash {
 			again := false
 			var err error
@@ -361,7 +388,7 @@ func (r *ConvergenceReconciler) bios(ctx context.Context, host *metalv1alpha1.Ho
 			msg = "drift on " + strings.Join(drifted, ", ") + "; no BIOS change is proposed: " + guard
 			break
 		}
-		op := r.proposal(host.Name, "bios", hash, metalv1alpha1.OperationReasonBiosConvergence, []metalv1alpha1.HostOperationAction{
+		op := r.proposal(host.Name, "bios", hash, metalv1alpha1.OperationReasonBiosConvergence, disruptivePlan(node, []metalv1alpha1.HostOperationAction{
 			// The attributes travel inside the operation: the approver sees
 			// exactly what will be staged, and a later edit of the settings
 			// cannot change an approved operation.
@@ -369,8 +396,7 @@ func (r *ConvergenceReconciler) bios(ctx context.Context, host *metalv1alpha1.Ho
 				SettingsRef: &metalv1alpha1.Reference{Name: settings.Name},
 				Attributes:  settings.Spec.Attributes,
 			}},
-			{PowerCycle: &metalv1alpha1.PowerCycleAction{}},
-		})
+		}))
 		if err := r.propose(ctx, op); err != nil {
 			return false, err
 		}
@@ -584,6 +610,12 @@ func (r *ConvergenceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&metalv1alpha1.FirmwareProfile{}, handler.EnqueueRequestsFromMapFunc(r.allHosts)).
 		Watches(&metalv1alpha1.ManagementEndpoint{}, handler.EnqueueRequestsFromMapFunc(r.hostsBehindEndpoint)).
 		Watches(&metalv1alpha1.HostOperation{}, handler.EnqueueRequestsFromMapFunc(hostForOperation)).
+		Watches(&metalv1alpha1.HostClaim{}, handler.EnqueueRequestsFromMapFunc(hostOfClaim)).
+		// Only a node's coming, going and spec matter to the plan; its status
+		// moves with every check-in, and each pass here reads the BIOS over
+		// the BMC.
+		Watches(&osv1alpha1.TalosNode{}, handler.EnqueueRequestsFromMapFunc(r.hostsRunningNode),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Named("convergence").
 		Complete(r)
 }

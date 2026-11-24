@@ -144,7 +144,7 @@ func TestMergeFirmwareProperties(t *testing.T) {
 			out = append(out, metalv1alpha1.FirmwareProfile{
 				ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("p%d", i)},
 				Spec: metalv1alpha1.FirmwareProfileSpec{
-					Layer: layers[r.IntN(len(layers))], Manager: targets[r.IntN(len(targets))]},
+					Layer: layers[r.IntN(len(layers))], Manager: &targets[r.IntN(len(targets))]},
 			})
 		}
 		return out
@@ -164,7 +164,7 @@ func TestMergeFirmwareProperties(t *testing.T) {
 			if perLayer[p.Spec.Layer] == nil {
 				perLayer[p.Spec.Layer] = map[metalv1alpha1.FirmwareTarget]bool{}
 			}
-			perLayer[p.Spec.Layer][p.Spec.Manager] = true
+			perLayer[p.Spec.Layer][*p.Spec.Manager] = true
 			if top == nil || p.Spec.Layer > top.Spec.Layer {
 				top = &profiles[i]
 			}
@@ -173,7 +173,7 @@ func TestMergeFirmwareProperties(t *testing.T) {
 			func(m map[metalv1alpha1.FirmwareTarget]bool) bool { return len(m) > 1 })
 		assert.Equal(t, split, conflict != "", "conflict %q", conflict)
 		if !split && top != nil {
-			assert.Equal(t, top.Spec.Manager, target)
+			assert.Equal(t, *top.Spec.Manager, target)
 		}
 	})
 }

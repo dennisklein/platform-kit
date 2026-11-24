@@ -63,7 +63,7 @@ func TestMergeFirmware(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: name},
 			Spec: metalv1alpha1.FirmwareProfileSpec{
 				Layer:   layer,
-				Manager: metalv1alpha1.FirmwareTarget{Version: version, Image: "r/f@sha256:aa"},
+				Manager: &metalv1alpha1.FirmwareTarget{Version: version, Image: "r/f@sha256:aa"},
 			},
 		}
 	}

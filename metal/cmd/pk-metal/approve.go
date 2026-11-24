@@ -497,6 +497,9 @@ func describeAction(a metalv1alpha1.HostOperationAction, pc planContext) string 
 		return fmt.Sprintf("change %d BIOS setting(s): %s (takes effect at the next start)", len(kv), strings.Join(kv, ", "))
 	case a.FlashFirmware != nil:
 		return fmt.Sprintf("flash firmware version %s from %s", a.FlashFirmware.Version, a.FlashFirmware.Image)
+	case a.StageFirmware != nil:
+		return fmt.Sprintf("stage firmware version %s from %s for %s, to install at the next start of the machine",
+			a.StageFirmware.Version, a.StageFirmware.Image, strings.Join(a.StageFirmware.Targets, ", "))
 	case a.AwaitCheckIn != nil:
 		node := a.AwaitCheckIn.NodeRef.Name
 		timeout := 30 * time.Minute

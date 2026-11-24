@@ -46,9 +46,14 @@ identity:
   certificate_service: true
 update:
   multipart_push: true
+  # System firmware (BIOS, the NIC, the RAID controller) is staged with apply
+  # time OnReset and installs at the next boot of the system.
+  on_reset: true
   inventory:
     - { id: BMC, bmc: true, updateable: true }
     - { id: BIOS, version: "1.8.2", updateable: true }
+    - { id: NIC.Slot.1, version: "22.31.6", updateable: true }
+    - { id: RAID.Integrated.1, version: "52.16.1", updateable: true }
 bios:
   settings_id: Settings
   registry: BiosAttributeRegistry.v1_0_0

@@ -123,17 +123,22 @@ func (m *Mover) Preflight(ctx context.Context) (*Plan, error) {
 		return nil, err
 	}
 	problems = append(problems, blockingOperations(ops.Items, o.ForceWaiting)...)
-	deleting, err := deletingObjects(ctx, src)
+	deleting, err := deletingObjects(ctx, src, m.movedKinds())
 	if err != nil {
 		return nil, err
 	}
 	problems = append(problems, deleting...)
+	busy, err := inFlight(ctx, src, m.movedKinds())
+	if err != nil {
+		return nil, err
+	}
+	problems = append(problems, busy...)
 	if len(problems) > 0 {
 		return nil, fmt.Errorf("the operator cannot move now:\n  - %s", strings.Join(problems, "\n  - "))
 	}
 
 	plan := &Plan{}
-	held, err := holdsObjects(ctx, dst)
+	held, err := holdsObjects(ctx, dst, m.movedKinds())
 	if err != nil {
 		return nil, err
 	}
@@ -186,9 +191,9 @@ func managerPods(ctx context.Context, c client.Client, d *appsv1.Deployment) (in
 // deletingObjects lists moved objects that are being deleted: their
 // finalizer's work (a release) is the source manager's, and it must finish
 // there.
-func deletingObjects(ctx context.Context, c client.Client) ([]string, error) {
+func deletingObjects(ctx context.Context, c client.Client, kinds []movedKind) ([]string, error) {
 	var out []string
-	for _, k := range movedKinds {
+	for _, k := range kinds {
 		if k.core {
 			continue
 		}
@@ -211,9 +216,9 @@ func deletingObjects(ctx context.Context, c client.Client) ([]string, error) {
 
 // holdsObjects names a few of the operator's objects the cluster holds, or ""
 // for none. A cluster without the CRDs holds none.
-func holdsObjects(ctx context.Context, c client.Client) (string, error) {
+func holdsObjects(ctx context.Context, c client.Client, kinds []movedKind) (string, error) {
 	var names []string
-	for _, k := range movedKinds {
+	for _, k := range kinds {
 		if k.core {
 			continue
 		}

@@ -77,10 +77,13 @@ func mergeFirmware(profiles []metalv1alpha1.FirmwareProfile) (target metalv1alph
 	winner := ""
 	var layer int32
 	for _, p := range profiles {
-		if winner != "" && layer == p.Spec.Layer && p.Spec.Manager != target {
+		if p.Spec.Manager == nil {
+			continue // a system-firmware-only profile says nothing about the manager
+		}
+		if winner != "" && layer == p.Spec.Layer && *p.Spec.Manager != target {
 			return target, fmt.Sprintf("profiles %s and %s disagree on layer %d", winner, p.Name, p.Spec.Layer)
 		}
-		target = p.Spec.Manager
+		target = *p.Spec.Manager
 		winner = p.Name
 		layer = p.Spec.Layer
 	}

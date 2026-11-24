@@ -72,6 +72,10 @@ on:
         description: "Day 2: bring a lab up on an older Talos release and upgrade it through an approved rollout"
         type: boolean
         default: false
+      observe:
+        description: "After the install, check the day-2 views: status cluster and node tables, operator metrics, a maintenance window holding an operation"
+        type: boolean
+        default: false
   push:
     branches:
       - "claude/**"
@@ -175,6 +179,11 @@ jobs:
         run: |
           mise run lab:day2-config-change
           metal/bin/pk-metal --kubeconfig .lab/kubeconfig rollout list
+
+      # About three minutes: the window it creates opens two minutes later.
+      - name: Check the day-2 views (status tables, metrics, maintenance window)
+        if: github.event_name == 'workflow_dispatch' && inputs.observe
+        run: mise run lab:observe
 
       # Deleting the claim of a running node proposes a shutdown that waits
       # for a person. lab:release approves it, as lab:wait does, and checks the

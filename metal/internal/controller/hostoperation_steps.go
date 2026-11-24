@@ -67,6 +67,8 @@ func (x *exec) step(ctx context.Context, i int) (stepState, error) {
 		return x.awaitCheckIn(ctx, a.AwaitCheckIn)
 	case a.EtcdRecover != nil:
 		return x.etcdRecover(ctx, a.EtcdRecover)
+	case a.StageFirmware != nil:
+		return stepDone, x.stageFirmware(ctx, a.StageFirmware)
 	}
 	if st, ok, err := x.talosStep(ctx, i); ok {
 		return st, err

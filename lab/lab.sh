@@ -35,6 +35,9 @@ HELP="usage: $SCRIPT <verb>
   day2-config-change
                add a node label (no reboot) through an approved Config rollout, and
                check that every node has it and that no machine rebooted
+  observe      check the day-2 views of a converged lab: the CLUSTER and NODE tables of
+               pk-metal status, the operator's metrics, and a maintenance window that
+               holds an approved operation until it opens
   pivot        move the operator from kind onto the first Talos cluster (pk-metal
                pivot), delete kind, and install the second cluster from there;
                needs a workload section (PK_LAB_WORKLOAD) and a converged lab
@@ -1482,6 +1485,116 @@ $after"
   echo "every node carries lab.pk.io/day2=$stamp, and no machine rebooted" >&2
 }
 
+# ---------------------------------------------------------------- observe
+
+# The operator's /metrics, through the API server's service proxy: the lab
+# reaches nothing in the cluster directly.
+metrics_text() {
+  kubectl get --raw "/api/v1/namespaces/$NAMESPACE/services/pk-metal-metrics:metrics/proxy/metrics"
+}
+
+# Checks the views a person and a monitoring system have of a converged lab.
+# Every check names what it expected; the first miss stops the run.
+observe_views() {
+  local root=$1
+  local report metrics
+  step "pk-metal status: every cluster available, every node Ready"
+  # Exit 2 means something needs a person; the JSON is what is checked.
+  report=$("$root/metal/bin/pk-metal" status -o json) || true
+  jq -e '.clusters | length > 0' <<<"$report" >/dev/null \
+    || die "pk-metal status -o json lists no cluster. See it: mise run lab:status"
+  jq -e '[.clusters[] | select(.available != "ClusterAvailable")] | length == 0' <<<"$report" >/dev/null \
+    || die "a cluster is not available: $(jq -c '[.clusters[] | {name, available, message}]' <<<"$report")"
+  jq -e '[.nodes[] | select(.ready != "Ready")] | length == 0' <<<"$report" >/dev/null \
+    || die "a node is not Ready: $(jq -c '[.nodes[] | {name, ready, message}]' <<<"$report")"
+
+  step "operator metrics: the domain series are served"
+  metrics=$(metrics_text) || die "cannot read the operator's metrics through service pk-metal-metrics in namespace $NAMESPACE"
+  local series
+  for series in pk_metal_host_phase pk_metal_talosnode_ready pk_metal_taloscluster_available \
+    pk_metal_bmc_reachable pk_metal_credentials_expiry_timestamp_seconds; do
+    grep -q "^$series{" <<<"$metrics" || die "the operator's metrics have no $series"
+  done
+  grep -q '^pk_metal_taloscluster_available{.*} 1$' <<<"$metrics" \
+    || die "pk_metal_taloscluster_available is not 1 for any cluster"
+}
+
+# Proposes a harmless operation (eject an empty virtual-media slot) on one
+# host, as the operator would, behind a maintenance window that opens in
+# $lead seconds, approves it, and checks that it waits for the window and
+# then runs by itself.
+observe_window() {
+  local root=$1 lead=$2
+  local host endpoint slot opens closes op=lab-window-probe blocked phase started deadline
+  host=$(kubectl get hosts --output jsonpath='{.items[0].metadata.name}')
+  [[ -n $host ]] || die "the lab has no Host to try a maintenance window on"
+  # After the install every slot is empty: ejecting one changes nothing.
+  endpoint=$(kubectl get host "$host" --output jsonpath='{.status.managedBy[0].endpointRef.name}')
+  slot=$(kubectl get managementendpoint "$endpoint" --output jsonpath='{.status.virtualMedia[0].id}')
+  [[ -n $slot ]] || die "endpoint $endpoint of Host $host lists no virtual-media slot to probe with"
+  opens=$(date --utc --date="@$(( $(date +%s) + lead ))" +%Y-%m-%dT%H:%M:%SZ)
+  closes=$(date --utc --date="@$(( $(date +%s) + lead + 3600 ))" +%Y-%m-%dT%H:%M:%SZ)
+  step "maintenance window: an approved operation on $host waits until $opens"
+  kubectl apply -f - >&2 <<YAML
+apiVersion: metal.pk.io/v1alpha1
+kind: MaintenanceWindow
+metadata:
+  name: lab-window-probe
+spec:
+  hostSelector:
+    matchLabels: {}
+  once:
+    - start: "$opens"
+      end: "$closes"
+YAML
+  kubectl -n "$NAMESPACE" delete hostoperation "$op" --ignore-not-found >&2
+  # Proposed as the operator, so that the lab's own user may approve it: the
+  # approval policy refuses an approval of one's own proposal.
+  kubectl --as="system:serviceaccount:$NAMESPACE:$DEPLOYMENT" --as-group=pk-metal:admins \
+    -n "$NAMESPACE" create -f - >&2 <<YAML
+apiVersion: metal.pk.io/v1alpha1
+kind: HostOperation
+metadata:
+  name: $op
+spec:
+  hostRef: {name: $host}
+  proposedBy: system:serviceaccount:$NAMESPACE:$DEPLOYMENT
+  actions:
+    - ejectMedia: {mediaId: "$slot"}
+YAML
+  "$root/metal/bin/pk-metal" approve --yes -n "$NAMESPACE" "$op" >&2
+
+  deadline=$((SECONDS + 60))
+  until blocked=$(kubectl -n "$NAMESPACE" get hostoperation "$op" --output jsonpath='{.status.blockedOn}') \
+    && [[ $blocked == OutsideMaintenanceWindow ]]; do
+    (( SECONDS < deadline )) || die "operation $op was not held by the window (blockedOn: ${blocked:-none})"
+    sleep 3
+  done
+  echo "held: $(kubectl -n "$NAMESPACE" get hostoperation "$op" \
+    --output jsonpath='{.status.conditions[?(@.type=="Executed")].message}')" >&2
+
+  deadline=$((SECONDS + lead + 300))
+  until phase=$(kubectl -n "$NAMESPACE" get hostoperation "$op" --output jsonpath='{.status.phase}') \
+    && [[ $phase == Succeeded || $phase == Failed ]]; do
+    (( SECONDS < deadline )) || die "operation $op did not finish after the window opened (phase: ${phase:-none})"
+    sleep 5
+  done
+  started=$(kubectl -n "$NAMESPACE" get hostoperation "$op" --output jsonpath='{.status.baseline.capturedAt}')
+  echo "operation $op: $phase, started $started, window opened $opens" >&2
+  [[ $phase == Succeeded ]] || die "operation $op failed after the window opened; see: kubectl -n $NAMESPACE describe hostoperation $op"
+  [[ ! $started < $opens ]] || die "operation $op started at $started, before its window opened at $opens"
+  kubectl delete maintenancewindow lab-window-probe >&2
+  kubectl -n "$NAMESPACE" delete hostoperation "$op" >&2
+}
+
+observe() {
+  local root=$1 lab_dir=$2
+  require_cluster "$lab_dir"
+  observe_views "$root"
+  observe_window "$root" 120
+  echo "observe: status tables, metrics and the maintenance window behave" >&2
+}
+
 # ---------------------------------------------------------------- pivot
 
 # After lab:pivot the lab kubeconfig names the first Talos cluster, and kind is
@@ -1988,6 +2101,7 @@ main() {
       require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
       day2_scale "$ROOT" "$LAB_DIR" "$GEN" "$WAIT_TIMEOUT"
       ;;
+    observe) observe "$ROOT" "$LAB_DIR" ;;
     pivot)
       require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
       pivot "$ROOT" "$LAB_DIR" "$GEN" "$CLUSTER" "$WAIT_TIMEOUT"

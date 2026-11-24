@@ -125,6 +125,7 @@ root on that machine; on a shared workstation, decide that on purpose.
 | `mise run lab:wait` | Unattended: approves and waits until every machine is a Ready node. |
 | `mise run lab:release <namespace/name>` | Deletes a claim, approves the shutdown it proposes, and waits until its Host is Available. |
 | `mise run lab:day2` | On a converged lab: reboots a worker, then a control plane, with `pk-metal reboot` (proposed as `lab-proposer`, approved as you), and checks that each booted again and is Ready and schedulable. With a single control plane it sets the cluster-guard override, as [Day-2 steps](../docs/metal/day2-actions.md) describes. |
+| `mise run lab:observe` | On a converged lab: checks the CLUSTER and NODE tables of `pk-metal status`, the operator's metrics, and a maintenance window that holds an approved operation until it opens (about three minutes). |
 | `mise run lab:pivot` | Moves the operator from kind onto the first Talos cluster and installs a second one from there (see below). |
 | `mise run lab:backup-restore` | Backs the first cluster's etcd up, wipes it on every control plane, and restores it with `pk-metal restore` (see below). |
 | `mise run lab:collect` | Writes logs and object dumps to `.lab/diagnostics`. |

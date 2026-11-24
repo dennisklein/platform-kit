@@ -30,7 +30,7 @@ people and for kubectl's columns. Conditions are the contract — branch on them
 not on the phase string.
 
 
-**Resources:** [Asset](#asset) · [BiosProfile](#biosprofile) · [BiosSchema](#biosschema) · [BiosSettings](#biossettings) · [EndpointProfile](#endpointprofile) · [FirmwareProfile](#firmwareprofile) · [Host](#host) · [HostClaim](#hostclaim) · [HostOperation](#hostoperation) · [ManagementEndpoint](#managementendpoint)
+**Resources:** [Asset](#asset) · [BiosProfile](#biosprofile) · [BiosSchema](#biosschema) · [BiosSettings](#biossettings) · [EndpointProfile](#endpointprofile) · [FirmwareProfile](#firmwareprofile) · [Host](#host) · [HostClaim](#hostclaim) · [HostOperation](#hostoperation) · [MaintenanceWindow](#maintenancewindow) · [ManagementEndpoint](#managementendpoint)
 
 
 
@@ -285,6 +285,35 @@ what failed; kubectl describe shows each step's message.
 | `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
 | `spec` _[HostOperationSpec](#hostoperationspec)_ |  |  |  |
 | `status` _[HostOperationStatus](#hostoperationstatus)_ |  |  | Optional: \{\} <br /> |
+
+
+### MaintenanceWindow
+
+
+
+MaintenanceWindow says when disruptive work may start on a set of
+machines. An approved HostOperation on a covered machine waits, with
+blockedOn OutsideMaintenanceWindow, until one of the windows that cover
+it opens; then it starts. A machine covered by no window is not held.
+Work already running is never stopped by a window closing: stopping a
+machine half-way through a change leaves it worse off than finishing.
+
+New installs (operations with reason Provisioning) are not held: they
+disturb no running workload. To let one operation start now anyway:
+
+	kubectl annotate hostoperation -n pk-metal <name> metal.pk.io/ignore-window="<why>"
+
+
+
+
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `apiVersion` _string_ | `metal.pk.io/v1alpha1` | | |
+| `kind` _string_ | `MaintenanceWindow` | | |
+| `metadata` _[ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#objectmeta-v1-meta)_ | Refer to Kubernetes API documentation for fields of `metadata`. |  |  |
+| `spec` _[MaintenanceWindowSpec](#maintenancewindowspec)_ |  |  |  |
+| `status` _[MaintenanceWindowStatus](#maintenancewindowstatus)_ |  |  | Optional: \{\} <br /> |
 
 
 ### ManagementEndpoint
@@ -984,7 +1013,8 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `match` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#labelselector-v1-meta)_ | Match selects Hosts by label (same two axes as BiosProfile.spec.match). |  |  |
 | `layer` _integer_ | Layer orders overlapping profiles exactly as on BiosProfile: (layer, name)<br />merge order, later overrides, same-layer disagreement is a conflict. | 0 | Optional: \{\} <br /> |
-| `manager` _[FirmwareTarget](#firmwaretarget)_ | Manager is the desired management-controller firmware. The only firmware<br />target so far — the flash transport is proven for the manager alone<br />(multipart push; endpoints advertising only SimpleUpdate hold at<br />NoUpdateTransport rather than flashing over an unproven path). |  |  |
+| `manager` _[FirmwareTarget](#firmwaretarget)_ | Manager is the desired management-controller firmware. It is flashed<br />over the multipart push the endpoint advertises; endpoints that<br />advertise only SimpleUpdate hold at NoUpdateTransport rather than<br />flashing over an unproven path. Flashing the manager does not stop the<br />machine it manages. |  | Optional: \{\} <br /> |
+| `system` _[SystemFirmwareTarget](#systemfirmwaretarget) array_ | System is the desired system firmware: BIOS/UEFI, network cards, RAID<br />controllers, whatever the machine's UpdateService lists in its<br />FirmwareInventory. Each image is staged to apply at the next reset of<br />the machine, so on a machine that runs a node the change is proposed<br />with a drain before and a wait for the node after. System firmware<br />converges after the manager's and before BIOS settings (a BIOS update<br />can change the settings it offers). |  | MaxItems: 16 <br />Optional: \{\} <br /> |
 
 
 #### FirmwareTarget
@@ -1148,6 +1178,7 @@ _Appears in:_
 | `etcdRecover` _[EtcdRecoverAction](#etcdrecoveraction)_ | EtcdRecover restores the etcd of a cluster that lost all of it from<br />an EtcdSnapshot, on one control plane: a person uploads the decrypted<br />snapshot (pk-metal restore upload), then Talos starts etcd from it.<br />See EtcdRecoverAction and docs/metal/disaster-recovery.md. |  | Optional: \{\} <br /> |
 | `etcdForfeitLeadership` _[EtcdForfeitLeadershipAction](#etcdforfeitleadershipaction)_ | EtcdForfeitLeadership hands etcd leadership to another member when<br />the node's member leads, asked on the node itself; a follower is left<br />as it is. A control plane that is about to leave or go down does it<br />first, so that its departure does not cost an election under load. |  | Optional: \{\} <br /> |
 | `deleteKubernetesNode` _[DeleteKubernetesNodeAction](#deletekubernetesnodeaction)_ | DeleteKubernetesNode deletes the node's Node object from its<br />cluster's Kubernetes API, the last trace of a removed node there.<br />Already gone is success. |  | Optional: \{\} <br /> |
+| `stageFirmware` _[StageFirmwareAction](#stagefirmwareaction)_ | StageFirmware pushes a system firmware image (BIOS/UEFI, NIC, RAID)<br />to the BMC to apply at the machine's next reset. Staging changes<br />nothing that runs; a reboot later in the operation applies it, and<br />the version the inventory reports afterwards is the proof. |  | Optional: \{\} <br /> |
 
 
 #### HostOperationSpec
@@ -1278,6 +1309,7 @@ _Appears in:_
 | `managedBy` _[ManagementPath](#managementpath) array_ | ManagedBy lists the ways to reach the machine — usually one BMC. |  | Optional: \{\} <br /> |
 | `lastResetTime` _[MicroTime](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#microtime-v1-meta)_ | LastResetTime is when the BMC last saw the machine reset. When it moves<br />and no operation explains it, the Drifted condition says somebody reset<br />the machine another way (ipmitool, the BMC web page, the power button).<br />Not every BMC reports it (Huawei iBMC does not); drift is then not<br />detected. |  | Optional: \{\} <br /> |
 | `firmwareProposed` _[ProposedPlan](#proposedplan)_ | FirmwareProposed remembers the last firmware plan proposed for this<br />machine, so the same plan is not proposed twice. Written by the<br />firmware lane only. |  | Optional: \{\} <br /> |
+| `systemFirmwareProposed` _[ProposedPlan](#proposedplan)_ | SystemFirmwareProposed is the system-firmware lane's plan memory, the<br />same guard as firmwareProposed for the components a reset applies. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions are the truth — the only thing reconcilers branch on. |  | Optional: \{\} <br /> |
 | `phase` _[HostPhase](#hostphase)_ | Phase summarizes the conditions below for people and for kubectl columns.<br />It is a summary, not the contract: automation should read conditions. |  | Enum: [Enrolling Inspecting Available Assigned Provisioning Provisioned Releasing Failed Maintenance] <br />Optional: \{\} <br /> |
 | `blockedOn` _string_ | BlockedOn says why the host is not moving on (Approval(Provisioning),<br />SerialMismatch, HostInMaintenance); a reason, not a phase, because it<br />can happen in any phase. |  | Optional: \{\} <br /> |
@@ -1381,6 +1413,47 @@ _Appears in:_
 
 
 
+#### MaintenanceWindowSpec
+
+
+
+MaintenanceWindowSpec says which machines the window covers and when it is
+open.
+
+
+
+_Appears in:_
+- [MaintenanceWindow](#maintenancewindow)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `hostSelector` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#labelselector-v1-meta)_ | HostSelector selects Hosts by label, the same labels profiles match<br />(metal.pk.io/vendor, metal.pk.io/model, and the claim's own labels).<br />An empty selector (\{\}) selects every Host. |  | Optional: \{\} <br /> |
+| `clusters` _string array_ | Clusters names TalosClusters (os.pk.io): a Host whose node belongs to<br />one of them is covered. A Host is covered when it matches the<br />selector or runs a node of a named cluster. |  | MaxItems: 64 <br />Optional: \{\} <br /> |
+| `timeZone` _string_ | TimeZone is the IANA time zone the weekly windows are read in, such as<br />Europe/Berlin; daylight saving time is followed. Default UTC. | UTC | Optional: \{\} <br /> |
+| `weekly` _[WeeklyWindow](#weeklywindow) array_ | Weekly are windows that recur every week. |  | MaxItems: 32 <br />Optional: \{\} <br /> |
+| `once` _[OnceWindow](#oncewindow) array_ | Once are single windows, for a planned intervention outside the<br />usual schedule. |  | MaxItems: 32 <br />Optional: \{\} <br /> |
+
+
+#### MaintenanceWindowStatus
+
+
+
+MaintenanceWindowStatus is what the operator reads from the spec: whether
+the window is open now and when that changes.
+
+
+
+_Appears in:_
+- [MaintenanceWindow](#maintenancewindow)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `open` _boolean_ | Open is true while one of the windows is open. |  | Optional: \{\} <br /> |
+| `nextChange` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | NextChange is when Open flips next: the close of the window that is<br />open, or the start of the next one. Empty when no window comes again. |  | Optional: \{\} <br /> |
+| `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions: Valid is False when the time zone or the selector cannot<br />be read. An invalid window still covers what it can name and is never<br />open, so a mistake in it holds work back instead of letting it run. |  | Optional: \{\} <br /> |
+
+
+
 #### ManagementEndpointSpec
 
 
@@ -1465,6 +1538,23 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `servers` _string array_ | Servers, in preference order. At most three — the iBMC carries exactly<br />three server slots. |  | MaxItems: 3 <br />MinItems: 1 <br />items:MinLength: 1 <br /> |
+
+
+#### OnceWindow
+
+
+
+OnceWindow is a single window between two points in time.
+
+
+
+_Appears in:_
+- [MaintenanceWindowSpec](#maintenancewindowspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `start` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | Start is when the window opens (RFC 3339, with its offset). |  |  |
+| `end` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | End is when it closes. |  |  |
 
 
 #### OperationApproval
@@ -1696,6 +1786,42 @@ _Appears in:_
 | `mode` _string_ | Mode is the firmware boot mode for the override. Omitted leaves the<br />machine's own setting alone (some firmware rejects the property). |  | Enum: [UEFI Legacy] <br />Optional: \{\} <br /> |
 
 
+#### StageFirmwareAction
+
+
+
+StageFirmwareAction stages one update package for some inventory entries.
+
+
+
+_Appears in:_
+- [HostOperationAction](#hostoperationaction)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `image` _string_ | Image is the digest-pinned OCI reference of the update package. |  | Pattern: `@sha256:[a-f0-9]\{64\}$` <br /> |
+| `version` _string_ | Version is the version the entries report once the package applied:<br />an entry that already reports it is not staged again. |  | MinLength: 1 <br /> |
+| `targets` _string array_ | Targets are the FirmwareInventory member ids to update, fixed at<br />proposal: the approver sees which components change. |  | MaxItems: 16 <br />MinItems: 1 <br /> |
+
+
+#### SystemFirmwareTarget
+
+
+
+SystemFirmwareTarget is the desired version of one system component.
+
+
+
+_Appears in:_
+- [FirmwareProfileSpec](#firmwareprofilespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `component` _string_ | Component matches FirmwareInventory member ids, as a regular expression<br />over the whole id: BIOS, NIC\.Slot\.[0-9]+, RAID.*. Ids are vendor<br />shaped; kubectl describe managementendpoint lists the ones a machine<br />serves. Every matching entry is brought to the version; a pattern that<br />matches nothing holds the profile at NoMatchingComponent. |  | MinLength: 1 <br /> |
+| `version` _string_ | Version is the desired version, compared verbatim against the version<br />the inventory entry reports. |  | MinLength: 1 <br /> |
+| `image` _string_ | Image is the digest-pinned OCI reference of the vendor's update<br />package for this component. |  | Pattern: `@sha256:[a-f0-9]\{64\}$` <br /> |
+
+
 #### SystemPartition
 
 _Underlying type:_ _string_
@@ -1874,6 +2000,38 @@ _Appears in:_
 | `nodeRef` _[Reference](#reference)_ | NodeRef names the TalosNode (os.pk.io) to wait for. |  |  |
 | `version` _string_ | Version, when set, is also waited for: the Talos version the node must<br />report, the proof an upgrade took. |  | Pattern: `^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$` <br />Optional: \{\} <br /> |
 | `timeoutSeconds` _integer_ | TimeoutSeconds bounds the wait, counted from the previous step's end. | 1800 | Maximum: 86400 <br />Minimum: 60 <br />Optional: \{\} <br /> |
+
+
+#### Weekday
+
+_Underlying type:_ _string_
+
+Weekday is a day of the week as a three-letter English abbreviation.
+
+_Validation:_
+- Enum: [Mon Tue Wed Thu Fri Sat Sun]
+
+_Appears in:_
+- [WeeklyWindow](#weeklywindow)
+
+
+
+#### WeeklyWindow
+
+
+
+WeeklyWindow is a window that recurs every week on the given days.
+
+
+
+_Appears in:_
+- [MaintenanceWindowSpec](#maintenancewindowspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `days` _[Weekday](#weekday) array_ | Days are the days the window opens on, in the window's time zone. |  | Enum: [Mon Tue Wed Thu Fri Sat Sun] <br />MaxItems: 7 <br />MinItems: 1 <br /> |
+| `start` _string_ | Start is the local time the window opens, as HH:MM (24-hour clock). |  | Pattern: `^([01][0-9]\|2[0-3]):[0-5][0-9]$` <br /> |
+| `duration` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#duration-v1-meta)_ | Duration is how long the window stays open, such as 4h or 90m: at<br />least a minute, at most a week. A window may run past midnight. |  |  |
 
 
 

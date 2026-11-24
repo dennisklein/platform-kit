@@ -208,6 +208,19 @@ spec:
                     - Failed
                     - Maintenance
                   type: string
+                systemFirmwareProposed:
+                  description: SystemFirmwareProposed is the system-firmware lane's plan memory, the same guard as firmwareProposed for the components a reset applies.
+                  properties:
+                    operation:
+                      description: Operation is the proposed HostOperation as namespace/name.
+                      type: string
+                    planHash:
+                      description: PlanHash is the sha256 of the desired state the operation serves.
+                      type: string
+                  required:
+                    - operation
+                    - planHash
+                  type: object
               type: object
           type: object
       served: true

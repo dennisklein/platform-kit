@@ -11,6 +11,7 @@ resources:
   - metal.pk.io_hostclaims.yaml
   - metal.pk.io_hostoperations.yaml
   - metal.pk.io_hosts.yaml
+  - metal.pk.io_maintenancewindows.yaml
   - metal.pk.io_managementendpoints.yaml
   - os.pk.io_bootassets.yaml
   - os.pk.io_etcdbackuppolicies.yaml

@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
@@ -41,6 +42,7 @@ import (
 	"github.com/dennisklein/platform-kit/metal/internal/k8supgrade"
 	"github.com/dennisklein/platform-kit/metal/internal/ledger"
 	"github.com/dennisklein/platform-kit/metal/internal/oci"
+	"github.com/dennisklein/platform-kit/metal/internal/metrics"
 	pkscheme "github.com/dennisklein/platform-kit/metal/internal/scheme"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/machineapi"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
@@ -181,6 +183,13 @@ func main() {
 	})
 	if err != nil {
 		log.Error(err, "new manager")
+		os.Exit(1)
+	}
+
+	// The domain gauges read the manager's cache at scrape time and are served
+	// on the same /metrics endpoint as controller-runtime's own.
+	if err := metrics.Register(ctrlmetrics.Registry, mgr.GetCache(), c.credsNS); err != nil {
+		log.Error(err, "register metrics")
 		os.Exit(1)
 	}
 

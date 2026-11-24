@@ -144,6 +144,8 @@ type Mover struct {
 	Options        Options
 
 	sourceID, targetID string
+	// kinds is the copy list, discovered on the source (discoverKinds).
+	kinds []movedKind
 }
 
 // New prepares a move and tells the two clusters apart by the UID of their
@@ -157,6 +159,9 @@ func New(ctx context.Context, source, target *Cluster, o Options) (*Mover, error
 	}
 	if m.targetID, err = clusterID(ctx, target); err != nil {
 		return nil, err
+	}
+	if m.kinds, err = discoverKinds(source.Config); err != nil {
+		return nil, fmt.Errorf("cannot list the operator's kinds on %s: %w", source.Name, err)
 	}
 	if m.sourceID == m.targetID {
 		return nil, fmt.Errorf("%s and %s are the same cluster (kube-system has UID %s in both): name another cluster with --to",

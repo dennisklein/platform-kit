@@ -45,6 +45,7 @@ const (
 var convergenceHostConditions = []string{
 	metalv1alpha1.ConditionBiosConverged,
 	metalv1alpha1.ConditionFirmwareConverged,
+	metalv1alpha1.ConditionSystemFirmwareConverged,
 }
 
 func isConvergenceHostCondition(c metav1.Condition) bool {
@@ -63,6 +64,7 @@ func hostProjectedShare(host *metalv1alpha1.Host) *metalv1alpha1.Host {
 		Status:     *host.Status.DeepCopy(),
 	}
 	apply.Status.FirmwareProposed = nil
+	apply.Status.SystemFirmwareProposed = nil
 	apply.Status.Conditions = slices.DeleteFunc(apply.Status.Conditions, isConvergenceHostCondition)
 	return apply
 }
@@ -74,6 +76,7 @@ func hostConvergenceShare(host *metalv1alpha1.Host) *metalv1alpha1.Host {
 		ObjectMeta: metav1.ObjectMeta{Name: host.Name},
 	}
 	apply.Status.FirmwareProposed = host.Status.FirmwareProposed
+	apply.Status.SystemFirmwareProposed = host.Status.SystemFirmwareProposed
 	for _, t := range convergenceHostConditions {
 		if c := meta.FindStatusCondition(host.Status.Conditions, t); c != nil {
 			apply.Status.Conditions = append(apply.Status.Conditions, *c)

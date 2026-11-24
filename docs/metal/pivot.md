@@ -38,6 +38,9 @@ to do.
 - **An operation waits for approval.** Approve it and let it finish, or
   delete it. With `--force-waiting` it moves as it is and waits on the new
   cluster instead.
+- **A rollout is under way.** An object that reports `Progressing` or
+  `Paused` (a TalosRollout between two nodes, say) is in the middle of work
+  its controller drives step by step. Let it finish, or stop it, first.
 - **An object is being deleted.** A claim that is being deleted has a release
   to finish (power off, media out). Let the operator in the bootstrap cluster
   finish it first.
@@ -103,7 +106,12 @@ annotations, finalizers and status:
 3. Hosts, with their claim reference.
 4. HostClaims, in their own namespaces, and HostOperations, finished ones too.
    The finished ones are the record of what was done to each machine.
-5. TalosClusters, TalosNodes and BootAssets.
+5. TalosClusters, TalosNodes and BootAssets, and MaintenanceWindows.
+6. Every other kind the bootstrap cluster serves in the API groups
+   `metal.pk.io` and `os.pk.io` (etcd backup policies and snapshots,
+   rollouts, and whatever a later version adds): the move asks the API server
+   which kinds exist rather than keeping its own list, so a new kind cannot
+   be left behind.
 
 What does not move: Secrets and ConfigMaps outside the namespace `pk-metal`,
 Events, the leader lease, service account tokens, imager Jobs, and the files

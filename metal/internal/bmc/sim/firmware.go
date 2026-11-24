@@ -39,6 +39,7 @@ type fwState struct {
 	staged    string            // staged image version; empty = nothing staged
 	stagedFor string            // the inventory entry the staged image is for
 	versions  map[string]string // versions flashed onto entries other than the manager's
+	onReset   map[string]string // system images staged for the next system boot, by entry
 }
 
 // fwUpload is one multipart push as the HTTP tier parsed it.
@@ -145,10 +146,21 @@ func (s *State) planUpload(u fwUpload) (func() error, error) {
 	if applyTime == "" {
 		applyTime = "Immediate"
 	}
+	nothing := func() error { return nil }
+	if applyTime == "OnReset" && s.f.Update.OnReset {
+		if s.isManagerEntry(entry) || len(u.targets) == 0 {
+			// OnReset is a system reset; the manager's own firmware is not
+			// applied by one.
+			return nil, refuse("apply time OnReset needs a system firmware target")
+		}
+		if !s.faults[FaultFlashFails] {
+			s.fw.onReset[entry] = v
+		}
+		return nothing, nil
+	}
 	if applyTime != "Immediate" && applyTime != "OnStartUpdateRequest" {
 		return nil, notInList("PropertyValueNotInList", "@Redfish.OperationApplyTime", applyTime)
 	}
-	nothing := func() error { return nil }
 	if applyTime != "Immediate" || (s.f.Update.Wedge && !u.preserve) {
 		s.fw.staged, s.fw.stagedFor = v, entry
 		return nothing, nil
@@ -159,6 +171,42 @@ func (s *State) planUpload(u fwUpload) (func() error, error) {
 		return nothing, nil
 	}
 	return func() error { s.flash(entry, v); return nil }, nil
+}
+
+// StageFirmware is the seam entrance for a staged system update: the image
+// waits for the next boot of the system (applyStagedFirmware).
+func (s *State) StageFirmware(_ context.Context, image []byte, entryID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.f.Update.OnReset {
+		return refuse("the push URI does not support apply time OnReset")
+	}
+	work, err := s.planUpload(fwUpload{image: image, applyTime: "OnReset", targets: []string{firmwareInventoryURI + "/" + entryID}})
+	if err != nil {
+		return err
+	}
+	return work()
+}
+
+// isManagerEntry: the entry tracks the manager's own firmware (live or
+// staging slot). Caller holds the lock.
+func (s *State) isManagerEntry(entry string) bool {
+	for _, e := range s.f.Update.Inventory {
+		if e.ID == entry {
+			return e.BMC || e.Staging
+		}
+	}
+	return false
+}
+
+// applyStagedFirmware installs what waits for a system boot. The fixtures
+// front one system each, so every staged entry belongs to the system that
+// boots. Caller holds the lock.
+func (s *State) applyStagedFirmware() {
+	for entry, v := range s.fw.onReset {
+		s.fw.versions[entry] = v
+		delete(s.fw.onReset, entry)
+	}
 }
 
 // startUpdate is UpdateService.StartUpdate where it works: the staged image
