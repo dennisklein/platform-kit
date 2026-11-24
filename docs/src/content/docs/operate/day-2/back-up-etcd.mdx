@@ -25,7 +25,8 @@ Keep verified, encrypted etcd snapshots of a cluster away from its machines.
 ## Before you start
 
 - You have `age-keygen`.
-- For an S3 sink: a bucket and a key that can write, read, list and delete there.
+- You are a member of the admin group. Only an admin creates a backup policy or changes its recipients or sink. See [](ref:rbac#get-into-the-admin-group).
+- For an S3 sink: a bucket and a key that can write, read, list and delete there. The endpoint must use `https://`.
 - A snapshot reads etcd only. It needs no approval.
 
 <Figure
@@ -95,7 +96,7 @@ Keep verified, encrypted etcd snapshots of a cluster away from its machines.
          - age1qexampleoffline000000000000000000000000000000000000000000
    ```
 
-5. Apply it.
+5. Apply it as a member of the admin group.
 
    ```sh
    kubectl apply -f prod-offsite.yaml

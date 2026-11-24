@@ -66,7 +66,7 @@ The operator cannot read or change the machine. Steps that go through the Talos 
 | `LedgerEntryInvalid` | The line is not an `https` URL, or the MAC is in the ledger two times. Correct it. |
 | Timeout | Check the network path on TCP 443. See [](howto:network-checklist). |
 | A proxy is set | Add the BMC network to `NO_PROXY` of the manager. See [](howto:behind-a-proxy). |
-| `x509` or `certificate` in the message | The manager does not trust the BMC certificate. Give the CA that signed it to the manager (`--bmc-ca-secret`, see [](ctrl:manager)), or replace the BMC certificate. |
+| `x509` or `certificate` in the message | The manager does not trust the BMC certificate. Give the CA that signed it to the manager (`--bmc-ca-secret`, see [](ctrl:manager) and [BMC certificates](howto:install-operator#bmc-certificates)), or replace the BMC certificate. |
 | `401` in the message | The credentials are wrong. Check the Secret that `credentialsRef` names. |
 | The BMC hangs | Reset the BMC from its web console, or remove power from the BMC. |
 

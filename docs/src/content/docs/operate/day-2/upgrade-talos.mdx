@@ -86,6 +86,10 @@ pk-metal checks each Talos step against the Talos libraries in its build. A buil
 
 ## Steps
 
+<Callout type="note">
+If your TalosCluster is in git, change `spec.talosVersion` there, and use [](cli:upgrade) only to read the plan. Otherwise your GitOps tool writes the old release back. See [](concept:gitops).
+</Callout>
+
 <Steps>
 
 1. Ask for the new release. The command changes only the [](kind:TalosCluster) spec. It waits for the proposal and shows the plan.

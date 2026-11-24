@@ -34,7 +34,7 @@ Make sure that one BMC answers, and find its serial number, media slots and NIC 
    read -rs PK_METAL_BMC_PASSWORD && export PK_METAL_BMC_PASSWORD
    ```
 
-2. Check the BMC. Use `--insecure` if the BMC has a self-signed certificate.
+2. Check the BMC. If the BMC certificate comes from your own CA, give the CA file with `--bmc-ca`. Use `--insecure` only if the BMC has a self-signed certificate.
 
    ```sh
    pk-metal check --user admin --insecure https://192.0.2.21
@@ -56,7 +56,7 @@ Make sure that one BMC answers, and find its serial number, media slots and NIC 
    pk-metal inventory --user admin --insecure --node sim-0001 https://192.0.2.21 > sim-0001.yaml
    ```
 
-   The file has the BMC MAC, the media slots, the serial number, the NICs and the drives. It shows the first system of the BMC only.
+   The file has the BMC MAC, the media slots, the serial number, the NICs and the drives. If the BMC has more than one system, add `--system <id>`. The command then describes that system.
 
 4. Write down the serial number and the BMC MAC. You need them for the [](kind:Asset).
 
@@ -74,7 +74,7 @@ Make sure that one BMC answers, and find its serial number, media slots and NIC 
   <dt>One usable slot</dt>
   <dd>Add the media store to your overlay before the install. See [One-slot BMCs](howto:install-operator#one-slot-bmcs) and [](concept:one-slot-bmc).</dd>
   <dt>More than one `system:` line</dt>
-  <dd>The BMC controls more than one machine. Your [](kind:HostClaim) must set `spec.systemRef`.</dd>
+  <dd>The BMC controls more than one machine. [](cli:inventory) needs `--system`, and your [](kind:HostClaim) must set `spec.systemRef`.</dd>
   <dt>`serial=-`</dt>
   <dd>The system has no serial. The inventory file then shows the board serial of the chassis.</dd>
 </dl>

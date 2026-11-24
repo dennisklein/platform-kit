@@ -52,16 +52,18 @@ The usual way is different. Start kind on a workstation, install the operator th
    ```sh
    printf 'customization:\n  extraKernelArgs:\n    - talos.config=metal-iso\n' > schematic.yaml
    id=$(curl -sf --data-binary @schematic.yaml https://factory.talos.dev/schematics | jq -r .id)
-   echo "https://factory.talos.dev/image/$id/v1.12.1/metal-amd64.iso"
+   echo "https://factory.talos.dev/image/$id/v1.14.6/metal-amd64.iso"
    ```
 
-2. Render the machine configs. This touches no machine.
+2. Render the machine configs. This touches no machine. Write the output to a directory outside your git repository: the files hold the cluster secrets.
 
    ```sh
-   pk-metal render --dir manifests --secrets secrets.yaml --out clusterconfig
+   pk-metal render --dir manifests --secrets secrets.yaml --out ~/prod-clusterconfig
    ```
 
-   The directory `clusterconfig` has one `<node>.yaml` for each node, a `talosconfig` and a `kubeconfig`.
+   The directory has one `<node>.yaml` for each node, a `talosconfig` and a `kubeconfig`.
+   The `talosconfig` and the `kubeconfig` are valid for 24 hours (`--credentials-ttl`, at most 720 hours). Nobody can revoke them before that time, except with a CA rotation.
+   If the secrets bundle is encrypted, decrypt it to standard input and give `--secrets -`. Then no plain copy goes to the disk.
 
 3. Put the BMC password of the first machine in the environment.
 
@@ -81,7 +83,7 @@ The usual way is different. Start kind on a workstation, install the operator th
 6. Boot the first machine into its config. `--media` is the slot from step 5. `--listen` is an address on your workstation that the BMC can reach.
 
    ```sh
-   pk-metal boot --config clusterconfig/cp-1.yaml --node cp-1 --media 2 --listen 192.0.2.5:8443 https://192.0.2.21
+   pk-metal boot --config ~/prod-clusterconfig/cp-1.yaml --node cp-1 --media 2 --listen 192.0.2.5:8443 https://192.0.2.21
    ```
 
    The command shows its steps. Without `--yes`, it refuses to reset a machine that is on.
@@ -114,13 +116,13 @@ The relay and boot share a secret. [](concept:relay) explains why.
 ```sh
 ssh -L 9443:127.0.0.1:9443 relay-host
 pk-metal boot --relay 127.0.0.1:9443 --relay-secret-file ./relay.secret \
-  --config clusterconfig/cp-1.yaml --node cp-1 https://192.0.2.21
+  --config ~/prod-clusterconfig/cp-1.yaml --node cp-1 https://192.0.2.21
 ```
 
 ## Verify
 
 ```sh
-kubectl --kubeconfig clusterconfig/kubeconfig get nodes
+kubectl --kubeconfig ~/prod-clusterconfig/kubeconfig get nodes
 ```
 
 Each node is `Ready`.
