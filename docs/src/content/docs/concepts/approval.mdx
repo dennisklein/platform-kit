@@ -50,7 +50,20 @@ The operator only proposes. A second person reads the plan and approves it. Then
 | Release of a machine that ran its node | Yes |
 | Talos or Kubernetes upgrade, configuration change | Yes, one for the rollout plan |
 | Read the BMC, take an etcd snapshot, dry run of a configuration | No |
-| Rotation of BMC credentials | No, the EndpointProfile is the approval |
+| Rotation of BMC credentials, NTP servers of a BMC | No, the [](kind:EndpointProfile) is the approval |
+| New TLS identity of a BMC | No, the EndpointProfile is the approval. The push restarts the BMC and drops its virtual media, so it waits until the approved operations behind that BMC end. |
+
+Only a member of the admin group can create or change an EndpointProfile. See [](ref:admission-policies).
+
+## How many approvals
+
+| Task | Approvals |
+| --- | --- |
+| Install 40 machines | 40, one for each install. With `provisioning.approval: Automatic` on the claims: none. |
+| Upgrade Talos or Kubernetes on a cluster of 40 nodes | 1, for the rollout plan. |
+| Change a configuration on a cluster of 40 nodes | 1, for the rollout plan. |
+| Change the BIOS settings of 40 machines | 40, one for each machine. |
+| Replace one machine ([](cli:replace)) | 2: the release of the old machine, then the install on the new machine. |
 
 ## Safeguards
 

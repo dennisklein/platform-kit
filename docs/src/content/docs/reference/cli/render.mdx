@@ -37,16 +37,19 @@ The command takes no arguments.
 2. It reads the secrets bundle. Make the bundle with `talosctl gen secrets`.
 3. It computes the installer image of each node from the schematic and the Talos version.
 4. It renders one machine configuration for each node, with the patches of the cluster and of the node.
-5. It writes the files into [`--out`](cli:render#--out). Only you can read the files.
+5. It writes the files into [`--out`](cli:render#--out). It sets the mode of the directory to `0700` and of each file to `0600`, also when they existed before. Only you can read the files.
 
 | File | Content |
 | --- | --- |
 | `<node>.yaml` | The machine configuration of one node. |
-| `talosconfig` | The client configuration for `talosctl`. The certificate is valid for one year. |
-| `kubeconfig` | The administrator kubeconfig of the new cluster. The certificate is valid for one year. |
+| `talosconfig` | The administrator client configuration for `talosctl`. The certificate is valid for [`--credentials-ttl`](cli:render#--credentials-ttl), 24 hours by default. |
+| `kubeconfig` | The administrator kubeconfig of the new cluster. The certificate is valid for `--credentials-ttl`. |
+
+With [`--no-credentials`](cli:render#--no-credentials), the command writes the node configurations only.
+`--credentials-ttl` is 720 hours at most. Nobody can revoke these certificates without a rotation of the cluster CA. A short life limits the damage of a copy that leaks.
 
 <Callout type="caution">
-Keep the output directory private. Each file holds keys of the cluster.
+Keep the output directory private. Each file holds keys of the cluster. Do not put the directory in a git checkout. Use an `--out` outside the repository, and read the secrets bundle from stdin.
 </Callout>
 
 Without [`--register`](cli:render#--register), the command computes the schematic id offline. The network is not necessary.
@@ -59,7 +62,7 @@ title="pk-metal render"
 text={`
     $ talosctl gen secrets -o secrets.yaml
     $ pk-metal render --dir manifests/ --secrets secrets.yaml
-    rendered 5 node configs, talosconfig and kubeconfig for lab into clusterconfig
+    rendered 5 node configs, talosconfig and kubeconfig (valid 24h0m0s) for lab into clusterconfig
     $ ls clusterconfig
     cp-1.yaml  cp-2.yaml  cp-3.yaml  kubeconfig  talosconfig  w-1.yaml  w-2.yaml
 `}
@@ -68,7 +71,7 @@ text={`
 Read the secrets bundle from stdin, for example from a secret store.
 
 ```sh
-sops -d secrets.enc.yaml | pk-metal render --dir manifests/ --secrets -
+sops -d secrets.enc.yaml | pk-metal render --dir manifests/ --secrets - --out ~/clusterconfig
 ```
 
 ## Objects
