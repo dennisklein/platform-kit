@@ -8,6 +8,7 @@
 package boot
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -61,8 +62,9 @@ type Options struct {
 }
 
 // Result is what the ladder can observe from the serving side. ReadComplete is
-// a heuristic — cumulative bytes served reached the image size; the node's own
-// check-in (the bootstrap flow) is the authoritative signal.
+// a heuristic — every byte of the image was served after the machine was
+// told to start; the node's own check-in (the bootstrap flow) is the
+// authoritative signal.
 type Result struct {
 	ImageURL     string // the granted URL as mounted (credentials travel separately)
 	Size         int    // bytes of the packed config ISO
@@ -153,7 +155,7 @@ func Run(ctx context.Context, o Options) (Result, error) {
 		_ = ln.Close()
 		return Result{}, err
 	}
-	m := &meter{next: &asset.Server{Grants: grants}, size: int64(len(iso)), done: make(chan struct{})}
+	m := newMeter(&asset.Server{Grants: grants}, int64(len(iso)))
 	srv := &http.Server{Handler: m}
 	go func() {
 		_ = srv.Serve(tls.NewListener(ln, &tls.Config{
@@ -165,7 +167,9 @@ func Run(ctx context.Context, o Options) (Result, error) {
 
 	imageURL := "https://" + host + grant.Path()
 	res := Result{ImageURL: imageURL, Size: len(iso)}
-	logf("boot: serving %d B under a %s grant at %s", len(iso), o.TTL, imageURL)
+	// The token in the URL is half of the grant: the log shows its start only.
+	logf("boot: serving %d B under a %s grant at https://%s%s", len(iso), o.TTL, host,
+		strings.Replace(grant.Path(), grant.Token, shortToken(grant.Token), 1))
 
 	if err := o.Client.InsertMedia(ctx, slot, imageURL,
 		&bmc.MediaCredentials{Username: creds.Username, Password: creds.Password}); err != nil {
@@ -173,6 +177,11 @@ func Run(ctx context.Context, o Options) (Result, error) {
 		return res, fmt.Errorf("boot: insert: %w", err)
 	}
 	logf("boot: media mounted")
+	if o.NoPower {
+		// The person restarts the machine from now on. The reads the BMC
+		// made to mount the medium are not the machine booting from it.
+		m.arm()
+	}
 
 	override := bmc.BootOverride{Target: target, Enabled: bmc.OverrideOnce}
 	// The medium boots UEFI. A system that serves another mode would take the
@@ -198,6 +207,10 @@ func Run(ctx context.Context, o Options) (Result, error) {
 			}
 			action = bmc.ActionForceRestart
 		}
+		// Only reads from here on count: a BMC reads the header of the
+		// medium when it mounts it, and with a small config that probe
+		// alone is as large as the image.
+		m.arm()
 		if err := o.Client.SetPower(ctx, system.ID, action); err != nil {
 			return res, cleanupAfter(ctx, o, grants, grant.Token, slot, err)
 		}
@@ -223,6 +236,15 @@ func Run(ctx context.Context, o Options) (Result, error) {
 	err = cleanupAfter(ctx, o, grants, grant.Token, slot, nil)
 	res.ServedBytes = m.total()
 	return res, err
+}
+
+// shortToken is the start of a grant token, enough to tell two grants apart
+// in a log, too short to use.
+func shortToken(token string) string {
+	if len(token) <= 6 {
+		return "…"
+	}
+	return token[:6] + "…"
 }
 
 // cleanupAfter withdraws the medium and the grant, keeping cause as the error.
@@ -364,17 +386,33 @@ func slotInserted(ctx context.Context, c bmc.Client, slot string) (bool, error) 
 	return false, fmt.Errorf("boot: no media slot %q", slot)
 }
 
-// meter watches the serving side for the node's pull: cumulative GET bytes
-// reaching the image size closes done. Overlapping ranges double-count, which
-// only ever fires the signal early — the check-in is the authoritative gate.
+// meter watches the serving side for the node's pull. ServedBytes counts
+// every byte served. The pull counts only once the meter is armed (at the
+// power action), and it counts distinct bytes of the image, so a probe the
+// BMC repeats is counted once: done closes when every byte of the image was
+// served after the arm. The check-in is the authoritative gate.
 type meter struct {
 	next http.Handler
 	size int64
 
-	mu     sync.Mutex
-	served int64
-	once   sync.Once
-	done   chan struct{}
+	mu      sync.Mutex
+	served  int64
+	armed   bool
+	covered spans
+	once    sync.Once
+	done    chan struct{}
+}
+
+func newMeter(next http.Handler, size int64) *meter {
+	return &meter{next: next, size: size, done: make(chan struct{})}
+}
+
+// arm starts the count of the pull. Reads before it are not the machine
+// booting.
+func (m *meter) arm() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.armed = true
 }
 
 func (m *meter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -385,11 +423,34 @@ func (m *meter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	m.mu.Lock()
 	m.served += cw.n
-	total := m.served
+	if m.armed {
+		if start, ok := servedFrom(cw); ok {
+			m.covered.add(start, start+cw.n)
+		}
+	}
+	complete := m.covered.total() >= m.size
 	m.mu.Unlock()
-	if total >= m.size {
+	if complete {
 		m.once.Do(func() { close(m.done) })
 	}
+}
+
+// servedFrom is the image offset of the first byte a response carried: 0
+// for a whole answer, the start of the range for a single-range answer. A
+// multi-range answer or a range it cannot read counts as no pull.
+func servedFrom(cw *countingWriter) (int64, bool) {
+	switch cw.code {
+	case 0, http.StatusOK:
+		return 0, true
+	case http.StatusPartialContent:
+		var start, end int64
+		cr := cw.Header().Get("Content-Range")
+		if _, err := fmt.Sscanf(cr, "bytes %d-%d/", &start, &end); err != nil {
+			return 0, false
+		}
+		return start, true
+	}
+	return 0, false
 }
 
 func (m *meter) total() int64 {
@@ -398,9 +459,46 @@ func (m *meter) total() int64 {
 	return m.served
 }
 
+// spans is a set of half-open byte ranges, kept sorted and disjoint.
+type spans [][2]int64
+
+func (s *spans) add(start, end int64) {
+	if end <= start {
+		return
+	}
+	out := make(spans, 0, len(*s)+1)
+	for _, sp := range *s {
+		switch {
+		case sp[1] < start || sp[0] > end:
+			out = append(out, sp)
+		default:
+			start, end = min(start, sp[0]), max(end, sp[1])
+		}
+	}
+	out = append(out, [2]int64{start, end})
+	slices.SortFunc(out, func(a, b [2]int64) int { return cmp.Compare(a[0], b[0]) })
+	*s = out
+}
+
+func (s spans) total() int64 {
+	var n int64
+	for _, sp := range s {
+		n += sp[1] - sp[0]
+	}
+	return n
+}
+
 type countingWriter struct {
 	http.ResponseWriter
-	n int64
+	n    int64
+	code int
+}
+
+func (w *countingWriter) WriteHeader(code int) {
+	if w.code == 0 {
+		w.code = code
+	}
+	w.ResponseWriter.WriteHeader(code)
 }
 
 func (w *countingWriter) Write(p []byte) (int, error) {

@@ -264,3 +264,23 @@ func TestEjectAndVerifyHonoursCancel(t *testing.T) {
 	assert.ErrorIs(t, err, context.Canceled)
 	assert.Less(t, time.Since(start), 2*time.Second, "cancellation must end the eject wait")
 }
+
+// The log shows the start of the grant token only: the token in the image
+// URL is half of what lets a reader fetch the machine's secrets.
+func TestLogDoesNotShowTheGrantToken(t *testing.T) {
+	st := simState(t, "supermicro-x12")
+	var lines []string
+	res, err := boot.Run(context.Background(), boot.Options{
+		Client: st, NodeName: "w", Config: config, TTL: time.Minute, Listen: "127.0.0.1:0",
+		AllowRestart: true,
+		Logf:         func(format string, args ...any) { lines = append(lines, fmt.Sprintf(format, args...)) },
+	})
+	require.NoError(t, err)
+	u, err := url.Parse(res.ImageURL)
+	require.NoError(t, err)
+	token := strings.Split(strings.TrimPrefix(u.Path, "/grants/"), "/")[0]
+	require.NotEmpty(t, token)
+	log := strings.Join(lines, "\n")
+	assert.NotContains(t, log, token)
+	assert.Contains(t, log, "/grants/"+token[:6]+"…/w.iso")
+}
