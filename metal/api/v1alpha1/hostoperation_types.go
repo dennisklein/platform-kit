@@ -271,6 +271,19 @@ type HostOperationAction struct {
 	// See EtcdRecoverAction and docs/metal/disaster-recovery.md.
 	// +optional
 	EtcdRecover *EtcdRecoverAction `json:"etcdRecover,omitempty"`
+
+	// EtcdForfeitLeadership hands etcd leadership to another member when
+	// the node's member leads, asked on the node itself; a follower is left
+	// as it is. A control plane that is about to leave or go down does it
+	// first, so that its departure does not cost an election under load.
+	// +optional
+	EtcdForfeitLeadership *EtcdForfeitLeadershipAction `json:"etcdForfeitLeadership,omitempty"`
+
+	// DeleteKubernetesNode deletes the node's Node object from its
+	// cluster's Kubernetes API, the last trace of a removed node there.
+	// Already gone is success.
+	// +optional
+	DeleteKubernetesNode *DeleteKubernetesNodeAction `json:"deleteKubernetesNode,omitempty"`
 }
 
 // PowerCycleAction restarts the machine. It takes no fields: there is only one
@@ -627,6 +640,20 @@ type WaitEtcdHealthyAction struct {
 	// +kubebuilder:default=900
 	// +optional
 	TimeoutSeconds int32 `json:"timeoutSeconds,omitempty"`
+}
+
+// EtcdForfeitLeadershipAction moves etcd leadership off a control plane.
+type EtcdForfeitLeadershipAction struct {
+	// NodeRef names the control-plane TalosNode (os.pk.io) whose member
+	// gives up leadership.
+	NodeRef Reference `json:"nodeRef"`
+}
+
+// DeleteKubernetesNodeAction deletes a node's Kubernetes Node object.
+type DeleteKubernetesNodeAction struct {
+	// NodeRef names the TalosNode (os.pk.io); its name is the Kubernetes
+	// Node's name, and its cluster says which Kubernetes API to ask.
+	NodeRef Reference `json:"nodeRef"`
 }
 
 // OperationApproval is the CEL-guarded human gate (a field, not a subresource).

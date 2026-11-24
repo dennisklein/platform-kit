@@ -671,6 +671,22 @@ _Appears in:_
 | `maxAge` _[Duration](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#duration-v1-meta)_ | MaxAge rotates the managed password when the Secret grows older than<br />this. Unset rotates only when the Secret is missing or names another<br />account. A rotation sets the new password through the managed<br />account's own session first, so it works when the factory login no<br />longer does. |  | Optional: \{\} <br /> |
 
 
+#### DeleteKubernetesNodeAction
+
+
+
+DeleteKubernetesNodeAction deletes a node's Kubernetes Node object.
+
+
+
+_Appears in:_
+- [HostOperationAction](#hostoperationaction)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `nodeRef` _[Reference](#reference)_ | NodeRef names the TalosNode (os.pk.io); its name is the Kubernetes<br />Node's name, and its cluster says which Kubernetes API to ask. |  |  |
+
+
 #### DiscoveredMedia
 
 
@@ -840,6 +856,22 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `caSecretRef` _[LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#localobjectreference-v1-core)_ | CASecretRef names a Secret (operator namespace, key ca.crt) with the<br />CA that signed the BMC's certificate. Wins over insecureSkipVerify. |  | Optional: \{\} <br /> |
 | `insecureSkipVerify` _boolean_ | InsecureSkipVerify accepts any certificate. For simulated BMCs in the<br />lab only. |  | Optional: \{\} <br /> |
+
+
+#### EtcdForfeitLeadershipAction
+
+
+
+EtcdForfeitLeadershipAction moves etcd leadership off a control plane.
+
+
+
+_Appears in:_
+- [HostOperationAction](#hostoperationaction)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `nodeRef` _[Reference](#reference)_ | NodeRef names the control-plane TalosNode (os.pk.io) whose member<br />gives up leadership. |  |  |
 
 
 #### EtcdLeaveAction
@@ -1114,6 +1146,8 @@ _Appears in:_
 | `waitNodeReady` _[WaitNodeReadyAction](#waitnodereadyaction)_ | WaitNodeReady waits, changing nothing, until the node runs and is<br />ready: Talos stage running with every readiness condition met, and its<br />Kubernetes Node Ready. |  | Optional: \{\} <br /> |
 | `waitEtcdHealthy` _[WaitEtcdHealthyAction](#waitetcdhealthyaction)_ | WaitEtcdHealthy waits, changing nothing, until the etcd cluster of the<br />node's TalosCluster is healthy: every member answers, none reports an<br />error or alarm, and none is a learner. |  | Optional: \{\} <br /> |
 | `etcdRecover` _[EtcdRecoverAction](#etcdrecoveraction)_ | EtcdRecover restores the etcd of a cluster that lost all of it from<br />an EtcdSnapshot, on one control plane: a person uploads the decrypted<br />snapshot (pk-metal restore upload), then Talos starts etcd from it.<br />See EtcdRecoverAction and docs/metal/disaster-recovery.md. |  | Optional: \{\} <br /> |
+| `etcdForfeitLeadership` _[EtcdForfeitLeadershipAction](#etcdforfeitleadershipaction)_ | EtcdForfeitLeadership hands etcd leadership to another member when<br />the node's member leads, asked on the node itself; a follower is left<br />as it is. A control plane that is about to leave or go down does it<br />first, so that its departure does not cost an election under load. |  | Optional: \{\} <br /> |
+| `deleteKubernetesNode` _[DeleteKubernetesNodeAction](#deletekubernetesnodeaction)_ | DeleteKubernetesNode deletes the node's Node object from its<br />cluster's Kubernetes API, the last trace of a removed node there.<br />Already gone is success. |  | Optional: \{\} <br /> |
 
 
 #### HostOperationSpec
@@ -1600,7 +1634,9 @@ _Appears in:_
 - [AwaitCheckInAction](#awaitcheckinaction)
 - [ClaimOS](#claimos)
 - [CordonAction](#cordonaction)
+- [DeleteKubernetesNodeAction](#deletekubernetesnodeaction)
 - [DrainAction](#drainaction)
+- [EtcdForfeitLeadershipAction](#etcdforfeitleadershipaction)
 - [EtcdLeaveAction](#etcdleaveaction)
 - [EtcdRecoverAction](#etcdrecoveraction)
 - [EtcdRemoveMemberAction](#etcdremovememberaction)
@@ -2649,10 +2685,11 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `bootstrappedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | BootstrappedAt is when the operator first observed this cluster's etcd<br />running (or its Kubernetes API answering). It is the one remembered<br />fact in this status: once set the operator never bootstraps the<br />cluster again, so that a cluster whose control planes all lost their<br />etcd data is restored by a person instead of silently started empty<br />(Bootstrapped=False, reason EtcdDataLost). Write-once; starting over<br />means deleting and re-creating the TalosCluster. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions: Bootstrapped and Available. |  | Optional: \{\} <br /> |
-| `controlPlanes` _integer_ | ControlPlanes and Workers count the TalosNodes that name this cluster;<br />the Ready counts are the ones whose Ready condition is True. |  | Optional: \{\} <br /> |
+| `controlPlanes` _integer_ | ControlPlanes and Workers count the TalosNodes that name this cluster<br />and that a machine is handed (a Host's spec.os names them); the Ready<br />counts are the ones whose Ready condition is True. A TalosNode with no<br />machine yet, or one being removed, is counted in UnassignedNodes<br />instead: it is not a member, so it does not hold Available at False. |  | Optional: \{\} <br /> |
 | `readyControlPlanes` _integer_ |  |  | Optional: \{\} <br /> |
 | `workers` _integer_ |  |  | Optional: \{\} <br /> |
 | `readyWorkers` _integer_ |  |  | Optional: \{\} <br /> |
+| `unassignedNodes` _integer_ | UnassignedNodes counts the TalosNodes that name this cluster but run<br />on no machine: not handed to a Host yet, or being removed. |  | Optional: \{\} <br /> |
 | `kubernetesVersion` _string_ | KubernetesVersion is the version the Kubernetes API reports, empty<br />while it does not answer. |  | Optional: \{\} <br /> |
 | `kubeconfigSecretRef` _[SecretReference](#secretreference)_ | KubeconfigSecretRef points at the Secret (key kubeconfig) holding an<br />admin kubeconfig minted from the bundle's Kubernetes CA. |  | Optional: \{\} <br /> |
 | `talosconfigSecretRef` _[SecretReference](#secretreference)_ | TalosconfigSecretRef points at the Secret (key talosconfig) holding an<br />admin talosconfig minted from the bundle's Talos CA, with every<br />control-plane address as an endpoint. |  | Optional: \{\} <br /> |

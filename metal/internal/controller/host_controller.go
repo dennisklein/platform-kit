@@ -139,6 +139,7 @@ func (r *HostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	orig := host.DeepCopy()
 	projectHost(host, paths, ops.Items, node)
 	projectDeletionHold(host)
+	projectDiskWiped(host)
 	facts := factsFor(host, claim)
 	phase.StampHost(host, facts)
 	if !equality.Semantic.DeepEqual(orig.Status, host.Status) {
@@ -147,6 +148,26 @@ func (r *HostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		}
 	}
 	return ctrl.Result{}, nil
+}
+
+// projectDiskWiped mirrors the disk-not-wiped mark into the DiskWiped
+// condition, so that status, top and kubectl show a machine that must be
+// wiped before it is used again. Without the mark there is nothing to say.
+func projectDiskWiped(host *metalv1alpha1.Host) {
+	node, ok := host.Annotations[metalv1alpha1.AnnotationDiskNotWiped]
+	if !ok {
+		meta.RemoveStatusCondition(&host.Status.Conditions, metalv1alpha1.ConditionDiskWiped)
+		return
+	}
+	reason := metalv1alpha1.ReasonInstalledNodeRemains
+	msg := fmt.Sprintf("released without a Talos reset: the disk may still hold node %s, credentials included. "+
+		"Nothing is installed on it and no BIOS change powers it on until it is wiped: pk-metal wipe %s", node, host.Name)
+	if v, asked := host.Annotations[metalv1alpha1.AnnotationWipe]; asked {
+		reason = metalv1alpha1.ReasonWipeRequested
+		msg = fmt.Sprintf("a wipe with Talos %s was asked for; it waits for its operation (pk-metal approve). The disk may still hold node %s",
+			v, node)
+	}
+	setCondition(&host.Status.Conditions, host.Generation, metalv1alpha1.ConditionDiskWiped, metav1.ConditionFalse, reason, msg)
 }
 
 // factsFor derives the spec-side phase inputs: claimed while a pointer is set,

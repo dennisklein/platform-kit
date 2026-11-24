@@ -176,8 +176,9 @@ func TestReleasePowersOffOnlyWhatABootTouched(t *testing.T) {
 		"a boot that ran":                 {executed: true, handedOff: "-", wantRelease: true},
 		// The boot's operation was deleted since; the claim's record remains.
 		"an install recorded on the claim": {executed: false, handedOff: "pk-metal/boot", wantRelease: true},
-		// The machine already ran the node when the claim found it.
-		"a node found running": {executed: false, handedOff: "", wantRelease: false},
+		// The machine already ran the node when the claim found it: it is
+		// still a node of the cluster, and the release takes it out.
+		"a node found running": {executed: false, handedOff: "", wantRelease: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			claim := testClaim("node-b")

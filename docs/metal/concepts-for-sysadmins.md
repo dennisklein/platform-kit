@@ -244,7 +244,7 @@ mounted, clears its boot override and uncordons the node it cordoned. See
 | Create a claim without `spec.os` | Nothing. The machine is reserved (Assigned). |
 | Create a claim with `spec.os`, or add it | A boot is proposed. After approval: power cycle, install, **the install disk is overwritten**. |
 | Approve an operation | It runs, step by step. |
-| Delete a claim | The machine is **powered off**, if a boot of that claim ran on it. See below. |
+| Delete a claim | The node is drained, leaves the cluster and its disk is reset; the machine is **powered off**. See below. |
 | Edit a TalosNode or TalosCluster | The configuration is rendered again. A running node does not pick it up by itself. |
 | `pk-metal reboot <node>`, and it is approved | The node is cordoned, drained, rebooted through Talos and uncordoned once ready. Control planes go one at a time. See [Day-2 steps](day2-actions.md). |
 | Use `ipmitool` or the BMC web UI | Allowed. See "Using the BMC directly". |
@@ -266,30 +266,60 @@ everything on it is gone after the install. Think of it as kickstart's
 
 ### Deleting a HostClaim
 
-Deleting a claim releases the machine. If a boot of that claim ran on it, the
-operator powers it off and ejects its virtual media: a graceful shutdown
-first (ACPI, like `ipmitool chassis power soft`), then a hard power-off if
-the machine is still on after a while. When the machine runs its node, or
-ran it, that release is proposed as an operation and waits for approval,
-like an install. "Ran it" is read from the records, not from whether the node
-answers at that moment: the claim's hand-off names the machine, or a boot of
-the claim recorded its check-in step. A node that is not ready for a minute,
-during a Talos upgrade or a network flap, still gets a release that waits for
-a person. Only a machine no boot ever got to its check-in is powered off
-without asking.
+Deleting a claim releases the machine, and a released machine never keeps
+its node. When the node ran there, or might have, the release is one
+operation that waits for approval, like an install:
 
-This is not "remove from the inventory". `kubectl delete -f <dir>`, or a
-GitOps tool that prunes a deleted file, does it too. To stop managing a
-machine without touching it, leave the claim in place.
+1. The node is cordoned and drained (`kubectl drain`, with a time limit).
+2. A control plane leaves etcd: it hands etcd leadership on first, then
+   leaves itself. The operator refuses a removal that would leave etcd
+   without a majority of healthy members, or with an even number of members
+   (two members tolerate no more failures than one), unless the claim carries
+   the annotation `metal.pk.io/ack-etcd-risk` with your reason. The etcd
+   leader leaves last.
+3. Talos resets the node: its system disk is wiped, its credentials with it.
+4. The Kubernetes Node object is deleted.
+5. The machine is powered off and its virtual media ejected; the Host goes
+   back to the pool.
 
-### Succeeded operations are the record of an install
+"Ran there" is read from the records, not from whether the node answers at
+that moment: the claim's hand-off record names the machine, or a boot of the
+claim reached its check-in step. A machine no boot ever got that far is
+powered off without asking.
 
-The operator knows that a machine is already installed from the succeeded
-boot operation of its claim. If that record is gone and the node is down
-(powered off for maintenance, for example), the operator proposes a fresh
-install. The proposal still waits for approval, but **do not delete the
-succeeded operations of a running node** when you tidy up
-`kubectl get hostoperations -n pk-metal`.
+When the node does not answer, steps 1 and 3 cannot run. A control plane's
+etcd member is then removed by its ID from the members that remain, the Node
+object is deleted, and the machine is powered off through its BMC. Its disk
+still holds the node and that cluster's credentials, so the Host is marked:
+condition `DiskWiped=False`, reason `InstalledNodeRemains`. The operator
+installs nothing else on a marked Host until it is wiped:
+
+```sh
+pk-metal wipe <host>      # proposes the wipe; approve it as usual
+```
+
+The wipe boots a Talos image that erases the system disk and leaves the
+machine in maintenance mode, with nothing on its disk.
+
+Deleting a claim is not "remove from the inventory". `kubectl delete -f
+<dir>`, or a GitOps tool that prunes a deleted file, does it too. To stop
+managing a machine without touching it, leave the claim in place. To add,
+remove, replace or reinstall nodes, see [Scaling](scaling.md).
+
+### The hand-off record is the record of an install
+
+When a node first checks in after its install, the operator writes the
+claim's hand-off record (`status.handOff`: machine, node, time, and the boot
+operation). From then on the claim is "installed" because of that record,
+not because of the operation: deleting succeeded operations when you tidy up
+`kubectl get hostoperations -n pk-metal` changes nothing, and a node that is
+down (powered off for maintenance, for example) is not installed again.
+
+Only three things clear or move the record, and each drains the node and
+resets its disk first: `pk-metal reinstall <node>` installs it again on the
+same machine, `pk-metal replace <node> --host <other>` moves it to another
+machine, and deleting the TalosNode (or the claim) removes it. See
+[Scaling](scaling.md).
 
 ### Using the BMC directly
 

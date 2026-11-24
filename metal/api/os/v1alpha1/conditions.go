@@ -26,8 +26,26 @@ const (
 	ConditionBootstrapped = "Bootstrapped"
 
 	// ConditionAvailable: a TalosCluster's Kubernetes API answers and every
-	// member TalosNode is Ready.
+	// member TalosNode is Ready. A member is a TalosNode a machine is handed.
 	ConditionAvailable = "Available"
+
+	// ConditionRemovalBlocked: on a TalosNode being deleted, what its
+	// deletion still waits for: the removal of its machine (drain, etcd
+	// leave, reset) or its etcd member. Only present during deletion.
+	ConditionRemovalBlocked = "RemovalBlocked"
+)
+
+// Reasons on a TalosNode's RemovalBlocked condition.
+const (
+	// ReasonMachineAssigned on RemovalBlocked=True: a machine still runs or
+	// ran the node, and its removal operation has not finished.
+	ReasonMachineAssigned = "MachineAssigned"
+	// ReasonEtcdMemberRemains on RemovalBlocked=True: etcd still lists a
+	// member with the node's hostname.
+	ReasonEtcdMemberRemains = "EtcdMemberRemains"
+	// ReasonEtcdUnreadable on RemovalBlocked=True: no control plane of the
+	// cluster answered, so nothing says the node's etcd member is gone.
+	ReasonEtcdUnreadable = "EtcdUnreadable"
 )
 
 // Reasons on the node's Rendered condition.

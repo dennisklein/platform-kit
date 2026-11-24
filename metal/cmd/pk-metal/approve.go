@@ -510,6 +510,11 @@ func describeAction(a metalv1alpha1.HostOperationAction, pc planContext) string 
 		return fmt.Sprintf("wait up to %s for TalosNode %s to report in%s", shortDuration(timeout), node, where)
 	case a.EtcdRecover != nil:
 		return describeEtcdRecover(a.EtcdRecover)
+	case a.EtcdForfeitLeadership != nil:
+		return fmt.Sprintf("if TalosNode %s leads etcd, hand the leadership to another member (a follower is left as it is)",
+			a.EtcdForfeitLeadership.NodeRef.Name)
+	case a.DeleteKubernetesNode != nil:
+		return fmt.Sprintf("delete the Kubernetes Node %s from its cluster (its pods are gone with it)", a.DeleteKubernetesNode.NodeRef.Name)
 	}
 	if s, ok := describeTalosAction(a, pc); ok {
 		return s

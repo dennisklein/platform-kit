@@ -117,7 +117,6 @@ rules:
   resources:
   - etcdbackuppolicies
   - talosclusters
-  - talosnodes
   verbs:
   - get
   - list
@@ -131,6 +130,16 @@ rules:
   - delete
   - get
   - list
+  - watch
+- apiGroups:
+  - os.pk.io
+  resources:
+  - talosnodes
+  verbs:
+  - get
+  - list
+  - patch
+  - update
   - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
