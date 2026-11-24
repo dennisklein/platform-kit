@@ -71,6 +71,13 @@ func (f *Factory) ISOURL(s *osv1alpha1.Schematic, talosVersion string) (string, 
 // InstallerImage is the installer reference for a schematic: the same factory
 // and the same id as ISOURL, so the boot medium and the image a rendered
 // config installs from are one build.
+//
+// It is a tag, not a digest: the render reads no registry, so the rendered
+// config names the image by tag. The factory builds an image
+// from the schematic and the version, so the tag names one build in
+// practice, but nothing pins it. A TalosUpgrade step pins the image it
+// installs by digest (the rollout resolves it), so a fresh install and an
+// upgrade to the same version can, in theory, pull different bytes.
 func (f *Factory) InstallerImage(s *osv1alpha1.Schematic, talosVersion string) (string, error) {
 	id, err := Schematic(s).ID()
 	if err != nil {
