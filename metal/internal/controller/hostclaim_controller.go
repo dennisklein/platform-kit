@@ -146,9 +146,30 @@ func (r *HostClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	case failReason != "":
 		r.setBound(claim, metav1.ConditionFalse, failReason, failMsg)
 	default:
-		// Re-targeting (edited assetRef/systemRef): drop binds that are not the target.
-		if err := r.releaseAll(ctx, bound, target); err != nil {
-			return ctrl.Result{}, err
+		// Re-targeting (edited assetRef/systemRef, pk-metal replace): a
+		// machine the claim installed is released the way a deleted claim
+		// releases it (its node leaves the cluster, the machine is reset or
+		// marked), and only then is the new one bound. That keeps two
+		// machines from running the same node, and a control plane's etcd
+		// member from staying behind for the new install to collide with.
+		var old []metalv1alpha1.Host
+		for i := range bound {
+			if bound[i].Name != target {
+				old = append(old, bound[i])
+			}
+		}
+		if len(old) > 0 {
+			done, err := r.release(ctx, claim, old)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if !done {
+				claim.Status.HostRef = &metalv1alpha1.Reference{Name: old[0].Name}
+				r.setBound(claim, metav1.ConditionFalse, metalv1alpha1.ReasonReplacing, fmt.Sprintf(
+					"the claim now selects host %s; host %s, which it ran on, is released first (see the Provisioned condition)",
+					target, old[0].Name))
+				return ctrl.Result{}, r.writeStatus(ctx, orig, claim)
+			}
 		}
 		reason, msg, err := r.bind(ctx, claim, target)
 		if err != nil {
