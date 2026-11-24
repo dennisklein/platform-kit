@@ -175,8 +175,13 @@ func newFlags(name string) *flag.FlagSet {
 // verbHelp is longer help text for the verbs that need it, printed by -h.
 var verbHelp = map[string]string{}
 
-// parseFlags parses a verb's flags. -h prints the verb's help to stdout and
-// exits 0; a bad flag prints the error and the usage to stderr and exits 1.
+// parseFlags parses a verb's flags wherever they stand, before or after its
+// arguments (pk-metal scale lab --control-planes 3 as well as pk-metal scale
+// --control-planes 3 lab); everything after "--" is an argument. fs.Args()
+// then holds the arguments. The standard parser stops at the first argument,
+// so the flags after it were taken for arguments and the verb refused the
+// call. -h prints the verb's help to stdout and exits 0; a bad flag prints
+// the error and the usage to stderr and exits 1.
 func parseFlags(fs *flag.FlagSet, args []string) {
 	for _, a := range args {
 		if a == "--" {
@@ -189,9 +194,24 @@ func parseFlags(fs *flag.FlagSet, args []string) {
 		}
 	}
 	fs.SetOutput(io.Discard)
-	if err := fs.Parse(args); err != nil {
-		badUsage(fs, err.Error())
+	var pos []string
+	for {
+		if err := fs.Parse(args); err != nil {
+			badUsage(fs, err.Error())
+		}
+		rest := fs.Args()
+		if len(rest) == 0 {
+			break
+		}
+		if used := len(args) - len(rest); used > 0 && args[used-1] == "--" {
+			pos = append(pos, rest...)
+			break
+		}
+		pos, args = append(pos, rest[0]), rest[1:]
 	}
+	// Leave exactly the arguments in fs.Args(), where every verb reads them.
+	// The flags parsed above keep their values.
+	_ = fs.Parse(append([]string{"--"}, pos...))
 }
 
 // badUsage reports a wrong call of a verb, with its usage line, and exits 1.

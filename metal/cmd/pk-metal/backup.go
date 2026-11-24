@@ -450,18 +450,8 @@ func decryptSnapshot(ctx context.Context, cl client.Client, name, in, identity, 
 // after its arguments (pk-metal restore plan lab --propose), and returns the
 // arguments. Everything after "--" is an argument.
 func parseAnywhere(fs *flag.FlagSet, args []string) []string {
-	var pos []string
-	for {
-		parseFlags(fs, args)
-		rest := fs.Args()
-		if len(rest) == 0 {
-			return pos
-		}
-		if used := len(args) - len(rest); used > 0 && args[used-1] == "--" {
-			return append(pos, rest...)
-		}
-		pos, args = append(pos, rest[0]), rest[1:]
-	}
+	parseFlags(fs, args)
+	return fs.Args()
 }
 
 // argAt is the i-th argument, or "" when there are fewer.

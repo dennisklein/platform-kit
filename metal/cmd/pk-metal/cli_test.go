@@ -39,3 +39,32 @@ func TestUsageHasNoInternalJargon(t *testing.T) {
 	}
 	assert.Contains(t, out.String(), "REBOOT", "the boot line says it reboots the machine")
 }
+
+// TestParseFlagsAfterArguments: every verb takes its flags before or after
+// its arguments, as the lab and the docs write them. pk-metal scale and
+// replace refused "scale lab --control-planes 1": the flags after the
+// cluster were taken for arguments.
+func TestParseFlagsAfterArguments(t *testing.T) {
+	for _, args := range [][]string{
+		{"lab", "--control-planes", "1", "--workers", "2", "--apply", "--ack-etcd-risk", "lab scale round"},
+		{"--control-planes=1", "lab", "--workers", "2", "--apply", "--ack-etcd-risk", "lab scale round"},
+		{"--control-planes", "1", "--workers", "2", "--apply", "--ack-etcd-risk", "lab scale round", "lab"},
+	} {
+		fs := newFlags("scale")
+		cps := fs.Int("control-planes", -1, "")
+		workers := fs.Int("workers", -1, "")
+		apply := fs.Bool("apply", false, "")
+		ack := fs.String("ack-etcd-risk", "", "")
+		parseFlags(fs, args)
+		assert.Equal(t, []string{"lab"}, fs.Args(), args)
+		assert.Equal(t, 1, *cps, args)
+		assert.Equal(t, 2, *workers, args)
+		assert.True(t, *apply, args)
+		assert.Equal(t, "lab scale round", *ack, args)
+	}
+	fs := newFlags("replace")
+	host := fs.String("host", "", "")
+	parseFlags(fs, []string{"node-2", "--host", "pklab0005", "--", "--not-a-flag"})
+	assert.Equal(t, "pklab0005", *host)
+	assert.Equal(t, []string{"node-2", "--not-a-flag"}, fs.Args(), "after -- everything is an argument")
+}
