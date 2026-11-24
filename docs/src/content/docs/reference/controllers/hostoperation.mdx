@@ -63,7 +63,7 @@ Step through the figure, or use the arrow keys.
 6. If another operation holds the Host, wait with `OperationQueued`.
 7. Take the locks on the Host and on each BMC of the Host. If one is busy, try again after 5 seconds.
 8. Before the start only: hold for maintenance, for a closed maintenance window, and for the self guard.
-9. Start: check the queue against the API server, read the BMC baseline, ask the self guard and the cluster guard again, then write the baseline.
+9. Start: check the queue against the API server, read the BMC baseline, and ask the self guard and the cluster guard again. Write the baseline last.
 10. Run the steps from the last recorded step. Before each step, check for an abort, the pass budget and, for a disruptive step, the cluster guard.
 11. Record each step in `status.steps` and write the status before the next step.
 12. After the last step, read the reset time again and set `Executed` to True with `StepsSucceeded`.

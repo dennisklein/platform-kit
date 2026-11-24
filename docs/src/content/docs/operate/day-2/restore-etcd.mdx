@@ -129,7 +129,7 @@ Repair one member at a time. With three control planes, a second lost member is 
    pk-metal approve pk-metal/prod-etcd-recover-cp-1
    ```
 
-5. Upload the snapshot. For a `pvc` sink, [copy the snapshot](#copy-a-snapshot-from-a-pvc-sink) first, then add `--from-file <file.age>`.
+5. Upload the snapshot. For a `pvc` sink, [copy the snapshot](#copy-a-snapshot-from-a-pvc-sink) first. Then add `--from-file <file.age>`.
 
    ```sh
    pk-metal restore upload pk-metal/prod-etcd-recover-cp-1 --identity ~/.config/age/keys.txt
