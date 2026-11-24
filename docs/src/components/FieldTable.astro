@@ -1,6 +1,9 @@
 ---
 // The fields of a kind's spec or status, from its CRD. Each row has an anchor
-// (#spec.claimRef), so `[](kind:Host#spec.claimRef)` links to it.
+// (#spec.claimRef), so `[](kind:Host#spec.claimRef)` links to it. A row shows the
+// default, the bounds, the pattern and the CEL rules of its field. The rules on the
+// whole spec or status come above the table; the status table ends with the columns
+// of `kubectl get`.
 import { loadCrd } from '../lib/crd';
 
 interface Props {
@@ -8,8 +11,20 @@ interface Props {
   part: 'spec' | 'status';
 }
 const { kind, part } = Astro.props;
-const rows = loadCrd(kind)[part];
+const crd = loadCrd(kind);
+const rows = crd[part];
+const rules = crd.rules[part];
+const columns = part === 'status' ? crd.columns : [];
+// A default that is an object or a list is shown as JSON; a string as written.
+const show = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v));
 ---
+
+{rules.length > 0 && (
+  <div class="pk-field-rules not-content">
+    <p>Rules for the whole <code>{part}</code> (the API server refuses a change that breaks one):</p>
+    <ul>{rules.map((m) => <li>{m}</li>)}</ul>
+  </div>
+)}
 
 <div class="pk-fields not-content">
   <table>
@@ -31,9 +46,39 @@ const rows = loadCrd(kind)[part];
                 {r.enum.map((e) => <code>{e}</code>)}
               </span>
             )}
+            {(r.default !== undefined || r.bounds || r.pattern) && (
+              <span class="f-meta">
+                {r.default !== undefined && <span>Default: <code>{show(r.default)}</code></span>}
+                {r.bounds && <span>Bounds: {r.bounds}</span>}
+                {r.pattern && <span>Pattern: <code>{r.pattern}</code></span>}
+              </span>
+            )}
+            {r.rules && (
+              <ul class="f-rules">{r.rules.map((m) => <li>Rule: {m}</li>)}</ul>
+            )}
           </td>
         </tr>
       ))}
     </tbody>
   </table>
 </div>
+
+{columns.length > 0 && (
+  <div class="pk-field-cols not-content">
+    <p>Columns of <code>kubectl get {crd.plural}</code> (the columns marked wide show only with <code>-o wide</code>):</p>
+    <table>
+      <thead>
+        <tr><th scope="col">Column</th><th scope="col">Value</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>NAME</code></td><td><code>.metadata.name</code></td></tr>
+        {columns.map((c) => (
+          <tr>
+            <td><code>{c.name.toUpperCase()}</code>{c.wide && <span class="f-wide">wide</span>}</td>
+            <td><code>{c.jsonPath}</code>{c.description && <> {c.description}</>}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+)}

@@ -390,6 +390,40 @@ a.gl abbr {
 .pk-fields .f-enum code {
   font-size: 0.75rem;
 }
+.pk-fields .f-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.9rem;
+  margin-top: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--pk-ink-2);
+}
+.pk-fields .f-meta code {
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+.pk-fields .f-rules {
+  margin: 0.35rem 0 0;
+  padding-inline-start: 1rem;
+  font-size: 0.8rem;
+  color: var(--pk-ink-2);
+}
+.pk-field-rules,
+.pk-field-cols {
+  margin-block: 1rem;
+  font-size: 0.9rem;
+}
+.pk-field-rules ul {
+  margin: 0.25rem 0 0;
+}
+.pk-field-cols .f-wide {
+  margin-inline-start: 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pk-ink-3);
+}
 
 /* ---------- Callouts (STE notices) ---------- */
 

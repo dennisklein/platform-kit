@@ -15,6 +15,20 @@ export interface FieldRow {
   enum?: string[];
   default?: unknown;
   description?: string;
+  /** Bounds in words: "0 to 3600", "at most 63 characters", "1 to 3 items". */
+  bounds?: string;
+  pattern?: string;
+  /** The messages of the CEL rules (x-kubernetes-validations) on the field. */
+  rules?: string[];
+}
+
+/** A column of `kubectl get`; priority 1 shows only with `-o wide`. */
+export interface Column {
+  name: string;
+  jsonPath: string;
+  type: string;
+  wide: boolean;
+  description?: string;
 }
 
 export interface Crd {
@@ -26,6 +40,9 @@ export interface Crd {
   file: string;
   spec: FieldRow[];
   status: FieldRow[];
+  /** CEL rule messages on the spec or status object itself. */
+  rules: { spec: string[]; status: string[] };
+  columns: Column[];
 }
 
 /** Types whose fields every Kubernetes user knows: one row, no children. */
@@ -38,12 +55,35 @@ function typeOf(s: any): string {
   return s.type ?? 'any';
 }
 
+const range = (lo: number | undefined, hi: number | undefined, unit = '') => {
+  const u = unit ? ` ${unit}` : '';
+  if (lo !== undefined && hi !== undefined) return lo === hi ? `exactly ${lo}${u}` : `${lo} to ${hi}${u}`;
+  if (hi !== undefined) return `at most ${hi}${u}`;
+  if (lo !== undefined) return `at least ${lo}${u}`;
+  return undefined;
+};
+
+/** The bounds of a field, in words. */
+function boundsOf(f: any): string | undefined {
+  const parts = [
+    range(f.minimum, f.maximum),
+    range(f.minLength, f.maxLength, 'characters'),
+    range(f.minItems, f.maxItems, 'items'),
+    range(f.minProperties, f.maxProperties, 'entries'),
+  ].filter(Boolean);
+  return parts.length ? parts.join(', ') : undefined;
+}
+
+const messages = (s: any): string[] => (s?.['x-kubernetes-validations'] ?? []).map((v: any) => v.message ?? v.rule);
+
 function flatten(s: any, prefix: string, depth: number, required: string[], out: FieldRow[]) {
   for (const [name, f] of Object.entries<any>(s.properties ?? {})) {
     const path = prefix ? `${prefix}.${name}` : name;
+    const rules = [...messages(f), ...(f.type === 'array' ? messages(f.items) : [])];
     out.push({
       path, depth, type: typeOf(f), required: required.includes(name),
       enum: f.enum ?? f.items?.enum, default: f.default, description: f.description,
+      bounds: boundsOf(f), pattern: f.pattern ?? f.items?.pattern, rules: rules.length ? rules : undefined,
     });
     if (opaque.has(name)) continue;
     const inner = f.type === 'array' ? f.items : f;
@@ -65,6 +105,10 @@ export function loadCrd(kind: string): Crd {
     const crd: Crd = {
       kind, group: doc.spec.group, version: v.name, plural: doc.spec.names.plural,
       scope: doc.spec.scope, file: `metal/config/crd/${file}`, spec: [], status: [],
+      rules: { spec: messages(props.spec), status: messages(props.status) },
+      columns: (v.additionalPrinterColumns ?? []).map((c: any) => ({
+        name: c.name, jsonPath: c.jsonPath, type: c.type, wide: (c.priority ?? 0) > 0, description: c.description,
+      })),
     };
     for (const part of ['spec', 'status'] as const) {
       if (props[part]) flatten(props[part], part, 0, props[part].required ?? [], crd[part]);
