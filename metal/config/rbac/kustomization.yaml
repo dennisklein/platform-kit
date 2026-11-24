@@ -7,3 +7,4 @@ resources:
   - role_binding.yaml
   - approver_role.yaml
   - backup_role.yaml
+  - oncall_role.yaml

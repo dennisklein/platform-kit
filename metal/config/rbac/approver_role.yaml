@@ -1,9 +1,13 @@
 # The human side of the approval gate. An operation's target and actions are
-# frozen at creation, so the only thing a patch can change is the approval:
-# permission to patch IS permission to approve, and the admission policy checks
-# that an approver signs with their own name. Bind this to the people (or the
-# group) who may let a disruptive operation run. Nothing binds it by default,
-# and the manager's own role has no patch on operations.
+# frozen at creation, so a patch cannot change what an operation does; it sets
+# the approval, and the admission policy checks that an approver signs with
+# their own name. Permission to patch IS permission to approve. A patch can
+# also set annotations: abort, retry, and the guard overrides
+# (override-cluster-guard, ignore-window), which let an approved operation run
+# past the etcd quorum guard or outside a maintenance window. So this role also
+# decides who may lift those guards. Bind it to the people (or the group) who
+# may let a disruptive operation run. Nothing binds it by default, and the
+# manager's own role has no patch on operations.
 #
 # The same holds for a TalosRollout: what it changes, on which nodes, is frozen
 # at creation and its plan is the operator's status, so a patch approves it,
