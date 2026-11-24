@@ -15,3 +15,4 @@ resources:
   - os.pk.io_bootassets.yaml
   - os.pk.io_talosclusters.yaml
   - os.pk.io_talosnodes.yaml
+  - os.pk.io_talosrollouts.yaml

@@ -68,6 +68,16 @@ spec:
                       description: VIP is a shared address the control-plane members announce over layer 2 (Talos' Layer2VIPConfig). Each control-plane node carries it on the link whose static address shares a subnet with it.
                       type: string
                   type: object
+                credentials:
+                  description: Credentials sets the lifetime of the admin credentials the operator publishes, and whether it also publishes a read-only talosconfig.
+                  properties:
+                    readerTalosconfig:
+                      description: 'ReaderTalosconfig also publishes <cluster>-talosconfig-reader: a talosconfig with the os:reader role, for monitoring, which can read but not change a machine.'
+                      type: boolean
+                    ttl:
+                      description: TTL is how long a published admin kubeconfig and talosconfig are valid. A credential is minted again once less than a third of it is left. Default 24h.
+                      type: string
+                  type: object
                 endpoint:
                   description: 'Endpoint is the Kubernetes API URL every member enrolls against and the admin kubeconfig names: the control-plane VIP or a DNS name for it, with the port (https://10.77.0.10:6443).'
                   pattern: ^https://[^/]+$
@@ -212,7 +222,7 @@ spec:
                   format: date-time
                   type: string
                 conditions:
-                  description: 'Conditions: Bootstrapped and Available.'
+                  description: 'Conditions: Bootstrapped and Available; VersionsSupported (the Kubernetes version against the Talos version), VersionsCurrent (what the machines and the API run against the spec) and SecretsBundleHeld (an edited secrets bundle the machines do not run yet).'
                   items:
                     description: Condition contains details for one aspect of the current state of this API Resource.
                     properties:
@@ -262,6 +272,10 @@ spec:
                   description: ControlPlanes and Workers count the TalosNodes that name this cluster; the Ready counts are the ones whose Ready condition is True.
                   format: int32
                   type: integer
+                credentialsExpireAt:
+                  description: CredentialsExpireAt is when the first of the published credentials expires. The operator mints new ones well before; a time in the past means it could not.
+                  format: date-time
+                  type: string
                 kubeconfigSecretRef:
                   description: KubeconfigSecretRef points at the Secret (key kubeconfig) holding an admin kubeconfig minted from the bundle's Kubernetes CA.
                   properties:
@@ -276,6 +290,17 @@ spec:
                 kubernetesVersion:
                   description: KubernetesVersion is the version the Kubernetes API reports, empty while it does not answer.
                   type: string
+                readerTalosconfigSecretRef:
+                  description: ReaderTalosconfigSecretRef points at the os:reader talosconfig, when spec.credentials.readerTalosconfig asks for one.
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                  required:
+                    - name
+                    - namespace
+                  type: object
                 readyControlPlanes:
                   format: int32
                   type: integer

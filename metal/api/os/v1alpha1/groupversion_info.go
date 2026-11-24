@@ -44,6 +44,7 @@ func addKnownTypes(s *runtime.Scheme) error {
 		&TalosCluster{}, &TalosClusterList{},
 		&TalosNode{}, &TalosNodeList{},
 		&BootAsset{}, &BootAssetList{},
+		&TalosRollout{}, &TalosRolloutList{},
 	)
 	metav1.AddToGroupVersion(s, GroupVersion)
 	return nil

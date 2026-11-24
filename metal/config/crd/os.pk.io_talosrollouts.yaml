@@ -1,0 +1,285 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: talosrollouts.os.pk.io
+spec:
+  group: os.pk.io
+  names:
+    categories:
+      - metal
+      - os
+    kind: TalosRollout
+    listKind: TalosRolloutList
+    plural: talosrollouts
+    singular: talosrollout
+  scope: Cluster
+  versions:
+    - additionalPrinterColumns:
+        - jsonPath: .spec.clusterRef.name
+          name: Cluster
+          type: string
+        - jsonPath: .spec.kind
+          name: Kind
+          type: string
+        - jsonPath: .spec.approval.approvedBy
+          name: Approved
+          type: string
+        - jsonPath: .status.conditions[?(@.type=="Progressing")].reason
+          name: Progress
+          type: string
+        - jsonPath: .status.conditions[?(@.type=="Complete")].status
+          name: Complete
+          type: string
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: TalosRollout is one change rolled through the nodes of a cluster in a safe order — a Talos upgrade, a Kubernetes upgrade, a config change or a reboot — under one approval of a frozen plan, with a mandatory pause after the first node and health gates between nodes.
+          properties:
+            apiVersion:
+              description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+              type: string
+            kind:
+              description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: |-
+                TalosRolloutSpec says what to change on which nodes of one cluster, and carries the one approval that covers every node of it.
+
+                A rollout is proposed by the operator (or created by a person), then planned: the operator writes the ordered node list, each node's actions and the exact target (config digest, installer image digest) into status.plan, and its hash into status.planHash. A person approves that plan by stamping spec.approval with their name and the planHash they saw. From then on the plan is frozen: the operator runs exactly it, or nothing.
+              properties:
+                abort:
+                  description: 'Abort stops the rollout for good: no further node starts, a node in the middle of its change finishes it, and nodes already changed stay as they are. It cannot be taken back; a new rollout is how to go on.'
+                  type: boolean
+                approval:
+                  description: Approval is the one human gate of the whole rollout.
+                  properties:
+                    approvedBy:
+                      description: ApprovedBy is the person who approved. Admission enforces that it equals the requesting username, is empty at creation, is write-once, and is not the proposer.
+                      type: string
+                    planHash:
+                      description: 'PlanHash is the status.planHash the approver saw. The rollout runs only while it equals status.planHash: a plan that changed after it was shown is not the plan that was approved.'
+                      pattern: ^sha256:[a-f0-9]{64}$
+                      type: string
+                  type: object
+                  x-kubernetes-validations:
+                    - message: 'approvedBy and planHash are set together: an approval names the plan it approves'
+                      rule: has(self.approvedBy) == has(self.planHash)
+                clusterRef:
+                  description: ClusterRef names the TalosCluster whose nodes this rollout changes.
+                  properties:
+                    name:
+                      type: string
+                  required:
+                    - name
+                  type: object
+                drainTimeoutSeconds:
+                  default: 900
+                  description: DrainTimeoutSeconds bounds the drain of each node that is drained (an upgrade, a reboot, a config that needs a reboot).
+                  format: int32
+                  maximum: 86400
+                  minimum: 30
+                  type: integer
+                kind:
+                  description: Kind is what changes on each node.
+                  enum:
+                    - Config
+                    - TalosUpgrade
+                    - KubernetesUpgrade
+                    - Reboot
+                  type: string
+                maxUnavailableWorkers:
+                  default: 1
+                  description: MaxUnavailableWorkers is how many workers may be in the middle of the change at once. Control planes always go one at a time, and only while etcd keeps every member healthy.
+                  format: int32
+                  maximum: 100
+                  minimum: 1
+                  type: integer
+                nodes:
+                  description: Nodes limits the rollout to these TalosNodes. Empty means every node of the cluster that needs the change.
+                  items:
+                    type: string
+                  type: array
+                  x-kubernetes-list-type: set
+                paused:
+                  description: Paused stops the rollout from starting another node. A node already in the middle of its change finishes it. Set and clear it at will.
+                  type: boolean
+                proposedBy:
+                  description: ProposedBy is the username that created the rollout. Admission checks it against the creating request, and refuses an approval by the same person.
+                  minLength: 1
+                  type: string
+                target:
+                  description: 'Target is where the rollout takes the nodes: the Talos version of a TalosUpgrade, the Kubernetes version of a KubernetesUpgrade. A Config or Reboot rollout takes none; its target is each node''s current rendered config, frozen into the plan.'
+                  properties:
+                    kubernetesVersion:
+                      description: KubernetesVersion is the Kubernetes release of a KubernetesUpgrade.
+                      pattern: ^v[0-9]+\.[0-9]+\.[0-9]+$
+                      type: string
+                    talosVersion:
+                      description: TalosVersion is the Talos release of a TalosUpgrade.
+                      pattern: ^v1\.(1[4-9]|[2-9][0-9])\.[0-9]+$
+                      type: string
+                  type: object
+              required:
+                - clusterRef
+                - kind
+                - proposedBy
+              type: object
+              x-kubernetes-validations:
+                - message: clusterRef and kind are frozen after creation
+                  rule: self.clusterRef == oldSelf.clusterRef && self.kind == oldSelf.kind
+                - message: target is frozen after creation
+                  rule: (!has(self.target) && !has(oldSelf.target)) || (has(self.target) && has(oldSelf.target) && self.target == oldSelf.target)
+                - message: nodes are frozen after creation
+                  rule: (!has(self.nodes) && !has(oldSelf.nodes)) || (has(self.nodes) && has(oldSelf.nodes) && self.nodes == oldSelf.nodes)
+                - message: proposedBy is frozen after creation
+                  rule: '!has(oldSelf.proposedBy) || (has(self.proposedBy) && self.proposedBy == oldSelf.proposedBy)'
+                - message: an abort cannot be taken back
+                  rule: '!has(oldSelf.abort) || !oldSelf.abort || (has(self.abort) && self.abort)'
+                - message: maxUnavailableWorkers is frozen after creation
+                  rule: '(has(self.maxUnavailableWorkers) ? self.maxUnavailableWorkers : 1) == (has(oldSelf.maxUnavailableWorkers) ? oldSelf.maxUnavailableWorkers : 1)'
+            status:
+              description: TalosRolloutStatus is the plan and how far it got.
+              properties:
+                conditions:
+                  description: 'Conditions: Planned, Approved, Progressing, Paused, Complete.'
+                  items:
+                    description: Condition contains details for one aspect of the current state of this API Resource.
+                    properties:
+                      lastTransitionTime:
+                        description: lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                        format: date-time
+                        type: string
+                      message:
+                        description: message is a human readable message indicating details about the transition. This may be an empty string.
+                        maxLength: 32768
+                        type: string
+                      observedGeneration:
+                        description: observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      reason:
+                        description: reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty.
+                        maxLength: 1024
+                        minLength: 1
+                        pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                        type: string
+                      status:
+                        description: status of the condition, one of True, False, Unknown.
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                        type: string
+                      type:
+                        description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                        maxLength: 316
+                        pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                        type: string
+                    required:
+                      - lastTransitionTime
+                      - message
+                      - reason
+                      - status
+                      - type
+                    type: object
+                  type: array
+                  x-kubernetes-list-map-keys:
+                    - type
+                  x-kubernetes-list-type: map
+                plan:
+                  description: 'Plan is the ordered list of steps: control planes first, one at a time, then a KubeProxy step for a Kubernetes upgrade, then the workers. Rewritten on every pass until approved, frozen afterwards.'
+                  items:
+                    description: RolloutStep is one entry of a frozen plan. Everything that decides what is done to the node is in here, and so in the planHash.
+                    properties:
+                      actions:
+                        description: Actions are the HostOperation action keys this step runs, in order, for the approver to read.
+                        items:
+                          type: string
+                        type: array
+                      configDigest:
+                        type: string
+                      configSecret:
+                        description: ConfigSecret and ConfigDigest pin the rendered config a Config or KubernetesUpgrade step applies. The Secret is content-addressed and never rewritten, so the bytes approved are the bytes applied.
+                        type: string
+                      from:
+                        description: From is what the node runs now, as far as the operator knows (a version, or the digest of the config it last confirmed); To is what it runs afterwards.
+                        type: string
+                      host:
+                        type: string
+                      image:
+                        description: Image is the installer image of a TalosUpgrade, pinned by digest, or the kube-proxy image of a KubeProxy step.
+                        type: string
+                      kind:
+                        description: Kind is Node (one node through a HostOperation) or KubeProxy.
+                        enum:
+                          - Node
+                          - KubeProxy
+                        type: string
+                      node:
+                        description: Node is the TalosNode; Host the Host that runs it. Empty for a KubeProxy step.
+                        type: string
+                      rebootRequired:
+                        description: 'RebootRequired: the node said, in a dry run, that it cannot take this config without a reboot. The node is then drained, the config applied with a reboot, and the node uncordoned once it is back.'
+                        type: boolean
+                      role:
+                        description: Role is the node's role; control planes go one at a time.
+                        enum:
+                          - controlplane
+                          - worker
+                        type: string
+                      to:
+                        type: string
+                    required:
+                      - kind
+                    type: object
+                  type: array
+                planHash:
+                  description: 'PlanHash is sha256 over the kind, cluster, target and plan: what an approval names, and what every HostOperation of the rollout carries.'
+                  type: string
+                steps:
+                  description: Steps is the progress of each plan entry, by index.
+                  items:
+                    description: RolloutStepStatus is how one step of the plan went.
+                    properties:
+                      finishedAt:
+                        format: date-time
+                        type: string
+                      message:
+                        description: Message says why a step failed or what it waits for.
+                        type: string
+                      operation:
+                        description: Operation is the HostOperation (namespace/name) running a Node step.
+                        type: string
+                      startedAt:
+                        format: date-time
+                        type: string
+                      state:
+                        description: State is Pending, Running, Succeeded, Failed or Skipped.
+                        enum:
+                          - Pending
+                          - Running
+                          - Succeeded
+                          - Failed
+                          - Skipped
+                        type: string
+                    required:
+                      - state
+                    type: object
+                  type: array
+              type: object
+          required:
+            - spec
+          type: object
+      served: true
+      storage: true
+      subresources:
+        status: {}
