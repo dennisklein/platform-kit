@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
+	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/bootstrap"
 	"github.com/dennisklein/platform-kit/metal/internal/talos"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
@@ -112,6 +113,7 @@ func rememberedBootstrap(cluster *osv1alpha1.TalosCluster) time.Time {
 // +kubebuilder:rbac:groups=os.pk.io,resources=talosclusters/status,verbs=update
 // +kubebuilder:rbac:groups=os.pk.io,resources=talosclusters/finalizers,verbs=update
 // +kubebuilder:rbac:groups=os.pk.io,resources=talosnodes,verbs=get;list;watch
+// +kubebuilder:rbac:groups=metal.pk.io,resources=hosts,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update,namespace=pk-metal
 
 // Reconcile bootstraps a cluster once its first control plane answers, and
@@ -146,26 +148,21 @@ func (r *TalosClusterReconciler) reconcile(ctx context.Context, cluster *osv1alp
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	assigned, err := assignedNodes(ctx, r.Client)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 	var members []bootstrap.Member
 	var endpoints []string
 	st := &cluster.Status
-	st.ControlPlanes, st.ReadyControlPlanes, st.Workers, st.ReadyWorkers = 0, 0, 0, 0
+	countMembers(st, nodes, assigned)
 	for _, n := range nodes {
-		ready := meta.IsStatusConditionTrue(n.Status.Conditions, osv1alpha1.ConditionReady)
-		if n.Spec.Role == osv1alpha1.RoleControlPlane {
-			st.ControlPlanes++
-			if ready {
-				st.ReadyControlPlanes++
-			}
-			if addr := render.NodeAddress(&n); addr != "" {
-				members = append(members, bootstrap.Member{Name: n.Name, Endpoint: addr})
-				endpoints = append(endpoints, addr)
-			}
+		if n.Spec.Role != osv1alpha1.RoleControlPlane {
 			continue
 		}
-		st.Workers++
-		if ready {
-			st.ReadyWorkers++
+		if addr := render.NodeAddress(&n); addr != "" {
+			members = append(members, bootstrap.Member{Name: n.Name, Endpoint: addr})
+			endpoints = append(endpoints, addr)
 		}
 	}
 
@@ -249,6 +246,50 @@ func (r *TalosClusterReconciler) reconcile(ctx context.Context, cluster *osv1alp
 		return ctrl.Result{RequeueAfter: cmp.Or(r.ReadyInterval, defaultReadyInterval)}, nil
 	}
 	return retry, nil
+}
+
+// countMembers fills the member counts. A member is a TalosNode a machine is
+// handed and that is not being removed: a node written ahead of its machine
+// (the next control plane of a scale-up), or one whose removal has begun, is
+// not part of the cluster, and counting it would hold Available at False
+// until it was gone. Those are counted as unassigned instead, so they stay
+// visible.
+func countMembers(st *osv1alpha1.TalosClusterStatus, nodes []osv1alpha1.TalosNode, assigned map[string]bool) {
+	st.ControlPlanes, st.ReadyControlPlanes, st.Workers, st.ReadyWorkers, st.UnassignedNodes = 0, 0, 0, 0, 0
+	for i := range nodes {
+		n := &nodes[i]
+		if !assigned[n.Name] || !n.DeletionTimestamp.IsZero() {
+			st.UnassignedNodes++
+			continue
+		}
+		ready := meta.IsStatusConditionTrue(n.Status.Conditions, osv1alpha1.ConditionReady)
+		if n.Spec.Role == osv1alpha1.RoleControlPlane {
+			st.ControlPlanes++
+			if ready {
+				st.ReadyControlPlanes++
+			}
+			continue
+		}
+		st.Workers++
+		if ready {
+			st.ReadyWorkers++
+		}
+	}
+}
+
+// assignedNodes is the set of TalosNode names some Host's spec.os names.
+func assignedNodes(ctx context.Context, c client.Reader) (map[string]bool, error) {
+	hosts := &metalv1alpha1.HostList{}
+	if err := c.List(ctx, hosts); err != nil {
+		return nil, err
+	}
+	out := map[string]bool{}
+	for i := range hosts.Items {
+		if os := hosts.Items[i].Spec.OS; os != nil {
+			out[os.NodeRef.Name] = true
+		}
+	}
+	return out, nil
 }
 
 // publish keeps the admin kubeconfig and talosconfig Secrets current and
@@ -348,6 +389,7 @@ func (r *TalosClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.Secret{}).
 		Watches(&osv1alpha1.TalosNode{}, handler.EnqueueRequestsFromMapFunc(clusterForNode)).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.clustersForBundle)).
+		Watches(&metalv1alpha1.Host{}, handler.EnqueueRequestsFromMapFunc(r.clusterForHost)).
 		Named("taloscluster").
 		Complete(r)
 }
@@ -356,6 +398,20 @@ func (r *TalosClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // left) to its cluster.
 func clusterForNode(_ context.Context, obj client.Object) []ctrl.Request {
 	return []ctrl.Request{requestFor(obj.(*osv1alpha1.TalosNode).Spec.ClusterRef.Name)}
+}
+
+// clusterForHost maps a Host event to the cluster of the node its hand-off
+// names: a machine handed to a node, or taken from it, changes the counts.
+func (r *TalosClusterReconciler) clusterForHost(ctx context.Context, obj client.Object) []ctrl.Request {
+	os := obj.(*metalv1alpha1.Host).Spec.OS
+	if os == nil {
+		return nil
+	}
+	n := &osv1alpha1.TalosNode{}
+	if err := r.Get(ctx, client.ObjectKey{Name: os.NodeRef.Name}, n); err != nil {
+		return nil
+	}
+	return []ctrl.Request{requestFor(n.Spec.ClusterRef.Name)}
 }
 
 func (r *TalosClusterReconciler) clustersForBundle(ctx context.Context, obj client.Object) []ctrl.Request {
