@@ -1411,11 +1411,30 @@ rollout_wait_proposed() {
 # checked: Complete=True, every step Succeeded.
 rollout_through() {
   local root=$1 lab_dir=$2 name=$3 timeout=$4
-  local conditions resumed=0 line last="" deadline=$((SECONDS + timeout))
+  local conditions cluster single op resumed=0 line last="" deadline=$((SECONDS + timeout))
   step "rollout $name: approve, check the first node, resume, wait (up to ${timeout}s)"
   "$root/metal/bin/pk-metal" rollout show "$name" >&2
   "$root/metal/bin/pk-metal" rollout approve --yes "$name" >&2
+  cluster=$(kubectl get talosrollout "$name" --output jsonpath='{.spec.clusterRef.name}')
+  single=0
+  [[ $(control_plane_count "$cluster") != 1 ]] || single=1
   while true; do
+    if (( single )); then
+      # A cluster with one control plane has no etcd majority while that
+      # node restarts, so the cluster guard holds its step and says so
+      # (reason ClusterDisruption). The override is what a person gives
+      # here (docs/metal/day2-actions.md), as the reboot round does; the
+      # lab gives it only to an operation the guard actually holds.
+      while IFS= read -r op; do
+        [[ -n $op ]] || continue
+        kubectl -n "$NAMESPACE" annotate hostoperation "$op" \
+          "metal.pk.io/override-cluster-guard=lab: cluster $cluster has a single control plane" >&2
+      done < <(kubectl -n "$NAMESPACE" get hostoperations --selector "os.pk.io/rollout=$name" --output json | jq -r '
+        .items[]
+        | select((.metadata.annotations // {})["metal.pk.io/override-cluster-guard"] == null)
+        | select(any(.status.conditions[]?; .type == "Executed" and .reason == "ClusterDisruption"))
+        | .metadata.name')
+    fi
     conditions=$(rollout_conditions "$name")
     if grep -qx 'Complete=True/Succeeded' <<<"$conditions"; then
       kubectl get talosrollout "$name" --output json | jq -e '
