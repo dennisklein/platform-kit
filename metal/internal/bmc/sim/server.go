@@ -276,6 +276,8 @@ func (s *Server) decode(w http.ResponseWriter, r *http.Request, v any) bool {
 // accepted answers 202 for an asynchronous operation: the task monitor in the
 // Location header, the task itself as the body.
 func (s *Server) accepted(w http.ResponseWriter, t task) {
-	w.Header().Set("Location", taskServiceURI+"/Tasks/"+t.id)
+	if !s.f.Protocol.TaskInBody {
+		w.Header().Set("Location", taskServiceURI+"/Tasks/"+t.id)
+	}
 	writeJSON(w, http.StatusAccepted, taskDoc(t))
 }

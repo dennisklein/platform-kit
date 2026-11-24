@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"path"
@@ -214,6 +215,14 @@ func (s *Server) vmmControl(w http.ResponseWriter, r *http.Request) {
 	var err error
 	switch body.VmmControlType {
 	case "Connect":
+		if s.f.Protocol.TaskDuration > 0 {
+			// The mount runs as the task: a failed mount is the task's
+			// Exception, which only a client that follows the task sees.
+			s.accepted(w, s.st.runTask("VirtualMedia control", func() error {
+				return s.st.InsertMedia(context.WithoutCancel(r.Context()), slot, body.Image, nil)
+			}))
+			return
+		}
 		err = s.st.InsertMedia(r.Context(), slot, body.Image, nil)
 	case "Disconnect":
 		err = s.st.EjectMedia(r.Context(), slot)

@@ -58,6 +58,29 @@ func (s *State) finishTask(t *task, work func() error) {
 	t.ended = time.Now()
 }
 
+// runTask is startTask for work that takes the state lock itself: the work
+// runs outside the lock once the task's duration has passed, and its error
+// turns the task into an Exception.
+func (s *State) runTask(name string, work func() error) task {
+	s.mu.Lock()
+	t := &task{id: strconv.Itoa(len(s.tasks) + 1), name: name, state: "Running", started: time.Now()}
+	s.tasks = append(s.tasks, t)
+	d, view := s.f.Protocol.TaskDuration, *t
+	s.mu.Unlock()
+	go func() {
+		time.Sleep(d)
+		err := work()
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		t.state = "Completed"
+		if err != nil {
+			t.state, t.message = "Exception", err.Error()
+		}
+		t.ended = time.Now()
+	}()
+	return view
+}
+
 // tasksView clones the task list for the HTTP tier.
 func (s *State) tasksView() []task {
 	s.mu.Lock()

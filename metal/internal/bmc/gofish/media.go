@@ -7,10 +7,12 @@ import (
 	"maps"
 	"net/url"
 	"slices"
+	"time"
 
 	"github.com/stmcginnis/gofish/schemas"
 
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
+	"github.com/dennisklein/platform-kit/metal/internal/poll"
 )
 
 // vmmControlAction is the iBMC's OEM virtual-media action.
@@ -215,7 +217,10 @@ func (c *client) InsertMedia(ctx context.Context, mediaID, imageURL string, cred
 		if err != nil {
 			return fmt.Errorf("bmc: InsertMedia: %w", err)
 		}
-		return c.followTask(ctx, info)
+		if err := c.followTask(ctx, info); err != nil {
+			return err
+		}
+		return c.awaitInserted(ctx, mediaID)
 	}
 	if target := vm.oemTargets[vmmControlAction]; target != "" {
 		if creds != nil {
@@ -224,9 +229,37 @@ func (c *client) InsertMedia(ctx context.Context, mediaID, imageURL string, cred
 				return err
 			}
 		}
-		return c.vmmControl(ctx, target, "Connect", imageURL)
+		if err := c.vmmControl(ctx, target, "Connect", imageURL); err != nil {
+			return err
+		}
+		return c.awaitInserted(ctx, mediaID)
 	}
 	return fmt.Errorf("bmc: media %q advertises no insert mechanism", mediaID)
+}
+
+// insertTimeout bounds the wait for a slot to read Inserted after an insert
+// the service accepted.
+const insertTimeout = 30 * time.Second
+
+// awaitInserted reads the slot back until it reports Inserted. An accepted
+// insert is not a mount: a service may answer before the mount, or take the
+// action and fail the mount later, and the machine would then boot with no
+// medium.
+func (c *client) awaitInserted(ctx context.Context, mediaID string) error {
+	ctx, cancel := context.WithTimeout(ctx, insertTimeout)
+	defer cancel()
+	err := poll.Until(ctx, taskBackoff, func(context.Context) (bool, error) {
+		vm, err := c.slotByID(mediaID)
+		if err != nil {
+			return false, err
+		}
+		// A slot that serves no Inserted cannot say; it is taken as mounted.
+		return vm.Inserted == nil || *vm.Inserted, nil
+	})
+	if err != nil && ctx.Err() != nil {
+		return fmt.Errorf("bmc: media %s does not read inserted %s after the insert: %w", mediaID, insertTimeout, err)
+	}
+	return err
 }
 
 func withUserinfo(imageURL string, creds *bmc.MediaCredentials) (string, error) {

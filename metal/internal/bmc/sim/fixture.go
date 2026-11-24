@@ -215,6 +215,11 @@ type Protocol struct {
 	// TaskDuration is how long an asynchronous operation runs before its task
 	// completes and its effect lands. Zero completes inside the request.
 	TaskDuration time.Duration `yaml:"task_duration"`
+	// TaskInBody answers 202 with the Task in the body only, no Location
+	// header: the specification asks for the header, some services leave
+	// it out. A client that follows only the header takes the operation as
+	// done at once.
+	TaskInBody bool `yaml:"task_in_body"`
 }
 
 // Layout is where the endpoint puts resources the specification has moved over

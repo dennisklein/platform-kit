@@ -451,7 +451,9 @@ func decodeTask(body []byte) (taskAnswer, error) {
 var taskBackoff = poll.Backoff{Initial: 50 * time.Millisecond, Max: 2 * time.Second, Factor: 2}
 
 // pollAccepted follows the task behind a raw response, if the response was a
-// 202 naming a monitor. Some firmwares answer the same action synchronously.
+// 202. The monitor is the Location header, as the specification asks; a
+// service that leaves the header out names the Task in the body instead.
+// Some firmwares answer the same action synchronously.
 func (c *client) pollAccepted(ctx context.Context, resp *http.Response) error {
 	if resp.StatusCode != http.StatusAccepted {
 		return nil
@@ -459,15 +461,48 @@ func (c *client) pollAccepted(ctx context.Context, resp *http.Response) error {
 	if uri := resp.Header.Get("Location"); uri != "" {
 		return c.pollTask(ctx, uri)
 	}
+	body, err := readBody(resp.Body)
+	if err != nil {
+		return fmt.Errorf("bmc: accepted answer: %w", err)
+	}
+	if uri := taskInBody(body); uri != "" {
+		return c.pollTask(ctx, uri)
+	}
 	return nil
 }
 
-// followTask polls the monitor of an asynchronous answer, if the answer was one.
+// taskInBody is the URI of the Task a 202 carries in its body: its
+// TaskMonitor, else its own @odata.id. Empty when the body is no Task.
+func taskInBody(body []byte) string {
+	var doc struct {
+		ODataID     string `json:"@odata.id"`
+		ODataType   string `json:"@odata.type"`
+		TaskMonitor string `json:"TaskMonitor"`
+		TaskState   string `json:"TaskState"`
+	}
+	if json.Unmarshal(body, &doc) != nil {
+		return ""
+	}
+	if !strings.HasPrefix(doc.ODataType, "#Task.") && doc.TaskState == "" {
+		return ""
+	}
+	return cmp.Or(doc.TaskMonitor, doc.ODataID)
+}
+
+// followTask polls the monitor of an asynchronous answer, if the answer was
+// one: the Location header, else the Task the body carried.
 func (c *client) followTask(ctx context.Context, info *schemas.TaskMonitorInfo) error {
-	if info == nil || info.TaskMonitor == "" {
+	if info == nil {
 		return nil
 	}
-	return c.pollTask(ctx, info.TaskMonitor)
+	uri := info.TaskMonitor
+	if uri == "" && info.Task != nil {
+		uri = cmp.Or(info.Task.TaskMonitor, info.Task.ODataID)
+	}
+	if uri == "" {
+		return nil
+	}
+	return c.pollTask(ctx, uri)
 }
 
 // firstReadable walks the candidates and then the members of a collection,
