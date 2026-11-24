@@ -1,0 +1,61 @@
+---
+title: Claim ambiguous
+description: A claim cannot bind one machine - the BMC controls several systems, or another claim holds the Host.
+type: runbook
+xref: { cat: rb, id: claim-ambiguous }
+sources:
+  - /repo/metal/internal/controller/hostclaim_controller.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+## Symptoms
+
+<dl>
+  <dt>[](kind:HostClaim) phase</dt>
+  <dd>`Ambiguous` or `Pending`.</dd>
+  <dt>`BLOCKED`</dt>
+  <dd>`AmbiguousSystem`, `SystemNotFound`, `HostAlreadyClaimed`, `AssetNotFound`, `AssetNotMaterialized` or `HostNotDiscovered`.</dd>
+</dl>
+
+## Impact
+
+The claim holds no machine. The operator installs nothing.
+
+## Diagnose
+
+<Steps>
+
+1. Read the claim.
+
+   ```sh
+   kubectl -n default describe hostclaim cp-1
+   ```
+
+2. For `AmbiguousSystem`, list the systems of the BMC.
+
+   ```sh
+   pk-metal check --insecure https://192.0.2.21
+   ```
+
+   More than one `system:` line means a chassis with more than one machine.
+
+</Steps>
+
+## Fix
+
+| Reason | Fix |
+| --- | --- |
+| `AmbiguousSystem` | Set `spec.systemRef.name` to the system ID from the check. |
+| `SystemNotFound` | `spec.systemRef.name` names no system. Use an ID from the check. |
+| `HostAlreadyClaimed` | Another claim holds the Host. The first claim wins. Use another Asset, or release the other claim. |
+| `AssetNotFound` | `spec.assetRef.name` names no Asset. |
+| `AssetNotMaterialized`, `HostNotDiscovered` | The operator did not find the machine yet. See [](rb:bmc-unreachable). |
+
+## Verify
+
+The claim phase is `Bound`.
+
+## Related
+
+- [](howto:install-hosts), [](kind:HostClaim)

@@ -1,0 +1,50 @@
+---
+title: Runbooks
+description: Find the runbook for what you see - a phase, a blocked reason or a condition.
+type: runbook
+xref: { cat: rb, id: index }
+sidebar:
+  label: Symptom index
+  order: 0
+---
+
+Start with [](cli:status). Find the value from the `PHASE` or `BLOCKED` column, or the reason of a condition, in the table.
+Each runbook has the same parts: symptoms, impact, diagnosis, fix and verification.
+
+## Machines and BMCs
+
+| You see | Where | Runbook |
+| --- | --- | --- |
+| `Mismatch`, `SerialMismatch`, `MACMismatch`, `IdentityDiverged` | Endpoint phase, `Verified=False` | [](rb:host-mismatch) |
+| `Unreachable`, `Reachable=False`, `NoReachablePath` | Endpoint phase, operation | [](rb:bmc-unreachable) |
+| `NoLedgerEntry`, `NoBMCMac`, `LedgerEntryInvalid` | Asset `Materialized=False` | [](rb:bmc-unreachable) |
+| `Ambiguous`, `AmbiguousSystem`, `HostAlreadyClaimed` | Claim phase, `BLOCKED` | [](rb:claim-ambiguous) |
+| `InstalledNodeRemains`, `DiskNotWiped` | Host `DiskWiped=False`, claim | [](rb:disk-not-wiped) |
+| `insertMedia` failed, `SingleMediumUnsupported`, `NoBootableMedia`, `BuilderUnavailable` | Operation, claim, BootAsset | [](rb:media-slot-busy) |
+
+## Operations
+
+| You see | Where | Runbook |
+| --- | --- | --- |
+| `Failed`, `StepFailed`, `ReleaseFailed`, `ConvergenceFailed` | Operation phase, claim | [](rb:operation-failed) |
+| `Aborted` | Operation phase | [](rb:operation-failed) |
+| `OperationQueued`, `OutsideMaintenanceWindow`, `ClusterDisruption`, `SelfDisruption` | Operation `BLOCKED` | [](rb:operation-held) |
+| `HeldByUser`, `HostInMaintenance`, `EtcdJoinWaiting`, `EtcdRiskRefused`, `RemovalWaiting` | Claim `BLOCKED` | [](rb:operation-held) |
+| `RolloutRefused` | Operation `Executed=False` | [](rb:operation-held) |
+| A drain step failed, the node stays cordoned | Operation message | [](rb:drain-stuck) |
+
+## Nodes and clusters
+
+| You see | Where | Runbook |
+| --- | --- | --- |
+| `Ready=False`, `Converging`, `DialFailed`, `MaintenanceMode` | TalosNode | [](rb:node-not-ready) |
+| `NodesNotReady`, `KubernetesUnreachable` | Cluster `Available=False` | [](rb:node-not-ready) |
+| `EtcdUnavailable`, a member unhealthy | Cluster `Bootstrapped`, `pk-metal restore plan` | [](rb:etcd-unhealthy) |
+| `EtcdDataLost`, `EtcdDataPresent`, `RestorePending`, `BootstrapRefused` | Cluster `Bootstrapped=False` | [](rb:bootstrap-refused) |
+| `PausedAfterFirstNode`, `WaitingForHealth`, `PlanChanged`, `RolloutFailed` | TalosRollout | [](rb:rollout-paused) |
+| `BackupTooOld`, `SinkRefused`, `SinkUnavailable`, `SnapshotFailed` | EtcdBackupPolicy, EtcdSnapshot | [](rb:backup-failing) |
+| The management cluster does not answer | Everything | [](rb:management-cluster-lost) |
+
+## Before you change anything
+
+Follow [](howto:collect-diagnostics). The facts help if the fix does not work.

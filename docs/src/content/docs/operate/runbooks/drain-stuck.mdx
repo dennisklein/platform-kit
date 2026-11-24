@@ -1,0 +1,80 @@
+---
+title: Drain stuck
+description: A drain step ran out of time. The node stays cordoned.
+type: runbook
+xref: { cat: rb, id: drain-stuck }
+sources:
+  - /repo/metal/internal/controller/hostoperation_talos_steps.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Symptoms
+
+<dl>
+  <dt>Operation</dt>
+  <dd>`Failed` at [](act:Drain). The message names the pods that did not leave.</dd>
+  <dt>Kubernetes node</dt>
+  <dd>`SchedulingDisabled`.</dd>
+</dl>
+
+## Impact
+
+The node is cordoned. Its running pods stay. No new pod goes to it.
+
+## Diagnose
+
+<Steps>
+
+1. Read the message of the failed step.
+
+   ```sh
+   kubectl -n pk-metal describe hostoperation reboot-w-1-x7k2p
+   ```
+
+2. Find the PodDisruptionBudgets that allow no disruption.
+
+   ```sh
+   kubectl --kubeconfig prod.kubeconfig get pdb -A
+   ```
+
+</Steps>
+
+| Cause | Fix |
+| --- | --- |
+| A PodDisruptionBudget allows 0 disruptions | Scale the workload up, or change the budget. |
+| A pod has an `emptyDir` volume | Move the pod. Or propose again with `--delete-emptydir-data`. You lose the data. |
+| A pod does not stop in time | Give a longer `--drain-timeout` or `--grace-period`. |
+
+## Fix
+
+<Steps>
+
+1. Correct the cause.
+
+2. Retry the operation.
+
+   ```sh
+   pk-metal retry pk-metal/reboot-w-1-x7k2p
+   ```
+
+</Steps>
+
+To give the node back without the change, uncordon it:
+
+```sh
+kubectl --kubeconfig prod.kubeconfig uncordon w-1
+```
+
+<Callout type="caution">
+Do not delete pods by force to make the drain pass. You can lose data of a stateful workload.
+</Callout>
+
+## Verify
+
+The new operation goes past the drain step.
+
+## Related
+
+- [](howto:reboot-a-node), [](act:Drain)

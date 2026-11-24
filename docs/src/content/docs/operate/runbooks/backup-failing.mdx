@@ -1,0 +1,70 @@
+---
+title: Backup failing
+description: An EtcdBackupPolicy cannot take, store or verify snapshots, or the newest snapshot is too old.
+type: runbook
+xref: { cat: rb, id: backup-failing }
+sources:
+  - /repo/metal/internal/controller/etcdbackup_controller.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+## Symptoms
+
+<dl>
+  <dt>[](kind:EtcdBackupPolicy)</dt>
+  <dd>`Ready=False` with `SinkRefused`, `SinkUnavailable` or `RecipientsInvalid`. Or `BackedUp=False` with `NoSnapshot` or `BackupTooOld`.</dd>
+  <dt>[](kind:EtcdSnapshot)</dt>
+  <dd>`Complete=False` with `SnapshotFailed`. Or `Verified=False` with `Damaged` or `ReadBackFailed`.</dd>
+  <dt>[](cli:status)</dt>
+  <dd>The `BACKUP` column of the cluster. Exit status 2.</dd>
+  <dt>Alert</dt>
+  <dd>`PkMetalEtcdBackupStale`.</dd>
+</dl>
+
+## Impact
+
+A loss of the etcd majority now loses more data. Nothing on the cluster changes.
+
+## Diagnose
+
+<Steps>
+
+1. Read the policy.
+
+   ```sh
+   kubectl describe etcdbackuppolicy prod-offsite
+   ```
+
+2. List the snapshots and their state.
+
+   ```sh
+   kubectl get etcdsnapshots
+   ```
+
+</Steps>
+
+## Fix
+
+| Reason | Fix |
+| --- | --- |
+| `SinkRefused` | A `pvc` sink for the operator's own cluster. Use an `s3` sink. |
+| `SinkUnavailable` | The credentials Secret is missing or incomplete, or the manager has no backup volume. |
+| `RecipientsInvalid` | An age recipient does not parse. It must start with `age1`. |
+| `SnapshotFailed` | The message says what failed. Usually no healthy etcd member, or the sink refused the write. |
+| `Damaged`, `ReadBackFailed` | The sink did not return what the operator wrote. Check the store. |
+| `BackupTooOld` | The newest verified snapshot is older than two intervals. Correct the cause above. |
+
+After the fix, take a snapshot now:
+
+```sh
+pk-metal backup now prod-offsite
+```
+
+## Verify
+
+`BackedUp=True`, and `consecutiveFailures` is `0`.
+
+## Related
+
+- [](howto:back-up-etcd), [](cli:backup)

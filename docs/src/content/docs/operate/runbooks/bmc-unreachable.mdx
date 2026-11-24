@@ -1,0 +1,77 @@
+---
+title: BMC unreachable
+description: The operator cannot reach a BMC, or cannot find its address in the ledger.
+type: runbook
+xref: { cat: rb, id: bmc-unreachable }
+sources:
+  - /repo/metal/internal/controller/managementendpoint_controller.go
+  - /repo/metal/internal/controller/asset_controller.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+## Symptoms
+
+<dl>
+  <dt>Endpoint phase</dt>
+  <dd>`Unreachable` or `Connecting` for a long time. `Reachable=False`.</dd>
+  <dt>Asset</dt>
+  <dd>`Materialized=False` with `NoLedgerEntry`, `NoBMCMac` or `LedgerEntryInvalid`. No endpoint exists.</dd>
+  <dt>Operation</dt>
+  <dd>`BLOCKED` shows `NoReachablePath`.</dd>
+  <dt>Alert</dt>
+  <dd>`PkMetalBMCUnreachable`.</dd>
+</dl>
+
+## Impact
+
+The operator cannot read or change the machine. Steps that go through the Talos API still work. A running node is not affected.
+
+## Diagnose
+
+<Steps>
+
+1. Read the Asset condition.
+
+   ```sh
+   kubectl get asset sim-0001
+   ```
+
+   The `ENDPOINT` column shows the reason.
+
+2. Read the endpoint message.
+
+   ```sh
+   kubectl describe managementendpoint sim-0001
+   ```
+
+3. From a node of the management cluster, check the BMC.
+
+   ```sh
+   pk-metal check --insecure https://192.0.2.21
+   ```
+
+</Steps>
+
+## Fix
+
+| Cause | Fix |
+| --- | --- |
+| `NoLedgerEntry` | Add the BMC MAC to the ledger. Apply the overlay. The manager restarts. |
+| `LedgerEntryInvalid` | The line is not an `https` URL, or the MAC is in the ledger two times. Correct it. |
+| Timeout | Check the network path on TCP 443. See [](howto:network-checklist). |
+| A proxy is set | Add the BMC network to `NO_PROXY` of the manager. See [](howto:behind-a-proxy). |
+| `401` in the message | The credentials are wrong. Check the Secret that `credentialsRef` names. |
+| The BMC hangs | Reset the BMC from its web console, or remove power from the BMC. |
+
+## Verify
+
+The endpoint phase is `Ready`. `pk_metal_bmc_reachable` is `1`.
+
+## If this does not work
+
+Follow [](howto:collect-diagnostics). Include the manager log.
+
+## Related
+
+- [](kind:Asset), [](kind:ManagementEndpoint), [](concept:ledger)

@@ -1,0 +1,53 @@
+---
+title: Operation held
+description: An approved operation does not start, or a claim proposes nothing. A guard, a window, a hold or a rollout holds it.
+type: runbook
+xref: { cat: rb, id: operation-held }
+sources:
+  - /repo/metal/internal/controller/clusterguard.go
+  - /repo/metal/internal/controller/window.go
+  - /repo/metal/internal/controller/selfprotect.go
+  - /repo/metal/internal/controller/hostoperation_rollout.go
+---
+
+## Symptoms
+
+<dl>
+  <dt>Operation</dt>
+  <dd>Approved, but `Executed=Unknown` and a value in `BLOCKED`. Or `Executed=False` with `RolloutRefused`.</dd>
+  <dt>Claim</dt>
+  <dd>A value in `BLOCKED`, and no operation exists.</dd>
+</dl>
+
+## Impact
+
+Nothing happened to the machine. Most holds end by themselves.
+
+## Diagnose
+
+Read the `BLOCKED` value and the note line in [](cli:status). Then find it in the table.
+
+## Fix
+
+| Reason | Why | What to do |
+| --- | --- | --- |
+| `AwaitingApproval` | Nobody approved it | [](howto:approve-hold-retry) |
+| `OperationQueued` | Another operation runs on the same Host | Wait. One operation at a time for each Host. |
+| `OutsideMaintenanceWindow` | A window covers the Host and it is not open | Wait, or set `metal.pk.io/ignore-window`. See [](howto:maintenance-windows). |
+| `ClusterDisruption` | Another control plane is down, or etcd is not healthy without this one | Wait. To repair a broken etcd, set `metal.pk.io/override-cluster-guard` with a reason. |
+| `SelfDisruption` | The step would reboot a machine that the operator runs on | Move the operator, or set `metal.pk.io/allow-self-disruption` on the Host. See [](concept:self-protection). |
+| `HeldByUser` | The claim has `metal.pk.io/hold` | [](cli:unhold) |
+| `HostInMaintenance` | The Host has `metal.pk.io/maintenance` | [](howto:maintenance-mode) |
+| `EtcdJoinWaiting` | Another control plane joins, or etcd is not healthy | Wait. If it stays, see [](rb:etcd-unhealthy). |
+| `EtcdRiskRefused` | The removal leaves etcd unsafe | Choose an odd size, or set `metal.pk.io/ack-etcd-risk`. See [](howto:scale-control-planes). |
+| `RemovalWaiting` | Another control plane leaves first | Wait. |
+| `RolloutRefused` | The rollout approval does not cover this operation | See [](rb:rollout-paused). The machine did not change. |
+| `NoReachablePath` | The BMC does not answer | [](rb:bmc-unreachable) |
+
+## Verify
+
+The operation goes to `Running`.
+
+## Related
+
+- [](concept:approval), [](concept:self-protection), [](kind:MaintenanceWindow)

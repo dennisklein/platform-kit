@@ -1,0 +1,75 @@
+---
+title: Media slot busy or missing
+description: The install cannot mount its boot media - the slot refuses, the BMC has one slot, or the installer is not built.
+type: runbook
+xref: { cat: rb, id: media-slot-busy }
+sources:
+  - /repo/metal/internal/controller/hostoperation_steps.go
+  - /repo/metal/internal/controller/bootasset_controller.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Symptoms
+
+<dl>
+  <dt>Operation</dt>
+  <dd>`Failed` at [](act:InsertMedia).</dd>
+  <dt>Claim `Provisioned=False`</dt>
+  <dd>`SingleMediumUnsupported`, `NoBootableMedia` or `AwaitingBootAsset`.</dd>
+  <dt>[](kind:BootAsset)</dt>
+  <dd>`Ready=False` with `BuilderUnavailable`, `BuildFailed` or `Building`.</dd>
+</dl>
+
+## Impact
+
+The machine does not boot the installer. It stays as it was.
+
+## Diagnose
+
+<Steps>
+
+1. Read the failed step message.
+
+   ```sh
+   kubectl -n pk-metal describe hostoperation provision-simhw2288v5000397-0f3c9a1e
+   ```
+
+2. Read the boot assets of the node.
+
+   ```sh
+   kubectl get bootassets
+   ```
+
+3. List the media slots of the BMC.
+
+   ```sh
+   pk-metal check --insecure https://192.0.2.21
+   ```
+
+</Steps>
+
+## Fix
+
+| Cause | Fix |
+| --- | --- |
+| The slot holds media from a person | The operator ejects other media first. If the BMC refuses, eject it in the BMC web console. Then retry. |
+| The BMC cannot download from the media service | Check `--media-url` and the path from the BMC network. See [](howto:network-checklist). |
+| The BMC cannot download the installer from the image factory | Open the path, or mirror it. See [](howto:air-gapped-site). |
+| `SingleMediumUnsupported` | One slot, and Talos before 1.12. Use Talos 1.12 or later. |
+| `BuilderUnavailable` | Add the media store component, or set the imager flag that the message names. |
+| `BuildFailed` | The BootAsset message has the commands to read the build log. |
+| `NoBootableMedia` | The BMC has no slot that mounts an image. Boot the machine another way. |
+
+<Callout type="note">
+A one-slot BMC needs an installer with the config in it. [](concept:one-slot-bmc) explains it.
+</Callout>
+
+## Verify
+
+Retry the operation with [](cli:retry) and approve it. `insertMedia` succeeds.
+
+## Related
+
+- [](concept:virtual-media-boot), [](kind:BootAsset)

@@ -1,0 +1,75 @@
+---
+title: Bootstrap refused
+description: The operator does not bootstrap etcd - data lost after a bootstrap, old data present, or a restore pending.
+type: runbook
+xref: { cat: rb, id: bootstrap-refused }
+sources:
+  - /repo/metal/internal/bootstrap/bootstrap.go
+  - /repo/metal/internal/controller/taloscluster_controller.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Symptoms
+
+[](kind:TalosCluster) `Bootstrapped=False`, with one of these reasons:
+
+<dl>
+  <dt>`EtcdDataLost`</dt>
+  <dd>The operator bootstrapped the cluster before (`status.bootstrappedAt`). Now each control plane answers and none runs etcd.</dd>
+  <dt>`EtcdDataPresent`</dt>
+  <dd>A new cluster has a member whose etcd runs but lists no members. That is data from an etcd that lost its quorum.</dd>
+  <dt>`RestorePending`</dt>
+  <dd>The cluster has the annotation `os.pk.io/restore-pending`.</dd>
+  <dt>`AwaitingControlPlane`</dt>
+  <dd>Not each control plane answers yet. The operator waits for all.</dd>
+  <dt>`BootstrapRefused`</dt>
+  <dd>Talos refused the call. The message says why. The operator tries again.</dd>
+</dl>
+
+## Impact
+
+The cluster has no etcd. The Kubernetes API does not answer.
+The operator refuses on purpose: a new bootstrap would start an empty cluster on top of your data.
+
+## Diagnose
+
+```sh
+kubectl describe taloscluster prod
+pk-metal restore plan prod
+```
+
+## Fix
+
+| Reason | Fix |
+| --- | --- |
+| `EtcdDataLost` | Restore from a snapshot. See [](howto:restore-etcd). |
+| `EtcdDataPresent` | Restore that data, or reset EPHEMERAL on that member to start empty. |
+| `RestorePending` | Finish the restore. Then remove the annotation. |
+| `AwaitingControlPlane` | Find the control plane that does not answer. See [](rb:node-not-ready). |
+| `BootstrapRefused` | Read the message. Correct the cause on the node. |
+
+To start empty on purpose:
+
+<Steps>
+
+1. Reset EPHEMERAL on each control plane with an approved [](act:TalosReset) operation.
+
+2. Delete the TalosCluster.
+
+3. Apply it again. A new TalosCluster was never bootstrapped, so the operator bootstraps it.
+
+</Steps>
+
+<Callout type="warning">
+Start empty only if no snapshot is worth a restore. You lose all workloads and their objects.
+</Callout>
+
+## Verify
+
+`Bootstrapped=True` with `EtcdRunning`.
+
+## Related
+
+- [](rb:etcd-unhealthy), [](rb:management-cluster-lost)

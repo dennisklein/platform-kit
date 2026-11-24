@@ -1,0 +1,100 @@
+---
+title: Management cluster lost
+description: The cluster that runs the operator lost its etcd. Rebuild it from kind, git and the S3 snapshots.
+type: runbook
+xref: { cat: rb, id: management-cluster-lost }
+sources:
+  - /repo/metal/internal/controller/taloscluster_controller.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Symptoms
+
+<dl>
+  <dt>[](cli:status)</dt>
+  <dd>Exit status 1. The management cluster does not answer.</dd>
+  <dt>The Talos nodes of the management cluster</dt>
+  <dd>They answer, but etcd does not run or has no quorum.</dd>
+</dl>
+
+## Impact
+
+The operator, its records and its view of the machines are gone. The workload clusters continue to run. Only the snapshots in the S3 bucket hold the old state.
+
+## Before you start
+
+- You have the objects in git: the secrets bundle Secret, the TalosCluster, the TalosNodes, the Assets.
+- You have the talosconfig of the management cluster from your records.
+- You have an age identity for the snapshots.
+
+## Fix
+
+<Steps>
+
+1. Start kind on a workstation and install the operator, as for a new site.
+
+2. Add the restore mark to the TalosCluster before you apply it. Then the operator in kind does not bootstrap an empty cluster.
+
+   ```yaml
+   metadata:
+     name: mgmt
+     annotations:
+       os.pk.io/restore-pending: "true"
+   ```
+
+3. Apply the objects from git.
+
+4. Download the newest snapshot from the bucket with your S3 client. Decrypt it.
+
+   ```sh
+   pk-metal backup decrypt --in mgmt.db.age --identity ~/.config/age/keys.txt -o mgmt.db
+   ```
+
+5. On each control plane that still runs etcd, wipe its etcd data.
+
+   ```sh
+   talosctl -n 192.0.2.12 reset --graceful=false --reboot --system-labels-to-wipe=EPHEMERAL
+   ```
+
+6. On one control plane, start etcd from the snapshot.
+
+   ```sh
+   talosctl -n 192.0.2.11 bootstrap --recover-from=./mgmt.db
+   ```
+
+7. Delete the plain snapshot.
+
+   ```sh
+   rm mgmt.db
+   ```
+
+8. When the cluster shows `Bootstrapped=True`, remove the mark.
+
+   ```sh
+   kubectl annotate taloscluster mgmt os.pk.io/restore-pending-
+   ```
+
+9. Scale the operator in kind to zero.
+
+10. Make sure that the operator in the restored cluster runs.
+
+</Steps>
+
+<Callout type="warning">
+The plain snapshot holds each Secret of the cluster. Delete it after the restore.
+</Callout>
+
+<Callout type="note">
+The kind cluster has no EtcdSnapshot record. That is why you restore with `talosctl` here, and not with [](cli:restore).
+</Callout>
+
+## Verify
+
+`pk-metal --kubeconfig mgmt.kubeconfig status` shows the fleet as it was at the snapshot time.
+
+## Related
+
+- [](howto:back-up-etcd): always use an `s3` sink for this cluster.
+- [](howto:pivot), [](rb:bootstrap-refused)

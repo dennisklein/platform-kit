@@ -1,0 +1,94 @@
+---
+title: Operation failed
+description: An action of a HostOperation failed. The operator does not retry it.
+type: runbook
+xref: { cat: rb, id: operation-failed }
+sources:
+  - /repo/metal/internal/controller/hostoperation_controller.go
+  - /repo/metal/cmd/pk-metal/ops.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Symptoms
+
+<dl>
+  <dt>[](kind:HostOperation) phase</dt>
+  <dd>`Failed`. The condition `Executed=False` has the reason `StepFailed`.</dd>
+  <dt>Claim</dt>
+  <dd>`BLOCKED` shows `OperationFailed` or `ReleaseFailed`.</dd>
+  <dt>Host</dt>
+  <dd>`BiosConverged=False` or `FirmwareConverged=False` with `OperationFailed` or `ConvergenceFailed`.</dd>
+  <dt>Alert</dt>
+  <dd>`PkMetalOperationFailed`.</dd>
+</dl>
+
+## Impact
+
+The operation stopped at the failed step. Steps before it stay done. The operator proposes nothing for the plan until a person acts.
+
+## Diagnose
+
+<Steps>
+
+1. Read the note line under the `OPERATION` table.
+
+   ```sh
+   pk-metal status
+   ```
+
+2. Find the step that failed and its message.
+
+   ```sh
+   kubectl -n pk-metal describe hostoperation provision-simhw2288v5000397-0f3c9a1e
+   ```
+
+3. Find the cause from the step.
+
+</Steps>
+
+| Step | Common cause | Go to |
+| --- | --- | --- |
+| [](act:InsertMedia) | The BMC cannot download the image | [](rb:media-slot-busy) |
+| [](act:AwaitCheckIn), [](act:WaitNodeReady) | The node did not come up in time | [](rb:node-not-ready) |
+| [](act:Drain) | A PodDisruptionBudget or an `emptyDir` pod | [](rb:drain-stuck) |
+| [](act:TalosUpgrade) | "did not take": Talos went back to the old image | Read the node console. |
+| [](act:FlashFirmware), [](act:ApplyBios) | The BMC refused the change, or reported success and did not change (`ConvergenceFailed`) | Check the firmware image and the vendor notes. |
+| [](act:WaitEtcdHealthy) | etcd did not become healthy | [](rb:etcd-unhealthy) |
+
+## Fix
+
+<Steps>
+
+1. Correct the cause.
+
+2. Retry the operation. The operator proposes the same plan again.
+
+   ```sh
+   pk-metal retry pk-metal/provision-simhw2288v5000397-0f3c9a1e
+   ```
+
+3. Approve the new proposal.
+
+   ```sh
+   pk-metal approve
+   ```
+
+</Steps>
+
+<Callout type="note">
+For an `Aborted` operation, the last step lists what the abort undid and what it could not undo. Retry it in the same way.
+</Callout>
+
+## Verify
+
+The new operation is `Succeeded`.
+
+## If this does not work
+
+To stop new proposals while you look, hold the claim with [](cli:hold). Then follow [](howto:collect-diagnostics).
+
+## Related
+
+- [](howto:approve-hold-retry), [](cli:retry)

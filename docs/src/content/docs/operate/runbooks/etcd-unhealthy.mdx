@@ -1,0 +1,67 @@
+---
+title: etcd unhealthy or quorum lost
+description: An etcd member is down, or etcd lost its majority. Find the case and never bootstrap again over the data.
+type: runbook
+xref: { cat: rb, id: etcd-unhealthy }
+sources:
+  - /repo/metal/cmd/pk-metal/restore.go
+  - /repo/metal/internal/controller/etcdview.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Symptoms
+
+<dl>
+  <dt>[](cli:status)</dt>
+  <dd>The `ETCD` column of the cluster is not `EtcdRunning`.</dd>
+  <dt>TalosCluster</dt>
+  <dd>`Bootstrapped=False` with `EtcdUnavailable`. `Available=False`.</dd>
+  <dt>Operations</dt>
+  <dd>Blocked on `ClusterDisruption`. Claims blocked on `EtcdJoinWaiting`.</dd>
+</dl>
+
+## Impact
+
+| Case | Impact |
+| --- | --- |
+| One member lost | The cluster works. One more failure stops it. |
+| Majority lost | The Kubernetes API does not answer. Workloads continue, but nothing changes. |
+
+## Diagnose
+
+<Steps>
+
+1. Ask the operator what it sees. This changes nothing.
+
+   ```sh
+   pk-metal restore plan prod
+   ```
+
+2. Read each control plane.
+
+   ```sh
+   talosctl -n 192.0.2.11 etcd members
+   ```
+
+</Steps>
+
+`EtcdUnavailable` can end by itself, for example after a network fault. Wait some minutes if the members only do not answer.
+
+## Fix
+
+Follow [](howto:restore-etcd). It has the steps for one member and for a lost majority.
+
+<Callout type="warning">
+Do not run `talosctl bootstrap` on a cluster that had etcd before.
+It starts an empty etcd next to your data.
+</Callout>
+
+## Verify
+
+`pk-metal restore plan prod` reports each member healthy.
+
+## Related
+
+- [](rb:bootstrap-refused), [](howto:back-up-etcd)

@@ -1,0 +1,68 @@
+---
+title: Disk not wiped
+description: A released machine may still hold a node and its cluster credentials. The operator installs nothing on it until a wipe.
+type: runbook
+xref: { cat: rb, id: disk-not-wiped }
+sources:
+  - /repo/metal/internal/controller/host_wipe.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Symptoms
+
+<dl>
+  <dt>[](kind:Host)</dt>
+  <dd>`DiskWiped=False` with `InstalledNodeRemains`. The annotation `metal.pk.io/disk-not-wiped` names the cluster and the node.</dd>
+  <dt>[](kind:HostClaim)</dt>
+  <dd>`BLOCKED` shows `DiskNotWiped`.</dd>
+</dl>
+
+## Impact
+
+The operator does not install on the machine and does not power it on. If the machine booted from its disk, it would join a cluster where it does not belong.
+
+## Diagnose
+
+```sh
+kubectl describe host simhw2288v5000399
+```
+
+The message names the node that the disk may hold.
+
+## Fix
+
+<Steps>
+
+1. Ask for the wipe.
+
+   ```sh
+   pk-metal wipe simhw2288v5000399
+   ```
+
+2. Approve the proposed operation.
+
+   ```sh
+   pk-metal approve
+   ```
+
+</Steps>
+
+If you know that the disk is empty, remove the mark yourself. The operator accepts it.
+
+```sh
+kubectl annotate host simhw2288v5000399 metal.pk.io/disk-not-wiped-
+```
+
+<Callout type="warning">
+Do not remove the mark if you are not sure. An old node with valid credentials can join its cluster again.
+</Callout>
+
+## Verify
+
+`DiskWiped=True`. A waiting claim proposes its install.
+
+## Related
+
+- [](howto:wipe-and-decommission), [](cli:wipe)

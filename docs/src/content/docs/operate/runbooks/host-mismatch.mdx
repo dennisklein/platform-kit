@@ -1,0 +1,87 @@
+---
+title: Host in Mismatch
+description: The serial in the Asset is not the serial that the BMC reports.
+type: runbook
+xref: { cat: rb, id: host-mismatch }
+sources:
+  - /repo/metal/internal/controller/identity.go
+  - /repo/metal/internal/controller/managementendpoint_controller.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Symptoms
+
+<dl>
+  <dt>[](kind:ManagementEndpoint) phase</dt>
+  <dd>`Mismatch`</dd>
+  <dt>Condition</dt>
+  <dd>`Verified=False` with the reason `SerialMismatch` or `MACMismatch`. Or `Inspected=False` with `IdentityDiverged`.</dd>
+  <dt>[](kind:Host)</dt>
+  <dd>Stays in `Inspecting`. `BLOCKED` shows the reason.</dd>
+</dl>
+
+## Impact
+
+The operator does nothing to this machine. No install, no BIOS change, no profile. This is a hold, not damage.
+
+## Diagnose
+
+<Steps>
+
+1. Read the message. It has the two values.
+
+   ```sh
+   kubectl describe managementendpoint sim-0001
+   ```
+
+2. Read the serial and the BMC MAC from the BMC itself.
+
+   ```sh
+   pk-metal check --insecure https://192.0.2.21
+   ```
+
+3. Compare them with the [](kind:Asset) and the ledger line.
+
+</Steps>
+
+| Reason | Usual cause |
+| --- | --- |
+| `SerialMismatch` | A typo in the Asset, or the Asset names another machine. |
+| `MACMismatch` | The ledger line maps the MAC to the wrong address. Another BMC answers there. |
+| `IdentityDiverged` | The BMC reports different serials on different paths. |
+
+## Fix
+
+<Steps>
+
+1. If the Asset is wrong, correct `spec.serial` or `spec.bmcMac` in git.
+
+2. If the ledger is wrong, correct the address of the MAC and apply the overlay.
+
+3. If somebody swapped cables, put the cables back. Do not change the records to agree with a wrong cable.
+
+4. Apply the change.
+
+   ```sh
+   kubectl apply -f assets/sim-0001.yaml
+   ```
+
+</Steps>
+
+<Callout type="caution">
+Do not change the Asset only to make the condition go away. The check protects you from a change on the wrong machine.
+</Callout>
+
+## Verify
+
+The endpoint goes to `Ready`. The Host goes to `Available`.
+
+## If this does not work
+
+For `IdentityDiverged`, collect the inventory with [](cli:inventory) and ask the vendor. See [](howto:collect-diagnostics).
+
+## Related
+
+- [](concept:identity), [](howto:enrol-hosts)
