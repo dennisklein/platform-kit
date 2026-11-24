@@ -375,11 +375,11 @@ Runs the scale round on a lab with three control planes and two workers.
 
 | Step | Command | Result |
 | --- | --- | --- |
-| 1 | `scale lab --control-planes 1 --workers 2 --apply --ack-etcd-risk` | 1 etcd voter, 3 nodes |
+| 1 | `scale lab --control-planes 1 --workers 2 --apply --ack-etcd-risk "lab scale round"` | 1 etcd voter, 3 nodes |
 | 2 | `scale lab --control-planes 3 --workers 2 --apply` | 3 etcd voters, 5 nodes |
 | 3 | `scale lab --control-planes 3 --workers 1 --apply` | 3 etcd voters, 4 nodes |
-| 4 | `replace node-2 --host <host of node-5> --ack-etcd-risk` | `node-2` runs on a different machine |
-| 5 | `scale lab --control-planes 1 --workers 1 --apply --ack-etcd-risk` | 1 etcd voter, 2 nodes |
+| 4 | `replace node-2 --host <host of node-5> --ack-etcd-risk "lab scale round"` | `node-2` runs on a different machine |
+| 5 | `scale lab --control-planes 1 --workers 1 --apply --ack-etcd-risk "lab scale round"` | 1 etcd voter, 2 nodes |
 
 After each removal, the task checks that the Host is Available and has no mark for a disk that was not wiped.
 

@@ -326,9 +326,14 @@ enough_memory() {
   (( available_kib / 1024 >= need_mib ))
 }
 
+# Measures the file system the lab directory will be on. The directory may not
+# exist yet; doctor creates nothing, so this measures its nearest existing
+# parent, which a mistyped PK_LAB_DIR does not leave behind as a new directory.
 enough_disk() {
   local dir=$1 need_gib=$2 free_kib
-  mkdir -p "$dir"
+  while [[ ! -d $dir ]]; do
+    dir=$(dirname "$dir")
+  done
   free_kib=$(df -Pk "$dir" | awk 'NR == 2 {print $4}')
   (( free_kib / 1024 / 1024 >= need_gib ))
 }
