@@ -30,6 +30,7 @@ const (
 	LaneHostClaim
 	LaneProtection
 	LaneHostOperation
+	LaneConvergence
 	LaneTalosNode
 	LaneTalosCluster
 	LaneBootAsset
@@ -40,7 +41,7 @@ const (
 // AllLanes is every lane: what the manager runs.
 var AllLanes = []Lane{
 	LaneEndpoint, LaneHost, LaneHostClaim, LaneProtection, LaneHostOperation,
-	LaneTalosNode, LaneTalosCluster, LaneBootAsset,
+	LaneConvergence, LaneTalosNode, LaneTalosCluster, LaneBootAsset,
 	LaneMaintenanceWindow,
 }
 
@@ -196,6 +197,12 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 			// The cluster guard holds for every Talos cluster, wherever the
 			// operator runs; SelfGuard adds the rules for its own.
 			Guard: &ClusterGuard{Reader: mgr.GetAPIReader(), Dial: o.TalosDial, Namespace: o.CredentialsNamespace},
+		}
+	case LaneConvergence:
+		return "convergence", &ConvergenceReconciler{
+			Client: c, CredentialsNamespace: o.CredentialsNamespace,
+			OperationsNamespace: o.OperationsNamespace, Proposer: o.Proposer,
+			PollInterval: o.PollInterval, Self: self,
 		}
 	case LaneTalosNode:
 		return "talosnode", &TalosNodeReconciler{

@@ -21,12 +21,34 @@ rules:
   - metal.pk.io
   resources:
   - assets
-  - biossettings
+  - biosprofiles
+  - firmwareprofiles
   - maintenancewindows
   verbs:
   - get
   - list
   - watch
+- apiGroups:
+  - metal.pk.io
+  resources:
+  - biosschemas
+  - biossettings
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - metal.pk.io
+  resources:
+  - biossettings/status
+  - hostclaims/status
+  - hostoperations/status
+  - maintenancewindows/status
+  verbs:
+  - update
 - apiGroups:
   - metal.pk.io
   resources:
@@ -36,14 +58,6 @@ rules:
   - list
   - update
   - watch
-- apiGroups:
-  - metal.pk.io
-  resources:
-  - hostclaims/status
-  - hostoperations/status
-  - maintenancewindows/status
-  verbs:
-  - update
 - apiGroups:
   - metal.pk.io
   resources:
