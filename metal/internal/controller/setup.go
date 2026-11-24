@@ -13,7 +13,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/asset"
+	"github.com/dennisklein/platform-kit/metal/internal/ledger"
 	"github.com/dennisklein/platform-kit/metal/internal/talos"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
 )
@@ -25,7 +27,8 @@ type Lane int
 
 // The lanes, in the order SetupAll wires them.
 const (
-	LaneEndpoint Lane = iota
+	LaneAsset Lane = iota
+	LaneEndpoint
 	LaneHost
 	LaneHostClaim
 	LaneProtection
@@ -41,7 +44,7 @@ const (
 
 // AllLanes is every lane: what the manager runs.
 var AllLanes = []Lane{
-	LaneEndpoint, LaneHost, LaneHostClaim, LaneProtection, LaneHostOperation,
+	LaneAsset, LaneEndpoint, LaneHost, LaneHostClaim, LaneProtection, LaneHostOperation,
 	LaneConvergence, LaneEndpointConvergence, LaneTalosNode, LaneTalosCluster, LaneBootAsset,
 	LaneMaintenanceWindow,
 }
@@ -61,6 +64,12 @@ type Options struct {
 	Proposer string
 	// EventSource names the event recorder; empty uses "pk-metal".
 	EventSource string
+
+	// Ledger, LedgerSource, LedgerReload and TLS configure the Asset lane.
+	Ledger       *ledger.Ledger
+	LedgerSource string
+	LedgerReload string
+	TLS          *metalv1alpha1.EndpointTLS
 
 	// PollInterval is the re-observation cadence of the endpoint and
 	// convergence lanes.
@@ -172,6 +181,12 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 		return mgr.GetEventRecorder(cmp.Or(o.EventSource, "pk-metal"))
 	}
 	switch l {
+	case LaneAsset:
+		return "asset", &AssetReconciler{
+			Client: c, Scheme: scheme, Ledger: o.Ledger,
+			LedgerSource: o.LedgerSource, LedgerReload: o.LedgerReload,
+			TLS: o.TLS, Recorder: recorder(),
+		}
 	case LaneEndpoint:
 		return "managementendpoint", &ManagementEndpointReconciler{
 			Client: c, CredentialsNamespace: o.CredentialsNamespace, PollInterval: o.PollInterval,

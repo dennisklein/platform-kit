@@ -32,6 +32,18 @@ rules:
 - apiGroups:
   - metal.pk.io
   resources:
+  - assets/finalizers
+  - assets/status
+  - biossettings/status
+  - hostclaims/status
+  - hostoperations/status
+  - maintenancewindows/status
+  - managementendpoints/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - metal.pk.io
+  resources:
   - biosschemas
   - biossettings
   verbs:
@@ -41,16 +53,6 @@ rules:
   - list
   - update
   - watch
-- apiGroups:
-  - metal.pk.io
-  resources:
-  - biossettings/status
-  - hostclaims/status
-  - hostoperations/status
-  - maintenancewindows/status
-  - managementendpoints/finalizers
-  verbs:
-  - update
 - apiGroups:
   - metal.pk.io
   resources:
@@ -74,6 +76,7 @@ rules:
   - metal.pk.io
   resources:
   - hosts
+  - managementendpoints
   verbs:
   - create
   - get
@@ -88,16 +91,6 @@ rules:
   - managementendpoints/status
   verbs:
   - patch
-- apiGroups:
-  - metal.pk.io
-  resources:
-  - managementendpoints
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
 - apiGroups:
   - os.pk.io
   resources:
