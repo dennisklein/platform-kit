@@ -387,8 +387,7 @@ func loadPlanContext(ctx context.Context, cl client.Client, op *metalv1alpha1.Ho
 				pc.BootAssets[name] = ba
 			}
 		}
-		if a.AwaitCheckIn != nil {
-			name := a.AwaitCheckIn.NodeRef.Name
+		if name := talosNodeRef(a); name != "" && pc.Nodes[name] == nil {
 			n := &osv1alpha1.TalosNode{}
 			if ok, err := optional(name, n); err != nil {
 				return pc, err
@@ -408,6 +407,9 @@ func renderPlan(op *metalv1alpha1.HostOperation, pc planContext) string {
 		fmt.Fprintf(&b, "  why:         %s\n", op.Spec.Reason)
 	}
 	fmt.Fprintf(&b, "  proposed by: %s\n", orDash(op.Spec.ProposedBy))
+	if r := op.Spec.RolloutRef; r != nil {
+		fmt.Fprintf(&b, "  rollout:     %s (plan %s); the rollout's approval covers this operation\n", r.Name, r.PlanHash)
+	}
 
 	fmt.Fprintf(&b, "host %s", op.Spec.HostRef.Name)
 	if pc.Host == nil {
@@ -506,6 +508,9 @@ func describeAction(a metalv1alpha1.HostOperationAction, pc planContext) string 
 			where = " at " + nodeAddress(n)
 		}
 		return fmt.Sprintf("wait up to %s for TalosNode %s to report in%s", shortDuration(timeout), node, where)
+	}
+	if s, ok := describeTalosAction(a, pc); ok {
+		return s
 	}
 	if key := a.Key(); key != "unknown" {
 		// An action the API defines but this renderer does not describe
