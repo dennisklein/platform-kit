@@ -1068,8 +1068,14 @@ pivot() {
     [[ -n $media_node ]] || die "TalosCluster $first lists no control-plane node address, so the BMCs would have no media address.
   Look at it: kubectl --kubeconfig $lab_dir/workload.kubeconfig get nodes -o wide"
     step "pk-metal pivot to TalosCluster $first"
+    # The lab's operator mounts the media store (config/lab), and the first
+    # Talos cluster is bare: no StorageClass, so pivot would refuse to make
+    # the claim there. --media-store=ephemeral mounts an emptyDir instead.
+    # The second cluster's machines have two-slot BMCs, which need no store;
+    # a one-slot machine there would wait with BuilderUnavailable, because
+    # the imager Jobs cannot write into the manager's emptyDir.
     "$root/metal/bin/pk-metal" pivot --to "$lab_dir/workload.kubeconfig" --image "$ref" \
-      --media-url "https://$media_node:30443" --timeout 600s --yes >&2 \
+      --media-url "https://$media_node:30443" --media-store ephemeral --timeout 600s --yes >&2 \
       || die "the move did not finish. Its message above says what to do; rerun it with: mise run lab:pivot"
     step "deleting the kind cluster $cluster"
     kind delete cluster --name "$cluster" >&2

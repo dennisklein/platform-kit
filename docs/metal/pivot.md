@@ -46,6 +46,11 @@ to do.
 - **The target holds pk-metal objects of another fleet.** A move does not
   merge two fleets. Objects that an earlier move from this cluster left
   there are allowed; see "Move back" below.
+- **The target has no storage for the media store.** The manager mounts a
+  PersistentVolumeClaim when the media store is on (see "The media store"
+  below). The target needs that claim already, or a default StorageClass to
+  make it from. A fresh Talos cluster has neither. Give it one, or move with
+  `--media-store=ephemeral`.
 
 An operation that is approved and has not started yet does not stop the move.
 It starts on the new cluster.
@@ -84,7 +89,8 @@ First the move installs the operator on the target:
    the operator and the admin group).
 3. The cluster roles and bindings whose names start with `pk-metal`.
 4. The namespace `pk-metal`, its service account, roles and role bindings,
-   its Services, and the manager's Deployment at zero replicas.
+   its Services, the media store's PersistentVolumeClaim (empty, see below),
+   and the manager's Deployment at zero replicas.
 
 Then it copies the operator's state. Each object keeps its name, labels,
 annotations, finalizers and status:
@@ -100,7 +106,8 @@ annotations, finalizers and status:
 5. TalosClusters, TalosNodes and BootAssets.
 
 What does not move: Secrets and ConfigMaps outside the namespace `pk-metal`,
-Events, the leader lease, and service account tokens. Nothing of the
+Events, the leader lease, service account tokens, imager Jobs, and the files
+in the media store. Nothing of the
 workload clusters the operator installed moves either: they run on their own
 machines and do not depend on the operator.
 
@@ -123,6 +130,62 @@ machines and do not depend on the operator.
   be installed again. Host and endpoint status have several writers; the move
   writes each part under the name of the controller that owns it, so the
   controllers find the field ownership they expect.
+
+## The media store
+
+With the media store on (the `config/media-store` kustomize component), the
+manager mounts a PersistentVolumeClaim, `pk-metal/pk-metal-media-store`. It
+holds the installers built for machines behind one-slot BMCs, each with its
+node's config inside. The imager Jobs that build them mount the same claim
+(the manager names it with `--media-store-claim`) and run on the manager's
+node, because the volume is ReadWriteOnce. The config media of two-slot
+machines are not in it: they are Secrets and move with the copy.
+
+The preflight finds every claim the manager's Deployment mounts, and decides
+for each:
+
+| The target has | The move |
+| --- | --- |
+| The claim, Bound (or Pending with a StorageClass the target has, which binds when the manager pod is scheduled) | Uses it as it is. |
+| No claim, and the source claim's StorageClass | Makes the claim with that class. |
+| No claim, and a default StorageClass | Makes the claim without a class, so the default provisions it. |
+| Neither | Refuses, before it stops anything. |
+
+A claim the move makes copies only the request: access modes, size and volume
+mode. The volume it was bound to, its selector and its binding annotations
+belong to the source cluster. The claim keeps its name, so the imager Jobs on
+the target mount the claim the manager mounts.
+
+The files do not move. The installers in the store are rebuilt on the target
+when they are needed: a BootAsset whose status names an installer the store
+does not hold (or one whose bytes are not the ones built) drops it from its
+status and starts a new build, and its Ready condition says why. A rebuilt
+installer is new bytes with a new digest. An operation approved against the
+old one (approved before the move, not started yet) does not boot it: it
+fails on the digest check instead, and its claim waits for a person.
+
+**A cluster without storage.** A fresh Talos cluster has no StorageClass. Either
+give it one first (for example a local-path provisioner, and mark its class as
+the default: `kubectl annotate storageclass <name>
+storageclass.kubernetes.io/is-default-class=true`), or create the claim
+`pk-metal/pk-metal-media-store` there yourself. Then run the move.
+
+Or move with `--media-store=ephemeral`. The manager on the target mounts an
+emptyDir in place of the claim, no larger than the claim asked for, and
+`--media-store-claim` is taken off its command line. Know what this gives up:
+
+- The store starts empty and is emptied whenever the manager pod restarts.
+- The imager Jobs run in pods of their own and cannot write into the
+  manager's emptyDir. So the operator there builds no installer for a
+  machine behind a one-slot BMC. Its BootAsset says so (`BuilderUnavailable`)
+  and nothing is booted. Two-slot machines are not affected.
+
+To give the operator its store back later: provide storage, create the claim,
+and in the manager's Deployment replace the emptyDir with the claim and add
+`--media-store-claim=pk-metal-media-store`.
+
+If the manager does not start on the target, the move names any claim that
+has not bound, and how to look at it.
 
 ## After the copy
 
@@ -220,8 +283,8 @@ operator manages, so nothing is held there.
 
 ```text
 pk-metal pivot --to <kubeconfig> [--to-context name] [--image ref]
-               [--media-url url] [--force-waiting] [--settle 90s]
-               [--timeout 5m] [--yes]
+               [--media-url url] [--media-store copy|ephemeral]
+               [--force-waiting] [--settle 90s] [--timeout 5m] [--yes]
 ```
 
 - `--to`: the kubeconfig of the cluster to move to. The source is the current
@@ -229,6 +292,9 @@ pk-metal pivot --to <kubeconfig> [--to-context name] [--image ref]
 - `--image`: the manager image on the target. Default: the source's image.
 - `--media-url`: where the BMCs fetch media from on the target. Default: the
   source's value.
+- `--media-store`: `copy` (default) makes the media store's claim on the
+  target, or uses the one there, and refuses a target without storage.
+  `ephemeral` mounts an emptyDir instead; see "The media store".
 - `--force-waiting`: move operations that wait for approval.
 - `--settle`: how long to watch the new manager.
 - `--timeout`: how long to wait for each step.

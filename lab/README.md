@@ -270,7 +270,11 @@ What `lab:pivot` does:
 2. It runs `pk-metal pivot --to .lab/workload.kubeconfig`. The move stops the
    operator in kind, installs it on the first cluster, copies its objects,
    and fails if the operator there proposes any operation. The machine it
-   installed must not be installed again.
+   installed must not be installed again. The first cluster has no
+   StorageClass, so the round moves with `--media-store=ephemeral`: the
+   operator there keeps its media store in an emptyDir and builds no
+   installer for a one-slot BMC. Keep the second cluster's machines two-slot
+   (the default); a one-slot machine there waits with `BuilderUnavailable`.
 3. It deletes the kind cluster. `.lab/kubeconfig` names the first cluster
    from now on, so `lab:status`, `lab:approve` and `lab:collect` go there.
 4. It applies `.lab/generated/workload/` (TalosCluster, TalosNodes and
