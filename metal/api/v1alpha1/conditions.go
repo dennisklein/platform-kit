@@ -169,6 +169,12 @@ const (
 	// changed — the lying-oracle shape). Held per desired state: a profile
 	// edit re-arms the push.
 	ReasonIdentityPushFailed = "IdentityPushFailed"
+	// ReasonIdentityPushHeld on Configured=False: the signed certificate is
+	// ready, but pushing it restarts the manager, and an operation is running
+	// on a machine behind it. A restart drops the virtual media mounts and
+	// the session of the step in flight, so the push waits for the operation
+	// to finish.
+	ReasonIdentityPushHeld = "IdentityPushHeld"
 )
 
 // Reasons on the host's Drifted condition (information, not error).

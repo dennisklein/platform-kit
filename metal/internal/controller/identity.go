@@ -155,6 +155,16 @@ func (r *EndpointConvergenceReconciler) identity(ctx context.Context, ep *metalv
 		return metav1.ConditionFalse, metalv1alpha1.ReasonAwaitingIssuance, msg, nil
 	}
 
+	// Pushing restarts the manager. Under a running operation that drops
+	// the media it mounted (most managers do not keep them over a restart)
+	// and the step in flight; the push waits for the operation instead.
+	if busy, err := r.operationBehind(ctx, ep); err != nil {
+		return "", "", "", err
+	} else if busy != "" {
+		return metav1.ConditionFalse, metalv1alpha1.ReasonIdentityPushHeld,
+			"the signed certificate is ready, but pushing it restarts the manager, and " + busy +
+				"; the push follows when it has finished", nil
+	}
 	pushedLeaf, err := r.pushIdentity(ctx, ep, dialect, chain, sec.Data["key.pem"])
 	if err != nil {
 		return metav1.ConditionFalse, metalv1alpha1.ReasonIdentityPushFailed, err.Error(), nil
@@ -268,6 +278,45 @@ func (r *EndpointConvergenceReconciler) managerCSR(ctx context.Context, ep *meta
 		return err
 	})
 	return csr, err
+}
+
+// +kubebuilder:rbac:groups=metal.pk.io,resources=hosts;hostoperations,verbs=get;list;watch
+
+// operationBehind names an operation that runs on a machine this endpoint
+// manages, or returns "". Running means approved and not finished: one that
+// has started, and one about to start. An operation still waiting for a
+// person can wait for days and holds nothing.
+//
+// It reads the cache, and an operation can start between this read and the
+// restart. That leaves a window of the push itself, seconds, instead of
+// every running operation.
+func (r *EndpointConvergenceReconciler) operationBehind(ctx context.Context, ep *metalv1alpha1.ManagementEndpoint) (string, error) {
+	hosts := &metalv1alpha1.HostList{}
+	if err := r.List(ctx, hosts); err != nil {
+		return "", err
+	}
+	behind := map[string]bool{}
+	for i := range hosts.Items {
+		for _, path := range hosts.Items[i].Status.ManagedBy {
+			if path.EndpointRef.Name == ep.Name {
+				behind[hosts.Items[i].Name] = true
+			}
+		}
+	}
+	if len(behind) == 0 {
+		return "", nil
+	}
+	ops := &metalv1alpha1.HostOperationList{}
+	if err := r.List(ctx, ops); err != nil {
+		return "", err
+	}
+	for i := range ops.Items {
+		op := &ops.Items[i]
+		if behind[op.Spec.HostRef.Name] && opActive(op) && op.DeletionTimestamp.IsZero() {
+			return fmt.Sprintf("operation %s/%s runs on host %s", op.Namespace, op.Name, op.Spec.HostRef.Name), nil
+		}
+	}
+	return "", nil
 }
 
 // pushIdentity delivers the signed chain per dialect and restarts the

@@ -43,7 +43,9 @@ type EndpointProfileSpec struct {
 	// certificate for bmc-<endpoint>.<domain>, pushed over the vendor's
 	// dialect and renewed on cadence. The factory certificate is replaced
 	// and cannot be restored — a CA-signed identity is strictly better and
-	// the intended end state.
+	// the intended end state. A push restarts the manager, which drops its
+	// virtual media, so it waits while an approved operation on a machine
+	// behind the endpoint has not finished (reason IdentityPushHeld).
 	// +optional
 	TLS *IdentityPolicy `json:"tls,omitempty"`
 }

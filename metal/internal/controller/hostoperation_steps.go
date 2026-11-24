@@ -335,46 +335,76 @@ func (x *exec) insertMedia(ctx context.Context, i int, a *metalv1alpha1.InsertMe
 	return nil
 }
 
-// remountGrants mounts again, under fresh grants, every granted medium a
-// recorded step mounted and this process no longer serves. Grants live in
-// memory only: after a restart or a leader change the slot still holds a URL
-// that answers 403, and the step that mounted it is never re-entered. Until
-// the machine is booted that dead URL is what it would boot from; once the
-// power cycle is recorded the boot has happened and the medium is left alone.
-func (x *exec) remountGrants(ctx context.Context, recorded int) error {
-	media := x.r.Media
-	if media == nil {
-		return nil
-	}
+// remount mounts again every medium a recorded step mounted and the slot no
+// longer holds as mounted, before the machine boots from it. The step that
+// mounted it is never re-entered, and two things take a mount away behind
+// its back:
+//
+//   - Grants live in memory only: after a restart or a leader change the slot
+//     still holds a URL that answers 403. The medium is mounted again under a
+//     fresh grant.
+//   - A manager restart (a firmware update, a reset by a person) empties the
+//     slots on most vendors, while the grant is still live here.
+//
+// So the slot is read, and the medium re-converged when the slot does not
+// hold the URL it should, whichever the cause. Once the power cycle is
+// recorded the boot has happened, and the media are left alone.
+func (x *exec) remount(ctx context.Context, recorded int) error {
 	actions := x.op.Spec.Actions[:recorded]
 	for _, a := range actions {
 		if a.PowerCycle != nil {
 			return nil
 		}
 	}
-	handle := grantHandle(types.NamespacedName{Namespace: x.op.Namespace, Name: x.op.Name})
 	for j, a := range actions {
 		in := a.InsertMedia
-		if in == nil || in.BootAssetRef == nil || slotReusedLater(actions[j+1:], in.MediaID) {
+		if in == nil || slotReusedLater(actions[j+1:], in.MediaID) {
 			continue
 		}
-		if _, ok := media.Grants.Live(handle, in.BootAssetRef.Name+".iso"); ok {
-			continue
+		if ok, err := x.stillMounted(ctx, in); err != nil || ok {
+			return err
 		}
-		ba := &osv1alpha1.BootAsset{}
-		if err := x.r.Get(ctx, client.ObjectKey{Name: in.BootAssetRef.Name}, ba); err != nil {
-			return fmt.Errorf("boot asset %s: %w", in.BootAssetRef.Name, err)
-		}
-		if !secretBearing(ba) {
-			continue // a stable URL, nothing granted
-		}
-		logf.FromContext(ctx).Info("re-mounting a medium whose grant this process no longer holds",
+		logf.FromContext(ctx).Info("re-mounting a medium the slot no longer holds",
 			"operation", x.op.Name, "slot", in.MediaID)
 		if err := x.insertMedia(ctx, j, in); err != nil {
-			return fmt.Errorf("re-mount %s on %s: %w", ba.Name, in.MediaID, err)
+			return fmt.Errorf("re-mount on %s: %w", in.MediaID, err)
 		}
 	}
 	return nil
+}
+
+// stillMounted: the slot holds what a recorded insertMedia mounted, under a
+// grant this process still serves when the medium is granted. A plain image
+// URL and a secret-free asset are compared by URL. A granted medium is
+// compared with its live grant's URL, so one mounted under a grant a restart
+// forgot reads as not mounted.
+func (x *exec) stillMounted(ctx context.Context, in *metalv1alpha1.InsertMediaAction) (bool, error) {
+	cl, _, err := x.client(ctx)
+	if err != nil {
+		return false, err
+	}
+	cur, err := mountedURL(ctx, cl, in.MediaID)
+	if err != nil {
+		return false, err
+	}
+	if in.BootAssetRef == nil {
+		return cur == in.ImageURL, nil
+	}
+	ba := &osv1alpha1.BootAsset{}
+	if err := x.r.Get(ctx, client.ObjectKey{Name: in.BootAssetRef.Name}, ba); err != nil {
+		return false, fmt.Errorf("boot asset %s: %w", in.BootAssetRef.Name, err)
+	}
+	if !secretBearing(ba) {
+		return cur != "" && cur == ba.Status.URL, nil
+	}
+	media := x.r.Media
+	if media == nil {
+		// Nothing here could have mounted it; insertMedia says so.
+		return false, nil
+	}
+	handle := grantHandle(types.NamespacedName{Namespace: x.op.Namespace, Name: x.op.Name})
+	g, ok := media.Grants.Live(handle, ba.Name+".iso")
+	return ok && cur == media.URL(g), nil
 }
 
 // slotReusedLater: one of the actions empties the slot or mounts something
@@ -461,21 +491,28 @@ func (x *exec) grantTTL(i int) time.Duration {
 // mounted is the image URL a slot holds, userinfo stripped (the vmm dialect
 // stores it credential-bearing); empty when empty or unreadable.
 func mounted(ctx context.Context, cl bmc.Client, slot string) string {
+	u, _ := mountedURL(ctx, cl, slot)
+	return u
+}
+
+// mountedURL is mounted with the read error kept: a caller that would mount
+// again on an empty answer must not take an unreadable slot for an empty one.
+func mountedURL(ctx context.Context, cl bmc.Client, slot string) (string, error) {
 	media, err := cl.Media(ctx)
 	if err != nil {
-		return ""
+		return "", err
 	}
 	for _, m := range media {
 		if m.ID == slot && m.Inserted {
 			u, err := url.Parse(m.ImageURL)
 			if err != nil {
-				return m.ImageURL
+				return m.ImageURL, nil
 			}
 			u.User = nil
-			return u.String()
+			return u.String(), nil
 		}
 	}
-	return ""
+	return "", nil
 }
 
 // awaitCheckIn waits for the node to run its config: the authenticated

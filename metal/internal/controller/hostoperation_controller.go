@@ -340,7 +340,7 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	start := recordedSteps(op)
 	if start < len(op.Spec.Actions) {
-		if err := x.remountGrants(bctx, start); err != nil {
+		if err := x.remount(bctx, start); err != nil {
 			if transient(bctx, err) {
 				return held(start, err)
 			}
