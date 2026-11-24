@@ -115,7 +115,7 @@ Starts the lab. You can run it again: it uses again what exists, and it applies 
   <dt>Uses sudo</dt>
   <dd>Yes, for the network. See [](lab:page/what-runs-as-root).</dd>
   <dt>Refuses</dt>
-  <dd>A different size while the fleet runs. A start after [`pivot`](#pivot), until you run [`down`](#down).</dd>
+  <dd>A different size while the fleet runs. A start after [`pivot`](#pivot), until you run [`down`](#down) and [`reset`](#reset).</dd>
 </dl>
 
 <TermReplay src="casts/lab-up.json" caption="A replay with example data." />
@@ -150,7 +150,7 @@ Stops the fleet, deletes the kind cluster and the registry container, and remove
   <dt>Keeps</dt>
   <dd>The disks of the machines, the image cache and the Talos secrets bundle.</dd>
   <dt>Deletes</dt>
-  <dd>The kubeconfig files and the talosconfig files in `.lab/`</dd>
+  <dd>The kubeconfig files and the talosconfig files in `.lab/`. It keeps the mark file `.lab/pivoted`.</dd>
 </dl>
 
 The fleet turns the machines off before it stops. After 30 seconds, the script stops the fleet with force.
@@ -167,6 +167,8 @@ The next [`up`](#up) installs each machine again.
   <dd>A lab that is down.</dd>
   <dt>Safety</dt>
   <dd>It deletes the directory only if it is in `.lab/`, or if it has the mark file that the lab wrote.</dd>
+  <dt>Also deletes</dt>
+  <dd>The mark file `.lab/pivoted`, because no disk holds a moved operator after the wipe.</dd>
 </dl>
 
 <Callout type="warning">

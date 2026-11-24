@@ -1703,8 +1703,9 @@ observe() {
 pivoted_guard() {
   local lab_dir=$1
   [[ ! -e $lab_dir/$PIVOT_MARK ]] || die "the operator has moved to the first Talos cluster (mise run lab:pivot), and kind is gone.
-  Starting kind with an operator again would put two operators on the same machines.
-  Take the lab down first: mise run lab:down"
+  The disk of node-1 still holds the moved operator. Starting kind with an operator again
+  would put two operators on the same machines. Take the lab down and wipe the disks first:
+    mise run lab:down && mise run lab:reset"
 }
 
 # Runs the workstation's image registry: on 127.0.0.1 for the push, and on the
@@ -2089,9 +2090,11 @@ down() {
   fi
   registry_down
   rm -f "$lab_dir/kubeconfig" "$lab_dir/workload.kubeconfig" "$lab_dir/talosconfig" \
-    "$lab_dir/second.kubeconfig" "$lab_dir/second.talosconfig" "$lab_dir/$PIVOT_MARK" \
+    "$lab_dir/second.kubeconfig" "$lab_dir/second.talosconfig" \
     "$lab_dir/factory-warmed" "$lab_dir/scale-admin.kubeconfig"
   "$root/lab/net.sh" down
+  # The pivot mark stays: after a pivot the disks still hold the moved
+  # operator, and only reset, which wipes them, lets the next up start.
   echo "kept: the machines' disks, the image cache and the secrets bundle. Wipe the disks with: mise run lab:reset" >&2
 }
 
@@ -2129,6 +2132,7 @@ reset() {
     && die "the fleet is running and has the disks open. Take the lab down first: mise run lab:down"
   state_dir=$(fleet_state_dir "$root" "$fleet")
   if [[ ! -e $state_dir ]]; then
+    rm -f "$lab_dir/$PIVOT_MARK"
     echo "nothing to wipe: $state_dir does not exist" >&2
     return 0
   fi
@@ -2137,6 +2141,8 @@ reset() {
   $STATE_MARK file, so it may not be the lab's (or it holds the repository). Nothing was removed.
   Remove the directory by hand if it really holds the lab's disks."
   rm -rf "$state_dir"
+  # No disk holds a moved operator any more.
+  rm -f "$lab_dir/$PIVOT_MARK"
   echo "wiped $state_dir. The next lab:up installs every machine from scratch." >&2
 }
 

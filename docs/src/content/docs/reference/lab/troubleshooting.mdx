@@ -162,9 +162,11 @@ PK_LAB_NODES=3cp+2w mise run lab:up
 ## The lab refuses to start after a pivot
 
 After [](lab:pivot), the operator runs on the first Talos cluster and kind is gone.
-A new kind cluster with an operator would put two operators on the same machines.
+The disk of `node-1` holds the moved operator. A new kind cluster with an operator would put two operators on the same machines.
 
-Run [](lab:down) first. Then start the lab again.
+1. Run [](lab:down).
+2. Run [](lab:reset). It wipes the disks and removes the mark file `.lab/pivoted`.
+3. Start the lab again.
 
 ## Examine a machine
 

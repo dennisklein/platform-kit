@@ -9,7 +9,9 @@
 // no media channel, so the config travels --apply-insecure here and rides the
 // BMC's virtual media only from the QEMU tier up.
 //
-// Needs docker and the dev cluster (`mise run lab:up`); run via `mise run e2e:kind`.
+// Needs docker and a kind cluster named pk-metal; it only stores objects there,
+// so kind's default node is enough (CI: `kind create cluster --name pk-metal`).
+// Run via `mise run e2e:kind`.
 package e2e_test
 
 import (

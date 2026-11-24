@@ -307,7 +307,9 @@ Its machines come after the first cluster's: with `1cp+0w` and `1cp+0w`,
 node-1 is the first cluster and node-2 the second. The second cluster's VIP
 is `10.77.0.9`. To change the defaults, add a `workload:` section to
 `lab/lab.yaml` (there is a commented example at its end). Once the operator
-has moved, `lab:up` refuses to start kind again; take the lab down first. The
+has moved, `lab:up` refuses to start kind again until the disks are wiped,
+because node-1's disk still holds the moved operator:
+`mise run lab:down && mise run lab:reset`. The
 whole procedure for a real site is in [Pivot the operator](https://dennisklein.github.io/platform-kit/operate/day-1/pivot/).
 
 ## Lose etcd and restore it (backup and restore)
