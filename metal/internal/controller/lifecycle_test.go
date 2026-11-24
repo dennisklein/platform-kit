@@ -533,3 +533,21 @@ func TestNotWipedHostTakesNoOtherInstall(t *testing.T) {
 	require.NotNil(t, c)
 	assert.Equal(t, metalv1alpha1.ReasonInstalledNodeRemains, c.Reason)
 }
+
+// TestClaimHeldForEtcdLooksAgain: what a claim held for etcd waits for (a
+// member turning voter, another claim's operation finishing) is no event of
+// its own, so the claim asks to be looked at again; other holds do not.
+func TestClaimHeldForEtcdLooksAgain(t *testing.T) {
+	held := func(reason string) *metalv1alpha1.HostClaim {
+		c := testClaim("cp-3")
+		meta.SetStatusCondition(&c.Status.Conditions, metav1.Condition{
+			Type: metalv1alpha1.ConditionProvisioned, Status: metav1.ConditionFalse, Reason: reason, Message: "x",
+		})
+		return c
+	}
+	assert.Equal(t, etcdWaitPoll, etcdWaitResult(held(metalv1alpha1.ReasonEtcdJoinWaiting)).RequeueAfter)
+	assert.Equal(t, etcdWaitPoll, etcdWaitResult(held(metalv1alpha1.ReasonRemovalWaiting)).RequeueAfter)
+	assert.Zero(t, etcdWaitResult(held(metalv1alpha1.ReasonAwaitingOperation)).RequeueAfter,
+		"an operation of its own wakes the claim through the watch")
+	assert.Zero(t, etcdWaitResult(testClaim("cp-3")).RequeueAfter)
+}

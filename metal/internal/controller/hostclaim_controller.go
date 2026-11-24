@@ -189,7 +189,27 @@ func (r *HostClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	} else {
 		meta.RemoveStatusCondition(&claim.Status.Conditions, metalv1alpha1.ConditionProvisioned)
 	}
-	return ctrl.Result{}, r.writeStatus(ctx, orig, claim)
+	return etcdWaitResult(claim), r.writeStatus(ctx, orig, claim)
+}
+
+// etcdWaitPoll is how often a claim that waits for its turn in etcd looks
+// again. A variable for tests only.
+var etcdWaitPoll = 15 * time.Second
+
+// etcdWaitResult asks for another look at a claim held for etcd's sake. What
+// it waits for is mostly not an object this controller watches: another
+// control plane's member becoming a voter, its learner catching up, or the
+// operation of another claim finishing. Without the poll the claim would
+// wait for an unrelated event, and a scale from one control plane to three
+// stopped after the second joined.
+func etcdWaitResult(claim *metalv1alpha1.HostClaim) ctrl.Result {
+	for _, c := range claim.Status.Conditions {
+		if c.Status == metav1.ConditionFalse &&
+			(c.Reason == metalv1alpha1.ReasonEtcdJoinWaiting || c.Reason == metalv1alpha1.ReasonRemovalWaiting) {
+			return ctrl.Result{RequeueAfter: etcdWaitPoll}
+		}
+	}
+	return ctrl.Result{}
 }
 
 func (r *HostClaimReconciler) writeStatus(ctx context.Context, orig, claim *metalv1alpha1.HostClaim) error {
@@ -216,7 +236,7 @@ func (r *HostClaimReconciler) finishRelease(ctx context.Context, claim *metalv1a
 		return ctrl.Result{}, err
 	}
 	if !done {
-		return ctrl.Result{}, r.writeStatus(ctx, orig, claim)
+		return etcdWaitResult(claim), r.writeStatus(ctx, orig, claim)
 	}
 	controllerutil.RemoveFinalizer(claim, releaseFinalizer)
 	if err := r.Update(ctx, claim); err != nil {
