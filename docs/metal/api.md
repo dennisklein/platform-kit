@@ -1189,7 +1189,7 @@ _Appears in:_
 | `mediaId` _string_ | MediaID is the virtual-media slot ("CD", "USBStick", …). |  |  |
 | `imageUrl` _string_ | ImageURL is what to mount. Already-mounted with the same URL is success —<br />steps converge to their goal, so a resumed operation never double-issues. |  | Optional: \{\} <br /> |
 | `bootAssetRef` _[Reference](#reference)_ | BootAssetRef names the BootAsset (os.pk.io) to mount. |  | Optional: \{\} <br /> |
-| `digest` _string_ | Digest pins the artifact bytes (sha256:<hex>) the approver saw: an<br />artifact rebuilt since the proposal fails the step instead of mounting<br />content nobody approved. configISO assets only. |  | Pattern: `^sha256:[a-f0-9]\{64\}$` <br />Optional: \{\} <br /> |
+| `digest` _string_ | Digest pins the artifact bytes (sha256:<hex>) the approver saw: an<br />artifact rebuilt since the proposal fails the step instead of mounting<br />content nobody approved. With a digest the asset need not be Ready: the<br />artifact approved is mounted while a newer build runs, and an asset<br />that names no artifact yet makes the step wait. Secret-bearing assets<br />(configISO, embeddedInstaller) only. |  | Pattern: `^sha256:[a-f0-9]\{64\}$` <br />Optional: \{\} <br /> |
 
 
 #### IssuerRef

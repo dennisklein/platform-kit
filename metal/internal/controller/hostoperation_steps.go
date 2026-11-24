@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"slices"
@@ -39,7 +40,11 @@ func (x *exec) step(ctx context.Context, i int) (stepState, error) {
 	case a.SetBootOverride != nil:
 		return stepDone, x.setBootOverride(ctx, a.SetBootOverride)
 	case a.InsertMedia != nil:
-		return stepDone, x.insertMedia(ctx, i, a.InsertMedia)
+		err := x.insertMedia(ctx, i, a.InsertMedia)
+		if pending := (*artifactPending)(nil); errors.As(err, &pending) {
+			return waitingOn("%s", pending.msg), nil
+		}
+		return stepDone, err
 	case a.EjectMedia != nil:
 		cl, _, err := x.client(ctx)
 		if err != nil {
@@ -299,8 +304,20 @@ func (x *exec) insertMedia(ctx context.Context, i int, a *metalv1alpha1.InsertMe
 	if err := x.r.Get(ctx, client.ObjectKey{Name: a.BootAssetRef.Name}, ba); err != nil {
 		return fmt.Errorf("boot asset %s: %w", a.BootAssetRef.Name, err)
 	}
-	if !meta.IsStatusConditionTrue(ba.Status.Conditions, osv1alpha1.ConditionReady) {
+	// A medium pinned to the digest the approver saw needs no Ready: the
+	// digest check at the grant is the rail, and it passes exactly when the
+	// artifact approved is still the one on record. While a newer build
+	// runs, the status keeps naming that artifact with Ready=False, and a
+	// change in the build key alone (a new extension image digest) must not
+	// fail every approved install that has not mounted yet. Only an unpinned
+	// medium takes whatever is built now, and for that it must be Ready.
+	pinned := secretBearing(ba) && a.Digest != ""
+	if !pinned && !meta.IsStatusConditionTrue(ba.Status.Conditions, osv1alpha1.ConditionReady) {
 		return fmt.Errorf("boot asset %s is not Ready", ba.Name)
+	}
+	if pinned && !hasArtifact(ba) {
+		return &artifactPending{msg: fmt.Sprintf("boot asset %s has no artifact yet; the approved one (%s) is mounted once it is there",
+			ba.Name, a.Digest)}
 	}
 	if !secretBearing(ba) {
 		// Secret-free: the stable URL, no grant, no credentials. No digest
@@ -436,6 +453,21 @@ func slotReusedLater(actions []metalv1alpha1.HostOperationAction, slot string) b
 		return (a.EjectMedia != nil && a.EjectMedia.MediaID == slot) ||
 			(a.InsertMedia != nil && a.InsertMedia.MediaID == slot)
 	})
+}
+
+// artifactPending: the asset names no built artifact yet. The step waits for
+// one instead of failing: whether it is the approved one is checked at the
+// grant, by digest.
+type artifactPending struct{ msg string }
+
+func (e *artifactPending) Error() string { return e.msg }
+
+// hasArtifact: the status names a built artifact, for the asset's strategy.
+func hasArtifact(ba *osv1alpha1.BootAsset) bool {
+	if ba.Spec.Strategy == osv1alpha1.StrategyEmbeddedInstaller {
+		return ba.Status.BuildKey != ""
+	}
+	return ba.Status.ArtifactSecretRef != nil
 }
 
 // secretBearing: the asset carries a node's config and is only ever served

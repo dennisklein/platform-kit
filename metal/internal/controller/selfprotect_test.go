@@ -188,7 +188,7 @@ func TestDisruptionVerdict(t *testing.T) {
 			want: []string{"Not running or not ready: cp-3"},
 		},
 		"a control plane, allowed, while another one joins": {
-			in: disruptionInput{host: ptr.To(allowed(runsNodeHost("h-2", "cp-2"))), self: onCP1, nodes: nodes, cluster: cluster(4, 3), hosts: hosts},
+			in:   disruptionInput{host: ptr.To(allowed(runsNodeHost("h-2", "cp-2"))), self: onCP1, nodes: nodes, cluster: cluster(4, 3), hosts: hosts},
 			want: []string{"2 of the 4 control planes", "etcd needs 3", "Not running or not ready: cp-4"},
 		},
 		"the only control plane, allowed": {

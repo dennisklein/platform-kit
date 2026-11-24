@@ -150,7 +150,7 @@ spec:
                               - name
                             type: object
                           digest:
-                            description: 'Digest pins the artifact bytes (sha256:<hex>) the approver saw: an artifact rebuilt since the proposal fails the step instead of mounting content nobody approved. configISO assets only.'
+                            description: 'Digest pins the artifact bytes (sha256:<hex>) the approver saw: an artifact rebuilt since the proposal fails the step instead of mounting content nobody approved. With a digest the asset need not be Ready: the artifact approved is mounted while a newer build runs, and an asset that names no artifact yet makes the step wait. Secret-bearing assets (configISO, embeddedInstaller) only.'
                             pattern: ^sha256:[a-f0-9]{64}$
                             type: string
                           imageUrl:

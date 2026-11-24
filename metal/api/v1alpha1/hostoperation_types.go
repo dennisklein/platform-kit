@@ -209,7 +209,10 @@ type InsertMediaAction struct {
 	BootAssetRef *Reference `json:"bootAssetRef,omitempty"`
 	// Digest pins the artifact bytes (sha256:<hex>) the approver saw: an
 	// artifact rebuilt since the proposal fails the step instead of mounting
-	// content nobody approved. configISO assets only.
+	// content nobody approved. With a digest the asset need not be Ready: the
+	// artifact approved is mounted while a newer build runs, and an asset
+	// that names no artifact yet makes the step wait. Secret-bearing assets
+	// (configISO, embeddedInstaller) only.
 	// +kubebuilder:validation:Pattern=`^sha256:[a-f0-9]{64}$`
 	// +optional
 	Digest string `json:"digest,omitempty"`

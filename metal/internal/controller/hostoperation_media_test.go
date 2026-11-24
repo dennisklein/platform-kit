@@ -14,6 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
@@ -110,22 +111,24 @@ func TestRebuiltArtifactIsNotMounted(t *testing.T) {
 func TestBootAssetPreconditionsFailBeforeAnyBMCWrite(t *testing.T) {
 	iso := buildISO(t, "version: v1alpha1\n")
 	for name, tc := range map[string]struct {
-		objs  func() []client.Object
-		media bool
-		want  string
+		objs     func() []client.Object
+		media    bool
+		unpinned bool
+		want     string
 	}{
 		"asset missing": {
 			objs: func() []client.Object { return nil },
 			want: "boot asset node-config",
 		},
-		"asset not ready": {
+		"asset not ready, mounted unpinned": {
 			objs: func() []client.Object {
 				ba, artifact := configAsset(t, iso)
 				ba.Status.Conditions = nil
 				return []client.Object{ba, artifact}
 			},
-			media: true,
-			want:  "is not Ready",
+			media:    true,
+			unpinned: true,
+			want:     "is not Ready",
 		},
 		"factory asset without url": {
 			objs: func() []client.Object {
@@ -150,18 +153,13 @@ func TestBootAssetPreconditionsFailBeforeAnyBMCWrite(t *testing.T) {
 			media: true,
 			want:  "not found",
 		},
-		"artifact not built yet": {
-			objs: func() []client.Object {
-				ba, _ := configAsset(t, iso)
-				ba.Status.ArtifactSecretRef = nil
-				return []client.Object{ba}
-			},
-			media: true,
-			want:  "has no artifact yet",
-		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			op := preClearedOp(insertAsset("node-config", godigest.FromBytes(iso).String()))
+			digest := godigest.FromBytes(iso).String()
+			if tc.unpinned {
+				digest = ""
+			}
+			op := preClearedOp(insertAsset("node-config", digest))
 			r, _, rec := executorFor(t, "supermicro-x12", append(tc.objs(), op)...)
 			if tc.media {
 				r.Media = startMedia(t)
@@ -172,6 +170,82 @@ func TestBootAssetPreconditionsFailBeforeAnyBMCWrite(t *testing.T) {
 			assert.Empty(t, rec.powers)
 		})
 	}
+}
+
+// TestPinnedMediumMountsWhileANewerBuildRuns: while a newer build of the
+// asset runs, its status keeps naming the artifact approved, with
+// Ready=False. A medium pinned to that artifact's digest mounts it: the
+// digest check is the rail, and it passes. It used to fail every approved
+// install that had not mounted yet, whenever the build key moved.
+func TestPinnedMediumMountsWhileANewerBuildRuns(t *testing.T) {
+	iso := buildISO(t, "version: v1alpha1\n")
+	ba, artifact := configAsset(t, iso)
+	ba.Status.Conditions = []metav1.Condition{{Type: osv1alpha1.ConditionReady, Status: metav1.ConditionFalse,
+		Reason: osv1alpha1.ReasonBuilding, Message: "a newer build runs", LastTransitionTime: metav1.Now()}}
+	op := preClearedOp(insertAsset(ba.Name, godigest.FromBytes(iso).String()))
+	r, st, rec := executorFor(t, "supermicro-x12", op, ba, artifact)
+	r.Media = startMedia(t)
+
+	op = runOp(t, r)
+	require.True(t, opSucceeded(op), "%+v", op.Status)
+	assert.True(t, rec.insertedGranted(t, ba.Name, st), "the approved artifact is mounted")
+}
+
+// TestPinnedMediumWaitsForItsArtifact: an asset that names no artifact yet
+// makes the step wait, without touching the slot, instead of failing an
+// approved operation. Whether what appears is the approved artifact is
+// decided at the grant, by digest.
+func TestPinnedMediumWaitsForItsArtifact(t *testing.T) {
+	iso := buildISO(t, "version: v1alpha1\n")
+	ba, artifact := configAsset(t, iso)
+	ba.Status.ArtifactSecretRef = nil
+	ba.Status.Conditions = nil
+	op := preClearedOp(insertAsset(ba.Name, godigest.FromBytes(iso).String()))
+	r, st, rec := executorFor(t, "supermicro-x12", op, ba, artifact)
+	r.Media = startMedia(t)
+	key := client.ObjectKeyFromObject(op)
+
+	res, err := r.Reconcile(t.Context(), ctrl.Request{NamespacedName: key})
+	require.NoError(t, err)
+	assert.Positive(t, res.RequeueAfter)
+	got := &metalv1alpha1.HostOperation{}
+	require.NoError(t, r.Get(t.Context(), key, got))
+	require.False(t, opFinished(got), "%+v", got.Status)
+	ex := meta.FindStatusCondition(got.Status.Conditions, metalv1alpha1.ConditionExecuted)
+	require.NotNil(t, ex)
+	assert.Contains(t, ex.Message, "has no artifact yet")
+	assert.Empty(t, rec.ejects, "the slot is left as it was")
+	assert.Empty(t, rec.inserts)
+
+	// The artifact appears: the step goes on.
+	ba.Status.ArtifactSecretRef = &osv1alpha1.SecretReference{Namespace: "pk-metal", Name: artifact.Name}
+	require.NoError(t, r.Update(t.Context(), ba))
+	got = runOp(t, r)
+	require.True(t, opSucceeded(got), "%+v", got.Status)
+	assert.True(t, rec.insertedGranted(t, ba.Name, st))
+}
+
+// insertedGranted: one medium was mounted, at a grant URL of the operation,
+// and the slot holds it (the grant itself ends with the operation).
+func (c *recordingClient) insertedGranted(t *testing.T,
+	asset string, st bmc.Client) bool {
+	t.Helper()
+	if !assert.Len(t, c.inserts, 1) {
+		return false
+	}
+	return assert.Contains(t, c.inserts[0], asset+".iso") && assert.Equal(t, c.inserts[0], mountedIn(t, st))
+}
+
+func mountedIn(t *testing.T, st bmc.Client) string {
+	t.Helper()
+	media, err := st.Media(t.Context())
+	require.NoError(t, err)
+	for _, m := range media {
+		if m.ID == mediaSlot && m.Inserted {
+			return m.ImageURL
+		}
+	}
+	return ""
 }
 
 func TestPlainImageURLConvergesOnTheSlot(t *testing.T) {
