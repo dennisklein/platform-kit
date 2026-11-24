@@ -112,6 +112,8 @@ rules:
   - talosclusters/status
   - talosnodes/finalizers
   - talosnodes/status
+  - talosrollouts/finalizers
+  - talosrollouts/status
   verbs:
   - update
 - apiGroups:
@@ -119,7 +121,6 @@ rules:
   resources:
   - etcdbackuppolicies
   - talosclusters
-  - talosrollouts
   verbs:
   - get
   - list
@@ -142,6 +143,15 @@ rules:
   - get
   - list
   - patch
+  - watch
+- apiGroups:
+  - os.pk.io
+  resources:
+  - talosrollouts
+  verbs:
+  - create
+  - get
+  - list
   - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1

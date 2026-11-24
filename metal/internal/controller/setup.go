@@ -15,6 +15,7 @@ import (
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/asset"
+	"github.com/dennisklein/platform-kit/metal/internal/k8supgrade"
 	"github.com/dennisklein/platform-kit/metal/internal/ledger"
 	"github.com/dennisklein/platform-kit/metal/internal/talos"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
@@ -39,6 +40,7 @@ const (
 	LaneTalosCluster
 	LaneBootAsset
 	LaneEtcdBackup
+	LaneTalosRollout
 	LaneMaintenanceWindow
 	laneCount
 )
@@ -48,6 +50,7 @@ var AllLanes = []Lane{
 	LaneAsset, LaneEndpoint, LaneHost, LaneHostClaim, LaneProtection, LaneHostOperation,
 	LaneConvergence, LaneEndpointConvergence, LaneTalosNode, LaneTalosCluster, LaneBootAsset,
 	LaneEtcdBackup,
+	LaneTalosRollout,
 	LaneMaintenanceWindow,
 }
 
@@ -110,7 +113,11 @@ type Options struct {
 	EtcdBackupDir    string
 	EtcdBackupVolume string
 
+	// ResolveImage, Workload and GateInterval configure the rollout lane;
 	// DriftInterval paces the TalosNode lane's dry-run drift check.
+	ResolveImage  ImageResolver
+	Workload      k8supgrade.Dialer
+	GateInterval  time.Duration
 	DriftInterval time.Duration
 
 	// NodeName is the Kubernetes node the manager's pod runs on. When set,
@@ -249,6 +256,16 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 			Client: c, Namespace: o.CredentialsNamespace, Dial: o.TalosDial,
 			Dir: o.EtcdBackupDir, VolumeName: o.EtcdBackupVolume, Self: self,
 			RetryInterval: o.CheckInterval,
+		}
+	case LaneTalosRollout:
+		return "talosrollout", rolloutLane{
+			run: &TalosRolloutReconciler{
+				Client: c, Scheme: scheme, Namespace: o.CredentialsNamespace,
+				OperationsNamespace: o.OperationsNamespace, Proposer: o.Proposer,
+				Factory: o.Factory, ResolveImage: o.ResolveImage, Dial: o.TalosDial,
+				Workload: o.Workload, GateInterval: o.GateInterval,
+			},
+			propose: &RolloutProposer{Client: c, Proposer: o.Proposer},
 		}
 	case LaneMaintenanceWindow:
 		return "maintenancewindow", &MaintenanceWindowReconciler{Client: c}
