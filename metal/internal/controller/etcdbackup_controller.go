@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"filippo.io/age"
+	"github.com/siderolabs/talos/pkg/machinery/role"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -517,12 +518,19 @@ func (r *EtcdSnapshotReconciler) take(ctx context.Context, s *osv1alpha1.EtcdSna
 			endpoints = append(endpoints, addr)
 		}
 	}
-	talosconfig, err := render.Talosconfig(bundle, cluster.Name, endpoints, checkinCertTTL)
+	// Two short-lived certificates with the least each call needs: os:reader
+	// asks every member for its etcd status, os:etcd:backup streams the
+	// snapshot and can do nothing else. Neither can change a machine.
+	reader, err := render.TalosconfigWithRole(bundle, cluster.Name, endpoints, checkinCertTTL, role.Reader)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("mint talosconfig for %s: %w", cluster.Name, err)
+	}
+	backup, err := render.TalosconfigWithRole(bundle, cluster.Name, endpoints, checkinCertTTL, role.EtcdBackup)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("mint talosconfig for %s: %w", cluster.Name, err)
 	}
 
-	src, why := r.pickMember(ctx, talosconfig, cps)
+	src, why := r.pickMember(ctx, reader, cps)
 	if src == nil {
 		if r.now().Sub(s.CreationTimestamp.Time) > memberWait {
 			return fail("no healthy etcd member to take the snapshot from: " + why)
@@ -548,7 +556,7 @@ func (r *EtcdSnapshotReconciler) take(ctx context.Context, s *osv1alpha1.EtcdSna
 	sctx, cancel := context.WithTimeout(ctx, snapshotTimeout)
 	defer cancel()
 	var stored etcdbackup.Stored
-	err = talos.With(sctx, r.Dial, talos.Target{Endpoint: src.endpoint, Talosconfig: talosconfig}, func(c talos.Client) error {
+	err = talos.With(sctx, r.Dial, talos.Target{Endpoint: src.endpoint, Talosconfig: backup}, func(c talos.Client) error {
 		var serr error
 		stored, serr = etcdbackup.Store(sctx, sink, key, rcpt, c.EtcdSnapshot)
 		return serr

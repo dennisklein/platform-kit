@@ -32,7 +32,9 @@ needs one of the matching age identities, on your own machine.
 
 subcommands:
   now <cluster>              take a snapshot now (it waits until stored; --wait=false returns at once)
-  list [<cluster>]           list the snapshots, newest first
+  list [<cluster>]           list the snapshots, newest first; RECIPIENTS shows the
+                             last 8 characters of each age public key a snapshot is
+                             encrypted to (compare with: age-keygen -y <identity file>)
   get <snapshot> -o <file>   download the encrypted snapshot (s3 sinks; pvc sinks: see the message)
   decrypt (<snapshot> | --in <file.age>) --identity <file> [-o <file.db>]
                              decrypt on this machine and check it is an intact etcd snapshot;
@@ -236,14 +238,33 @@ func listSnapshots(ctx context.Context, cl client.Client, cluster string, now ti
 		return nil
 	}
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tCLUSTER\tTAKEN\tFROM\tSIZE\tSTATE\tLOCATION")
+	fmt.Fprintln(tw, "NAME\tCLUSTER\tTAKEN\tFROM\tSIZE\tSTATE\tRECIPIENTS\tLOCATION")
 	for i := range items {
 		s := &items[i]
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", s.Name, orDash(s.Status.ClusterName),
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", s.Name, orDash(s.Status.ClusterName),
 			sinceTaken(now, snapTime(s)), orDash(s.Status.TakenFrom), humanBytes(s.Status.Size),
-			snapState(s), orDash(s.Status.Location))
+			snapState(s), orDash(recipientTails(s.Status.Recipients)), orDash(s.Status.Location))
 	}
 	return tw.Flush()
+}
+
+// recipientTailLen is how much of an age public key the list shows: enough
+// to tell your own key from a stranger's at a glance, short enough for a
+// table. The whole key is in the EtcdSnapshot's status.recipients.
+const recipientTailLen = 8
+
+// recipientTails is each recipient a snapshot was encrypted to, shortened
+// to "…" and its last characters. A person who can decrypt finds their own
+// key there; a key nobody knows means someone changed the policy.
+func recipientTails(rs []string) string {
+	out := make([]string, 0, len(rs))
+	for _, r := range rs {
+		if len(r) > recipientTailLen {
+			r = "…" + r[len(r)-recipientTailLen:]
+		}
+		out = append(out, r)
+	}
+	return strings.Join(out, ",")
 }
 
 func sinceTaken(now, t time.Time) string {
