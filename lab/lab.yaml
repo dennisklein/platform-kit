@@ -1,0 +1,76 @@
+# The virtual lab in one file. `mise run lab:up` renders everything else from
+# it into .lab/generated/ (not committed): the fleet file the simulated BMCs
+# serve, the manifests (Assets, TalosCluster and TalosNodes, HostClaims), the
+# taps for lab/net.sh and the operator's ledger.
+#
+# The machines are named node-1, node-2, ...: the control planes first, then
+# the workers. Everything that tells them apart is derived from that number n,
+# so the files cannot disagree:
+#
+#   address      10.77.0.<10+n>           BMC  https://10.77.0.1:<8440+n>
+#   serial       PKLAB<n, four digits>    tap  pktap<n>
+#   BMC MAC      02:77:00:00:01:<n in hex>
+#   NIC MAC      52:54:00:77:00:<0x10+n in hex>
+#   disk serial  pklab-disk-<n>
+#
+# Size the lab without editing this file: PK_LAB_NODES=3cp+2w mise run lab:up
+# (see "Size the lab" in lab/README.md).
+cluster:
+  name: lab
+  talosVersion: v1.14.6
+  kubernetesVersion: v1.36.2
+  # The Kubernetes API address the control planes share. With three of them,
+  # it moves to a survivor when its holder goes down. Below .11, where the
+  # machines start.
+  vip: 10.77.0.10
+
+controlPlanes: 1 # 1, 3 or 5: etcd needs a majority
+workers: 2
+
+# What every machine of a role gets. Talos wants 2 GiB on a control plane at
+# the very least; with 4 it also runs the cluster's own control-plane pods
+# comfortably. The default lab (4 + 2 + 2 GiB) and the kind node fit a 16 GiB
+# workstation or CI runner.
+controlPlane: { memoryMiB: 4096, cpus: 2 }
+worker: { memoryMiB: 2048, cpus: 2 }
+
+# Per machine: personality, memoryMiB, cpus. An entry for a machine the
+# current size does not have is ignored.
+nodes:
+  # node-3 speaks the Supermicro X12 dialect (OEM board serial, three virtual
+  # media slots, a UsbCd boot target), so a vendor other than the generic one
+  # goes through the whole path. A Huawei iBMC (huawei-2288h-v5) holds one
+  # medium only: its machine boots an installer built for it, with its config
+  # inside. To try it, give a machine that personality, for example
+  # node-2: { personality: huawei-2288h-v5 } ("A one-slot BMC" in
+  # lab/README.md).
+  node-3: { personality: supermicro-x12 }
+
+# Talos machine configuration documents, merged into every node's
+# configuration. They go into the TalosCluster as they are.
+patches:
+  # Talos holds the boot until the clock is synchronized, forever by default.
+  # A lab machine's clock comes from the workstation and is right from the
+  # first second, while NTP may not be reachable at all (a CI runner, a laptop
+  # behind a captive portal). Two minutes, then carry on.
+  - inline: |
+      apiVersion: v1alpha1
+      kind: TimeSyncConfig
+      bootTimeout: 2m0s
+  # The DNS servers the machines use. These two are Talos' own defaults,
+  # written out so that they are easy to find: a site that blocks public
+  # resolvers puts its own here. The machines reach them through the
+  # workstation's NAT. A site proxy goes into another patch in the same way,
+  # see "Behind a proxy" in lab/README.md.
+  - inline: |
+      apiVersion: v1alpha1
+      kind: ResolverConfig
+      nameservers:
+        - address: 1.1.1.1
+        - address: 8.8.8.8
+
+# A second cluster, for the pivot round (mise run lab:pivot): the operator
+# moves from kind onto the cluster above and installs this one from there.
+# Its machines come after the ones above and take the same role sizes. Without
+# this section, PK_LAB_WORKLOAD=1cp+0w adds it with these values.
+# workload: { name: work, vip: 10.77.0.9, controlPlanes: 1, workers: 0 }

@@ -1,9 +1,12 @@
 # Toolchain and tasks for platform-kit. `mise install` puts every CLI on $PATH at a known
-# version; `mise run <task>` (or `mise tasks` for the list) runs the build and test
+# version; `mise run <task>` (or `mise tasks` for the list) runs the build, test and lab
 # flows. https://mise.jdx.dev
 #
 # Pinning policy: the minor is pinned, the patch floats. Versions that must match a
 # running system (Talos, Kubernetes) are noted next to their pin.
+#
+# Not managed here (system packages): docker, qemu-system-x86_64, OVMF, iproute2,
+# iptables. The virtual lab checks for them in `mise run lab:doctor`.
 
 [tools]
 go = "1.26"
@@ -71,13 +74,13 @@ description = "golangci-lint, the phase invariant and shellcheck"
 depends = ["lint:go", "lint:phase", "lint:shell"]
 
 [tasks."lint:shell"]
-description = "bash -n and shellcheck over the hack scripts"
+description = "bash -n and shellcheck over the lab and hack scripts"
 # shellcheck is a system package (apt-get install shellcheck); there is no mise pin for it.
 run = '''
-for script in metal/hack/*.sh; do
+for script in lab/*.sh metal/hack/*.sh; do
   bash -n "$script"
 done
-shellcheck --severity=warning metal/hack/*.sh
+shellcheck --severity=warning lab/*.sh metal/hack/*.sh
 echo "lint:shell: clean"
 '''
 
@@ -133,3 +136,103 @@ run = "go test -tags e2e -count 1 -timeout 20m -run TestE2EKind -v ./test/e2e/"
 description = "VM tier: simulated BMC, a real UEFI VM, config over virtual media, a real install"
 dir = "metal"
 run = "go test -tags e2e -count 1 -timeout 40m -run TestE2EQemu -v ./test/e2e/"
+
+# The virtual lab (lab/README.md): a kind cluster running the operator, simulated BMCs
+# driving QEMU machines, and a bridge between them. The flow lives in lab/lab.sh; the
+# tasks exist so that it runs with the pinned tools on its PATH.
+
+[tasks."lab:doctor"]
+description = "Check the workstation for what the virtual lab needs; every miss names its fix"
+run = "lab/lab.sh doctor"
+
+[tasks."lab:render"]
+description = "Render the lab from lab/lab.yaml (size: PK_LAB_NODES=3cp+2w) into .lab/generated; touches nothing else"
+run = "lab/lab.sh render"
+
+[tasks."lab:up"]
+description = "Bring the virtual lab up: render lab/lab.yaml, network, kind, operator, simulated fleet, lab manifests"
+depends = ["build"]
+run = "lab/lab.sh up"
+
+[tasks."lab:load"]
+description = "Build the operator image, load it into the lab's kind cluster and roll the manager"
+run = "lab/lab.sh deploy"
+
+[tasks."lab:status"]
+description = "The rack as the operator sees it, then every kind"
+run = "lab/lab.sh status"
+
+[tasks."lab:top"]
+description = "Live view of the lab: each machine's BMC, VM, operation and node; keys approve, hold and retry"
+depends = ["build"]
+# The fleet serves its state on loopback (pk-metal sim fleet --state-listen). The
+# workload cluster's kubeconfig exists once lab:kubeconfig ran; top shows the
+# kubelets' Ready state only then.
+run = '''
+lab=${PK_LAB_DIR:-.lab}
+[ -s "$lab/kubeconfig" ] || { echo "lab:top: $lab/kubeconfig is missing. Bring the lab up: mise run lab:up" >&2; exit 1; }
+set -- --kubeconfig "$lab/kubeconfig" top --fleet http://127.0.0.1:8440/state
+[ -s "$lab/workload.kubeconfig" ] && set -- "$@" --workload-kubeconfig "$lab/workload.kubeconfig"
+exec metal/bin/pk-metal "$@"
+'''
+
+[tasks."lab:approve"]
+description = "Approve every operation that waits for a person"
+run = "lab/lab.sh approve"
+
+[tasks."lab:apply"]
+description = "Apply manifests as a member of the admin group the claim policy asks for (default: the rendered lab manifests)"
+run = "lab/lab.sh apply"
+
+[tasks."lab:kubeconfig"]
+description = "Write the workload cluster's kubeconfig and talosconfig to .lab/"
+run = "lab/lab.sh kubeconfig"
+
+[tasks."lab:wait"]
+description = "Unattended: approve what is proposed and wait until every host is Provisioned and every node Ready"
+run = "lab/lab.sh wait"
+
+[tasks."lab:release"]
+description = "Unattended: delete a claim (namespace/name), approve its shutdown and wait until its Host is Available"
+run = "lab/lab.sh release"
+
+[tasks."lab:day2"]
+description = "Unattended, on a converged lab: reboot a worker and a control plane with pk-metal reboot, approved by a second user, then roll a node label (no reboot) through an approved Config rollout"
+depends = ["build"]
+run = "lab/lab.sh day2"
+
+[tasks."lab:upgrade"]
+description = "Unattended day 2: upgrade a lab brought up on an older Talos (PK_LAB_TALOS=v1.14.5) to the spec's release through an approved rollout"
+depends = ["build"]
+run = "lab/lab.sh upgrade"
+
+[tasks."lab:scale"]
+description = "Unattended day 2 on a 3cp+2w lab: control planes 3 -> 1 -> 3, remove a worker, replace a control plane, back to 1"
+depends = ["build"]
+run = "lab/lab.sh scale"
+
+[tasks."lab:backup-restore"]
+description = "Unattended day 2: back up the first cluster's etcd, wipe it on every control plane, and restore it through pk-metal restore"
+depends = ["build"]
+run = "lab/lab.sh backup-restore"
+
+[tasks."lab:observe"]
+description = "On a converged lab: check the CLUSTER/NODE tables of pk-metal status, the operator's metrics, and a maintenance window holding an approved operation until it opens"
+run = "lab/lab.sh observe"
+
+[tasks."lab:pivot"]
+description = "Unattended: move the operator from kind onto the first Talos cluster, delete kind, and install the second cluster (PK_LAB_WORKLOAD) from there"
+depends = ["build"]
+run = "lab/lab.sh pivot"
+
+[tasks."lab:collect"]
+description = "Write logs and object dumps of the lab to .lab/diagnostics"
+run = "lab/lab.sh collect"
+
+[tasks."lab:down"]
+description = "Stop the fleet, delete the kind cluster, remove the lab network; keeps disks and caches"
+run = "lab/lab.sh down"
+
+[tasks."lab:reset"]
+description = "Wipe the lab machines' disks (the lab must be down)"
+run = "lab/lab.sh reset"

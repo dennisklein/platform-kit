@@ -1,0 +1,27 @@
+# The management cluster of the virtual lab: one kind node that runs the
+# operator. `mise run lab:up` creates it; lab/lab.sh knows the name.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: pk-metal
+nodes:
+  - role: control-plane
+    # Kubernetes 1.36, the minor the k8s.io modules in metal/go.mod are built
+    # against. Pinned by digest because kind documents node images as only
+    # guaranteed to work with the kind release they were built for; this is the
+    # image of the kind version pinned in mise.toml.
+    image: kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5
+    extraPortMappings:
+      # The operator's media server. The simulated BMCs run on the workstation,
+      # outside the cluster network, and fetch a granted ISO the way a real BMC
+      # would: over HTTPS from an address they can route to. That address is the
+      # lab bridge (https://10.77.0.1:30443, the manager's --media-url), and this
+      # mapping leads from there to the NodePort of the media Service.
+      #
+      # Published on the bridge address only, not on every interface: the
+      # media service and the simulated BMCs are for the lab, not for the
+      # workstation's network. Docker can bind it only while the bridge has
+      # the address, so lab:up brings the network up before the cluster.
+      - containerPort: 30443
+        hostPort: 30443
+        listenAddress: 10.77.0.1
+        protocol: TCP

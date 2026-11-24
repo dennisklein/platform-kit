@@ -1,0 +1,18 @@
+# What the virtual lab adds to the manager's command line.
+#
+# --media-url: the BMC simulators run on the workstation and fetch granted media
+#   from the lab bridge address, where kind maps host port 30443 to the NodePort
+#   of the media Service (lab/kind.yaml). Without this flag the manager runs no
+#   media service and provisions nothing.
+# --bmc-insecure: the simulated BMCs serve an ephemeral self-signed certificate.
+# --poll-interval: a lab is watched by a person, and five minutes between two
+#   looks at an endpoint is too slow for that.
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --media-url=https://10.77.0.1:30443
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --bmc-insecure
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --poll-interval=30s

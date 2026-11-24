@@ -1,0 +1,54 @@
+# Generated from lab/lab.yaml. Do not edit: change the spec and run mise run lab:up.
+#
+# The decisions: each claim binds one machine, through its Asset, and says what
+# it is to run. This is what starts provisioning.
+#
+#   - A claim WITH spec.os proposes installing that OS onto the machine. Once a
+#     person approves (`mise run lab:approve`), the machine boots the
+#     installer and its install disk is overwritten.
+#   - Deleting a claim POWERS THE MACHINE OFF (if a boot of this claim ran on
+#     it). When the machine runs its node, that power-off waits for approval.
+#
+# The labels select BIOS and firmware profiles; the node's role in the cluster
+# comes from its TalosNode. Both come from the same role here.
+apiVersion: metal.pk.io/v1alpha1
+kind: HostClaim
+metadata:
+  name: node-1
+  namespace: default
+spec:
+  assetRef:
+    name: node-1
+  labels:
+    role: controlplane
+  os:
+    nodeRef:
+      name: node-1
+---
+apiVersion: metal.pk.io/v1alpha1
+kind: HostClaim
+metadata:
+  name: node-2
+  namespace: default
+spec:
+  assetRef:
+    name: node-2
+  labels:
+    role: worker
+  os:
+    nodeRef:
+      name: node-2
+---
+apiVersion: metal.pk.io/v1alpha1
+kind: HostClaim
+metadata:
+  name: node-3
+  namespace: default
+spec:
+  assetRef:
+    name: node-3
+  labels:
+    role: worker
+  os:
+    nodeRef:
+      name: node-3
