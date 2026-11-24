@@ -23,7 +23,7 @@ Then [](cli:pivot) moves the operator onto that cluster. [](concept:pivot-model)
 2. Install the first Talos cluster with [](flow:rack-to-node).
 3. Make sure that the new cluster reaches each BMC and node. See the table below.
 4. Run `pk-metal pivot --to mgmt.kubeconfig`. Give `--media-url` with a node address of the new cluster.
-5. The command checks, installs, pauses the source, copies, starts the target and watches it.
+5. The command does these steps in order: preflight, pause the source, install, copy, start, settle.
 6. Watch [](cli:status) for some time.
 7. Delete the bootstrap cluster when you no longer need it.
 

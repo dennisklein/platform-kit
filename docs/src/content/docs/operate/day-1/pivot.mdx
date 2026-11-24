@@ -12,10 +12,7 @@ sources:
 
 import { Steps } from '@astrojs/starlight/components';
 import Callout from '../../../../components/Callout.astro';
-import Explainer from '../../../../components/Explainer.astro';
-import Box from '../../../../components/diagram/Box.astro';
-import Edge from '../../../../components/diagram/Edge.astro';
-import Zone from '../../../../components/diagram/Zone.astro';
+import Pivot from '../../../../components/explainers/Pivot.astro';
 
 ## Goal
 
@@ -28,38 +25,14 @@ Run the operator on the Talos cluster that it installed, and stop the bootstrap 
 - No operation runs. No rollout is under way. No claim is in deletion. [](cli:status) shows this.
 - The target has storage for the [](term:media-store), or you accept `--media-store=ephemeral`.
 - The target can reach each BMC, and each BMC can reach the target. See [](howto:network-checklist).
+- The operator image is in a registry that the nodes of the target can pull from. An image that you loaded into kind is not. See [](howto:install-operator).
+- The target has a node that accepts ordinary pods: a worker, or control planes with `controlPlane.allowScheduling: true`.
 
 ## How the move works
 
-<Explainer
-  title="Pivot"
-  steps={[
-    { title: 'Preflight', caption: 'The move checks the source and the target. It refuses to start while an operation runs or a rollout is under way.', code: 'pk-metal pivot --to mgmt.kubeconfig', state: { src: 'active', pre: 'flow' } },
-    { title: 'Install', caption: 'It installs the CRDs, the admission policies, the RBAC and the manager on the target, at zero replicas.', state: { src: 'done', tgt: 'active', inst: 'flow' }, text: { 'tgt-op': 'installed, 0 replicas' } },
-    { title: 'Stop the source', caption: 'It scales the operator in the source to zero. It does not delete the source objects.', state: { src: 'warn', tgt: 'active' }, text: { 'src-op': 'stopped, 0 replicas', 'tgt-op': 'installed, 0 replicas' } },
-    { title: 'Copy', caption: 'It copies Secrets, Assets, Hosts, claims, operations, clusters and nodes, in order. Each object keeps its status.', state: { src: 'warn', tgt: 'active', copy: 'flow' }, text: { 'src-op': 'stopped, 0 replicas', 'tgt-op': 'objects copied' } },
-    { title: 'Start', caption: 'It starts the manager on the target and waits for the leader lease.', state: { src: 'warn', tgt: 'ok', bmc: 'active', red: 'flow' }, text: { 'src-op': 'stopped, 0 replicas', 'tgt-op': 'running' } },
-    { title: 'Settle', caption: 'It watches the new operator for 90 seconds. A new operation is a failure. The move changes no machine.', state: { src: 'warn', tgt: 'ok', bmc: 'ok' }, text: { 'src-op': 'stopped, 0 replicas', 'tgt-op': 'running, settled' } },
-  ]}
->
-  <svg viewBox="0 0 720 220" role="img" aria-labelledby="ex-pv-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
-    <title id="ex-pv-t">The pivot installs the operator on the target and stops the source operator. Then it copies the objects and starts the new operator.</title>
-    <defs>
-      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
-      </marker>
-    </defs>
-    <Zone x={10} y={10} w={250} h={120} label="workstation: kind" />
-    <Zone x={460} y={10} w={250} h={120} label="Talos cluster: mgmt" />
-    <Box node="src" x={30} y={50} w={210} h={56} label="Operator (source)" sub="running" text="src-op" />
-    <Box node="tgt" x={480} y={50} w={210} h={56} label="Operator (target)" sub="not installed" text="tgt-op" />
-    <Box node="bmc" x={480} y={160} w={210} h={44} label="BMCs" sub="Redfish" />
-    <Edge node="pre" points={[[240, 70], [480, 70]]} label="preflight" at={[360, 62]} />
-    <Edge node="inst" points={[[240, 86], [480, 86]]} label="install" at={[360, 100]} />
-    <Edge node="copy" points={[[240, 98], [300, 98], [300, 118], [420, 118], [420, 98], [480, 98]]} label="copy objects" at={[360, 112]} />
-    <Edge node="red" points={[[585, 106], [585, 160]]} label="Redfish" at={[593, 138]} anchor="start" />
-  </svg>
-</Explainer>
+<Pivot start={1} />
+
+[](cli:pivot) has the full list of what each step does.
 
 ## Steps
 
@@ -73,11 +46,14 @@ Run the operator on the Talos cluster that it installed, and stop the bootstrap 
 
    No operation is in the phase `Running`.
 
-2. Start the move. Give the media address on a node of the target.
+2. Start the move. Give the media address on a node of the target, and the image in your registry.
 
    ```sh
-   pk-metal pivot --to mgmt.kubeconfig --media-url https://192.0.2.11:30443
+   pk-metal pivot --to mgmt.kubeconfig --media-url https://192.0.2.11:30443 \
+     --image registry.example.org/platform/pk-metal:4f0c2d1a9b3e
    ```
+
+   Without `--image`, the target uses the image reference of the source.
 
 3. Read the list of network paths that the command shows. Check it with your network team.
 
@@ -121,6 +97,8 @@ See [](howto:move-back).
 | The move refuses to start | The message says what to do. Do it, then run the same command again. |
 | The move stops in the middle | Run the same command again. It continues from where it stopped. |
 | The target has no storage | Give it a default StorageClass, or use `--media-store=ephemeral`. |
+| The manager pod on the target shows `ImagePullBackOff` | The nodes cannot pull the image. Push it to a registry, then run the command again with `--image`. |
+| The manager pod on the target stays `Pending` | No node accepts the pod. Add a worker, or set `controlPlane.allowScheduling: true` and let the rollout complete. Then run the command again. |
 | The new operator proposed an operation | The move fails and names it. See [](howto:move-back). |
 
 ## Related

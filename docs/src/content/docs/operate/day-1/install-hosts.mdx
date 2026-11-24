@@ -24,7 +24,8 @@ Install Talos on each machine and make the cluster `Available`.
 
 - Each machine has a [](kind:Host) in the phase `Available`. See [](howto:enroll-hosts).
 - Each node has a [](kind:TalosNode) with `Rendered=True`. See [](howto:define-a-cluster).
-- You are a member of the admin group (`pk-metal:admins` by default). Only this group can set `spec.os` on a claim.
+- You are a member of the admin group (`pk-metal:admins` by default). Only this group can set `spec.os` on a claim. Cluster admin is not enough. See [The admin group and the approvers](howto:install-operator#the-admin-group-and-the-approvers).
+- For a BMC with one usable media slot, the overlay has the media store. See [One-slot BMCs](howto:install-operator#one-slot-bmcs).
 - A person who can approve is available. The ClusterRole `pk-metal-approver` gives this permission.
 
 ## What happens
@@ -53,13 +54,14 @@ Install Talos on each machine and make the cluster `Available`.
          name: cp-1
    ```
 
-2. Apply the claims.
+2. Apply the claims with your login that is in the admin group.
 
    ```sh
    kubectl apply -f claims/
    ```
 
    Each claim is `Bound`. The operator proposes one install operation for each machine.
+   If the API server refuses the claim with `only an admin`, your login does not have the group.
 
 3. Show the operations that wait.
 
@@ -75,7 +77,7 @@ Install Talos on each machine and make the cluster `Available`.
    pk-metal approve pk-metal/provision-simhw2288v5000397-0f3c9a1e
    ```
 
-5. Approve the other operations in the same way.
+5. Approve the other operations in the same way. You can give several names in one command. The command asks about each plan.
 
 6. Monitor the hosts.
 
@@ -98,6 +100,18 @@ Install Talos on each machine and make the cluster `Available`.
    ```sh
    kubectl -n pk-metal get secret prod-kubeconfig -o jsonpath='{.data.kubeconfig}' | base64 -d > prod.kubeconfig
    ```
+
+9. Write the talosconfig to a file. `talosctl` uses it to speak to the nodes.
+
+   ```sh
+   kubectl -n pk-metal get secret prod-talosconfig -o jsonpath='{.data.talosconfig}' | base64 -d > prod.talosconfig
+   ```
+
+10. Ask one node for its version. Use the address of the node.
+
+    ```sh
+    talosctl --talosconfig prod.talosconfig -n 10.0.0.11 version
+    ```
 
 </Steps>
 
@@ -128,6 +142,7 @@ Each node is `Ready`. The published kubeconfig expires after the TTL of the clus
 | Claim `Ambiguous` | [](rb:claim-ambiguous) |
 | Claim blocked on `DiskNotWiped` | [](rb:disk-not-wiped) |
 | Operation fails at `insertMedia` | [](rb:media-slot-busy) |
+| The install waits, and the BootAsset shows `BuilderUnavailable` | The BMC has one usable slot, and the overlay has no media store. See [One-slot BMCs](howto:install-operator#one-slot-bmcs). |
 | Host `Provisioning` for a long time, node not `Ready` | [](rb:node-not-ready) |
 | Cluster `Bootstrapped=False` | [](rb:bootstrap-refused) |
 

@@ -20,7 +20,7 @@ Make sure that one BMC answers, and find its serial number, media slots and NIC 
 
 ## Before you start
 
-- You have the `pk-metal` binary on a workstation that can reach the BMC on TCP 443.
+- You have the `pk-metal` binary on a workstation that can reach the BMC on TCP 443. [](howto:install-operator) shows how to build it.
 - You have the BMC user name and password. Usually these are the factory values.
 - The machine can be on or off. The two commands read only. They change nothing on the machine.
 
@@ -41,11 +41,14 @@ Make sure that one BMC answers, and find its serial number, media slots and NIC 
    ```
 
    ```text
-   manager:  Huawei fw 3.08.00.00
-   media:    CD             dialect=insert-media
-   system:   1 serial=SIMHW2288V5000397 power=Off
+   manager:  Huawei fw 6.72
+   media:    CD             dialect=vmm-control
+   media:    USBStick       dialect=none
+   system:   1 serial=SIMHW2288V5000391 power=On
    check:    OK (read-only)
    ```
+
+   This is the output for the simulated Huawei iBMC.
 
 3. Read the inventory into a file.
 
@@ -53,9 +56,11 @@ Make sure that one BMC answers, and find its serial number, media slots and NIC 
    pk-metal inventory --user admin --insecure --node sim-0001 https://192.0.2.21 > sim-0001.yaml
    ```
 
-   The file has the BMC MAC, the media slots, the serial number and the NICs.
+   The file has the BMC MAC, the media slots, the serial number, the NICs and the drives. It shows the first system of the BMC only.
 
 4. Write down the serial number and the BMC MAC. You need them for the [](kind:Asset).
+
+5. Write down the MAC of the NIC that the node uses, and the serial of the install disk. You need them for the [](kind:TalosNode).
 
 </Steps>
 
@@ -63,9 +68,11 @@ Make sure that one BMC answers, and find its serial number, media slots and NIC 
 
 <dl>
   <dt>`media:` lines</dt>
-  <dd>One line for each virtual media slot. One line only means a [](term:one-slot-bmc). Read [](concept:one-slot-bmc) before the install.</dd>
+  <dd>One line for each virtual media slot. Count the lines that do not show `dialect=none`. One such line means a [](term:one-slot-bmc). The example above has two lines, but only one usable slot.</dd>
   <dt>`dialect=none`</dt>
-  <dd>The slot cannot mount an image. The operator cannot boot the machine from it.</dd>
+  <dd>The slot cannot mount an image. The operator does not use it.</dd>
+  <dt>One usable slot</dt>
+  <dd>Add the media store to your overlay before the install. See [One-slot BMCs](howto:install-operator#one-slot-bmcs) and [](concept:one-slot-bmc).</dd>
   <dt>More than one `system:` line</dt>
   <dd>The BMC controls more than one machine. Your [](kind:HostClaim) must set `spec.systemRef`.</dd>
   <dt>`serial=-`</dt>
@@ -87,6 +94,7 @@ The last line of [](cli:check) is `check:    OK (read-only)`.
 | `check failed:` with a timeout or a TLS error | [](rb:bmc-unreachable) |
 | `401` or `403` in the error | Check the user name and the password. |
 | No `media:` line | [](rb:media-slot-busy) |
+| The check passes with `--insecure`, but the endpoint is `Unreachable` later | The manager checks the certificate. See [BMC certificates](howto:install-operator#bmc-certificates). |
 
 ## Related
 
