@@ -105,7 +105,7 @@ func FuzzRelayFirstLine(f *testing.F) {
 	}
 	tr := startTestRelay(f, time.Second)
 	f.Fuzz(func(t *testing.T, line []byte) {
-		baseline := runtime.NumGoroutine()
+		baseline := relayGoroutines()
 		before := tr.dials.count()
 
 		c, err := net.Dial("tcp", tr.tunnel)
@@ -140,13 +140,14 @@ func FuzzRelayFirstLine(f *testing.F) {
 		assert.Zero(t, tr.pendingCount(), "a rendezvous was left behind")
 		assert.Eventually(t, func() bool { return !tr.hasControl() }, 2*time.Second, 5*time.Millisecond,
 			"a closed control connection must be forgotten")
-		// Polled by hand: assert.Eventually runs its condition in goroutines
-		// of its own, which the count would include.
+		// Polled by hand, and counting only goroutines that run relay code:
+		// the test runtime, the race detector and the HTTP stack start and
+		// stop goroutines of their own, which made a plain count flaky.
 		deadline := time.Now().Add(2 * time.Second)
-		for runtime.NumGoroutine() > baseline && time.Now().Before(deadline) {
+		for relayGoroutines() > baseline && time.Now().Before(deadline) {
 			time.Sleep(5 * time.Millisecond)
 		}
-		assert.LessOrEqual(t, runtime.NumGoroutine(), baseline, "goroutines leaked after first line %q", first)
+		assert.LessOrEqual(t, relayGoroutines(), baseline, "goroutines leaked after first line %q", first)
 	})
 }
 
@@ -286,4 +287,25 @@ func TestSecondRegisterClosesFirst(t *testing.T) {
 	_, err := first.Read(make([]byte, 1))
 	assert.ErrorIs(t, err, io.EOF, "the first control connection must be closed")
 	assert.True(t, tr.hasControl())
+}
+
+// relayGoroutines counts the goroutines whose stack runs code of the relay
+// package, the test's own included (that one is the same before and after).
+func relayGoroutines() int {
+	buf := make([]byte, 1<<20)
+	for {
+		n := runtime.Stack(buf, true)
+		if n < len(buf) {
+			buf = buf[:n]
+			break
+		}
+		buf = make([]byte, 2*len(buf))
+	}
+	count := 0
+	for _, g := range strings.Split(string(buf), "\n\n") {
+		if strings.Contains(g, "metal/internal/relay.") {
+			count++
+		}
+	}
+	return count
 }
