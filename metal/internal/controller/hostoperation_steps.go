@@ -596,7 +596,8 @@ func mountedURL(ctx context.Context, cl bmc.Client, slot string) (string, error)
 }
 
 // awaitCheckIn waits for the node to run its config: the authenticated
-// machine API answering, or the node reporting Ready.
+// machine API answering, or the node reporting Ready. The check-in ends the
+// operation's media grants.
 func (x *exec) awaitCheckIn(ctx context.Context, a *metalv1alpha1.AwaitCheckInAction) (stepState, error) {
 	node := &osv1alpha1.TalosNode{}
 	if err := x.r.Get(ctx, client.ObjectKey{Name: a.NodeRef.Name}, node); err != nil {
@@ -609,6 +610,10 @@ func (x *exec) awaitCheckIn(ctx context.Context, a *metalv1alpha1.AwaitCheckInAc
 		if stale, err := x.staleCheckIn(ctx, node); err != nil || stale {
 			return waitingOn("waiting for TalosNode %s to check in after its reinstall", node.Name), err
 		}
+		// The machine runs its config: the media that carried the config
+		// and its secrets have done their job. Their grants end now, not
+		// when the operation ends, which can be much later.
+		x.r.revokeGrants(types.NamespacedName{Namespace: x.op.Namespace, Name: x.op.Name})
 		return stepDone, nil
 	}
 	seen := "no answer from the machine yet"
