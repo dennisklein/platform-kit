@@ -4,11 +4,12 @@ description: Take one real machine from a BMC check to an installed Talos node, 
 type: tutorial
 xref: { cat: tut, id: first-real-server }
 sidebar:
-  order: 4
+  order: 6
 sources:
   - /repo/lab/kind.yaml
   - /repo/metal/config/lab/kustomization.yaml
   - /repo/metal/config/lab/manager_args.yaml
+  - /repo/metal/config/samples/site-overlay/kustomization.yaml
 ---
 
 import { Steps } from '@astrojs/starlight/components';
@@ -28,17 +29,24 @@ At the end, the server runs Talos as a cluster with one control plane.
 The install overwrites the disk that you select. Use a server with no data that you must keep.
 </Callout>
 
+<Callout type="caution">
+The automatic tests use simulated BMCs. The repository has no record of an install on real hardware.
+Read [](ref:status) and [](ref:hardware) before you start, and stay near the server.
+</Callout>
+
 ## Time and prerequisites
 
 <dl>
   <dt>Time</dt>
   <dd>About one hour. The install takes about ten minutes.</dd>
   <dt>Hardware</dt>
-  <dd>One server with a Redfish BMC and virtual media. One free static address for the node.</dd>
+  <dd>One x86-64 server in UEFI boot mode, with a Redfish BMC that has the license for virtual media. One free static address for the node. See [](ref:hardware).</dd>
   <dt>Network</dt>
   <dd>Your workstation reaches the BMC on TCP 443. The BMC reaches your workstation on TCP 30443. The node reaches the internet.</dd>
+  <dt>BMC network</dt>
+  <dd>A BMC with two media slots downloads the installer from `factory.talos.dev`. It needs a DNS server and a route or a proxy. See [The BMC and the image factory](howto:network-checklist#the-bmc-and-the-image-factory).</dd>
   <dt>Tools</dt>
-  <dd>Docker Engine, kind, kubectl, talosctl, and the `pk-metal` binary. The tools of [](lab:page/prerequisites) are enough.</dd>
+  <dd>A Linux workstation with Docker Engine and a clone of the repository. `mise install` gives you kind, kubectl and talosctl. `eval "$(mise activate bash)"` puts them on the `PATH`. Stage 1 builds `pk-metal`.</dd>
   <dt>Knowledge</dt>
   <dd>Read [](tut:lab-first-cluster) first. This tutorial uses the same steps.</dd>
 </dl>
@@ -49,25 +57,33 @@ The install overwrites the disk that you select. Use a server with no data that 
 
 <Steps>
 
-1. Put the BMC password in the environment.
+1. Build the tool, and put it on your `PATH`.
+
+   ```sh
+   mise run build && export PATH=$PWD/metal/bin:$PATH
+   ```
+
+2. Put the BMC password in the environment.
 
    ```sh
    read -rs PK_METAL_BMC_PASSWORD && export PK_METAL_BMC_PASSWORD
    ```
 
-2. Check the BMC.
+3. Check the BMC.
 
    ```sh
    pk-metal check --insecure https://192.0.2.21
    ```
 
-3. Read the inventory into a file.
+4. Count the `media:` lines that do not show `dialect=none`. One such line means a BMC with one slot.
+
+5. Read the inventory into a file.
 
    ```sh
    pk-metal inventory --insecure --node cp-1 https://192.0.2.21 > cp-1-inventory.yaml
    ```
 
-4. Write down these values: the serial number, the BMC MAC, the node NIC MAC and the install disk serial.
+6. Write down these values: the serial number, the BMC MAC, the node NIC MAC and the install disk serial.
 
 </Steps>
 
@@ -77,6 +93,8 @@ The install overwrites the disk that you select. Use a server with no data that 
 
 <Steps>
 
+This stage is a short form of [](howto:install-operator). That page explains each file.
+
 1. Copy `lab/kind.yaml` to `kind.yaml`. Set `listenAddress` to the address of your workstation on the BMC network.
 
 2. Make the kind cluster.
@@ -85,15 +103,39 @@ The install overwrites the disk that you select. Use a server with no data that 
    kind create cluster --config kind.yaml
    ```
 
-3. Make a site overlay on top of `metal/config/default`. Use `metal/config/lab` as the example. Give it the image, the ledger and `--media-url=https://<workstation address>:30443`.
-
-4. In the ledger of the overlay, write one line: the BMC MAC and `https://192.0.2.21`.
-
-5. Apply the overlay.
+3. Build the operator image. The last line of the output is the image reference, for example `pk-metal:4f0c2d1a9b3e`.
 
    ```sh
-   kubectl apply --server-side -k overlay
+   mise run image
    ```
+
+4. Load the image into kind. Use your image reference.
+
+   ```sh
+   kind load docker-image pk-metal:4f0c2d1a9b3e --name pk-metal
+   ```
+
+5. Copy the sample overlay.
+
+   ```sh
+   cp -r metal/config/samples/site-overlay overlay
+   ```
+
+6. In `overlay/kustomization.yaml`, set the base to `../metal/config/default`. Set `images` to `newName: pk-metal` and `newTag` to your tag.
+
+7. In `overlay/manager_args.yaml`, set `--media-url=https://<workstation address>:30443`.
+
+8. In `overlay/ledger.yaml`, write one line: the BMC MAC and `https://192.0.2.21`. Delete the example lines.
+
+9. Decide how the manager checks the BMC certificate. See [BMC certificates](howto:install-operator#bmc-certificates). For this first test on a closed BMC network, you can replace `--bmc-ca-secret=bmc-ca` with `--bmc-insecure`.
+
+10. If the BMC has one slot, remove the comment marks from `components` in `overlay/kustomization.yaml`.
+
+11. Apply the overlay.
+
+    ```sh
+    kubectl apply --server-side -k overlay
+    ```
 
 </Steps>
 
@@ -125,6 +167,7 @@ The install overwrites the disk that you select. Use a server with no data that 
 </Steps>
 
 **Checkpoint.** One Host is `Available`. If it shows `Mismatch`, see [](rb:host-mismatch).
+If no Host comes and `kubectl get managementendpoints` shows `Unreachable`, the cause is usually the BMC certificate. See [](rb:bmc-unreachable).
 
 ### 4. Define the cluster
 
@@ -146,15 +189,21 @@ The install overwrites the disk that you select. Use a server with no data that 
 
 4. Write a [](kind:TalosNode) `cp-1` with the role `controlplane`, the disk serial and the NIC MAC from stage 1.
 
-5. Apply both files as a member of the admin group.
+5. Apply both files.
 
    ```sh
-   kubectl apply --as=me --as-group=pk-metal:admins --as-group=system:authenticated -f first.yaml
+   kubectl apply -f first.yaml
+   ```
+
+6. Wait until the operator rendered the config.
+
+   ```sh
+   kubectl wait --for=condition=Rendered talosnode/cp-1 --timeout=120s
    ```
 
 </Steps>
 
-**Checkpoint.** `kubectl get talosnodes` shows `cp-1` with `Rendered=True`. See [](howto:define-a-cluster) for the fields.
+**Checkpoint.** The command prints `talosnode.os.pk.io/cp-1 condition met`. See [](howto:define-a-cluster) for the fields.
 
 ### 5. Claim and install
 
@@ -164,23 +213,28 @@ The install overwrites the disk that you select. Use a server with no data that 
 
 1. Write a [](kind:HostClaim) `cp-1` with the Asset and `spec.os.nodeRef.name: cp-1`.
 
-2. Apply it as a member of the admin group.
+2. Apply it as a member of the admin group. Only that group can apply a claim that installs a node, and the kind admin is not a member.
 
    ```sh
-   kubectl apply --as=me --as-group=pk-metal:admins --as-group=system:authenticated -f claim.yaml
+   kubectl apply --as="$USER" --as-group=pk-metal:admins --as-group=system:authenticated -f claim.yaml
    ```
 
-3. Read the proposed install.
+   This command uses impersonation. It is a shortcut for a test cluster of your own.
+   On a production cluster, your login gives you the group. See [The admin group and the approvers](howto:install-operator#the-admin-group-and-the-approvers).
 
-   ```sh
-   pk-metal status
-   ```
-
-4. Approve it. The operator proposed it, so you can approve it.
+3. List the operations that wait. Without a name, the command approves nothing.
 
    ```sh
    pk-metal approve
    ```
+
+4. Read the plan of the install and approve it. Use the name from the list. Type `y` when the command asks.
+
+   ```sh
+   pk-metal approve pk-metal/<name>
+   ```
+
+   The operator proposed the install, so you can approve it.
 
 5. Monitor the Host and the serial console of the server.
 
@@ -211,6 +265,16 @@ The install overwrites the disk that you select. Use a server with no data that 
 </Steps>
 
 **Checkpoint.** `cp-1` is `Ready`.
+
+## If a stage does not give its checkpoint
+
+| What you see | Go to |
+| --- | --- |
+| The manager pod is not `Running` | [If it fails](howto:install-operator#if-it-fails) of the install how-to |
+| The endpoint is `Unreachable` | [](rb:bmc-unreachable) |
+| The operation fails at `insertMedia` | [](rb:media-slot-busy), and [The BMC and the image factory](howto:network-checklist#the-bmc-and-the-image-factory) |
+| The Host stays `Provisioning`, and the console shows no boot | [](rb:node-not-ready), and the boot mode in [](ref:hardware) |
+| The operation is `Failed` | [](rb:operation-failed) |
 
 ## What you learned
 
