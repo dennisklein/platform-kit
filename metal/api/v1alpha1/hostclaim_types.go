@@ -27,11 +27,13 @@ const (
 // the machine by its Asset, because you know the Asset name before the
 // operator has found the machine and named its Host.
 //
-// The machine a claim names cannot be changed: pointing it elsewhere would
-// leave the first machine running without a release. To use another machine,
-// delete the claim and create a new one.
-// +kubebuilder:validation:XValidation:rule="self.assetRef == oldSelf.assetRef",message="assetRef is immutable: delete the claim and create another"
-// +kubebuilder:validation:XValidation:rule="has(self.systemRef) == has(oldSelf.systemRef) && (!has(self.systemRef) || self.systemRef == oldSelf.systemRef)",message="systemRef is immutable: delete the claim and create another"
+// Pointing a claim at another machine (pk-metal replace) moves it: the
+// operator first releases the machine the claim holds, the way deleting the
+// claim would (its node leaves the cluster, the machine is reset or marked
+// not wiped, with approval where that turns a node off), and only then binds
+// the new one, so two machines never run the same node. Only an admin may do
+// it (config/policy/hostclaim-provisioning.yaml): it moves a node's config,
+// with the cluster's keys on a control plane, to another machine.
 type HostClaimSpec struct {
 	// AssetRef names the Asset whose machine this claim binds.
 	AssetRef Reference `json:"assetRef"`

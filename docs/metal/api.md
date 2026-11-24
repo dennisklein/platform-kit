@@ -1062,9 +1062,13 @@ HostClaimSpec says which machine you want and what it should run. You pick
 the machine by its Asset, because you know the Asset name before the
 operator has found the machine and named its Host.
 
-The machine a claim names cannot be changed: pointing it elsewhere would
-leave the first machine running without a release. To use another machine,
-delete the claim and create a new one.
+Pointing a claim at another machine (pk-metal replace) moves it: the
+operator first releases the machine the claim holds, the way deleting the
+claim would (its node leaves the cluster, the machine is reset or marked
+not wiped, with approval where that turns a node off), and only then binds
+the new one, so two machines never run the same node. Only an admin may do
+it (config/policy/hostclaim-provisioning.yaml): it moves a node's config,
+with the cluster's keys on a control plane, to another machine.
 
 
 

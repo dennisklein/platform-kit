@@ -1295,10 +1295,15 @@ release_host() {
 # one control plane. Like wait, it stands in for the person who approves.
 day2_scale() {
   local root=$1 lab_dir=$2 gen=$3 timeout=$4
-  local cluster cli size h2 h3 h5
+  local cluster cli admin size h2 h3 h5
   require_cluster "$lab_dir"
   cluster=$(lab_value "$gen" TALOS_CLUSTER)
   cli=$root/metal/bin/pk-metal
+  # Creating a claim that names a node, and moving a claim to another
+  # machine, are an admin's decisions (the claim policy): scale and replace
+  # run as a member of the admin group, as a site's admin would.
+  admin=$lab_dir/scale-admin.kubeconfig
+  impersonating_kubeconfig "$lab_dir/kubeconfig" "$admin" lab-admin
   size="$(lab_value "$gen" CONTROL_PLANES)cp+$(lab_value "$gen" WORKERS)w"
   [[ $size == 3cp+2w ]] \
     || die "the scale round needs the lab at three control planes and two workers.
@@ -1313,18 +1318,18 @@ day2_scale() {
   # Two of three control planes leave: on the way etcd has two members, an
   # even count the operator refuses without the acknowledgement.
   step "scale $cluster to 1 control plane"
-  "$cli" scale "$cluster" --control-planes 1 --workers 2 --apply --ack-etcd-risk "lab scale round" >&2
+  KUBECONFIG=$admin "$cli" scale "$cluster" --control-planes 1 --workers 2 --apply --ack-etcd-risk "lab scale round" >&2
   day2_until "$root" "$lab_dir" "$timeout" 1 3 1 "scale to 1 control plane"
   hosts_returned "scale to 1 control plane" "$h2" "$h3"
 
   # The same TalosNodes come back on their own machines (scale pairs a node
   # with the host of the asset of its name), one control plane at a time.
   step "scale $cluster to 3 control planes"
-  "$cli" scale "$cluster" --control-planes 3 --workers 2 --apply >&2
+  KUBECONFIG=$admin "$cli" scale "$cluster" --control-planes 3 --workers 2 --apply >&2
   day2_until "$root" "$lab_dir" "$timeout" 3 5 1 "scale to 3 control planes"
 
   step "remove worker node-5"
-  "$cli" scale "$cluster" --control-planes 3 --workers 1 --apply >&2
+  KUBECONFIG=$admin "$cli" scale "$cluster" --control-planes 3 --workers 1 --apply >&2
   day2_until "$root" "$lab_dir" "$timeout" 3 4 3 "remove a worker"
   hosts_returned "remove a worker" "$h5"
 
@@ -1335,7 +1340,7 @@ day2_scale() {
   # new one's, as a person replacing failed hardware would. A boot proposed
   # before the edit is withdrawn by the operator and proposed again.
   step "replace control plane node-2 onto Host $h5"
-  "$cli" replace node-2 --host "$h5" --ack-etcd-risk "lab scale round" >&2
+  KUBECONFIG=$admin "$cli" replace node-2 --host "$h5" --ack-etcd-risk "lab scale round" >&2
   release_host "$root" "$h2" "$timeout" "replace a control plane"
   kubectl patch talosnode node-2 --type json --patch '[
     {"op": "replace", "path": "/spec/installDiskSelector/serial", "value": "pklab-disk-5"},
@@ -1345,7 +1350,7 @@ day2_scale() {
   hosts_returned "replace a control plane" "$h2"
 
   step "scale $cluster back to 1 control plane"
-  "$cli" scale "$cluster" --control-planes 1 --workers 1 --apply --ack-etcd-risk "lab scale round" >&2
+  KUBECONFIG=$admin "$cli" scale "$cluster" --control-planes 1 --workers 1 --apply --ack-etcd-risk "lab scale round" >&2
   day2_until "$root" "$lab_dir" "$timeout" 1 2 1 "scale back to 1 control plane"
   hosts_returned "scale back to 1 control plane" "$h3" "$h5"
   echo "the scale round finished: $cluster has 1 control plane and 1 worker" >&2
@@ -2020,7 +2025,7 @@ down() {
   registry_down
   rm -f "$lab_dir/kubeconfig" "$lab_dir/workload.kubeconfig" "$lab_dir/talosconfig" \
     "$lab_dir/second.kubeconfig" "$lab_dir/second.talosconfig" "$lab_dir/$PIVOT_MARK" \
-    "$lab_dir/factory-warmed"
+    "$lab_dir/factory-warmed" "$lab_dir/scale-admin.kubeconfig"
   "$root/lab/net.sh" down
   echo "kept: the machines' disks, the image cache and the secrets bundle. Wipe the disks with: mise run lab:reset" >&2
 }

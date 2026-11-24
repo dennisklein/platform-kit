@@ -350,18 +350,13 @@ func TestReconcile(t *testing.T) {
 		assert.Equal(t, metav1.ConditionUnknown, osReady.Status)
 		assert.Equal(t, metalv1alpha1.ReasonNodeNotFound, osReady.Reason)
 
-		// The node the intent names is fixed while it stands, and so is the
-		// machine the claim binds.
+		// The node the intent names is fixed while it stands. (The machine
+		// the claim binds may move, by an admin: see the provisioning test.)
 		c2 := claimByName("fleet-os")
 		c2.Spec.OS.NodeRef.Name = "ref-2288h-b"
 		err := cl.Update(ctx, &c2)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "os.nodeRef is immutable")
-		c2 = claimByName("fleet-os")
-		c2.Spec.AssetRef.Name = "some-other-asset"
-		err = cl.Update(ctx, &c2)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "assetRef is immutable")
 
 		// Dropping the intent clears the hand-off but keeps the bind.
 		editClaim("fleet-os", func(c *metalv1alpha1.HostClaim) { c.Spec.OS = nil })

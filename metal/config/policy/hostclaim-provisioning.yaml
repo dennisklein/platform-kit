@@ -4,7 +4,10 @@
 # provisioning.approval: Automatic lets the operator boot it without a person. Both
 # are therefore an admin's decision, not any claim author's:
 #   - only a member of the admin group sets or changes spec.os.nodeRef;
-#   - only a member of the admin group turns provisioning.approval to Automatic.
+#   - only a member of the admin group turns provisioning.approval to Automatic;
+#   - only a member of the admin group points a claim at another machine
+#     (spec.assetRef or spec.systemRef, pk-metal replace): the operator releases
+#     the machine the claim holds and installs its node on the new one.
 # Everything else on a claim stays open to its authors. Unchanged values pass on
 # UPDATE, so the operator's own writes (finalizers) and edits to other fields never
 # need the group.
@@ -46,6 +49,13 @@ spec:
         request.operation == 'UPDATE' && has(oldObject.spec.provisioning)
         && has(oldObject.spec.provisioning.approval)
         && oldObject.spec.provisioning.approval == 'Automatic'
+    - name: retarget
+      expression: >-
+        request.operation == 'UPDATE'
+        ? (object.spec.assetRef.name != oldObject.spec.assetRef.name
+          || (has(object.spec.systemRef) ? object.spec.systemRef.name : '')
+            != (has(oldObject.spec.systemRef) ? oldObject.spec.systemRef.name : ''))
+        : false
     - name: isAdmin
       expression: >-
         has(params.data) && has(params.data.adminGroup) && params.data.adminGroup != ''
@@ -69,6 +79,12 @@ spec:
     - expression: "!variables.newAutomatic || variables.oldAutomatic || variables.isAdmin"
       messageExpression: >-
         'only an admin (group ' + params.data.adminGroup + ') may waive provisioning approval'
+        + variables.howToJoin
+      reason: Forbidden
+    - expression: "!variables.retarget || variables.isAdmin"
+      messageExpression: >-
+        'only an admin (group ' + params.data.adminGroup + ') may point a claim at another machine'
+        + ' (the machine it holds is released and its node installed on the new one: pk-metal replace)'
         + variables.howToJoin
       reason: Forbidden
 ---

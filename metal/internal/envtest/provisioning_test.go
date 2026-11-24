@@ -476,8 +476,9 @@ func TestProvisioning(t *testing.T) {
 		assert.Contains(t, err.Error(), "only an admin")
 		err = bobCl.Patch(ctx, plain, client.RawPatch(types.MergePatchType,
 			[]byte(`{"spec":{"assetRef":{"name":"another-asset"}}}`)))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "assetRef is immutable")
+		require.Error(t, err, "nor does moving a claim to another machine")
+		assert.Contains(t, err.Error(), "only an admin")
+		assert.Contains(t, err.Error(), "another machine")
 		require.NoError(t, carolCl.Patch(ctx, plain, client.RawPatch(types.MergePatchType,
 			[]byte(`{"spec":{"os":{"nodeRef":{"name":"control-plane-1"}},"provisioning":{"approval":"Automatic"}}}`))),
 			"an admin may")
@@ -831,6 +832,53 @@ func TestProvisioning(t *testing.T) {
 		assert.Len(t, machine.Resets(), 1, "the node answered, so Talos reset it")
 		assert.Empty(t, h.Annotations[metalv1alpha1.AnnotationDiskNotWiped], "a reset disk carries no mark")
 		assert.True(t, nodeGone("node-single-disk"))
+	})
+
+	// pk-metal replace edits the claim's assetRef and systemRef in place.
+	// This runs it against the real CRD and claim policy: an admin's edit is
+	// accepted, and the operator releases the first machine before it binds
+	// the second.
+	st.run(t, "an admin moves a claim to another machine; the first is released before the second is bound", func(t *testing.T) {
+		singleHost := hostBehind("lab-single").Name
+		require.NoError(t, cl.Create(ctx, &metalv1alpha1.HostClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: "mover", Namespace: "default"},
+			Spec:       metalv1alpha1.HostClaimSpec{AssetRef: metalv1alpha1.Reference{Name: "lab-dual"}},
+		}))
+		waitHost(dualHost, func(h metalv1alpha1.Host) bool {
+			return h.Status.Phase == metalv1alpha1.HostAssigned && h.Spec.ClaimRef != nil && h.Spec.ClaimRef.Name == "mover"
+		})
+		single, err := getHost(singleHost)
+		require.NoError(t, err)
+		require.NotEmpty(t, single.Status.ManagedBy)
+		// The patch pk-metal replace sends: the new machine's asset and system.
+		move := fmt.Sprintf(`{"spec":{"assetRef":{"name":%q},"systemRef":{"name":%q}}}`,
+			single.Status.ManagedBy[0].EndpointRef.Name, single.Status.ManagedBy[0].SystemID)
+		c, err := claimOf("mover")
+		require.NoError(t, err)
+		err = bobCl.Patch(ctx, &c, client.RawPatch(types.MergePatchType, []byte(move)))
+		require.Error(t, err, "not any claim author")
+		assert.Contains(t, err.Error(), "only an admin")
+		require.NoError(t, carolCl.Patch(ctx, &c, client.RawPatch(types.MergePatchType, []byte(move))),
+			"the CRD lets an admin move a claim")
+
+		h := waitHost(singleHost, func(h metalv1alpha1.Host) bool {
+			return h.Spec.ClaimRef != nil && h.Spec.ClaimRef.Name == "mover"
+		})
+		assert.Equal(t, "default", h.Spec.ClaimRef.Namespace)
+		old, err := getHost(dualHost)
+		require.NoError(t, err)
+		assert.Nil(t, old.Spec.ClaimRef, "the first machine was released before the second was bound")
+		waitClaim("mover", func(c metalv1alpha1.HostClaim) bool {
+			return c.Status.HostRef != nil && c.Status.HostRef.Name == singleHost
+		})
+
+		c, err = claimOf("mover")
+		require.NoError(t, err)
+		require.NoError(t, cl.Delete(ctx, &c))
+		waitHost(singleHost, func(h metalv1alpha1.Host) bool {
+			return h.Status.Phase == metalv1alpha1.HostAvailable && h.Spec.ClaimRef == nil
+		})
+		waitHost(dualHost, func(h metalv1alpha1.Host) bool { return h.Status.Phase == metalv1alpha1.HostAvailable })
 	})
 
 	st.run(t, "a claimed host outlives the deletion of its asset", func(t *testing.T) {
