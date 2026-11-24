@@ -1620,10 +1620,40 @@ $after"
 
 # ---------------------------------------------------------------- observe
 
-# The operator's /metrics, through the API server's service proxy: the lab
-# reaches nothing in the cluster directly.
+# The operator's /metrics, the way a scraper reads them: over HTTPS, with the
+# token of a service account that may get /metrics (metal/config/lab binds
+# pk-metal-lab-scraper). The API server's service proxy cannot do this: it
+# drops the caller's token. The connection runs through a port-forward, so the
+# lab still reaches nothing in the cluster directly. The certificate is the
+# one the manager makes for itself at start, so it is not verified.
 metrics_text() {
-  kubectl get --raw "/api/v1/namespaces/$NAMESPACE/services/pk-metal-metrics:metrics/proxy/metrics"
+  local token log pf port i out rc
+  token=$(kubectl --namespace "$NAMESPACE" create token pk-metal-lab-scraper --duration 10m) || return 1
+  log=$(mktemp)
+  kubectl --namespace "$NAMESPACE" port-forward --address 127.0.0.1 service/pk-metal-metrics :8080 >"$log" 2>&1 &
+  pf=$!
+  port=
+  for ((i = 0; i < 50; i++)); do
+    port=$(sed -n 's/^Forwarding from 127\.0\.0\.1:\([0-9]*\) .*/\1/p' "$log" | head -n 1)
+    [[ -n $port ]] && break
+    kill -0 "$pf" 2>/dev/null || break
+    sleep 0.2
+  done
+  if [[ -z $port ]]; then
+    kill "$pf" 2>/dev/null || true
+    wait "$pf" 2>/dev/null || true
+    cat "$log" >&2
+    rm -f "$log"
+    return 1
+  fi
+  rc=0
+  out=$(curl --silent --show-error --fail --insecure --max-time 30 --noproxy 127.0.0.1 \
+    --header "Authorization: Bearer $token" "https://127.0.0.1:$port/metrics") || rc=$?
+  kill "$pf" 2>/dev/null || true
+  wait "$pf" 2>/dev/null || true
+  rm -f "$log"
+  ((rc == 0)) || return "$rc"
+  printf '%s\n' "$out"
 }
 
 # Checks the views a person and a monitoring system have of a converged lab.
@@ -1642,7 +1672,7 @@ observe_views() {
     || die "a node is not Ready: $(jq -c '[.nodes[] | {name, ready, message}]' <<<"$report")"
 
   step "operator metrics: the domain series are served"
-  metrics=$(metrics_text) || die "cannot read the operator's metrics through service pk-metal-metrics in namespace $NAMESPACE"
+  metrics=$(metrics_text) || die "cannot read the operator's metrics from service pk-metal-metrics in namespace $NAMESPACE. Look at: kubectl --namespace $NAMESPACE logs deployment/$DEPLOYMENT; kubectl get clusterrolebinding pk-metal-lab-metrics-reader"
   local series
   for series in pk_metal_host_phase pk_metal_talosnode_ready pk_metal_taloscluster_available \
     pk_metal_bmc_reachable pk_metal_credentials_expiry_timestamp_seconds \
@@ -1983,7 +2013,10 @@ day2_backup_restore() {
   [[ $recipient == age1* ]] || die "$dir/identity.txt has no public key line. Remove it and run again."
 
   step "EtcdBackupPolicy $policy, a snapshot, and markers around it"
-  kubectl apply --server-side -f - >&2 <<EOF
+  # Only a member of the admin group creates a backup policy
+  # (metal/config/policy/etcdbackuppolicy-guard.yaml): act as one.
+  kubectl apply --server-side --as=lab-admin --as-group=pk-metal:admins \
+    --as-group=system:authenticated -f - >&2 <<EOF
 apiVersion: os.pk.io/v1alpha1
 kind: EtcdBackupPolicy
 metadata:

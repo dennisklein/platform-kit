@@ -8,6 +8,7 @@ kind: Kustomization
 resources:
   - ../default
   - admins.yaml
+  - metrics_reader.yaml
 # The lab can install a machine behind a one-slot BMC, which needs the media
 # store (lab/README.md).
 components:

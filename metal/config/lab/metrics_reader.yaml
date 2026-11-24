@@ -1,0 +1,31 @@
+# The lab's stand-in for a Prometheus: a service account that may get the
+# manager's /metrics. The manager serves /metrics over HTTPS and answers only a
+# caller whose token the API server accepts and who may get the non-resource
+# URL /metrics (--metrics-secure), so `mise run lab:observe` reads the metrics
+# with a short-lived token of this account.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pk-metal-lab-scraper
+  namespace: pk-metal
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pk-metal-lab-metrics-reader
+rules:
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pk-metal-lab-metrics-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: pk-metal-lab-metrics-reader
+subjects:
+  - kind: ServiceAccount
+    name: pk-metal-lab-scraper
+    namespace: pk-metal
