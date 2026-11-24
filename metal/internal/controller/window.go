@@ -135,9 +135,18 @@ func windowCovers(w *metalv1alpha1.MaintenanceWindow, host *metalv1alpha1.Host, 
 	return cluster != "" && slices.Contains(w.Spec.Clusters, cluster)
 }
 
+// guardOverride returns the reason a person wrote into a guard-lifting
+// annotation (ignore-window, override-cluster-guard), and whether it lifts the
+// guard. Only a reason lifts it: an empty or blank value counts as not set, so
+// a bare `kubectl annotate ... key=` lifts nothing.
+func guardOverride(op *metalv1alpha1.HostOperation, key string) (string, bool) {
+	why := strings.TrimSpace(op.Annotations[key])
+	return why, why != ""
+}
+
 // windowExempt reports why an operation is not held by any window, or "".
 func windowExempt(op *metalv1alpha1.HostOperation) string {
-	if why, ok := op.Annotations[metalv1alpha1.AnnotationIgnoreWindow]; ok {
+	if why, ok := guardOverride(op, metalv1alpha1.AnnotationIgnoreWindow); ok {
 		return "annotated " + metalv1alpha1.AnnotationIgnoreWindow + ": " + why
 	}
 	if op.Spec.Reason == reasonProvisioning {
@@ -197,7 +206,8 @@ func decideWindow(windows []metalv1alpha1.MaintenanceWindow, op *metalv1alpha1.H
 	if len(broken) > 0 {
 		msg += "; cannot read " + strings.Join(broken, ", ")
 	}
-	msg += fmt.Sprintf(". To start it now: kubectl annotate hostoperation -n %s %s %s=\"<reason>\"",
+	msg += fmt.Sprintf(". To start it now: kubectl annotate --overwrite hostoperation -n %s %s %s=\"<reason>\""+
+		" (an empty reason does not count)",
 		op.Namespace, op.Name, metalv1alpha1.AnnotationIgnoreWindow)
 	until := now.Add(windowRecheck)
 	if !next.IsZero() && next.Before(until) {

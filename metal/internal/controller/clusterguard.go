@@ -42,7 +42,7 @@ import (
 // the override, and removal is still decided by the removal verdict.
 // AnnotationOverrideClusterGuard on the operation lifts rule 2, for the
 // repair of an etcd that is already broken and for a cluster with a single
-// control plane; rule 1 stays.
+// control plane; rule 1 stays. Only a non-blank value (the reason) lifts it.
 type ClusterGuard struct {
 	// Reader reads the TalosNodes, TalosClusters, Hosts and operations the
 	// verdict depends on. The manager wires its uncached API reader, for the
@@ -89,12 +89,12 @@ func (g *ClusterGuard) Check(ctx context.Context, host *metalv1alpha1.Host, op *
 	if g.Dial == nil {
 		return "", nil
 	}
-	_, overridden := op.Annotations[metalv1alpha1.AnnotationOverrideClusterGuard]
-	if overridden {
+	if _, overridden := guardOverride(op, metalv1alpha1.AnnotationOverrideClusterGuard); overridden {
 		return "", nil
 	}
 	override := fmt.Sprintf(" To take it down anyway (etcd is broken already and this is the repair, or the cluster has a single "+
-		"control plane): kubectl annotate hostoperation -n %s %s %s='<why>'", op.Namespace, op.Name, metalv1alpha1.AnnotationOverrideClusterGuard)
+		"control plane): kubectl annotate --overwrite hostoperation -n %s %s %s='<why>' (an empty reason does not count)",
+		op.Namespace, op.Name, metalv1alpha1.AnnotationOverrideClusterGuard)
 
 	acc, err := newTalosAccess(ctx, g.Reader, g.Namespace, g.Dial, cluster)
 	if err != nil {
