@@ -33,6 +33,9 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/dennisklein/platform-kit/metal/internal/talos"
 )
 
@@ -101,7 +104,9 @@ func (m *Machine) SetStage(stage string, ready bool, unmet ...string) {
 	m.stage, m.ready, m.unmet = stage, ready, unmet
 }
 
-// SetUnreachable makes every dial fail (the machine is off / unrouted).
+// SetUnreachable makes every call fail with Unavailable (the machine is off or
+// unrouted). The dial still succeeds, as the real client's does: it connects
+// only when a call is made.
 func (m *Machine) SetUnreachable(v bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -300,9 +305,11 @@ func (m *Machine) dial(t talos.Target) (talos.Client, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// An unreachable machine is not refused here: the real client connects
+	// lazily, so its dial succeeds and every call fails with Unavailable (see
+	// failure). A step that waits for a node to go away must see it the way
+	// it sees a real one.
 	switch {
-	case m.unreachable:
-		return nil, fmt.Errorf("fake: dial %s: connection refused", t.Endpoint)
 	case t.Insecure && t.Talosconfig != nil:
 		return nil, fmt.Errorf("fake: dial %s: both Insecure and Talosconfig", t.Endpoint)
 	case t.Insecure && m.stage != "maintenance":
@@ -462,6 +469,9 @@ type conn struct {
 
 // failure returns the scripted error for method. Callers hold m.mu.
 func (m *Machine) failure(method string) error {
+	if m.unreachable {
+		return status.Errorf(codes.Unavailable, "fake: %s: connection refused", method)
+	}
 	if err := m.failures[method]; err != nil {
 		return fmt.Errorf("fake: %s: %w", method, err)
 	}
@@ -529,6 +539,9 @@ func (c *conn) ApplyConfiguration(_ context.Context, machineConfig []byte, opts 
 func (c *conn) Bootstrap(_ context.Context, opts talos.BootstrapOptions) error {
 	c.m.mu.Lock()
 	defer c.m.mu.Unlock()
+	if c.m.unreachable {
+		return c.m.failure("Bootstrap") // never reaches the node, so it is not counted
+	}
 	c.m.bootstrapCalls++
 	switch {
 	case c.m.failures["Bootstrap"] != nil:
@@ -635,7 +648,7 @@ func (c *conn) EtcdRecover(_ context.Context, snapshot io.Reader) error {
 	c.m.mu.Lock()
 	defer c.m.mu.Unlock()
 	switch {
-	case c.m.failures["EtcdRecover"] != nil:
+	case c.m.unreachable, c.m.failures["EtcdRecover"] != nil:
 		return c.m.failure("EtcdRecover")
 	case c.m.etcdRunning:
 		return errors.New("fake: etcd recover: etcd is running on this node")

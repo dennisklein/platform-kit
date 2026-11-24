@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/dennisklein/platform-kit/metal/internal/talos"
 )
@@ -94,12 +96,19 @@ func TestUnreachable(t *testing.T) {
 	m := NewMachine("v1.14.6")
 	m.SetUnreachable(true)
 
-	_, err := m.Dialer()(ctx, talos.Target{Endpoint: "n1", Insecure: true})
-	require.Error(t, err)
+	// The real client connects lazily: the dial succeeds and the call fails
+	// with Unavailable, which is what the callers must recognise.
+	c, err := m.Dialer()(ctx, talos.Target{Endpoint: "n1", Insecure: true})
+	require.NoError(t, err)
+	_, err = c.Version(ctx)
+	assert.Equal(t, codes.Unavailable, status.Code(err))
+	assert.Equal(t, codes.Unavailable, status.Code(c.Bootstrap(ctx, talos.BootstrapOptions{})),
+		"a call that never arrives is not a refusal")
+	assert.Zero(t, m.BootstrapCalls(), "an unreachable node counts no call")
 
 	m.SetUnreachable(false)
-	_, err = m.Dialer()(ctx, talos.Target{Endpoint: "n1", Insecure: true})
-	require.NoError(t, err)
+	_, err = c.Version(ctx)
+	require.NoError(t, err, "the same client answers once the machine is back")
 }
 
 func TestTargetValidation(t *testing.T) {
@@ -200,8 +209,10 @@ func TestReset(t *testing.T) {
 	require.NoError(t, secure(t, fleet, "10.77.0.12").Reset(ctx, talos.ResetOptions{Graceful: true}))
 	assert.Len(t, ms[0].Etcd().Members(), 2, "a graceful reset leaves etcd")
 	assert.Empty(t, ms[1].Applied(), "STATE wiped")
-	_, err := fleet.Dialer()(ctx, talos.Target{Endpoint: "10.77.0.12", Insecure: true})
-	require.Error(t, err, "no reboot: the machine is off")
+	off, err := fleet.Dialer()(ctx, talos.Target{Endpoint: "10.77.0.12", Insecure: true})
+	require.NoError(t, err)
+	_, err = off.Version(ctx)
+	assert.Equal(t, codes.Unavailable, status.Code(err), "no reboot: the machine is off")
 	assert.Len(t, ms[1].Resets(), 1)
 }
 
@@ -272,8 +283,8 @@ func TestUpgradeRebootShutdown(t *testing.T) {
 	require.NoError(t, c.Reboot(ctx, talos.RebootOptions{Mode: talos.RebootPowerCycle}))
 	assert.Equal(t, []talos.RebootOptions{{Mode: talos.RebootPowerCycle}}, m.Reboots())
 	require.NoError(t, c.Shutdown(ctx, talos.ShutdownOptions{}))
-	_, err = m.Dialer()(ctx, talos.Target{Endpoint: "n1", Talosconfig: []byte("tc")})
-	require.Error(t, err)
+	_, err = c.Version(ctx)
+	assert.Equal(t, codes.Unavailable, status.Code(err), "the machine is off")
 }
 
 // The boot time is how the executor proves a restart: every path that

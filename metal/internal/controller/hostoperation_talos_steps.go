@@ -511,10 +511,12 @@ func (x *exec) talosReset(ctx context.Context, i int, a *metalv1alpha1.TalosRese
 			booted, err = c.BootTime(ctx)
 			return err
 		})
-		var unreach *unreachableError
 		switch {
-		case errors.As(err, &unreach):
-			return stepDone, nil // wiped or off: the cluster's credentials no longer open it
+		case unavailable(err):
+			// Wiped or off: the cluster's credentials no longer open it. The
+			// machine API client connects lazily, so a node that is gone shows
+			// as a call that fails Unavailable, not as a dial that fails.
+			return stepDone, nil
 		case err == nil && p.BootTime != nil && booted.After(p.BootTime.Time):
 			return stepDone, nil
 		}
@@ -565,7 +567,9 @@ func (x *exec) talosShutdown(ctx context.Context, i int, a *metalv1alpha1.TalosS
 	})
 	var unreach *unreachableError
 	switch {
-	case asked && errors.As(err, &unreach):
+	case asked && unavailable(err):
+		// Off. Like a reset, this shows as a failing call: the client
+		// connects lazily, so its dial succeeds whether the node is there.
 		return stepDone, nil
 	case asked:
 		return waitingOn("asked node %s to shut down; it still answers", node.Name), nil
