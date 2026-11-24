@@ -319,6 +319,17 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 				maintenanceNote(host)+"; this operation starts when it is given back: "+endMaintenanceCommand(host))
 			return ctrl.Result{}, client.IgnoreNotFound(flush())
 		}
+		// The gates before the start, in this order: an abort ends the
+		// operation (above), a rollout that does not cover it refuses it
+		// (gateRollout, above), a maintenance window holds it until one
+		// opens, and the guards hold it while taking the node down would
+		// hurt the operator or etcd (here, and again in begin). A hold sets
+		// Executed=Unknown, which a rollout reads as still running, never
+		// as failed. Work on a machine a window covers starts only while one
+		// of its windows is open (window.go).
+		if res, held, err := r.holdForWindow(ctx, op, host, setCond, flush); held {
+			return res, err
+		}
 		// A power action on a machine the operator itself runs on waits, like
 		// maintenance, until a person allows it. One already running finishes.
 		if disrupts(op) {
@@ -331,11 +342,6 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 					msg+". This operation starts once that is resolved")
 				return ctrl.Result{RequeueAfter: r.guardInterval()}, client.IgnoreNotFound(flush())
 			}
-		}
-		// Work on a machine a maintenance window covers starts only while
-		// one of its windows is open (window.go).
-		if res, held, err := r.holdForWindow(ctx, op, host, setCond, flush); held {
-			return res, err
 		}
 	}
 

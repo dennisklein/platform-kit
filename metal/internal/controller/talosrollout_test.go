@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
@@ -226,4 +227,22 @@ func TestProposerNeedsUpgradesBeforeConfig(t *testing.T) {
 func TestConfigSecretName(t *testing.T) {
 	assert.Equal(t, "machineconfig-n1-0123456789ab", configSecretNameFor("n1", "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"))
 	assert.Empty(t, configSecretNameFor("n1", "latest"))
+}
+
+// A child operation a maintenance window holds, or a guard holds, is
+// Executed=Unknown: the rollout keeps it running and fails nothing.
+func TestRolloutStepHeldByAWindowIsStillRunning(t *testing.T) {
+	ro := approvedRollout(osv1alpha1.RolloutReboot, step("w-1", osv1alpha1.RoleWorker))
+	ro.Status.Steps[0].State = osv1alpha1.RolloutNodeRunning
+	ro.Status.Steps[0].Operation = "pk-metal/r-w-1"
+	op := &metalv1alpha1.HostOperation{ObjectMeta: metav1.ObjectMeta{Namespace: "pk-metal", Name: "r-w-1"}}
+	op.Status.Conditions = []metav1.Condition{{
+		Type: metalv1alpha1.ConditionExecuted, Status: metav1.ConditionUnknown,
+		Reason: metalv1alpha1.ReasonOutsideMaintenanceWindow, Message: "waits for window nights",
+		LastTransitionTime: metav1.Now(),
+	}}
+	r := &TalosRolloutReconciler{Client: fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(op).Build()}
+	require.NoError(t, r.observeStep(t.Context(), ro, &osv1alpha1.TalosCluster{}, 0))
+	assert.Equal(t, osv1alpha1.RolloutNodeRunning, ro.Status.Steps[0].State)
+	assert.Equal(t, "waits for window nights", ro.Status.Steps[0].Message, "the rollout says why it waits")
 }
