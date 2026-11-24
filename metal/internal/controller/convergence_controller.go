@@ -98,11 +98,17 @@ func (r *ConvergenceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		setCondition(&host.Status.Conditions, host.Generation, t, s, reason, msg)
 	}
 
-	fwConverged, err := r.firmware(ctx, host, fwProfiles, setCond)
+	// Manager firmware first, then the system's, then BIOS settings: each
+	// can change what the next one offers.
+	fwConverged, err := r.firmware(ctx, host, managerProfiles(fwProfiles), setCond)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	requeue, err := r.bios(ctx, host, biosProfiles, fwConverged, setCond)
+	sysConverged, err := r.systemFirmware(ctx, host, fwProfiles, fwConverged, setCond)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	requeue, err := r.bios(ctx, host, biosProfiles, fwConverged && sysConverged, setCond)
 	if err != nil {
 		return ctrl.Result{}, err
 	}

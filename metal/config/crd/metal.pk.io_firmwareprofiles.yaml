@@ -48,7 +48,7 @@ spec:
                   format: int32
                   type: integer
                 manager:
-                  description: Manager is the desired management-controller firmware. The only firmware target so far — the flash transport is proven for the manager alone (multipart push; endpoints advertising only SimpleUpdate hold at NoUpdateTransport rather than flashing over an unproven path).
+                  description: Manager is the desired management-controller firmware. It is flashed over the multipart push the endpoint advertises; endpoints that advertise only SimpleUpdate hold at NoUpdateTransport rather than flashing over an unproven path. Flashing the manager does not stop the machine it manages.
                   properties:
                     image:
                       description: 'Image is a digest-pinned OCI reference to the firmware image (a single- layer artifact in the internal registry, e.g. registry.pk.internal:5000/firmware/x12-bmc@sha256:…). The digest is required: the executor refuses to flash bytes it cannot verify.'
@@ -95,10 +95,39 @@ spec:
                       type: object
                   type: object
                   x-kubernetes-map-type: atomic
+                system:
+                  description: 'System is the desired system firmware: BIOS/UEFI, network cards, RAID controllers, whatever the machine''s UpdateService lists in its FirmwareInventory. Each image is staged to apply at the next reset of the machine, so on a machine that runs a node the change is proposed with a drain before and a wait for the node after. System firmware converges after the manager''s and before BIOS settings (a BIOS update can change the settings it offers).'
+                  items:
+                    description: SystemFirmwareTarget is the desired version of one system component.
+                    properties:
+                      component:
+                        description: 'Component matches FirmwareInventory member ids, as a regular expression over the whole id: BIOS, NIC\.Slot\.[0-9]+, RAID.*. Ids are vendor shaped; kubectl describe managementendpoint lists the ones a machine serves. Every matching entry is brought to the version; a pattern that matches nothing holds the profile at NoMatchingComponent.'
+                        minLength: 1
+                        type: string
+                      image:
+                        description: Image is the digest-pinned OCI reference of the vendor's update package for this component.
+                        pattern: '@sha256:[a-f0-9]{64}$'
+                        type: string
+                      version:
+                        description: Version is the desired version, compared verbatim against the version the inventory entry reports.
+                        minLength: 1
+                        type: string
+                    required:
+                      - component
+                      - image
+                      - version
+                    type: object
+                  maxItems: 16
+                  type: array
+                  x-kubernetes-list-map-keys:
+                    - component
+                  x-kubernetes-list-type: map
               required:
-                - manager
                 - match
               type: object
+              x-kubernetes-validations:
+                - message: give manager, system, or both
+                  rule: has(self.manager) || (has(self.system) && size(self.system) > 0)
           required:
             - spec
           type: object

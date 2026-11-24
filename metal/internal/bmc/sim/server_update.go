@@ -42,7 +42,7 @@ func (s *Server) updateService(w http.ResponseWriter, r *http.Request) {
 		doc["MultipartHttpPushUri"] = s.f.pushURI()
 		doc["MultipartHttpPushUri@Redfish.OperationApplyTimeSupport"] = map[string]any{
 			"@odata.type":     "#Settings.v1_4_0.OperationApplyTimeSupport",
-			"SupportedValues": []string{"Immediate", "OnStartUpdateRequest"},
+			"SupportedValues": s.f.applyTimes(),
 		}
 		actions["#UpdateService.StartUpdate"] = map[string]string{
 			"target": updateServiceURI + "/Actions/UpdateService.StartUpdate",
@@ -134,6 +134,15 @@ func (s *Server) firmwareUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.accepted(w, t)
+}
+
+// applyTimes are the push URI's supported apply times.
+func (f *Fixture) applyTimes() []string {
+	times := []string{"Immediate", "OnStartUpdateRequest"}
+	if f.Update.OnReset {
+		times = append(times, "OnReset")
+	}
+	return times
 }
 
 // formPart reads one multipart part regardless of whether the sender framed it

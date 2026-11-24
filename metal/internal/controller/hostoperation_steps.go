@@ -65,6 +65,8 @@ func (x *exec) step(ctx context.Context, i int) (stepState, error) {
 		return stepDone, x.r.flashFirmware(ctx, cl, a.FlashFirmware)
 	case a.AwaitCheckIn != nil:
 		return x.awaitCheckIn(ctx, a.AwaitCheckIn)
+	case a.StageFirmware != nil:
+		return stepDone, x.stageFirmware(ctx, a.StageFirmware)
 	}
 	return stepState{}, fmt.Errorf("action carries no known key")
 }

@@ -244,6 +244,32 @@ type HostOperationAction struct {
 	// error or alarm, and none is a learner.
 	// +optional
 	WaitEtcdHealthy *WaitEtcdHealthyAction `json:"waitEtcdHealthy,omitempty"`
+
+	// StageFirmware pushes a system firmware image (BIOS/UEFI, NIC, RAID)
+	// to the BMC to apply at the machine's next reset. Staging changes
+	// nothing that runs; a reboot later in the operation applies it, and
+	// the version the inventory reports afterwards is the proof.
+	// +optional
+	StageFirmware *StageFirmwareAction `json:"stageFirmware,omitempty"`
+}
+
+// StageFirmwareAction stages one update package for some inventory entries.
+type StageFirmwareAction struct {
+	// Image is the digest-pinned OCI reference of the update package.
+	// +kubebuilder:validation:Pattern=`@sha256:[a-f0-9]{64}$`
+	Image string `json:"image"`
+
+	// Version is the version the entries report once the package applied:
+	// an entry that already reports it is not staged again.
+	// +kubebuilder:validation:MinLength=1
+	Version string `json:"version"`
+
+	// Targets are the FirmwareInventory member ids to update, fixed at
+	// proposal: the approver sees which components change.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=16
+	// +listType=set
+	Targets []string `json:"targets"`
 }
 
 // PowerCycleAction restarts the machine. It takes no fields: there is only one

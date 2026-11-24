@@ -82,7 +82,7 @@ func NewState(f *Fixture) *State {
 		resets:    map[string]int{},
 		lastReset: map[string]time.Time{},
 		progress:  map[string]string{},
-		fw:        fwState{version: f.Manager.Firmware, lastReset: f.Manager.LastResetTime, versions: map[string]string{}},
+		fw:        fwState{version: f.Manager.Firmware, lastReset: f.Manager.LastResetTime, versions: map[string]string{}, onReset: map[string]string{}},
 		bios:      map[string]*biosState{},
 		sessions:  map[string]*session{},
 		ntp:       bmc.NTPConfig{Enabled: f.NTP.Enabled, Servers: f.NTP.Servers},
@@ -321,6 +321,8 @@ func (s *State) SetPower(ctx context.Context, systemID string, action bmc.PowerA
 	// A system coming out of reset applies its staged BIOS settings — the
 	// @Redfish.Settings pending→applied edge.
 	s.applyBios(systemID)
+	// And the firmware staged for the next reset (apply time OnReset).
+	s.applyStagedFirmware()
 	return nil
 }
 

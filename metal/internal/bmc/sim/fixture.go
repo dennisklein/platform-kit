@@ -94,7 +94,13 @@ type Fixture struct {
 		// refuses further uploads and a graceful reset; StartUpdate rejects
 		// every body. False = the standard semantics: OnStartUpdateRequest
 		// stages, StartUpdate installs.
-		Wedge     bool `yaml:"wedge"`
+		Wedge bool `yaml:"wedge"`
+		// OnReset adds OnReset to the push URI's supported apply times: an
+		// upload with that apply time and an inventory entry other than the
+		// manager's as its target stages the image, and the next boot of
+		// the system installs it (the way BIOS, NIC and RAID updates apply
+		// on servers that support it).
+		OnReset   bool `yaml:"on_reset"`
 		Inventory []struct {
 			ID         string `yaml:"id"`
 			Version    string `yaml:"version"`

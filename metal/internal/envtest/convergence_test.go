@@ -73,6 +73,9 @@ func TestConvergence(t *testing.T) {
 
 	huawei, _ := simServer(t, "huawei-2288h-v5")
 	smc, smcState := simServer(t, "supermicro-x12")
+	// System firmware stages for the next reset here (before anything
+	// serves a request: the fixture is read live).
+	smcState.Fixture().Update.OnReset = true
 	registry, imageRef := fakeRegistry(t, []byte("SIMFW 02.00.00 fake x12 bmc image"))
 
 	led := writeLedger(t, `
@@ -484,7 +487,7 @@ func TestConvergence(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "x12-fw"},
 			Spec: metalv1alpha1.FirmwareProfileSpec{
 				Match:   metav1.LabelSelector{MatchLabels: map[string]string{"metal.pk.io/model": "X12DPi-N6"}},
-				Manager: metalv1alpha1.FirmwareTarget{Version: "02.00.00", Image: imageRef},
+				Manager: &metalv1alpha1.FirmwareTarget{Version: "02.00.00", Image: imageRef},
 			}}
 		require.NoError(t, cl.Create(ctx, fw))
 		h := waitHost(smcHost, func(h metalv1alpha1.Host) bool {
@@ -537,7 +540,7 @@ func TestConvergence(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "ibmc-fw"},
 			Spec: metalv1alpha1.FirmwareProfileSpec{
 				Match:   metav1.LabelSelector{MatchLabels: map[string]string{"metal.pk.io/vendor": "Huawei"}},
-				Manager: metalv1alpha1.FirmwareTarget{Version: "9.99", Image: imageRef},
+				Manager: &metalv1alpha1.FirmwareTarget{Version: "9.99", Image: imageRef},
 			}}
 		require.NoError(t, cl.Create(ctx, fw))
 		h := waitHost(huaweiHost, func(h metalv1alpha1.Host) bool {
@@ -571,6 +574,60 @@ func TestConvergence(t *testing.T) {
 			return err != nil
 		}, waitFor, tick, "the finished operation never expired")
 	})
+	st.run(t, "system firmware is staged and applied at the next reset", func(t *testing.T) {
+		sysCond := func(h metalv1alpha1.Host) *metav1.Condition {
+			return meta.FindStatusCondition(h.Status.Conditions, metalv1alpha1.ConditionSystemFirmwareConverged)
+		}
+		bad := &metalv1alpha1.FirmwareProfile{
+			ObjectMeta: metav1.ObjectMeta{Name: "x12-raid"},
+			Spec: metalv1alpha1.FirmwareProfileSpec{
+				Match:  metav1.LabelSelector{MatchLabels: map[string]string{"metal.pk.io/model": "X12DPi-N6"}},
+				System: []metalv1alpha1.SystemFirmwareTarget{{Component: "RAID.*", Version: "1", Image: imageRef}},
+			}}
+		require.NoError(t, cl.Create(ctx, bad))
+		h := waitHost(smcHost, func(h metalv1alpha1.Host) bool {
+			c := sysCond(h)
+			return c != nil && c.Reason == metalv1alpha1.ReasonNoMatchingComponent
+		})
+		assert.Contains(t, sysCond(h).Message, "BIOS", "the hold lists what the BMC does serve")
+		require.NoError(t, cl.Delete(ctx, bad))
+
+		fw := &metalv1alpha1.FirmwareProfile{
+			ObjectMeta: metav1.ObjectMeta{Name: "x12-bios-fw"},
+			Spec: metalv1alpha1.FirmwareProfileSpec{
+				Match:  metav1.LabelSelector{MatchLabels: map[string]string{"metal.pk.io/model": "X12DPi-N6"}},
+				System: []metalv1alpha1.SystemFirmwareTarget{{Component: "BIOS", Version: "02.00.00", Image: imageRef}},
+			}}
+		require.NoError(t, cl.Create(ctx, fw))
+		t.Cleanup(func() { _ = cl.Delete(ctx, fw) })
+		h = waitHost(smcHost, func(h metalv1alpha1.Host) bool {
+			c := sysCond(h)
+			return c != nil && c.Reason == metalv1alpha1.ReasonAwaitingOperation && h.Status.SystemFirmwareProposed != nil
+		})
+		ref := h.Status.SystemFirmwareProposed.Operation
+		ns, name, _ := strings.Cut(ref, "/")
+		op := metalv1alpha1.HostOperation{}
+		require.NoError(t, cl.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &op))
+		require.Len(t, op.Spec.Actions, 2, "no node runs here: staged, then a power cycle")
+		require.NotNil(t, op.Spec.Actions[0].StageFirmware)
+		assert.Equal(t, []string{"BIOS"}, op.Spec.Actions[0].StageFirmware.Targets)
+		assert.NotNil(t, op.Spec.Actions[1].PowerCycle)
+
+		approve(ref)
+		waitOpSucceeded(ref)
+		waitHost(smcHost, func(h metalv1alpha1.Host) bool {
+			c := sysCond(h)
+			return c != nil && c.Status == metav1.ConditionTrue && h.Status.SystemFirmwareProposed == nil
+		})
+		inv, err := smcState.FirmwareInventory(ctx)
+		require.NoError(t, err)
+		for _, e := range inv {
+			if e.ID == "BIOS" {
+				assert.Equal(t, "02.00.00", e.Version, "the reset installed the staged image")
+			}
+		}
+	})
+
 	st.run(t, "a running node is drained around a BIOS change", func(t *testing.T) {
 		// The claim records that the machine runs a control plane: the
 		// install is done, so a BIOS change must move the node's work off

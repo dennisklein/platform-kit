@@ -945,7 +945,8 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `match` _[LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#labelselector-v1-meta)_ | Match selects Hosts by label (same two axes as BiosProfile.spec.match). |  |  |
 | `layer` _integer_ | Layer orders overlapping profiles exactly as on BiosProfile: (layer, name)<br />merge order, later overrides, same-layer disagreement is a conflict. | 0 | Optional: \{\} <br /> |
-| `manager` _[FirmwareTarget](#firmwaretarget)_ | Manager is the desired management-controller firmware. The only firmware<br />target so far — the flash transport is proven for the manager alone<br />(multipart push; endpoints advertising only SimpleUpdate hold at<br />NoUpdateTransport rather than flashing over an unproven path). |  |  |
+| `manager` _[FirmwareTarget](#firmwaretarget)_ | Manager is the desired management-controller firmware. It is flashed<br />over the multipart push the endpoint advertises; endpoints that<br />advertise only SimpleUpdate hold at NoUpdateTransport rather than<br />flashing over an unproven path. Flashing the manager does not stop the<br />machine it manages. |  | Optional: \{\} <br /> |
+| `system` _[SystemFirmwareTarget](#systemfirmwaretarget) array_ | System is the desired system firmware: BIOS/UEFI, network cards, RAID<br />controllers, whatever the machine's UpdateService lists in its<br />FirmwareInventory. Each image is staged to apply at the next reset of<br />the machine, so on a machine that runs a node the change is proposed<br />with a drain before and a wait for the node after. System firmware<br />converges after the manager's and before BIOS settings (a BIOS update<br />can change the settings it offers). |  | MaxItems: 16 <br />Optional: \{\} <br /> |
 
 
 #### FirmwareTarget
@@ -1106,6 +1107,7 @@ _Appears in:_
 | `talosReset` _[TalosResetAction](#talosresetaction)_ | TalosReset wipes the node through Talos, back towards maintenance<br />mode. |  | Optional: \{\} <br /> |
 | `waitNodeReady` _[WaitNodeReadyAction](#waitnodereadyaction)_ | WaitNodeReady waits, changing nothing, until the node runs and is<br />ready: Talos stage running with every readiness condition met, and its<br />Kubernetes Node Ready. |  | Optional: \{\} <br /> |
 | `waitEtcdHealthy` _[WaitEtcdHealthyAction](#waitetcdhealthyaction)_ | WaitEtcdHealthy waits, changing nothing, until the etcd cluster of the<br />node's TalosCluster is healthy: every member answers, none reports an<br />error or alarm, and none is a learner. |  | Optional: \{\} <br /> |
+| `stageFirmware` _[StageFirmwareAction](#stagefirmwareaction)_ | StageFirmware pushes a system firmware image (BIOS/UEFI, NIC, RAID)<br />to the BMC to apply at the machine's next reset. Staging changes<br />nothing that runs; a reboot later in the operation applies it, and<br />the version the inventory reports afterwards is the proof. |  | Optional: \{\} <br /> |
 
 
 #### HostOperationSpec
@@ -1234,6 +1236,7 @@ _Appears in:_
 | `managedBy` _[ManagementPath](#managementpath) array_ | ManagedBy lists the ways to reach the machine — usually one BMC. |  | Optional: \{\} <br /> |
 | `lastResetTime` _[MicroTime](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#microtime-v1-meta)_ | LastResetTime is when the BMC last saw the machine reset. When it moves<br />and no operation explains it, the Drifted condition says somebody reset<br />the machine another way (ipmitool, the BMC web page, the power button).<br />Not every BMC reports it (Huawei iBMC does not); drift is then not<br />detected. |  | Optional: \{\} <br /> |
 | `firmwareProposed` _[ProposedPlan](#proposedplan)_ | FirmwareProposed remembers the last firmware plan proposed for this<br />machine, so the same plan is not proposed twice. Written by the<br />firmware lane only. |  | Optional: \{\} <br /> |
+| `systemFirmwareProposed` _[ProposedPlan](#proposedplan)_ | SystemFirmwareProposed is the system-firmware lane's plan memory, the<br />same guard as firmwareProposed for the components a reset applies. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions are the truth — the only thing reconcilers branch on. |  | Optional: \{\} <br /> |
 | `phase` _[HostPhase](#hostphase)_ | Phase summarizes the conditions below for people and for kubectl columns.<br />It is a summary, not the contract: automation should read conditions. |  | Enum: [Enrolling Inspecting Available Assigned Provisioning Provisioned Releasing Failed Maintenance] <br />Optional: \{\} <br /> |
 | `blockedOn` _string_ | BlockedOn says why the host is not moving on (Approval(Provisioning),<br />SerialMismatch, HostInMaintenance); a reason, not a phase, because it<br />can happen in any phase. |  | Optional: \{\} <br /> |
@@ -1703,6 +1706,42 @@ _Appears in:_
 | `target` _string_ | Target is the boot source (UsbCd, Cd, Pxe, …) — validated against the<br />endpoint's discovered AllowableValues at execution, not at admission. |  |  |
 | `once` _boolean_ | Once limits the override to the next boot (the default); false is Continuous. | true | Optional: \{\} <br /> |
 | `mode` _string_ | Mode is the firmware boot mode for the override. Omitted leaves the<br />machine's own setting alone (some firmware rejects the property). |  | Enum: [UEFI Legacy] <br />Optional: \{\} <br /> |
+
+
+#### StageFirmwareAction
+
+
+
+StageFirmwareAction stages one update package for some inventory entries.
+
+
+
+_Appears in:_
+- [HostOperationAction](#hostoperationaction)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `image` _string_ | Image is the digest-pinned OCI reference of the update package. |  | Pattern: `@sha256:[a-f0-9]\{64\}$` <br /> |
+| `version` _string_ | Version is the version the entries report once the package applied:<br />an entry that already reports it is not staged again. |  | MinLength: 1 <br /> |
+| `targets` _string array_ | Targets are the FirmwareInventory member ids to update, fixed at<br />proposal: the approver sees which components change. |  | MaxItems: 16 <br />MinItems: 1 <br /> |
+
+
+#### SystemFirmwareTarget
+
+
+
+SystemFirmwareTarget is the desired version of one system component.
+
+
+
+_Appears in:_
+- [FirmwareProfileSpec](#firmwareprofilespec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `component` _string_ | Component matches FirmwareInventory member ids, as a regular expression<br />over the whole id: BIOS, NIC\.Slot\.[0-9]+, RAID.*. Ids are vendor<br />shaped; kubectl describe managementendpoint lists the ones a machine<br />serves. Every matching entry is brought to the version; a pattern that<br />matches nothing holds the profile at NoMatchingComponent. |  | MinLength: 1 <br /> |
+| `version` _string_ | Version is the desired version, compared verbatim against the version<br />the inventory entry reports. |  | MinLength: 1 <br /> |
+| `image` _string_ | Image is the digest-pinned OCI reference of the vendor's update<br />package for this component. |  | Pattern: `@sha256:[a-f0-9]\{64\}$` <br /> |
 
 
 #### SystemPartition

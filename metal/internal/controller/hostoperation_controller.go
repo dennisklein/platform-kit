@@ -786,7 +786,7 @@ func (r *HostOperationReconciler) recordBootStart(ctx context.Context, op *metal
 // passTimeout budgets one executor pass by what it runs.
 func passTimeout(op *metalv1alpha1.HostOperation) time.Duration {
 	for _, a := range op.Spec.Actions {
-		if a.FlashFirmware != nil {
+		if a.FlashFirmware != nil || a.StageFirmware != nil {
 			return flashTimeout
 		}
 	}
@@ -986,6 +986,7 @@ type pathClient struct {
 var implementedActions = map[string]bool{
 	"powerCycle": true, "powerOff": true, "setBootOverride": true, "insertMedia": true,
 	"ejectMedia": true, "applyBios": true, "flashFirmware": true, "awaitCheckIn": true,
+	"stageFirmware": true,
 }
 
 // unimplementedAction returns the index and key of the first action step

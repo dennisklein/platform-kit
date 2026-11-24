@@ -3,6 +3,20 @@ package v1alpha1
 // Reasons added for day-2 convergence and scheduling. They live apart from
 // conditions.go so that each concern's reasons are found next to each other.
 const (
+	// ConditionSystemFirmwareConverged: on a Host, whether the system
+	// firmware (BIOS/UEFI, NIC, RAID) its FirmwareProfiles ask for is what
+	// the inventory reports. Absent when no profile asks for any.
+	ConditionSystemFirmwareConverged = "SystemFirmwareConverged"
+
+	// ReasonNoMatchingComponent on SystemFirmwareConverged=False: a profile
+	// names a component that no FirmwareInventory entry of the machine
+	// matches. Nothing is proposed for a component that cannot be found.
+	ReasonNoMatchingComponent = "NoMatchingComponent"
+
+	// OperationReasonSystemFirmwareConvergence is the spec.reason of a
+	// proposal that stages system firmware.
+	OperationReasonSystemFirmwareConvergence = "SystemFirmwareConvergence"
+
 	// ReasonInstalledNodeMissing on BiosConverged=False or
 	// FirmwareConverged=False: the host's claim says it runs a TalosNode
 	// that no longer exists. The node cannot be drained, so no change that
