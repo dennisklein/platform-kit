@@ -74,10 +74,13 @@ jobs:
   # The kind tier of test/e2e: a simulated BMC driving a real Talos
   # container, managers in process against a kind cluster. It needs docker
   # and no KVM, so a hosted runner runs it. It pulls the Talos image and takes
-  # minutes, so it runs on main only.
+  # minutes, so it runs on pushes to main and to metal, the development
+  # branch, only.
   e2e-kind:
     name: e2e (kind tier)
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/metal')
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
