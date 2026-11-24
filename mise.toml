@@ -199,18 +199,14 @@ description = "Unattended: delete a claim (namespace/name), approve its shutdown
 run = "lab/lab.sh release"
 
 [tasks."lab:day2"]
-description = "Unattended, on a converged lab: reboot a worker and a control plane with pk-metal reboot, approved by a second user"
+description = "Unattended, on a converged lab: reboot a worker and a control plane with pk-metal reboot, approved by a second user, then roll a node label (no reboot) through an approved Config rollout"
 depends = ["build"]
 run = "lab/lab.sh day2"
 
-[tasks."lab:observe"]
-description = "On a converged lab: check the CLUSTER/NODE tables of pk-metal status, the operator's metrics, and a maintenance window holding an approved operation until it opens"
-run = "lab/lab.sh observe"
-
-[tasks."lab:pivot"]
-description = "Unattended: move the operator from kind onto the first Talos cluster, delete kind, and install the second cluster (PK_LAB_WORKLOAD) from there"
+[tasks."lab:upgrade"]
+description = "Unattended day 2: upgrade a lab brought up on an older Talos (PK_LAB_TALOS=v1.14.5) to the spec's release through an approved rollout"
 depends = ["build"]
-run = "lab/lab.sh pivot"
+run = "lab/lab.sh upgrade"
 
 [tasks."lab:scale"]
 description = "Unattended day 2 on a 3cp+2w lab: control planes 3 -> 1 -> 3, remove a worker, replace a control plane, back to 1"
@@ -221,15 +217,15 @@ run = "lab/lab.sh scale"
 description = "Unattended day 2: back up the first cluster's etcd, wipe it on every control plane, and restore it through pk-metal restore"
 depends = ["build"]
 run = "lab/lab.sh backup-restore"
-[tasks."lab:day2-upgrade"]
-description = "Unattended: upgrade a lab brought up on an older Talos (PK_LAB_TALOS=v1.14.5) to the spec's release through an approved rollout"
-depends = ["build"]
-run = "lab/lab.sh day2-upgrade"
 
-[tasks."lab:day2-config-change"]
-description = "Unattended: roll a node label (no reboot) through an approved Config rollout and check no machine rebooted"
+[tasks."lab:observe"]
+description = "On a converged lab: check the CLUSTER/NODE tables of pk-metal status, the operator's metrics, and a maintenance window holding an approved operation until it opens"
+run = "lab/lab.sh observe"
+
+[tasks."lab:pivot"]
+description = "Unattended: move the operator from kind onto the first Talos cluster, delete kind, and install the second cluster (PK_LAB_WORKLOAD) from there"
 depends = ["build"]
-run = "lab/lab.sh day2-config-change"
+run = "lab/lab.sh pivot"
 
 [tasks."lab:collect"]
 description = "Write logs and object dumps of the lab to .lab/diagnostics"

@@ -34,11 +34,20 @@
 # That run pulls the imager image (about 270 MB) and builds an ISO of about
 # 370 MB on top of the default run, so it is not the default.
 #
-# A run started by hand with day2 set also reboots a worker and then a control
-# plane the way a person would (lab/lab.sh day2): pk-metal reboot proposes,
-# a second user approves, and the run checks on the workload cluster that each
-# node booted again and is Ready and schedulable. It runs before the release,
-# while every machine still runs its node.
+# The day-2 rounds run on request only, each behind its own input, all
+# default false (docs/metal/day2.md lists them):
+#
+# - day2, in this lab job before the release, while every machine still runs
+#   its node (lab/lab.sh day2): a worker and then a control plane are
+#   rebooted the way a person would (pk-metal reboot proposes, a second user
+#   approves; the run checks each node booted again and is Ready and
+#   schedulable), then a node label reaches every machine through an approved
+#   Config rollout, and no machine may reboot for it.
+# - observe, in this lab job too: the status tables, the operator's metrics
+#   and a maintenance window that holds an approved operation until it opens.
+# - upgrade, in its own job: a lab brought up one Talos release behind is
+#   upgraded through an approved rollout.
+# - backup_restore and scale, in their own jobs, above.
 name: lab-e2e
 
 on:
@@ -53,27 +62,23 @@ on:
         type: boolean
         default: false
       day2:
-        description: "Also run the day-2 round: reboot a worker and a control plane with pk-metal reboot (cordon, drain, Talos reboot, uncordon)"
+        description: "Day 2 in the main job: reboot a worker and a control plane with pk-metal reboot, then roll a node label (no reboot) through an approved Config rollout"
+        type: boolean
+        default: false
+      upgrade:
+        description: "Day 2 in its own job: bring a lab up on an older Talos release and upgrade it through an approved rollout"
         type: boolean
         default: false
       backup_restore:
-        description: "Also run the etcd disaster-recovery round: back up a one-machine cluster, wipe its etcd, restore it with pk-metal restore"
+        description: "Day 2 in its own job, the etcd disaster-recovery round: back up a one-machine cluster, wipe its etcd, restore it with pk-metal restore"
         type: boolean
         default: false
       scale:
-        description: "Also run the scale round on five machines: control planes 3 -> 1 -> 3, remove a worker, replace a control plane, back to 1"
-        type: boolean
-        default: false
-      day2_config_change:
-        description: "Day 2: after the install, roll a node label (no reboot) through an approved Config rollout"
-        type: boolean
-        default: false
-      day2_upgrade:
-        description: "Day 2: bring a lab up on an older Talos release and upgrade it through an approved rollout"
+        description: "Day 2 in its own job, the scale round on five machines: control planes 3 -> 1 -> 3, remove a worker, replace a control plane, back to 1"
         type: boolean
         default: false
       observe:
-        description: "After the install, check the day-2 views: status cluster and node tables, operator metrics, a maintenance window holding an operation"
+        description: "Day 2 in the main job, after the install: check the views: status cluster and node tables, operator metrics, a maintenance window holding an operation"
         type: boolean
         default: false
   push:
@@ -93,8 +98,9 @@ jobs:
     runs-on: ubuntu-latest
     # Doctor and up take about ten minutes on a cold runner, the wait is capped
     # at forty, and a failed run still needs time to collect its evidence. The
-    # day-2 round adds two reboots of at most twenty minutes each.
-    timeout-minutes: ${{ inputs.day2 && 115 || 75 }}
+    # day-2 round adds two reboots of at most twenty minutes each and a
+    # config rollout without reboots; observe adds about three minutes.
+    timeout-minutes: ${{ inputs.day2 && 135 || inputs.observe && 85 || 75 }}
     env:
       # A hosted runner promises 14 GB of free disk. The lab's sparse disks, the
       # installer image and the container images stay well below that.
@@ -165,19 +171,14 @@ jobs:
           mise run lab:kubeconfig
           kubectl --kubeconfig .lab/workload.kubeconfig get nodes --output wide
 
-      - name: Reboot a worker and a control plane through pk-metal reboot
-        if: inputs.day2
+      # Reboots through pk-metal reboot, then a change that needs no reboot
+      # through a Config rollout: the operator sees the drift in its dry run,
+      # proposes, and the run approves and resumes it as a person would.
+      - name: "Day 2: reboot a worker and a control plane, then a config change without a reboot"
+        if: github.event_name == 'workflow_dispatch' && inputs.day2
         run: |
           mise run lab:day2
           mise run lab:status
-
-      # A change that needs no reboot reaches the running machines through a
-      # Config rollout: the operator sees the drift in its dry run, proposes,
-      # and the run approves and resumes it as a person would.
-      - name: "Day 2: a config change without a reboot"
-        if: github.event_name == 'workflow_dispatch' && inputs.day2_config_change
-        run: |
-          mise run lab:day2-config-change
           metal/bin/pk-metal --kubeconfig .lab/kubeconfig rollout list
 
       # About three minutes: the window it creates opens two minutes later.
@@ -426,9 +427,9 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  day2-upgrade:
+  upgrade:
     name: "day 2: upgrade Talos through a rollout"
-    if: github.event_name == 'workflow_dispatch' && inputs.day2_upgrade
+    if: github.event_name == 'workflow_dispatch' && inputs.upgrade
     runs-on: ubuntu-latest
     # Install, then a drain, an upgrade and a reboot per machine.
     timeout-minutes: 120
@@ -436,7 +437,7 @@ jobs:
       PK_LAB_MIN_FREE_GIB: "10"
       PK_LAB_WAIT_TIMEOUT: "2400"
       PK_LAB_ROLLOUT_TIMEOUT: "3000"
-      # The lab comes up one patch release behind the spec; lab:day2-upgrade
+      # The lab comes up one patch release behind the spec; lab:upgrade
       # upgrades it to the spec's release.
       PK_LAB_TALOS: "v1.14.5"
       PK_LAB_NODES: "1cp+1w"
@@ -481,7 +482,7 @@ jobs:
 
       - name: Upgrade it through an approved rollout
         run: |
-          mise run lab:day2-upgrade
+          mise run lab:upgrade
           mise run lab:status
 
       - name: Collect diagnostics
@@ -492,7 +493,7 @@ jobs:
         if: failure() || cancelled()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: lab-day2-upgrade-diagnostics
+          name: lab-upgrade-diagnostics
           path: .lab/diagnostics
           if-no-files-found: warn
           retention-days: 7

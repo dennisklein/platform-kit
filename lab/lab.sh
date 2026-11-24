@@ -27,14 +27,13 @@ HELP="usage: $SCRIPT <verb>
                delete a claim, approve the shutdown it proposes, and wait until its
                Host is Available again
   day2         on a converged lab: reboot a worker and a control plane with pk-metal
-               reboot, approved by a second user, and check each came back
-  scale        on a converged lab at PK_LAB_NODES=3cp+2w: control planes 3 -> 1 -> 3,
-               remove a worker, replace a control plane, back to 1; approves as wait does
-  day2-upgrade upgrade a lab brought up on an older Talos (PK_LAB_TALOS) to the spec's
-               release through an approved rollout, and check every machine runs it
-  day2-config-change
+               reboot, approved by a second user, and check each came back; then
                add a node label (no reboot) through an approved Config rollout, and
                check that every node has it and that no machine rebooted
+  upgrade      upgrade a lab brought up on an older Talos (PK_LAB_TALOS) to the spec's
+               release through an approved rollout, and check every machine runs it
+  scale        on a converged lab at PK_LAB_NODES=3cp+2w: control planes 3 -> 1 -> 3,
+               remove a worker, replace a control plane, back to 1; approves as wait does
   observe      check the day-2 views of a converged lab: the CLUSTER and NODE tables of
                pk-metal status, the operator's metrics, and a maintenance window that
                holds an approved operation until it opens
@@ -66,7 +65,7 @@ environment variables:
   PK_LAB_DAY2_TIMEOUT   seconds day2 gives each reboot (default: 1200)
   PK_LAB_MIN_FREE_GIB   free disk doctor asks for under PK_LAB_DIR (default: 15)
   PK_LAB_TALOS          start the lab on this Talos release instead of the spec's, e.g.
-                        v1.14.5, so that day2-upgrade has something to upgrade
+                        v1.14.5, so that upgrade has something to upgrade
   PK_LAB_ROLLOUT_TIMEOUT
                         seconds a day-2 rollout may take (default: 2400)
   PK_LAB_KIND_CONFIG    the kind cluster definition (default: <repo>/lab/kind.yaml);
@@ -89,7 +88,7 @@ DAY2_TIMEOUT=${PK_LAB_DAY2_TIMEOUT:-1200}
 MIN_FREE_GIB=${PK_LAB_MIN_FREE_GIB:-15}
 KIND_CONFIG=${PK_LAB_KIND_CONFIG:-$ROOT/lab/kind.yaml}
 ROLLOUT_TIMEOUT=${PK_LAB_ROLLOUT_TIMEOUT:-2400}
-# The spec as committed (or as PK_LAB_SPEC names it): day2-upgrade upgrades to
+# The spec as committed (or as PK_LAB_SPEC names it): upgrade upgrades to
 # its release, also when the lab came up on an older one through PK_LAB_TALOS.
 TARGET_SPEC=$SPEC
 
@@ -1148,21 +1147,18 @@ day2_reboot() {
   day2_reboot_node "$root" "$lab_dir" "$proposer" "$cp" "$override" "$timeout"
 }
 
-# Placeholders for the rolling upgrade and the node add and remove rounds,
-# which come with their own operations; until then they say so and pass.
-day2_rollout() { note "day2: no rolling upgrade round in this lab yet"; }
-day2_lifecycle() { note "day2: no node add and remove round in this lab yet"; }
-
-# The day-2 rounds on a converged lab, in an order where each leaves the
-# cluster whole for the next.
+# The day-2 rounds that run on the lab as it converged, in an order where
+# each leaves the cluster whole for the next: reboots, then a config change
+# that must not reboot. The rounds that need another lab have their own verbs:
+# upgrade (a lab on an older Talos), scale (five machines), backup-restore
+# (one machine, its etcd wiped) and observe (a maintenance window).
 day2() {
-  local root=$1 lab_dir=$2 gen=$3 timeout=$4
+  local root=$1 lab_dir=$2 gen=$3 timeout=$4 rollout_timeout=$5
   require_cluster "$lab_dir"
   kubeconfig_fetch "$(lab_value "$gen" TALOS_CLUSTER)" "$lab_dir/workload.kubeconfig" "$lab_dir/talosconfig" \
     || die "the workload cluster has published no kubeconfig yet. Converge the lab first: mise run lab:wait"
   day2_reboot "$root" "$lab_dir" "$gen" "$timeout"
-  day2_rollout
-  day2_lifecycle
+  day2_config_change "$root" "$lab_dir" "$gen" "$rollout_timeout"
 }
 
 # ---------------------------------------------------------------- day 2: scale
@@ -1325,7 +1321,7 @@ day2_scale() {
 # ---------------------------------------------------------------- day 2: rollouts
 
 # Prints the spec with another Talos release, for a lab that starts on an
-# older one so that day2-upgrade has something to upgrade. The copy lives in
+# older one so that upgrade has something to upgrade. The copy lives in
 # the lab directory; the committed spec stays as it is.
 spec_at_talos() {
   local spec=$1 version=$2 lab_dir=$3 out
@@ -2095,7 +2091,7 @@ main() {
       ;;
     day2)
       require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
-      day2 "$ROOT" "$LAB_DIR" "$GEN" "$DAY2_TIMEOUT"
+      day2 "$ROOT" "$LAB_DIR" "$GEN" "$DAY2_TIMEOUT" "$ROLLOUT_TIMEOUT"
       ;;
     scale)
       require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
@@ -2110,13 +2106,9 @@ main() {
       require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
       day2_backup_restore "$ROOT" "$LAB_DIR" "$GEN" "$NAMESPACE" "$DEPLOYMENT" "$WAIT_TIMEOUT"
       ;;
-    day2-upgrade)
+    upgrade)
       require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
       day2_upgrade "$ROOT" "$LAB_DIR" "$GEN" "$ROLLOUT_TIMEOUT" "$TARGET_SPEC"
-      ;;
-    day2-config-change)
-      require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
-      day2_config_change "$ROOT" "$LAB_DIR" "$GEN" "$ROLLOUT_TIMEOUT"
       ;;
     collect)
       require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
