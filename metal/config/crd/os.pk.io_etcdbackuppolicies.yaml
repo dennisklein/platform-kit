@@ -1,0 +1,244 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: etcdbackuppolicies.os.pk.io
+spec:
+  group: os.pk.io
+  names:
+    categories:
+      - metal
+      - os
+    kind: EtcdBackupPolicy
+    listKind: EtcdBackupPolicyList
+    plural: etcdbackuppolicies
+    singular: etcdbackuppolicy
+  scope: Cluster
+  versions:
+    - additionalPrinterColumns:
+        - jsonPath: .spec.clusterRef.name
+          name: Cluster
+          type: string
+        - jsonPath: .spec.interval
+          name: Interval
+          type: string
+        - jsonPath: .status.lastSuccessfulSnapshot.takenAt
+          name: Last
+          type: date
+        - jsonPath: .status.consecutiveFailures
+          name: Failures
+          type: integer
+        - jsonPath: .status.conditions[?(@.type=="BackedUp")].status
+          name: BackedUp
+          type: string
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: 'EtcdBackupPolicy takes encrypted etcd snapshots of one TalosCluster on a schedule and keeps a bounded number of them. Each snapshot is recorded as an EtcdSnapshot. Taking a snapshot reads etcd and changes no machine, so it needs no approval; restoring one does (docs site: operate/day-2/restore-etcd).'
+          properties:
+            apiVersion:
+              description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+              type: string
+            kind:
+              description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: EtcdBackupPolicySpec says how often to snapshot one cluster's etcd, how long to keep the snapshots, where to keep them and whom to encrypt them for.
+              properties:
+                clusterRef:
+                  description: ClusterRef names the TalosCluster whose etcd is backed up.
+                  properties:
+                    name:
+                      type: string
+                  required:
+                    - name
+                  type: object
+                  x-kubernetes-validations:
+                    - message: 'clusterRef is frozen: create another policy for another cluster'
+                      rule: self == oldSelf
+                encryption:
+                  description: Encryption names who can read the snapshots.
+                  properties:
+                    ageRecipients:
+                      description: AgeRecipients are age public keys (age1..., from age-keygen -y). Any one of their identities decrypts a snapshot; the operator holds none, so it cannot. Name at least two people or a person and a key kept offline, so that a restore does not hang on one key. Post-quantum keys (age1pq1...) cannot be mixed with classic ones.
+                      items:
+                        pattern: ^age1[0-9a-z]+$
+                        type: string
+                      maxItems: 16
+                      minItems: 1
+                      type: array
+                      x-kubernetes-list-type: set
+                  required:
+                    - ageRecipients
+                  type: object
+                interval:
+                  description: 'Interval is the time between scheduled snapshots (6h, 30m). At least 5m: a snapshot reads the whole database from one member.'
+                  type: string
+                  x-kubernetes-validations:
+                    - message: interval must be at least 5m
+                      rule: duration(self) >= duration('5m')
+                retention:
+                  description: Retention bounds how many snapshots are kept, and for how long.
+                  properties:
+                    count:
+                      default: 14
+                      description: Count is how many verified snapshots to keep, the newest.
+                      format: int32
+                      maximum: 1000
+                      minimum: 1
+                      type: integer
+                    maxAge:
+                      description: MaxAge deletes verified snapshots older than this (168h for a week). Unset keeps any age, up to Count.
+                      type: string
+                      x-kubernetes-validations:
+                        - message: maxAge must be at least 1h
+                          rule: duration(self) >= duration('1h')
+                  type: object
+                sink:
+                  description: Sink is where the encrypted snapshots are stored.
+                  properties:
+                    pvc:
+                      description: 'PVC stores snapshots on the operator''s backup volume (the config/etcd-backup component mounts a PersistentVolumeClaim into the manager). Refused for the cluster the operator itself runs on: that volume lives on the etcd it would back up, and is lost with it.'
+                      type: object
+                    s3:
+                      description: 'S3 stores snapshots in a bucket of an S3-compatible object store, off the cluster: the sink for production.'
+                      properties:
+                        bucket:
+                          description: Bucket must exist; the operator does not create it.
+                          maxLength: 63
+                          minLength: 3
+                          type: string
+                        caSecretRef:
+                          description: CASecretRef names a Secret in the operator's namespace whose key ca.crt (PEM) replaces the system roots for the endpoint.
+                          properties:
+                            name:
+                              type: string
+                          required:
+                            - name
+                          type: object
+                        credentialsSecretRef:
+                          description: CredentialsSecretRef names a Secret in the operator's namespace with keys accessKeyID and secretAccessKey. Give the key write, read, list and delete on the bucket (or the prefix) and nothing else.
+                          properties:
+                            name:
+                              type: string
+                          required:
+                            - name
+                          type: object
+                        endpoint:
+                          description: Endpoint is the store's URL, https://host[:port] (https://s3.eu-central-1.amazonaws.com, https://minio.example:9000). http:// works for a store on a trusted network; the snapshots are encrypted either way, the store's credentials are not.
+                          pattern: ^https?://[^/]+/?$
+                          type: string
+                        pathStyle:
+                          description: PathStyle sends requests as https://host/bucket/key, which most stores other than AWS need.
+                          type: boolean
+                        prefix:
+                          description: Prefix goes in front of every key; the key is <prefix><cluster>/<snapshot>.db.age.
+                          pattern: ^([^/].*/)?$
+                          type: string
+                        region:
+                          description: Region of the bucket; empty lets the client ask the store.
+                          type: string
+                      required:
+                        - bucket
+                        - credentialsSecretRef
+                        - endpoint
+                      type: object
+                  type: object
+                  x-kubernetes-validations:
+                    - message: set exactly one of s3 or pvc
+                      rule: has(self.s3) != has(self.pvc)
+                suspend:
+                  description: Suspend stops scheduled snapshots; pk-metal backup now still takes one, and retention still prunes.
+                  type: boolean
+              required:
+                - clusterRef
+                - encryption
+                - interval
+                - sink
+              type: object
+            status:
+              description: EtcdBackupPolicyStatus is the backup state of the cluster.
+              properties:
+                conditions:
+                  description: 'Conditions: Ready (the sink and recipients can be used) and BackedUp (a verified snapshot newer than twice the interval exists).'
+                  items:
+                    description: Condition contains details for one aspect of the current state of this API Resource.
+                    properties:
+                      lastTransitionTime:
+                        description: lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                        format: date-time
+                        type: string
+                      message:
+                        description: message is a human readable message indicating details about the transition. This may be an empty string.
+                        maxLength: 32768
+                        type: string
+                      observedGeneration:
+                        description: observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      reason:
+                        description: reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty.
+                        maxLength: 1024
+                        minLength: 1
+                        pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                        type: string
+                      status:
+                        description: status of the condition, one of True, False, Unknown.
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                        type: string
+                      type:
+                        description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                        maxLength: 316
+                        pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                        type: string
+                    required:
+                      - lastTransitionTime
+                      - message
+                      - reason
+                      - status
+                      - type
+                    type: object
+                  type: array
+                  x-kubernetes-list-map-keys:
+                    - type
+                  x-kubernetes-list-type: map
+                consecutiveFailures:
+                  description: ConsecutiveFailures counts the snapshots that failed since the newest verified one.
+                  format: int32
+                  type: integer
+                lastScheduleTime:
+                  description: LastScheduleTime is when the last scheduled snapshot was started.
+                  format: date-time
+                  type: string
+                lastSuccessfulSnapshot:
+                  description: LastSuccessfulSnapshot is the newest verified snapshot.
+                  properties:
+                    name:
+                      type: string
+                    takenAt:
+                      format: date-time
+                      type: string
+                  required:
+                    - name
+                    - takenAt
+                  type: object
+                verifiedSnapshots:
+                  description: VerifiedSnapshots counts the verified snapshots kept.
+                  format: int32
+                  type: integer
+              type: object
+          required:
+            - spec
+          type: object
+      served: true
+      storage: true
+      subresources:
+        status: {}
