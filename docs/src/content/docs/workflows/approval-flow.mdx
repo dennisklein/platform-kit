@@ -1,0 +1,76 @@
+---
+title: Approval flow
+description: The operator proposes a change. A second person reads the plan and approves it. Then the operator runs it.
+type: workflow
+xref: { cat: flow, id: approval-flow }
+sidebar:
+  order: 2
+sources:
+  - /repo/metal/config/policy/hostoperation-approval.yaml
+  - /repo/metal/internal/controller/hostoperation_controller.go
+---
+
+import ApprovalFlow from '../../../components/explainers/ApprovalFlow.astro';
+import Callout from '../../../components/Callout.astro';
+
+Each change to a machine goes through the same gate.
+A controller proposes a [](kind:HostOperation), a person approves it, and only then the executor runs it.
+[](concept:approval) explains why.
+
+<ApprovalFlow />
+
+## Steps
+
+1. A controller proposes a HostOperation. Its phase is `AwaitingApproval`.
+2. Find the operations that wait with [](cli:status) or [](cli:top).
+3. Read the plan and approve it with [](cli:approve). You cannot approve your own proposal.
+4. The [](ctrl:hostoperation) checks the gates before the start, in this sequence:
+   1. an abort ends the operation;
+   2. a [](kind:TalosRollout) must cover the operation, if it names one;
+   3. only one operation runs on a Host at a time;
+   4. a Host in maintenance mode holds the operation;
+   5. a [](kind:MaintenanceWindow) holds it until a window opens;
+   6. [](concept:self-protection) and the [](concept:cluster-guard) hold power actions.
+5. The executor runs the actions one at a time. See [](act:index).
+6. The operation ends as `Succeeded`, `Failed` or `Aborted`.
+
+## Your commands
+
+| You want to | Command | Effect |
+| --- | --- | --- |
+| See what waits | [](cli:status) | Lists operations in `AwaitingApproval` |
+| Approve | [](cli:approve) | Writes `spec.approval.approvedBy` with your name |
+| Stop new proposals for a claim | [](cli:hold) | Sets `metal.pk.io/hold` on the claim |
+| Allow proposals again | [](cli:unhold) | Removes the hold |
+| Stop an approved operation | [](cli:abort) | Stops before the next action and undoes media, boot override and cordon |
+| Try a failed operation again | [](cli:retry) | Deletes it, the operator proposes it again |
+
+<Callout type="note">
+If you delete a proposed operation, the operator proposes the same plan again.
+To say no, hold the claim or remove `spec.os` from the claim.
+</Callout>
+
+## Who may do what
+
+<dl>
+  <dt>Proposer</dt>
+  <dd>The name in `spec.proposedBy`. The admission policy makes sure that it is the user who writes the object.</dd>
+  <dt>Approver</dt>
+  <dd>A user with the ClusterRole `pk-metal-approver`. The approver must not be the proposer.</dd>
+  <dt>Admin</dt>
+  <dd>A member of the admin group, `pk-metal:admins` by default. Only an admin can give a claim `spec.os` or set its approval to Automatic.</dd>
+  <dt>Approval</dt>
+  <dd>Write once. Nobody can change it after it is written.</dd>
+</dl>
+
+## Rollouts
+
+A [](kind:TalosRollout) has one approval for the full plan.
+The operations that it makes need no approval of their own. See [](flow:day-2-change).
+
+## Runbooks for this flow
+
+| Symptom | Runbook |
+| --- | --- |
+| The operation is `Failed` | [](rb:operation-failed) |
+| The approval waits for more than a day | Alert `PkMetalApprovalWaiting`, see [](concept:observability) |

@@ -1,0 +1,51 @@
+---
+title: Pivot
+description: Move the operator from a bootstrap cluster onto the Talos cluster that it built. No machine changes.
+type: workflow
+xref: { cat: flow, id: pivot }
+sidebar:
+  order: 8
+sources:
+  - /repo/metal/cmd/pk-metal/pivot.go
+---
+
+import Pivot from '../../../components/explainers/Pivot.astro';
+import Callout from '../../../components/Callout.astro';
+
+At a new site no cluster exists yet. The operator starts in a bootstrap cluster and installs the first Talos cluster.
+Then [](cli:pivot) moves the operator onto that cluster. [](concept:pivot-model) explains what moves.
+
+<Pivot />
+
+## Steps
+
+1. Start a bootstrap cluster, for example kind, and install the operator.
+2. Install the first Talos cluster with [](flow:rack-to-node).
+3. Make sure that the new cluster reaches each BMC and node. See the table below.
+4. Run `pk-metal pivot --to mgmt.kubeconfig`. Give `--media-url` with a node address of the new cluster.
+5. The command checks, installs, pauses the source, copies, starts the target and watches it.
+6. Watch [](cli:status) for some time.
+7. Delete the bootstrap cluster when you no longer need it.
+
+## Network
+
+| From | To | Why |
+| --- | --- | --- |
+| Each node of the new cluster | Each BMC, HTTPS | Redfish |
+| Each node of the new cluster | Each installed machine, port 50000 | Talos API |
+| Each BMC | The new cluster, NodePort 30443 | The BMCs get boot media |
+| Each node of the new cluster | The image factory | The operator registers installer images |
+
+<Callout type="caution">
+Do not start the source manager and the target manager at the same time.
+Two operators then act on the same machines.
+</Callout>
+
+## Move back
+
+- Before the target manager started: scale the source manager back to one replica.
+- After it started: run [](cli:pivot) in the other direction. See [](howto:move-back).
+
+## Try it in the lab
+
+[](lab:pivot) moves the lab operator from kind onto the lab cluster. [](tut:lab-pivot) shows each step.

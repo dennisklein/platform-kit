@@ -1,0 +1,81 @@
+---
+title: Rack to running node
+description: From a new machine in the rack to a Talos node in the cluster.
+type: workflow
+xref: { cat: flow, id: rack-to-node }
+sidebar:
+  order: 1
+sources:
+  - /repo/metal/internal/controller/asset_controller.go
+  - /repo/metal/internal/controller/managementendpoint_controller.go
+  - /repo/metal/internal/controller/hostclaim_controller.go
+  - /repo/metal/internal/controller/provisioning.go
+---
+
+import RackToNode from '../../../components/explainers/RackToNode.astro';
+import Callout from '../../../components/Callout.astro';
+
+This workflow follows one machine from the rack to a ready Talos node.
+You write four objects. The operator writes the others, and it changes the machine only after a person approves.
+
+<RackToNode />
+
+## Steps
+
+1. Connect the BMC to the network and add its MAC address to the [ledger](concept:ledger).
+2. Write an [](kind:Asset) and its credentials Secret. Follow [](howto:enrol-hosts).
+3. The [](ctrl:asset) makes a [](kind:ManagementEndpoint). The [](ctrl:managementendpoint) reads the BMC over Redfish.
+4. The operator makes a [](kind:Host). The serial numbers must agree, see [](concept:identity).
+5. Write a [](kind:TalosCluster) and a [](kind:TalosNode). The [](ctrl:talosnode) renders the machine config, see [](concept:talos-rendering).
+6. Write a [](kind:HostClaim) that names the TalosNode in [`spec.os`](kind:HostClaim#spec.os). Follow [](howto:install-hosts).
+7. The [](ctrl:hostclaim) binds the Host and proposes a boot [](kind:HostOperation).
+8. Approve the operation with [](cli:approve). See [](flow:approval-flow).
+9. The [](ctrl:hostoperation) boots the machine from virtual media, see [](concept:virtual-media-boot).
+10. The node checks in. The claim records the hand-off in [`status.handOff`](kind:HostClaim#status.handOff).
+
+## Who does what
+
+| Step | Object | Written by | Your action |
+| --- | --- | --- | --- |
+| Enrol | Asset, Secret | You | `kubectl apply` |
+| Find the BMC | ManagementEndpoint | [](ctrl:asset) | None |
+| Read the machine | Host | [](ctrl:host) | Read [](cli:status) |
+| Configure the node | TalosCluster, TalosNode | You | `kubectl apply` |
+| Claim | HostClaim | You | `kubectl apply` |
+| Propose the boot | HostOperation | [](ctrl:hostclaim) | None |
+| Approve | HostOperation `spec.approval` | You | [](cli:approve) |
+| Boot and install | HostOperation steps | [](ctrl:hostoperation) | Watch with [](cli:top) |
+
+## The boot operation
+
+The boot operation runs these actions in sequence:
+
+1. [](act:EjectMedia) on each slot, to start from empty slots.
+2. [](act:InsertMedia) for the installer and for the node configuration.
+3. [](act:SetBootOverride) to boot once from the virtual CD.
+4. [](act:PowerCycle).
+5. [](act:AwaitCheckIn) until the node runs its configuration.
+6. [](act:EjectMedia), the configuration first, because it holds secrets.
+
+A BMC with one slot gets one installer with the configuration inside, see [](concept:one-slot-bmc).
+
+<Callout type="warning">
+Make sure that the install disk selector of the TalosNode names one disk only.
+The install overwrites the first disk that agrees with the selector.
+</Callout>
+
+## Try it in the lab
+
+- Start the lab with [](lab:up). It makes simulated BMCs and enrols them.
+- Approve the installs with [](lab:approve).
+- Follow [](tut:lab-first-cluster) for all steps.
+
+## Runbooks for this flow
+
+| Symptom | Runbook |
+| --- | --- |
+| The ManagementEndpoint is `Unreachable` | [](rb:bmc-unreachable) |
+| The ManagementEndpoint is `Mismatch` | [](rb:host-mismatch) |
+| The HostClaim is `Ambiguous` | [](rb:claim-ambiguous) |
+| The boot operation is `Failed` | [](rb:operation-failed) |
+| The node does not check in | [](rb:node-not-ready) |

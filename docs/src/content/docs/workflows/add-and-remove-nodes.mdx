@@ -1,0 +1,78 @@
+---
+title: Add and remove nodes
+description: Change the size of a cluster. Control planes join and leave etcd one at a time, and the leader leaves last.
+type: workflow
+xref: { cat: flow, id: add-and-remove-nodes }
+sidebar:
+  order: 6
+sources:
+  - /repo/metal/internal/controller/removal.go
+  - /repo/metal/cmd/pk-metal/lifecycle.go
+---
+
+import AddRemoveNodes from '../../../components/explainers/AddRemoveNodes.astro';
+import Callout from '../../../components/Callout.astro';
+
+The size of a cluster is the set of its [](kind:TalosNode) objects that hold a machine through a [](kind:HostClaim).
+To change the size, add or delete claims. The operator keeps etcd safe on each step.
+[](concept:node-lifecycle) explains the rules.
+
+<AddRemoveNodes />
+
+## Steps
+
+1. Write the TalosNode objects of the new nodes. A TalosNode without a machine is not a member yet.
+2. Show the plan with [](cli:scale). Then run it again with `--apply`.
+3. Approve the boots with [](cli:approve). The control planes join one at a time.
+4. To remove nodes, run [](cli:scale) with a smaller size, or delete the claims.
+5. Approve the releases. Each control plane leaves etcd only when etcd stays safe.
+6. To remove a node for all time, also delete its TalosNode.
+
+## Join rules
+
+The operator holds the boot of a control plane with `blockedOn: EtcdJoinWaiting` while:
+
+- another control plane of the same cluster boots or leaves;
+- an etcd member is not healthy, or is still a learner;
+- etcd still has a member with the name of the new node.
+
+## Leave rules
+
+| After the removal | Without `metal.pk.io/ack-etcd-risk` |
+| --- | --- |
+| No member stays | Refused |
+| Fewer healthy members than a majority | Refused |
+| An even number of members | Refused |
+| The leader leaves with other control planes | Waits, the leader leaves last |
+| Another control plane joins or leaves | Waits |
+| The member list cannot be read | Waits |
+
+`pk-metal scale`, `replace` and `reinstall` accept `--ack-etcd-risk "<reason>"`.
+
+## Replace and reinstall
+
+<dl>
+  <dt>Replace a node that works</dt>
+  <dd>Add the new node first. Remove the old node when the new node is a voter.</dd>
+  <dt>Replace a node on failed hardware</dt>
+  <dd>Use [](cli:replace). The node keeps its name and moves to another machine.</dd>
+  <dt>Install a node again</dt>
+  <dd>Use [](cli:reinstall). The operator drains, resets and installs the node on the same machine.</dd>
+</dl>
+
+<Callout type="caution">
+Do not scale control planes through an even count without a reason.
+Two members tolerate no more failures than one.
+</Callout>
+
+## Try it in the lab
+
+[](lab:scale) takes the control planes from three to one and back, removes a worker and replaces a control plane.
+
+## Runbooks for this flow
+
+| Symptom | Runbook |
+| --- | --- |
+| The claim shows `EtcdRiskRefused` or `RemovalWaiting` | [](rb:etcd-unhealthy) |
+| A new node is not Ready | [](rb:node-not-ready) |
+| A Host shows `DiskWiped=False` | [](flow:release-and-reuse) |

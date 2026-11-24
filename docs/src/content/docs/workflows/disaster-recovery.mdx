@@ -1,0 +1,70 @@
+---
+title: Disaster recovery
+description: Take encrypted etcd snapshots on a schedule, and restore a cluster from one through approved operations.
+type: workflow
+xref: { cat: flow, id: disaster-recovery }
+sidebar:
+  order: 7
+sources:
+  - /repo/metal/internal/controller/etcdbackup_controller.go
+  - /repo/metal/internal/controller/hostoperation_etcdrecover.go
+  - /repo/metal/cmd/pk-metal/restore.go
+---
+
+import DisasterRecovery from '../../../components/explainers/DisasterRecovery.astro';
+import Callout from '../../../components/Callout.astro';
+
+A Talos cluster keeps its Kubernetes state in etcd on the control planes.
+If most control planes lose their etcd data, only a snapshot brings the state back.
+[](concept:etcd-backup) explains the model.
+
+<DisasterRecovery />
+
+## Steps
+
+1. Make an age key pair for each person who may restore.
+2. Write an [](kind:EtcdBackupPolicy) with a sink and at least two age recipients.
+3. Take the first snapshot with [](cli:backup) and make sure that it is `Verified`.
+4. When etcd fails, start with `pk-metal restore plan`. It changes nothing.
+5. Propose the fix with `--propose`. Another person approves the operations, one after the other.
+6. For a lost majority, upload the snapshot with `pk-metal restore upload`.
+7. The [](act:EtcdRecover) action starts etcd from the snapshot on one node. The other control planes join.
+
+## Which case is it
+
+| What `restore plan` sees | Case | What it proposes |
+| --- | --- | --- |
+| Each member is healthy | Nothing to do | Nothing |
+| One member is lost, the others have a majority | One member lost | [](act:EtcdRemoveMember), [](act:TalosReset) of EPHEMERAL, [](act:WaitEtcdHealthy) |
+| No majority | Majority lost | A reset of each stuck member, then one [](act:EtcdRecover) |
+
+Each proposed operation has `metal.pk.io/override-cluster-guard` and `metal.pk.io/ignore-window`.
+The cluster is already down, so the guard and the windows must not hold the repair.
+
+<Callout type="warning">
+Do not delete and write the TalosCluster again to repair etcd.
+A new TalosCluster gets a new, empty etcd, and you lose all workloads.
+</Callout>
+
+## If the management cluster is lost
+
+The operator, its records and its snapshots list go with the cluster that it runs on.
+Only the snapshots in the S3 sink stay. Restore from a bootstrap cluster, as for a new site:
+
+1. Start kind and install the operator, see [](flow:pivot).
+2. Write the TalosCluster again with the annotation `os.pk.io/restore-pending: "true"`.
+3. Decrypt the newest snapshot with [](cli:backup).
+4. Restore with `talosctl`, as the Talos documentation tells.
+5. Remove the annotation when `Bootstrapped` is True.
+
+## Try it in the lab
+
+[](lab:backup-restore) takes a snapshot, wipes etcd and restores it.
+
+## Runbooks for this flow
+
+| Symptom | Runbook |
+| --- | --- |
+| etcd has no leader or a member fails | [](rb:etcd-unhealthy) |
+| The management cluster is gone | [](rb:management-cluster-lost) |
+| Alert `PkMetalEtcdBackupStale` | [](concept:etcd-backup) |
