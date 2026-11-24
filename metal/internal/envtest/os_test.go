@@ -305,9 +305,12 @@ func TestOSLane(t *testing.T) {
 			},
 		}))
 		job := waitImagerJob(t, ctx, cl, "default")
-		_, c := assetCondition("node-1-installer")
-		require.NotNil(t, c)
-		assert.Equal(t, osv1alpha1.ReasonBuilding, c.Reason)
+		// The Job is created before the status write that names it, so the
+		// condition can lag the Job by a reconcile.
+		require.Eventually(t, func() bool {
+			_, c := assetCondition("node-1-installer")
+			return c != nil && c.Reason == osv1alpha1.ReasonBuilding
+		}, waitFor, tick, "Ready never said Building")
 
 		// The config reaches the imager as the node's config Secret, mounted;
 		// nothing in the Job object carries it.
