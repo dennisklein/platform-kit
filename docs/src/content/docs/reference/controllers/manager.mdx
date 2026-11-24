@@ -71,7 +71,7 @@ The controllers reconcile the [kinds](kind:index) of the API group. [](ctrl:inde
 | `--ledger` | necessary | The ledger file: YAML that maps each BMC MAC to its HTTPS URL. A line that does not parse is logged and skipped. |
 | `--credentials-namespace` | `pk-metal` | Where the manager reads BMC logins and CAs, and writes node configs and cluster credentials. Operations are proposed here too. |
 | `--bmc-ca-secret` | empty | Secret (key `ca.crt`) with the CA of the BMC certificates. Empty trusts the system CAs. |
-| `--bmc-insecure` | `false` | Accept any BMC certificate. For simulated BMCs in a lab only. |
+| `--bmc-insecure` | `false` | Accept any BMC certificate. For simulated BMCs in a lab only. See [BMC certificates](howto:install-operator#bmc-certificates). |
 | `--poll-interval` | `5m` | How often each BMC is read again. |
 | `--image-factory` | public factory | The host of the Talos image factory. |
 | `--registry-ca` | empty | PEM file with the CA of the registry that serves firmware images. |
@@ -100,7 +100,8 @@ The manager refuses to start when `--ledger` is empty, a duration is out of rang
 The ledger maps each BMC MAC to the address of the BMC. The standard install mounts it from `ledger.yaml` in the ConfigMap `pk-metal-ledger`.
 
 - The manager reads the ledger once, at start.
-- After you edit it, restart the Deployment: `kubectl -n pk-metal rollout restart deployment/pk-metal-manager`.
+- With the standard overlay, an apply of a changed ledger restarts the manager. The overlay generates the ConfigMap with a name that changes with its content.
+- If you edit the ConfigMap by hand, restart the Deployment: `kubectl -n pk-metal rollout restart deployment/pk-metal-manager`.
 - A bad line does not stop the manager. The Asset with that MAC says `LedgerEntryInvalid`.
 
 See [](ctrl:asset).

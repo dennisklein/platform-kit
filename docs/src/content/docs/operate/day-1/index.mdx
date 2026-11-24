@@ -18,33 +18,36 @@ Day 1 is the install. A machine goes from the rack to a `Ready` node in a Talos 
 Each task below is one page. Do them in this order.
 
 <Figure
-  title="The day-1 path: network, check a BMC, enroll, define the cluster, install, then pivot."
+  title="The day-1 path: install the operator, network, check a BMC, enroll, define the cluster, install, then pivot."
   caption="The day-1 path. The dashed boxes are optional."
   width={760}
   height={200}
   wide
 >
   <Zone x={6} y={8} w={748} h={92} label="every site" />
-  <Box x={16} y={36} w={136} h={50} label="Network" sub="checklist" cat="howto" href="/operate/day-1/network-checklist/" />
-  <Box x={164} y={36} w={136} h={50} label="Check a BMC" sub="pk-metal check" cat="howto" href="/operate/day-1/check-a-bmc/" />
-  <Box x={312} y={36} w={136} h={50} label="Enroll hosts" sub="Asset + Secret" cat="howto" href="/operate/day-1/enroll-hosts/" />
-  <Box x={460} y={36} w={136} h={50} label="Define cluster" sub="TalosCluster" cat="howto" href="/operate/day-1/define-a-cluster/" />
-  <Box x={608} y={36} w={136} h={50} label="Install hosts" sub="HostClaim" variant="ok" cat="howto" href="/operate/day-1/install-hosts/" />
-  <Edge points={[[152, 61], [164, 61]]} />
-  <Edge points={[[300, 61], [312, 61]]} />
-  <Edge points={[[448, 61], [460, 61]]} />
-  <Edge points={[[596, 61], [608, 61]]} />
+  <Box x={14} y={36} w={112} h={50} label="Operator" sub="site overlay" cat="howto" href="/operate/day-1/install-operator/" />
+  <Box x={138} y={36} w={112} h={50} label="Network" sub="checklist" cat="howto" href="/operate/day-1/network-checklist/" />
+  <Box x={262} y={36} w={112} h={50} label="Check a BMC" sub="pk-metal check" cat="howto" href="/operate/day-1/check-a-bmc/" />
+  <Box x={386} y={36} w={112} h={50} label="Enroll hosts" sub="Asset + Secret" cat="howto" href="/operate/day-1/enroll-hosts/" />
+  <Box x={510} y={36} w={112} h={50} label="Define cluster" sub="TalosCluster" cat="howto" href="/operate/day-1/define-a-cluster/" />
+  <Box x={634} y={36} w={112} h={50} label="Install hosts" sub="HostClaim" variant="ok" cat="howto" href="/operate/day-1/install-hosts/" />
+  <Edge points={[[126, 61], [138, 61]]} />
+  <Edge points={[[250, 61], [262, 61]]} />
+  <Edge points={[[374, 61], [386, 61]]} />
+  <Edge points={[[498, 61], [510, 61]]} />
+  <Edge points={[[622, 61], [634, 61]]} />
   <Box x={20} y={128} w={180} h={50} label="Air-gapped site" sub="mirrors" variant="soft" cat="howto" href="/operate/day-1/air-gapped-site/" />
   <Box x={220} y={128} w={180} h={50} label="Behind a proxy" sub="patches" variant="soft" cat="howto" href="/operate/day-1/behind-a-proxy/" />
   <Box x={420} y={128} w={160} h={50} label="No operator yet" sub="render, boot" variant="soft" cat="howto" href="/operate/day-1/bootstrap-without-operator/" />
   <Box x={600} y={128} w={140} h={50} label="Pivot" sub="move the operator" variant="soft" cat="howto" href="/operate/day-1/pivot/" />
-  <Edge points={[[676, 86], [676, 128]]} variant="muted" />
+  <Edge points={[[690, 86], [690, 128]]} variant="muted" />
 </Figure>
 
 ## The tasks
 
 | Order | Task | You write | The operator writes |
 | --- | --- | --- | --- |
+| 0 | [](howto:install-operator) | The site overlay: image, ledger, flags, groups | Nothing on a machine |
 | 1 | [](howto:network-checklist) | Firewall rules, DHCP reservations | Nothing |
 | 2 | [](howto:check-a-bmc) | Nothing | Nothing. The check reads only. |
 | 3 | [](howto:enroll-hosts) | [](kind:Asset), credentials Secret, ledger line | [](kind:ManagementEndpoint), [](kind:Host) |
@@ -57,6 +60,11 @@ Each task below is one page. Do them in this order.
 - No internet: [](howto:air-gapped-site).
 - Outbound traffic through a proxy: [](howto:behind-a-proxy).
 - No management cluster yet: [](howto:bootstrap-without-operator).
+
+## Before the first machine
+
+- [](ref:hardware) shows the BMCs that the operator knows, and what is tested.
+- [](ref:versions) shows the Talos and Kubernetes releases.
 
 ## Learn first
 

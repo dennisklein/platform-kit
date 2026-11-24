@@ -3,11 +3,8 @@ title: Enroll hosts
 description: Write an Asset, a credentials Secret and a ledger line for each machine.
 type: howto
 day: 1
-xref: { cat: howto, id: enroll-hosts }
-# The old id of this page. Pages that still use it go to the same place.
-anchors:
-  howto:
-    enrol-hosts: { anchor: goal, title: Enroll hosts }
+xref: { cat: howto, id: enroll-hosts, aliases: [enrol-hosts] }
+redirectFrom: [operate/day-1/enrol-hosts/]
 sidebar:
   order: 3
 sources:
@@ -25,7 +22,7 @@ Make the operator find each new machine and make a [](kind:Host) for it.
 
 ## Before you start
 
-- The operator runs in the management cluster.
+- The operator runs in the management cluster, from a site overlay. See [](howto:install-operator).
 - You have the serial number and the BMC MAC of each machine. [](howto:check-a-bmc) shows them.
 - Each BMC has a fixed address. See [](howto:network-checklist).
 
@@ -39,10 +36,10 @@ Make the operator find each new machine and make a [](kind:Host) for it.
    "02:00:48:0b:74:83": https://192.0.2.21
    ```
 
-2. Apply the overlay. The manager reads the ledger when it starts, so the change restarts it.
+2. Apply the overlay. The manager reads the ledger only when it starts. The overlay gives the ledger ConfigMap a new name, and thus the apply restarts the manager.
 
    ```sh
-   kubectl apply -k overlays/site
+   kubectl apply --server-side -k overlays/site
    ```
 
 3. Make the credentials Secret in the namespace `pk-metal`.
@@ -60,7 +57,7 @@ Make the operator find each new machine and make a [](kind:Host) for it.
    metadata:
      name: sim-0001
    spec:
-     cid: "ASSET-07"
+     cid: "ASSET-01"
      serial: "SIMHW2288V5000397"
      bmcMac: "02:00:48:0b:74:83"
      credentialsRef:
@@ -90,7 +87,7 @@ An Asset changes nothing on the machine. The operator logs in to the BMC and rea
 ## Verify
 
 ```sh
-kubectl get hosts
+kubectl get hosts -o wide
 ```
 
 Each machine has a Host. The name is the serial number in lower case. The phase is `Available`.
@@ -105,7 +102,7 @@ simhw2288v5000397   sim-0001   SIMHW2288V5000397   Huawei   Available           
 | What you see | Go to |
 | --- | --- |
 | Asset `Materialized=False`, reason `NoLedgerEntry` | Add the ledger line. Do step 2 again. |
-| Endpoint phase `Unreachable` | [](rb:bmc-unreachable) |
+| Endpoint phase `Unreachable` | [](rb:bmc-unreachable). For a certificate error, see [BMC certificates](howto:install-operator#bmc-certificates). |
 | Endpoint phase `Mismatch`, `SerialMismatch` or `MACMismatch` | [](rb:host-mismatch) |
 
 ## Related
@@ -113,4 +110,4 @@ simhw2288v5000397   sim-0001   SIMHW2288V5000397   Huawei   Available           
 - [](kind:Asset), [](kind:ManagementEndpoint), [](kind:Host)
 - [](ctrl:asset), [](ctrl:managementendpoint), [](ctrl:host)
 - [](concept:identity) and [](concept:ledger)
-- [](howto:rotate-bmc-credentials) replaces the factory password after the enrollment.
+- [](howto:rotate-bmc-credentials) replaces the factory password after you enroll the hosts.

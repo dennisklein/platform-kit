@@ -1,0 +1,254 @@
+---
+title: Install the operator
+description: Build the operator image, write a site overlay and apply it to the management cluster.
+type: howto
+day: 1
+xref: { cat: howto, id: install-operator }
+sidebar:
+  order: 0.5
+sources:
+  - /repo/metal/config/samples/site-overlay/kustomization.yaml
+  - /repo/metal/config/samples/site-overlay/manager_args.yaml
+  - /repo/metal/config/samples/site-overlay/bindings.yaml
+  - /repo/metal/config/default/kustomization.yaml
+  - /repo/metal/hack/image.sh
+  - /repo/lab/kind.yaml
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Goal
+
+Run the operator in a management cluster, with the values of your site.
+
+## Before you start
+
+- You have a clone of the repository, and [mise](https://mise.jdx.dev/getting-started.html) with the pinned tools (`mise trust`, then `mise install`).
+- You have Docker Engine on the workstation. The image build uses it.
+- You have a Kubernetes cluster for the operator, or you make one with kind in step 3. The operator is tested on Kubernetes 1.36. See [](ref:versions).
+- You know the address at which the BMCs reach the cluster. See row 2 of [](howto:network-checklist).
+
+<Callout type="note">
+The project publishes no image and no binary. You build both from the repository. See [](ref:status).
+</Callout>
+
+## Steps
+
+### Build
+
+<Steps>
+
+1. Build the command-line tool and the manager.
+
+   ```sh
+   mise run build
+   ```
+
+   The tool is `metal/bin/pk-metal`. Put it on your `PATH`.
+
+2. Build the operator image. The last line of the output is the image reference.
+
+   ```sh
+   mise run image
+   ```
+
+   ```text
+   pk-metal:4f0c2d1a9b3e
+   ```
+
+   The tag is the commit of your clone. A changed work tree gets a different tag.
+
+</Steps>
+
+### Management cluster
+
+Use one of the two paths.
+
+<Steps>
+
+3. **kind on a workstation.** Copy `lab/kind.yaml` to `kind.yaml`. Set `listenAddress` to the address of the workstation on the BMC network. Keep the cluster name and the node image.
+
+   ```sh
+   kind create cluster --config kind.yaml
+   kind load docker-image pk-metal:4f0c2d1a9b3e --name pk-metal
+   ```
+
+   The file publishes port 30443 of the workstation. The BMCs get boot media from that port.
+
+4. **An existing cluster.** Build the image with the name of your registry, and push it.
+
+   ```sh
+   PK_IMAGE_NAME=registry.example.org/platform/pk-metal mise run image
+   docker push registry.example.org/platform/pk-metal:4f0c2d1a9b3e
+   ```
+
+   The BMCs must reach NodePort 30443 on a node of the cluster.
+
+</Steps>
+
+<Callout type="caution">
+A kind cluster on a workstation holds the only record of your machines and the keys of your clusters.
+Do the [pivot](howto:pivot) after the first cluster runs, or keep the workstation on.
+</Callout>
+
+### Site overlay
+
+The overlay is a kustomize directory. It adds the values of your site to the base in `metal/config/default`.
+
+<Steps>
+
+5. Copy the sample overlay.
+
+   ```sh
+   cp -r metal/config/samples/site-overlay overlays/site
+   ```
+
+6. In `overlays/site/kustomization.yaml`, correct the path of the base. From `overlays/site` in the repository root, it is `../../metal/config/default`.
+
+7. In the same file, set `images`: `newName` and `newTag` from the image reference of step 2 or step 4.
+
+8. In `manager_args.yaml`, set `--media-url` to `https://<address>:30443`. The address is the one that the BMCs reach.
+
+9. In `ledger.yaml`, write one line for each BMC that you know now. You can add lines later. See [](howto:enroll-hosts).
+
+10. In `bindings.yaml`, replace the example group of the approvers with a group of your site. See [The admin group and the approvers](#the-admin-group-and-the-approvers).
+
+11. Replace `bmc-ca.crt` with the CA certificate of your BMCs. See [BMC certificates](#bmc-certificates).
+
+12. If a BMC has only one usable media slot, remove the comment marks from `components` in `kustomization.yaml`. See [One-slot BMCs](#one-slot-bmcs).
+
+</Steps>
+
+### Apply
+
+<Steps>
+
+13. Show what the overlay makes. Read the Deployment at the end.
+
+    ```sh
+    kubectl kustomize overlays/site | less
+    ```
+
+14. Apply the overlay. Server-side apply is necessary, because the CRDs are large.
+
+    ```sh
+    kubectl apply --server-side -k overlays/site
+    ```
+
+15. Wait for the manager.
+
+    ```sh
+    kubectl -n pk-metal rollout status deployment/pk-metal-manager --timeout=180s
+    ```
+
+</Steps>
+
+## The files of the overlay
+
+| File | What it sets | Reference |
+| --- | --- | --- |
+| `kustomization.yaml` | The base, the image, the ledger ConfigMap, the CA Secret, the optional media store | [](ctrl:manager) |
+| `manager_args.yaml` | The flags `--media-url` and `--bmc-ca-secret` | [Flags](ctrl:manager#flags) |
+| `ledger.yaml` | BMC MAC address to BMC URL | [](concept:ledger) |
+| `bmc-ca.crt` | The CA of the BMC certificates | [BMC certificates](#bmc-certificates) |
+| `bindings.yaml` | The rights of the admin group and of the approvers | [](ref:rbac) |
+
+The ledger ConfigMap has a name that changes with its content. Thus an apply of a new ledger restarts the manager.
+
+## BMC certificates
+
+The manager checks the HTTPS certificate of each BMC. It checks the signature against the CA in the Secret `bmc-ca`. It checks the name or address against the URL in the ledger.
+A BMC from the factory usually has a self-signed certificate. The manager refuses it, and the endpoint shows `Unreachable`.
+
+`pk-metal check --insecure` does not make this check. A BMC that passes the check can still fail in the manager.
+
+1. Show the certificate that a BMC sends.
+
+   ```sh
+   openssl s_client -connect 192.0.2.21:443 </dev/null 2>/dev/null \
+     | openssl x509 -noout -subject -issuer -ext subjectAltName
+   ```
+
+2. Select one of the paths in the table.
+
+| Path | What you do | State |
+| --- | --- | --- |
+| Certificates from your CA | Give each BMC a certificate from your CA. Its subject alternative name is the address or name of the ledger URL. Put the CA certificate into `bmc-ca.crt`. | The recommended path. |
+| Certificates from cert-manager | Let the operator put a certificate on each BMC. See the `tls` lane of [](kind:EndpointProfile). The first connection needs one of the other paths. | Tested with simulated BMCs only. |
+| Factory certificates | Put the certificate of each BMC into `bmc-ca.crt`. This works only if each certificate has the address of the ledger URL as a subject alternative name. | Not tested on real hardware. |
+| No check | Replace `--bmc-ca-secret=bmc-ca` with `--bmc-insecure` in `manager_args.yaml`. | For a lab or a first test on a closed network only. |
+
+<Callout type="warning">
+With `--bmc-insecure`, the manager sends the BMC password to each device that answers at the address.
+Do not use it on a network that other persons can reach.
+</Callout>
+
+## The admin group and the approvers
+
+Two groups of persons have special rights. A ClusterRoleBinding gives rights to a group. It does not make a person a member.
+The API server gets the groups of a person from the login. The source is the `O=` fields of a client certificate, or a claim of your identity provider.
+
+| Group | What only its members can do | Default name |
+| --- | --- | --- |
+| Admin group | Apply a [](kind:HostClaim) that installs a node, set automatic approval, move a claim to a different machine | `pk-metal:admins` |
+| Approvers | Approve an operation or a rollout that a different person proposed | No default. `bindings.yaml` binds a group to the role `pk-metal-approver`. |
+
+- The admission policies ask for the admin group by name. A cluster admin is not a member.
+- The name of the admin group is in the ConfigMap `hostoperation-approval`, key `adminGroup`.
+- [](ref:rbac) and [](ref:admission-policies) have the rules.
+
+On a kind cluster for a test, you can act as a member with impersonation. The kind admin has the right to do that.
+
+```sh
+kubectl apply --as="$USER" --as-group=pk-metal:admins --as-group=system:authenticated -f claim.yaml
+```
+
+<Callout type="caution">
+Impersonation is a shortcut for a lab. On a production cluster, give the group to persons through the login. Give the right to impersonate to no one.
+</Callout>
+
+## One-slot BMCs
+
+A BMC with one usable media slot gets one install image with the machine config inside. The manager keeps these images in the media store.
+
+- [](howto:check-a-bmc) shows how to count the slots of a BMC.
+- The component `metal/config/media-store` adds a claim for a 10 GiB volume. The cluster needs a storage class. kind has one.
+- The manager builds the image in a Job. The cluster must pull `ghcr.io/siderolabs/imager`, or a mirror that you set with `--imager-repository`.
+- The images hold the machine config, which has secrets. Use storage with encryption if your Secrets are encrypted.
+
+Without the media store, the install of such a machine waits with the reason `BuilderUnavailable`. See [](concept:one-slot-bmc).
+
+## Verify
+
+```sh
+kubectl -n pk-metal get pods
+```
+
+The pod `pk-metal-manager-...` is `Running` and `1/1`.
+
+```sh
+kubectl -n pk-metal get deployment pk-metal-manager -o jsonpath='{..image}{"\n"}'
+pk-metal version
+```
+
+The first line shows the image. The second line shows the version of the tool.
+Both show the same tag when you built them from one commit.
+
+## If it fails
+
+| What you see | Cause | Do this |
+| --- | --- | --- |
+| Pod `ImagePullBackOff` | The cluster cannot pull the image. | kind: do `kind load docker-image` again. Registry: push the image, and make sure that `images` names it. |
+| Pod `ErrImagePull` for `pk-metal:unset` | The overlay has no `images` entry. | Do step 7. |
+| `kubectl apply` says `metadata.annotations: Too long` | The apply was not server-side. | Use `--server-side`. |
+| Pod `CrashLoopBackOff` | A flag is wrong. | Read the log: `kubectl -n pk-metal logs deployment/pk-metal-manager`. Each message names the fix. |
+| Endpoints show `Unreachable` after you enroll the hosts | The BMC certificate does not pass the check, or a firewall blocks the path. | [BMC certificates](#bmc-certificates), then [](rb:bmc-unreachable) |
+| The API server refuses a claim: `only an admin ... may name the TalosNode` | You are not in the admin group. | [The admin group and the approvers](#the-admin-group-and-the-approvers) |
+
+## Related
+
+- [](ctrl:manager) has all flags.
+- [](howto:network-checklist) has the ports.
+- [](howto:enroll-hosts) is the next task.
+- [](concept:architecture) shows what the operator talks to.
