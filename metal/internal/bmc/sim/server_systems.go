@@ -2,6 +2,7 @@ package sim
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
 	"strconv"
 	"time"
@@ -267,7 +268,7 @@ func (s *Server) bios(w http.ResponseWriter, r *http.Request) {
 	settings := map[string]any{
 		"@odata.type":         "#Settings.v1_4_0.Settings",
 		"SettingsObject":      link(self + "/" + s.f.Bios.SettingsID),
-		"SupportedApplyTimes": []string{"OnReset"},
+		"SupportedApplyTimes": s.st.supportedApplyTimes(),
 	}
 	if len(messages) > 0 {
 		msgs := make([]map[string]string, 0, len(messages))
@@ -289,7 +290,7 @@ func (s *Server) biosSettings(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, notFound("Bios", r.PathValue("setting")))
 		return
 	}
-	_, pending, _, err := s.st.biosView(id)
+	current, pending, _, err := s.st.biosView(id)
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -298,7 +299,12 @@ func (s *Server) biosSettings(w http.ResponseWriter, r *http.Request) {
 	doc := resource("#Bios.v1_2_3.Bios", uri, s.f.Bios.SettingsID, "BIOS Configuration Pending Settings")
 	doc["AttributeRegistry"] = s.f.Bios.Registry
 	// The pending object carries no Attributes key at all while nothing is
-	// staged — the shape both captured vendors serve, and a legal one.
+	// staged — the shape both captured vendors serve, and a legal one. The
+	// iLO shape serves every attribute, staged values merged in.
+	if s.f.Bios.PendingFullSet {
+		maps.Copy(current, pending)
+		pending = current
+	}
 	if len(pending) > 0 {
 		doc["Attributes"] = pending
 	}
@@ -312,6 +318,9 @@ func (s *Server) patchBiosSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Attributes map[string]any `json:"Attributes"`
+		ApplyTime  struct {
+			ApplyTime string `json:"ApplyTime"`
+		} `json:"@Redfish.SettingsApplyTime"`
 	}
 	if !s.decode(w, r, &body) {
 		return
@@ -320,7 +329,7 @@ func (s *Server) patchBiosSettings(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, refuse("the request changes no property this resource can update (Attributes)"))
 		return
 	}
-	if err := s.st.SetBiosAttributes(r.Context(), r.PathValue("id"), body.Attributes); err != nil {
+	if err := s.st.stageBios(r.Context(), r.PathValue("id"), body.Attributes, body.ApplyTime.ApplyTime); err != nil {
 		s.fail(w, err)
 		return
 	}

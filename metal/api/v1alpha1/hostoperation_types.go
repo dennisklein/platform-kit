@@ -225,7 +225,10 @@ type EjectMediaAction struct {
 // ApplyBiosAction stages a machine's wanted BIOS attributes onto the firmware's
 // pending object. Staging on its own changes nothing that is running: BIOS
 // settings take effect at the next reset, which is why a converging operation
-// pairs this with a powerCycle.
+// pairs this with a powerCycle. Where the BMC lists OnReset among the
+// supported apply times (@Redfish.Settings.SupportedApplyTimes), the PATCH
+// asks for it (@Redfish.SettingsApplyTime): iDRAC 9 applies staged values
+// only then, through the BIOS configuration job that request creates.
 type ApplyBiosAction struct {
 	// SettingsRef names the BiosSettings the attributes came from — provenance
 	// only: the executor never reads it, so an edit after approval cannot

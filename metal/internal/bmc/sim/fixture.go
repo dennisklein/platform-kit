@@ -125,9 +125,22 @@ type Fixture struct {
 		// RegistryURI is the member's Location Uri. Default:
 		// /redfish/v1/Registries/<id>/<id>.json, inside the tree; the X12
 		// serves the file outside it.
-		RegistryURI string         `yaml:"registry_uri"`
-		Attributes  map[string]any `yaml:"attributes"`
-		Schema      []struct {
+		RegistryURI string `yaml:"registry_uri"`
+		// SupportedApplyTimes is @Redfish.Settings.SupportedApplyTimes
+		// (default: OnReset). A PATCH asking for an apply time outside it
+		// is refused.
+		SupportedApplyTimes []string `yaml:"supported_apply_times"`
+		// ApplyTimeRequired plays iDRAC 9: a PATCH without
+		// @Redfish.SettingsApplyTime stages its values but creates no BIOS
+		// configuration job, so they stay pending across every reset. Only
+		// a PATCH asking for OnReset schedules them.
+		ApplyTimeRequired bool `yaml:"apply_time_required"`
+		// PendingFullSet plays iLO 5: the pending settings object serves
+		// every attribute, the staged values merged over the current ones,
+		// instead of only the staged ones.
+		PendingFullSet bool           `yaml:"pending_full_set"`
+		Attributes     map[string]any `yaml:"attributes"`
+		Schema         []struct {
 			Name          string   `yaml:"name"`
 			Type          string   `yaml:"type"`
 			AllowedValues []string `yaml:"allowed_values"`

@@ -20,6 +20,17 @@ type biosState struct {
 	current  map[string]any
 	pending  map[string]any
 	messages []string // apply-time failures, served in @Redfish.Settings Messages
+	// scheduled: a PATCH asked for the pending values to be applied at the
+	// next reset. Only an apply_time_required fixture looks at it.
+	scheduled bool
+}
+
+// supportedApplyTimes is what @Redfish.Settings advertises.
+func (s *State) supportedApplyTimes() []string {
+	if len(s.f.Bios.SupportedApplyTimes) > 0 {
+		return s.f.Bios.SupportedApplyTimes
+	}
+	return []string{"OnReset"}
 }
 
 func (s *State) Bios(_ context.Context, systemID string) (bmc.BiosState, error) {
@@ -39,11 +50,22 @@ func (s *State) Bios(_ context.Context, systemID string) (bmc.BiosState, error) 
 	return out, nil
 }
 
-func (s *State) SetBiosAttributes(_ context.Context, systemID string, attrs map[string]any) error {
+// SetBiosAttributes is the seam entrance. The in-process client stands for a
+// client that asks for OnReset wherever that is needed, so it schedules.
+func (s *State) SetBiosAttributes(ctx context.Context, systemID string, attrs map[string]any) error {
+	return s.stageBios(ctx, systemID, attrs, "OnReset")
+}
+
+// stageBios stages attrs into the pending object. applyTime is the PATCH's
+// @Redfish.SettingsApplyTime.ApplyTime, empty when it carried none.
+func (s *State) stageBios(_ context.Context, systemID string, attrs map[string]any, applyTime string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.reachable(); err != nil {
 		return err
+	}
+	if applyTime != "" && !slices.Contains(s.supportedApplyTimes(), applyTime) {
+		return notInList("PropertyValueNotInList", "ApplyTime", applyTime)
 	}
 	b, err := s.biosOf(systemID)
 	if err != nil {
@@ -60,6 +82,9 @@ func (s *State) SetBiosAttributes(_ context.Context, systemID string, attrs map[
 		b.pending = map[string]any{}
 	}
 	maps.Copy(b.pending, jsonTypes(attrs))
+	// A later PATCH that asks for OnReset schedules everything pending, the
+	// way the iDRAC job applies the whole pending set.
+	b.scheduled = b.scheduled || applyTime == "OnReset"
 	return nil
 }
 
@@ -116,6 +141,10 @@ func (s *State) applyBios(systemID string) {
 	if b == nil || len(b.pending) == 0 || s.faults[FaultBiosStuck] {
 		return
 	}
+	if s.f.Bios.ApplyTimeRequired && !b.scheduled {
+		return // staged, but no configuration job: nothing applies it
+	}
+	b.scheduled = false
 	b.messages = nil
 	for k, v := range b.pending {
 		if !s.valueAllowed(k, v) {

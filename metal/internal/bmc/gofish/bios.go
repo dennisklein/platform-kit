@@ -3,6 +3,8 @@ package gofish
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/stmcginnis/gofish/schemas"
@@ -18,18 +20,36 @@ func (c *client) Bios(ctx context.Context, systemID string) (bmc.BiosState, erro
 	out := bmc.BiosState{Attributes: map[string]any(b.Attributes), Registry: b.AttributeRegistry}
 	// The pending set lives in the @Redfish.Settings object, which gofish keeps
 	// private — one raw GET, absent Attributes means nothing staged.
-	if uri := c.settingsObject(b.ODataID); uri != "" && uri != b.ODataID {
+	if uri := c.biosSettings(b.ODataID).SettingsObject.ODataID; uri != "" && uri != b.ODataID {
 		var doc struct {
 			Attributes map[string]any `json:"Attributes"`
 		}
 		if _, err := c.getJSON(uri, &doc); err != nil {
 			return bmc.BiosState{}, fmt.Errorf("bmc: bios settings: %w", err)
 		}
-		if len(doc.Attributes) > 0 {
-			out.Pending = doc.Attributes
-		}
+		out.Pending = pendingChanges(doc.Attributes, out.Attributes)
 	}
 	return out, nil
+}
+
+// pendingChanges keeps the settings-object values that differ from the
+// current ones. iDRAC, the iBMC and the X12 serve only the staged
+// attributes there; iLO serves the whole attribute set with the staged
+// values merged in, which read as everything pending. A staged value equal
+// to the current one changes nothing at the next reset, so dropping it means
+// the same on every vendor.
+func pendingChanges(settings, current map[string]any) map[string]any {
+	var out map[string]any
+	for k, v := range settings {
+		if cur, ok := current[k]; ok && reflect.DeepEqual(cur, v) {
+			continue
+		}
+		if out == nil {
+			out = map[string]any{}
+		}
+		out[k] = v
+	}
+	return out
 }
 
 func (c *client) SetBiosAttributes(ctx context.Context, systemID string, attrs map[string]any) error {
@@ -40,13 +60,23 @@ func (c *client) SetBiosAttributes(ctx context.Context, systemID string, attrs m
 	if err != nil {
 		return err
 	}
-	uri := c.settingsObject(b.ODataID)
+	settings := c.biosSettings(b.ODataID)
+	uri := settings.SettingsObject.ODataID
 	if uri == "" {
 		uri = b.ODataID
 	}
 	// A direct PATCH, not gofish's UpdateBiosAttributes: that helper drops
 	// attributes already at the requested value, and staging must be literal.
-	if err := c.patch(uri, map[string]any{"Attributes": attrs}); err != nil {
+	body := map[string]any{"Attributes": attrs}
+	// Ask for the values to be applied at the next reset wherever the service
+	// says it takes that request. iDRAC 9 stages a PATCH without it but
+	// creates no BIOS configuration job, so the reset that follows applies
+	// nothing; with it, the job is created. Elsewhere OnReset is what a
+	// PATCH without it means anyway.
+	if slices.Contains(settings.SupportedApplyTimes, applyOnReset) {
+		body["@Redfish.SettingsApplyTime"] = map[string]any{"ApplyTime": applyOnReset}
+	}
+	if err := c.patch(uri, body); err != nil {
 		return fmt.Errorf("bmc: bios attributes: %w", err)
 	}
 	return nil
@@ -138,16 +168,26 @@ func (c *client) biosOf(systemID string) (*schemas.Bios, error) {
 	return b, nil
 }
 
-// settingsObject reads @Redfish.Settings.SettingsObject off the raw Bios
-// resource — gofish folds it into a private field.
-func (c *client) settingsObject(biosURI string) string {
+// applyOnReset is the @Redfish.SettingsApplyTime value for "at the next
+// system reset".
+const applyOnReset = "OnReset"
+
+// settingsBlock is the @Redfish.Settings block of a Bios resource: where the
+// pending object lives, and which apply times a PATCH to it may ask for.
+type settingsBlock struct {
+	SettingsObject      ref      `json:"SettingsObject"`
+	SupportedApplyTimes []string `json:"SupportedApplyTimes"`
+}
+
+// biosSettings reads @Redfish.Settings off the raw Bios resource — gofish
+// folds it into a private field. A failed read is an empty block: the PATCH
+// then goes to the Bios resource itself, without an apply time.
+func (c *client) biosSettings(biosURI string) settingsBlock {
 	var doc struct {
-		Settings struct {
-			SettingsObject ref `json:"SettingsObject"`
-		} `json:"@Redfish.Settings"`
+		Settings settingsBlock `json:"@Redfish.Settings"`
 	}
 	if _, err := c.getJSON(biosURI, &doc); err != nil {
-		return ""
+		return settingsBlock{}
 	}
-	return doc.Settings.SettingsObject.ODataID
+	return doc.Settings
 }

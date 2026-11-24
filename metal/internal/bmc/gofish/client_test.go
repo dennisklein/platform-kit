@@ -40,6 +40,36 @@ func TestConformanceOverHTTP(t *testing.T) {
 	}
 }
 
+// TestBiosDialectsOverHTTP runs the conformance suite over the generic tree
+// played in two vendors' BIOS staging dialects, as in-test mutations like the
+// accounts variant: iDRAC 9, which applies staged values only when the PATCH
+// asked for OnReset, and iLO 5, whose pending object serves every attribute.
+// Its bios-pending-applied and bios-read checks fail against a client that
+// sends no apply time or reads the whole iLO set as pending.
+func TestBiosDialectsOverHTTP(t *testing.T) {
+	for name, dialect := range map[string]func(*sim.Fixture){
+		"idrac-apply-time-required": func(f *sim.Fixture) {
+			f.Bios.ApplyTimeRequired = true
+			f.Bios.SupportedApplyTimes = []string{"OnReset", "AtMaintenanceWindowStart", "InMaintenanceWindowOnReset"}
+		},
+		"ilo-pending-full-set": func(f *sim.Fixture) { f.Bios.PendingFullSet = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			f, err := sim.LoadFixture("generic")
+			require.NoError(t, err)
+			dialect(f)
+			srv := httptest.NewServer(sim.NewServer(sim.NewState(f)))
+			defer srv.Close()
+			c, err := gofishclient.Connect(context.Background(), gofishclient.Config{
+				Endpoint: srv.URL, Username: f.Accounts[0].Username, Password: f.Accounts[0].Password,
+			})
+			require.NoError(t, err)
+			defer c.Close()
+			bmctest.Run(t, c, f, false)
+		})
+	}
+}
+
 // TestConformanceOverHTTPWithAccounts runs the suite against an
 // enforcement-enabled tree — the production client authenticating with the
 // factory account the fixture seeds, the account lane active.
