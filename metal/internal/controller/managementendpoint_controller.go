@@ -29,8 +29,13 @@ import (
 // assetRefIndex lets an Asset event fan out to the endpoints that reference it.
 const assetRefIndex = ".spec.assetRef.name"
 
-// connectTimeout bounds one whole observation pass (dial + discovery).
-const connectTimeout = 15 * time.Second
+// connectTimeout bounds one whole pass over a BMC session: the dial and
+// every request of the pass. An inventory pass is some 40 to 60 requests,
+// and a BMC answers one in 0.3 to 1.5 seconds, so the pass needs a minute
+// or more. Each request also has its own bound
+// (gofishclient.DefaultRequestTimeout), so a stalled BMC fails the pass
+// sooner.
+const connectTimeout = 2 * time.Minute
 
 // ManagementEndpointReconciler connects to the endpoint (read-only — it writes
 // nothing to a BMC), refreshes the Asset snapshot, discovers manager facts, and
@@ -128,6 +133,10 @@ func (r *ManagementEndpointReconciler) observe(ctx context.Context, ep *metalv1a
 	}
 	// The pass reports through conditions and never returns an error, so an
 	// error from withSession is always the dial's.
+	start := time.Now()
+	defer func() {
+		logf.FromContext(ctx).V(1).Info("observation pass", "duration", time.Since(start).Round(time.Millisecond))
+	}()
 	err = withSession(ctx, r.Dial, cfg, func(ctx context.Context, cl bmc.Client) error {
 		setCond(metalv1alpha1.ConditionReachable, metav1.ConditionTrue, "SessionUp", "")
 
