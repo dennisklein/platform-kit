@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -262,9 +263,13 @@ func TestDay2Operations(t *testing.T) {
 		require.NoError(t, cl.Create(ctx, op("abort-w-1", "w-1", reboot("w-1")...)))
 		require.Eventually(t, func() bool { return get("abort-w-1").Status.CordonedNode == "w-1" }, waitFor, tick)
 
-		o := get("abort-w-1")
-		o.Annotations = map[string]string{metalv1alpha1.AnnotationAbort: "alice: not today"}
-		require.NoError(t, cl.Update(ctx, o))
+		// The executor writes the operation while it waits on the drain, so the
+		// update retries on a conflict instead of racing it.
+		require.NoError(t, retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			o := get("abort-w-1")
+			o.Annotations = map[string]string{metalv1alpha1.AnnotationAbort: "alice: not today"}
+			return cl.Update(ctx, o)
+		}))
 		require.Eventually(t, func() bool { return get("abort-w-1").Status.Phase == metalv1alpha1.OperationAborted }, waitFor, tick)
 		ex := executed(get("abort-w-1"))
 		assert.Contains(t, ex.Message, "alice: not today")
