@@ -2,11 +2,13 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -208,4 +210,41 @@ func TestEtcdRecoverRefusesWhatWasNotApproved(t *testing.T) {
 		assert.Equal(t, metav1.ConditionFalse, ex.Status)
 		assert.Contains(t, ex.Message, "does not run TalosNode cp-1")
 	})
+}
+
+// etcdHangs is a node whose etcd calls hang until their deadline, as a
+// control plane whose etcd does not run can, while its machine API answers.
+type etcdHangs struct{ talos.Client }
+
+func (h etcdHangs) EtcdStatus(ctx context.Context) (talos.EtcdStatus, error) {
+	<-ctx.Done()
+	return talos.EtcdStatus{}, ctx.Err()
+}
+
+func (h etcdHangs) EtcdMembers(ctx context.Context) ([]talos.EtcdMember, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// TestProbeEtcdSeesAStoppedEtcdWhoseCallsHang: a node whose etcd calls run
+// into their deadline still answers. With one budget for every call it
+// counted as silent, and the recovery waited for it for ever.
+func TestProbeEtcdSeesAStoppedEtcdWhoseCallsHang(t *testing.T) {
+	old := probeTimeout
+	probeTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { probeTimeout = old })
+
+	m := talosfake.NewMachine("v1.14.6")
+	m.Configure([]byte("config"))
+	dial := func(ctx context.Context, target talos.Target) (talos.Client, error) {
+		c, err := m.Dialer()(ctx, target)
+		if err != nil {
+			return nil, err
+		}
+		return etcdHangs{c}, nil
+	}
+	assert.Equal(t, etcdStopped, probeEtcd(t.Context(), dial, []byte("tc"), "192.0.2.11"))
+
+	m.SetUnreachable(true)
+	assert.Equal(t, etcdSilent, probeEtcd(t.Context(), dial, []byte("tc"), "192.0.2.11"))
 }

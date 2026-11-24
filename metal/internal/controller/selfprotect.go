@@ -73,7 +73,7 @@ type SelfGuard struct {
 
 // probeTimeout bounds the question to one control plane. A node that does
 // not answer in time counts as down.
-const probeTimeout = 5 * time.Second
+var probeTimeout = 5 * time.Second // a variable for tests only
 
 // selfLocation is where the operator runs, as far as the guard could tell.
 type selfLocation struct {

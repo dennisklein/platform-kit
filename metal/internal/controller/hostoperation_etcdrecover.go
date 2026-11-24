@@ -72,23 +72,37 @@ const (
 	etcdListening                  // etcd runs and lists members
 )
 
+// probeEtcd asks one control plane about its etcd. Each call has its own
+// probeTimeout: a node whose etcd does not run can hold an etcd call until
+// its deadline, and with one budget for all three the version call came too
+// late as well, so a node that only lacked etcd counted as silent and the
+// recovery waited for it for ever. Whether the node answers comes first.
 func probeEtcd(ctx context.Context, dial talos.Dialer, talosconfig []byte, endpoint string) etcdState {
-	pctx, cancel := context.WithTimeout(ctx, probeTimeout)
-	defer cancel()
+	call := func(fn func(ctx context.Context) error) error {
+		cctx, cancel := context.WithTimeout(ctx, probeTimeout)
+		defer cancel()
+		return fn(cctx)
+	}
 	state := etcdSilent
-	_ = talos.With(pctx, dial, talos.Target{Endpoint: endpoint, Talosconfig: talosconfig}, func(c talos.Client) error {
-		if ms, err := c.EtcdMembers(pctx); err == nil && len(ms) > 0 {
+	_ = talos.With(ctx, dial, talos.Target{Endpoint: endpoint, Talosconfig: talosconfig}, func(c talos.Client) error {
+		// Only a machine that answers something counts as more than silent,
+		// not one whose connection broke after the dial.
+		if call(func(ctx context.Context) error { _, err := c.Version(ctx); return err }) != nil {
+			return nil
+		}
+		state = etcdStopped
+		if call(func(ctx context.Context) error {
+			ms, err := c.EtcdMembers(ctx)
+			if err == nil && len(ms) == 0 {
+				err = errors.New("no members")
+			}
+			return err
+		}) == nil {
 			state = etcdListening
 			return nil
 		}
-		if _, err := c.EtcdStatus(pctx); err == nil {
+		if call(func(ctx context.Context) error { _, err := c.EtcdStatus(ctx); return err }) == nil {
 			state = etcdNoQuorum
-			return nil
-		}
-		// Only a machine that answers something counts as stopped, not one
-		// whose connection broke after the dial.
-		if _, err := c.Version(pctx); err == nil {
-			state = etcdStopped
 		}
 		return nil
 	})
