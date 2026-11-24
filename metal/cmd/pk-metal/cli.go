@@ -37,6 +37,8 @@ func init() {
 			summary: "stop the operator from proposing new operations for a claim; nothing on the machine changes"},
 		{name: "unhold", synopsis: "[-n namespace] <claim> | <namespace>/<claim>", run: unholdCmd, changes: true,
 			summary: "remove a hold, so that the operator proposes operations for the claim again"},
+		{name: "pivot", synopsis: "--to <kubeconfig> [--to-context name] [--yes] [flags]", run: pivotCmd, changes: true,
+			summary: "move the operator and its objects from this cluster to another one, for example from kind onto the Talos cluster it built"},
 		{name: "check", synopsis: "[flags] <bmc-url>", run: checkCmd,
 			summary: "test that a BMC answers and list its virtual media and systems (reads only)"},
 		{name: "inventory", synopsis: "[flags] <bmc-url>", run: inventoryCmd,
