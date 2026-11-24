@@ -720,7 +720,9 @@ fleet_down() {
 # Applies manifests as a member of the platform admins. The claim policy lets
 # only that group give a claim an OS (spec.os) or waive its approval, and kind's
 # own admin is not in it, so this impersonates a member: the group
-# metal/config/lab binds. A real site binds its own people to the group instead.
+# metal/config/lab binds. A binding does not make anybody a member: a real site
+# puts its people into the group through client certificates (O=) or its
+# identity provider.
 admin_apply() {
   local path args=()
   for path in "$@"; do
@@ -1560,8 +1562,10 @@ day2_config_change() {
   before=$(boot_ids "$lab_dir/workload.kubeconfig")
   step "day 2: label every node lab.pk.io/day2=$stamp (a change that needs no reboot)"
   while read -r node; do
-    kubectl patch talosnode "$node" --type merge --as=lab-admin --as-group=pk-metal:admins \
-      --as-group=system:authenticated --patch "{\"spec\":{\"labels\":{\"lab.pk.io/day2\":\"$stamp\"}}}" >&2
+    # No admission policy guards a TalosNode's labels: the kind admin patches
+    # it as it is, as a person with patch on talosnodes would.
+    kubectl patch talosnode "$node" --type merge \
+      --patch "{\"spec\":{\"labels\":{\"lab.pk.io/day2\":\"$stamp\"}}}" >&2
   done < <(kubectl get talosnodes --output json | jq -r --arg c "$cluster_name" '
     .items[] | select(.spec.clusterRef.name == $c) | .metadata.name')
   name=$(rollout_wait_proposed "$cluster_name" Config 600)

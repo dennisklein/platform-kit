@@ -227,8 +227,11 @@ apply one of them by hand: `mise run lab:apply
 .lab/generated/manifests/30-claims.yaml`. A plain `kubectl apply` of a claim
 with `spec.os` is refused, even as the cluster admin: the claim policy
 (`metal/config/policy`) asks for membership of the group `pk-metal:admins` by
-name. `lab:apply` acts as a member by impersonation; a real site binds its
-admins to that group instead.
+name. A binding (ClusterRoleBinding) does not make anybody a member: the
+group comes from the request's identity, that is the `O=` of a client
+certificate, a group claim of an OIDC login, or `--as-group` when a user
+impersonates. `lab:apply` acts as a member by impersonation; a real site puts
+its admins into that group through its certificates or its identity provider.
 
 ## Size the lab
 
