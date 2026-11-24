@@ -137,12 +137,12 @@ func TestRandomPassword(t *testing.T) {
 func TestDesiredIdentity(t *testing.T) {
 	ep := &metalv1alpha1.ManagementEndpoint{
 		ObjectMeta: metav1.ObjectMeta{Name: "ci-1"},
-		Spec:       metalv1alpha1.ManagementEndpointSpec{Address: "https://[fd6b:5a2e:1c4d:1034::14]:443"},
+		Spec:       metalv1alpha1.ManagementEndpointSpec{Address: "https://[2001:db8:0:100::14]:443"},
 	}
 	d := desiredIdentity(ep, &metalv1alpha1.IdentityPolicy{})
 	assert.Equal(t, "bmc-ci-1.metal.internal", d.CommonName, "domain defaults")
 	assert.Equal(t, []string{"bmc-ci-1.metal.internal"}, d.DNSNames)
-	assert.Equal(t, []string{"fd6b:5a2e:1c4d:1034::14"}, d.IPAddresses, "an IP-literal address rides as SAN")
+	assert.Equal(t, []string{"2001:db8:0:100::14"}, d.IPAddresses, "an IP-literal address rides as SAN")
 
 	ep.Spec.Address = "https://bmc-ci-1.metal.internal"
 	d = desiredIdentity(ep, &metalv1alpha1.IdentityPolicy{Domain: "mgmt.metal.internal"})
@@ -154,13 +154,13 @@ func TestIdentityDrift(t *testing.T) {
 	leaf := &x509.Certificate{
 		Subject:     pkix.Name{CommonName: "bmc-ci-1.metal.internal"},
 		DNSNames:    []string{"bmc-ci-1.metal.internal"},
-		IPAddresses: []net.IP{net.ParseIP("fd6b::14")},
+		IPAddresses: []net.IP{net.ParseIP("2001:db8:0:100::14")},
 		NotAfter:    time.Now().Add(60 * 24 * time.Hour),
 	}
 	desired := identityDesired{
 		CommonName:  "bmc-ci-1.metal.internal",
 		DNSNames:    []string{"bmc-ci-1.metal.internal"},
-		IPAddresses: []string{"fd6b::14"},
+		IPAddresses: []string{"2001:db8:0:100::14"},
 	}
 	assert.Empty(t, identityDrift(leaf, desired, 30*24*time.Hour), "in sync")
 	assert.Contains(t, identityDrift(leaf, desired, 90*24*time.Hour), "renewal window",
@@ -184,13 +184,13 @@ func TestStampEndpointLabels(t *testing.T) {
 		Status: metalv1alpha1.ManagementEndpointStatus{
 			Vendor: "Huawei",
 			Model:  "2288H V5",
-			Asset:  &metalv1alpha1.AssetSnapshot{VLAN: 1034},
+			Asset:  &metalv1alpha1.AssetSnapshot{VLAN: 100},
 		},
 	}
 	require.True(t, stampEndpointLabels(ep))
 	assert.Equal(t, "Huawei", ep.Labels[labelVendor])
 	assert.Equal(t, "2288H-V5", ep.Labels[labelModel], "discovered facts sanitize into label values")
-	assert.Equal(t, "1034", ep.Labels[labelVLAN])
+	assert.Equal(t, "100", ep.Labels[labelVLAN])
 	assert.Equal(t, "hpc", ep.Labels["team"], "human labels survive")
 
 	assert.False(t, stampEndpointLabels(ep), "stamping is idempotent")

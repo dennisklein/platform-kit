@@ -86,11 +86,11 @@ func TestEndpointConvergence(t *testing.T) {
 	for _, a := range []*metalv1alpha1.Asset{
 		{ObjectMeta: metav1.ObjectMeta{Name: "ci-huawei"},
 			Spec: metalv1alpha1.AssetSpec{CID: "CI-1", Serial: "SIMHW2288V5000391",
-				BMCMac: "02:00:48:0b:74:60", VLAN: 1034,
+				BMCMac: "02:00:48:0b:74:60", VLAN: 100,
 				CredentialsRef: corev1.LocalObjectReference{Name: "ibmc-factory"}}},
 		{ObjectMeta: metav1.ObjectMeta{Name: "ci-smc"},
 			Spec: metalv1alpha1.AssetSpec{CID: "CI-2", Serial: "SIMX12B000001",
-				BMCMac: "02:00:5a:3a:cc:18", VLAN: 1034,
+				BMCMac: "02:00:5a:3a:cc:18", VLAN: 100,
 				CredentialsRef: corev1.LocalObjectReference{Name: "ibmc-factory"}}},
 	} {
 		require.NoError(t, cl.Create(ctx, a))
@@ -130,7 +130,7 @@ func TestEndpointConvergence(t *testing.T) {
 	st.run(t, "discovered-labels", func(t *testing.T) {
 		for name, model := range map[string]string{"ci-huawei": "2288H-V5", "ci-smc": "X12DPi-N6"} {
 			ep := waitEndpoint(name, func(ep metalv1alpha1.ManagementEndpoint) bool {
-				return ep.Labels[labelVLAN] == "1034"
+				return ep.Labels[labelVLAN] == "100"
 			})
 			assert.Equal(t, model, ep.Labels["metal.pk.io/model"], name)
 			assert.NotEmpty(t, ep.Labels["metal.pk.io/vendor"], name)
@@ -141,7 +141,7 @@ func TestEndpointConvergence(t *testing.T) {
 		require.NoError(t, cl.Create(ctx, &metalv1alpha1.EndpointProfile{
 			ObjectMeta: metav1.ObjectMeta{Name: "managed-bmcs"},
 			Spec: metalv1alpha1.EndpointProfileSpec{
-				Match: metav1.LabelSelector{MatchLabels: map[string]string{labelVLAN: "1034"}},
+				Match: metav1.LabelSelector{MatchLabels: map[string]string{labelVLAN: "100"}},
 				Credentials: &metalv1alpha1.CredentialsPolicy{
 					Username: managedByName,
 				},
@@ -235,7 +235,7 @@ func TestEndpointConvergence(t *testing.T) {
 		require.NoError(t, cl.Create(ctx, &metalv1alpha1.EndpointProfile{
 			ObjectMeta: metav1.ObjectMeta{Name: "other-account"},
 			Spec: metalv1alpha1.EndpointProfileSpec{
-				Match: metav1.LabelSelector{MatchLabels: map[string]string{labelVLAN: "1034"}},
+				Match: metav1.LabelSelector{MatchLabels: map[string]string{labelVLAN: "100"}},
 				Credentials: &metalv1alpha1.CredentialsPolicy{
 					Username: "metal-ops",
 				},
@@ -276,7 +276,7 @@ func TestEndpointConvergence(t *testing.T) {
 		require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: "managed-bmcs"}, profile))
 		profile.Spec.TLS = &metalv1alpha1.IdentityPolicy{
 			IssuerRef: metalv1alpha1.IssuerRef{Name: "pk-test-ca"},
-			Subject:   &metalv1alpha1.CertificateSubject{Country: "DE", Organization: "Example"},
+			Subject:   &metalv1alpha1.CertificateSubject{Country: "XX", Organization: "Example"},
 		}
 		require.NoError(t, cl.Update(ctx, profile))
 
@@ -325,7 +325,7 @@ func TestEndpointConvergence(t *testing.T) {
 				TLS: &metalv1alpha1.IdentityPolicy{
 					IssuerRef: metalv1alpha1.IssuerRef{Name: "pk-test-ca"},
 					Domain:    "mgmt.metal.internal",
-					Subject:   &metalv1alpha1.CertificateSubject{Country: "DE"},
+					Subject:   &metalv1alpha1.CertificateSubject{Country: "XX"},
 				},
 			},
 		}))

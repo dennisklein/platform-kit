@@ -31,8 +31,8 @@ example:
   pk-metal relay --front 10.0.0.2:8443 --secret-file ~/.config/pk-metal/relay.secret`
 }
 
-// relayCmd runs the L4 reverse tunnel on a box with BMC reach — an org Linux box
-// at day-0, the 1034-macvlan pod in steady state, loopback under test. The
+// relayCmd runs the L4 reverse tunnel on a box with BMC reach: an org Linux box
+// at day-0 (before the operator runs), loopback under test. The
 // tunnel port stays on loopback by default and every connection to it is
 // authenticated with the shared secret: its DIAL verb dials onward into the
 // BMC network, and its REGISTER verb takes over the BMCs' media fetches.

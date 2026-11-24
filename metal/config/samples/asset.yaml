@@ -6,11 +6,11 @@
 apiVersion: metal.pk.io/v1alpha1
 kind: Asset
 metadata:
-  name: ci-00397
+  name: asset-00397
 spec:
-  cid: "CI-00397"
+  cid: "ASSET-00397"
   serial: "SIMHW2288V5000397"
   bmcMac: "02:00:48:0b:74:83"
-  vlan: 1034
+  vlan: 100
   credentialsRef:
     name: ibmc-factory

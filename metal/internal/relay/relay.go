@@ -6,10 +6,11 @@
 // asset server, never here — the relay splices ciphertext, which is what makes it
 // acceptable to run on a box we don't own.
 //
-// Bindings are just addresses: loopback (the sim, every CI run), an org Linux box
-// (day-0 — front on the BMC-reachable interface, tunnel kept on 127.0.0.1 and
-// reached over `ssh -L`, so the onward-dial path is never an open proxy into the
-// BMC island), a 1034-macvlan pod (steady state).
+// Bindings are just addresses: loopback (the sim, every CI run) or an org Linux
+// box at day-0 (front on the BMC-reachable interface, tunnel kept on 127.0.0.1
+// and reached over `ssh -L`, so the onward-dial path is never an open proxy into
+// the BMC island). The relay serves day-0 only: pk-metal boot uses it, the
+// operator does not.
 //
 // The protocol is three line-prefixed TCP flavors on the tunnel port, each
 // opened by the relay's greeting and authenticated by the shared secret (see

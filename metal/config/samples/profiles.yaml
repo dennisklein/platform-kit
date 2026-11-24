@@ -42,7 +42,7 @@ metadata:
 spec:
   match:
     matchLabels:
-      metal.pk.io/vlan: "1034"
+      metal.pk.io/vlan: "100"
   credentials:
     username: pk-metal
     maxAge: 2160h
@@ -52,7 +52,7 @@ spec:
     issuerRef:
       name: internal-ca
     subject:
-      country: DE
+      country: XX
       organization: Example Org
       organizationalUnit: Metal
 ---
