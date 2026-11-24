@@ -159,6 +159,7 @@ func TestRestorePlanRecoversALostCluster(t *testing.T) {
 	assert.Equal(t, newest.Status.SHA256, rec.Spec.Actions[0].EtcdRecover.SHA256)
 	for _, op := range p.Ops {
 		assert.NotEmpty(t, op.Annotations[metalv1alpha1.AnnotationOverrideClusterGuard], "%s overrides the cluster guard", op.Name)
+		assert.NotEmpty(t, op.Annotations[metalv1alpha1.AnnotationIgnoreWindow], "%s ignores maintenance windows", op.Name)
 	}
 	text := p.render()
 	assert.Contains(t, text, "RESTORE etcd")

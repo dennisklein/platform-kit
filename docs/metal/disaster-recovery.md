@@ -246,7 +246,9 @@ the cluster-guard override (`metal.pk.io/override-cluster-guard`, see
 [Day-2 steps](day2-actions.md#one-control-plane-at-a-time)): the guard holds a control
 plane while etcd is unhealthy, and a repair starts from exactly that. The
 override does not lift the one-control-plane-at-a-time rule, so approve the
-operations one after another. It sorts the cluster into one of
+operations one after another. They also carry
+`metal.pk.io/ignore-window`: a cluster without etcd is already down, so
+they start outside [maintenance windows](maintenance-windows.md). It sorts the cluster into one of
 these cases:
 
 | What `plan` sees | Case | What it proposes |

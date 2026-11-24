@@ -434,14 +434,18 @@ func resetEphemeral(ref metalv1alpha1.Reference) metalv1alpha1.HostOperationActi
 // healthy, which is exactly the state a repair starts from, so without it
 // the repair would wait for itself. The override lifts only the health rule;
 // control planes still go down one at a time, and the operator's own nodes
-// stay protected.
+// stay protected. It also ignores maintenance windows: a cluster without
+// etcd is already down, so waiting for a window only extends the outage.
 func (p *restorePlan) op(host, suffix string, actions []metalv1alpha1.HostOperationAction) *metalv1alpha1.HostOperation {
+	why := "pk-metal restore: etcd of cluster " + p.Cluster + " is broken and this operation is its repair"
 	return &metalv1alpha1.HostOperation{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: p.Cluster + "-" + suffix, Namespace: operatorNamespace,
 			Labels: map[string]string{labelRestoreCluster: p.Cluster},
-			Annotations: map[string]string{metalv1alpha1.AnnotationOverrideClusterGuard: "pk-metal restore: etcd of cluster " +
-				p.Cluster + " is broken and this operation is its repair"},
+			Annotations: map[string]string{
+				metalv1alpha1.AnnotationOverrideClusterGuard: why,
+				metalv1alpha1.AnnotationIgnoreWindow:         why,
+			},
 		},
 		Spec: metalv1alpha1.HostOperationSpec{
 			HostRef: metalv1alpha1.Reference{Name: host}, Reason: restoreReason,
