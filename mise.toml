@@ -22,6 +22,8 @@ yq = "4"
 node = "24.22"
 # Vale lints the documentation site against the STE style in docs/styles.
 vale = "3.28"
+# promtool checks and unit-tests the alerting rules (mise run metrics:rules).
+promtool = "3"
 
 [env]
 GOTOOLCHAIN = "local"
@@ -51,7 +53,7 @@ dir = "metal"
 # promtool reads a plain rule file, not a PrometheusRule: the spec is copied out
 # next to the tests, which name it rules.yaml.
 run = '''
-command -v promtool >/dev/null || { echo "metrics:rules: promtool is not on PATH; install it: mise use promtool@3" >&2; exit 1; }
+command -v promtool >/dev/null || { echo "metrics:rules: promtool is not on PATH; install it: mise install promtool" >&2; exit 1; }
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 yq '.spec' config/prometheus/rules.yaml > "$tmp/rules.yaml"

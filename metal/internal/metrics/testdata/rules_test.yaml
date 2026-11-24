@@ -104,10 +104,9 @@ tests:
       - eval_time: 25m
         alertname: PkMetalMetricsAbsent
         exp_alerts:
+          # absent() of a comparison carries no labels of the series.
           - exp_labels:
               severity: critical
-              job: pk-metal-metrics
-              namespace: pk-metal
             exp_annotations:
               summary: "Prometheus has not scraped the pk-metal manager for 10 minutes"
               description: "No pk-metal alert can fire while this one does. kubectl -n pk-metal get pods,endpoints shows whether the manager runs; if the API server does not answer, the management cluster is lost."
