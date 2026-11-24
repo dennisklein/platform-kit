@@ -63,7 +63,7 @@ If all control planes answer and none runs etcd, `Bootstrapped=False` with reaso
 
 <dl>
   <dt>`spec.credentials.ttl`</dt>
-  <dd>The lifetime of the published credentials. The default is 24 hours. The operator issues new ones when less than a third of the lifetime remains.</dd>
+  <dd>The lifetime of the published credentials. The default is 24 hours, and the maximum is 720 hours (30 days). The operator issues new ones when less than a third of the lifetime remains.</dd>
   <dt>`spec.credentials.readerTalosconfig`</dt>
   <dd>Also publishes `<cluster>-talosconfig-reader` with the role `os:reader`. Use it to monitor the cluster.</dd>
   <dt>`status.credentialsExpireAt`</dt>

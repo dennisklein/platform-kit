@@ -44,6 +44,8 @@ The command takes no arguments. It runs until you stop it.
 
 The relay does not decrypt the traffic. TLS ends in `pk-metal boot`.
 
+The relay dials onward only to the targets in [`--allow`](cli:relay#--allow). The default `*:443` lets the relay dial each host on port 443, the port of Redfish. Give a shorter list to limit the relay to your BMC network, for example `--allow 192.0.2.0/24:443`.
+
 ### The secret
 
 1. Set `PK_METAL_RELAY_SECRET`, or give a file with [`--secret-file`](cli:relay#--secret-file). Do not give the two.

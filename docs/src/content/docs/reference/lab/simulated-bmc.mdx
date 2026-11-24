@@ -119,6 +119,22 @@ A fixture can copy two behaviors of those vendors for the BIOS settings. Tests u
 
 A fixture is a YAML file. `personality` in a fleet file can be the name of an embedded fixture or the path of a file.
 
+### Timing and failure fields
+
+By default, the simulator answers at once and never refuses. Real BMCs are slow and have limits.
+These fixture fields copy that. All are off by default. Tests use them.
+
+| Fixture field | Behavior |
+| --- | --- |
+| `protocol.latency` | Each answer waits this time. A real BMC answers in 0.3 to 1.5 seconds. |
+| `protocol.max_connections` | The BMC handles this number of requests at the same time. One more request gets 503 with `Retry-After`. |
+| `protocol.power_transition` | After a reset, the system shows `PoweringOn` or `PoweringOff` for this time before `On` or `Off`. |
+| `protocol.task_in_body` | An answer 202 names its Task only in the body, with no `Location` header. |
+| `identity.csr_delay` | The OEM CSR (`identity.csr_native`) needs this time. Until then, the BMC shows the previous CSR. |
+| `ntp.slots` | The number of NTP server slots. The BMC refuses more servers. |
+| `reserved_account_slots` | Empty account slots that refuse a write, as iDRAC keeps slot 1. |
+| `lockout_threshold` | After this number of failed logins in a row, the BMC locks the account. A write of `Locked: false` unlocks it. |
+
 ## Fleet file
 
 [](lab:render) writes `.lab/generated/fleet.yaml`. The fleet reads it one time, when it starts.

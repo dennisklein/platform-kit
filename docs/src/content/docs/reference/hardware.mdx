@@ -84,6 +84,7 @@ A BMC that follows the DMTF specification can work without a change. Each vendor
 - System firmware uses the multipart push with the apply time `OnReset`. It is proven only for the generic BMC.
 - The simulated X12 does not offer `OnReset`, and the operator refuses the stage. The X12 also needs OEM fields that the operator does not send for system firmware.
 - A firmware version in a [](kind:FirmwareProfile) must be the string that the BMC shows in its inventory, character for character.
+- The operator sends the user name and password with each request (Basic authentication). It opens no Redfish session. Some BMCs write an audit log entry for each request. Expect many entries for the account of the operator.
 
 ## Licenses
 

@@ -51,7 +51,7 @@ pk-metal can wipe disks, flash firmware and boot any image on a machine. This pa
 | # | Crossing | What crosses | Control |
 | --- | --- | --- | --- |
 | 1 | Person to API server | Approvals | RBAC and the [](ref:admission-policies). One person proposes, another approves. Two identities can skip the second person: the operator service account and a member of the admin group. See [Who can skip the gate](#who-can-skip-the-gate). |
-| 2 | Manager to BMC | BMC login, power and boot commands | Redfish over TLS. Each [](kind:ManagementEndpoint) has its own `spec.tls`, see [BMC certificates](#bmc-certificates). |
+| 2 | Manager or CLI to BMC | BMC login, power and boot commands | Redfish over TLS. Each [](kind:ManagementEndpoint) has its own `spec.tls`, see [BMC certificates](#bmc-certificates). The CLI checks the BMC certificate against `--bmc-ca`; `--insecure` turns the check off and prints a warning. |
 | 3 | BMC to media service | The boot medium, maybe with a node config | HTTPS, a grant token in the URL, and a user and password for each grant. See [Media grants](#media-grants). |
 | 4 | Manager to node | Talos API calls | Mutual TLS with the cluster certificates. To observe a node, the manager can also call the maintenance service without authentication. That call reads the version only. It sends no configuration. |
 | 5 | Manager to sink | Etcd snapshots | Age encryption to public recipients. Only the holder of the age identity can decrypt, on their own machine. Only an admin chooses the recipients and the sink. |
@@ -111,6 +111,8 @@ The manager checks the certificate of a BMC with one of three sources:
 1. The `spec.tls` of the [](kind:ManagementEndpoint): a CA Secret, or `insecureSkipVerify`. The manager copies its own default into it when it makes the endpoint from an Asset.
 2. The manager default: the CA of `--bmc-ca-secret`, else `--bmc-insecure`, else the system CAs.
 3. An [](kind:EndpointProfile) with `spec.tls` replaces the certificate of the BMC with one from the issuer that it names.
+
+`pk-metal` on a workstation ([](cli:check), [](cli:inventory), [](cli:boot)) checks the BMC certificate against the CA file of `--bmc-ca`, else the system CAs. `--insecure` turns the check off.
 
 Watch `ManagementEndpoint.spec.tls` and `EndpointProfile.spec.tls`. A change there changes whom the manager trusts, and whom it sends the BMC login to.
 

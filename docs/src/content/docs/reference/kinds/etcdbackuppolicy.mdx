@@ -32,6 +32,8 @@ Each snapshot is an [](kind:EtcdSnapshot).
   <dd>[](ctrl:etcdbackuppolicy) (schedule and retention) and [](ctrl:etcdsnapshot) (each snapshot).</dd>
   <dt>Approval</dt>
   <dd>None. A snapshot reads etcd and changes no machine. A restore needs approval.</dd>
+  <dt>Who may write it</dt>
+  <dd>Only a member of the admin group creates a policy or changes `spec.encryption` or `spec.sink`. These fields decide who can read the snapshots and where they go. See [](ref:rbac#get-into-the-admin-group).</dd>
   <dt>Conditions</dt>
   <dd>`Ready`, `BackedUp`.</dd>
   <dt>Sample</dt>
@@ -74,6 +76,8 @@ Each snapshot is an [](kind:EtcdSnapshot).
 Do not use a `pvc` sink for the cluster that the operator runs on. That volume is in the etcd that it backs up, so you lose both together.
 The operator refuses it with `Ready=False`, reason `SinkRefused`.
 </Callout>
+
+The `s3` endpoint must use `https://`. `allowPlainHTTP: true` lets a store in a lab use `http://`. Do not set it in production: the store credentials then go over the network as plain text.
 
 <Callout type="note">
 Name at least two age recipients, for example two persons, or one person and a key in a safe. The operator has no secret key and cannot read its own backups.
