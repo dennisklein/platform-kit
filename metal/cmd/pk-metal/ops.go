@@ -78,12 +78,17 @@ func retry(ctx context.Context, cl client.Client, namespace, name string, w io.W
 		return err
 	}
 	ref := op.Namespace + "/" + op.Name
-	if p := opPhase(op); p != metalv1alpha1.OperationFailed {
-		return fmt.Errorf("operation %s is %s, not Failed; retry deletes failed operations only",
+	p := opPhase(op)
+	if p != metalv1alpha1.OperationFailed && p != metalv1alpha1.OperationAborted {
+		return fmt.Errorf("operation %s is %s, not Failed or Aborted; retry deletes finished operations that did not succeed only",
 			ref, orDash(string(p)))
 	}
 	if why := explain(op.Status.Conditions, "", metalv1alpha1.ConditionExecuted); why != "" {
-		fmt.Fprintf(w, "operation %s failed: %s\n", ref, why)
+		verb := "failed"
+		if p == metalv1alpha1.OperationAborted {
+			verb = "was aborted"
+		}
+		fmt.Fprintf(w, "operation %s %s: %s\n", ref, verb, why)
 	}
 	if convergenceProposal(op) {
 		// Deleting a convergence proposal reads as refusing it, so the

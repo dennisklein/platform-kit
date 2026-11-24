@@ -85,6 +85,15 @@ const (
 	ReasonHostNotClaimed = "HostNotClaimed"
 	// ReasonNoReachablePath on Executed=Unknown: every management path is down.
 	ReasonNoReachablePath = "NoReachablePath"
+	// ReasonClusterDisruption on Executed=Unknown: the operation would take
+	// down a control plane of a Talos cluster while another control plane of
+	// that cluster is being taken down, or while its etcd is not fully
+	// healthy without this member. It starts once that is over.
+	ReasonClusterDisruption = "ClusterDisruption"
+	// ReasonAborted on Executed=False: a person asked the operation to stop
+	// (annotation metal.pk.io/abort, pk-metal abort). It stopped between two
+	// steps and undid what it could; the message says what.
+	ReasonAborted = "Aborted"
 )
 
 // Reasons on the host's Booted / OSReady conditions. Both mirror the bound

@@ -292,10 +292,13 @@ func opPhase(op *metalv1alpha1.HostOperation) metalv1alpha1.OperationPhase {
 	return p
 }
 
-// finished: the executor recorded an outcome, success or failure.
+// finished: the executor recorded an outcome: success, failure or abort.
 func finished(op *metalv1alpha1.HostOperation) bool {
-	p := opPhase(op)
-	return p == metalv1alpha1.OperationSucceeded || p == metalv1alpha1.OperationFailed
+	switch opPhase(op) {
+	case metalv1alpha1.OperationSucceeded, metalv1alpha1.OperationFailed, metalv1alpha1.OperationAborted:
+		return true
+	}
+	return false
 }
 
 // waitsForApproval: the operation needs a person and nobody has approved it.

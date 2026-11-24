@@ -652,6 +652,9 @@ spec:
                   x-kubernetes-list-map-keys:
                     - type
                   x-kubernetes-list-type: map
+                cordonedNode:
+                  description: CordonedNode is the Kubernetes Node this operation made unschedulable (a cordon or drain step that found it schedulable). An abort makes it schedulable again; a node a person had cordoned before is left as it was.
+                  type: string
                 observedResetTime:
                   description: ObservedResetTime is the reset-time observation after the last step — the proof the reset happened, and what marks a Host reset-time advance as explained rather than Drifted.
                   format: date-time
@@ -668,6 +671,7 @@ spec:
                     - Running
                     - Succeeded
                     - Failed
+                    - Aborted
                   type: string
                 shutdownRequested:
                   description: ShutdownRequested is when the executor asked the OS to shut down for a graceful powerOff. The step forces the machine off once the graceful window, counted from here, has passed; recording it means a resumed operation neither asks again nor restarts the window.
@@ -679,7 +683,7 @@ spec:
                     description: OperationStep is one executed action's outcome.
                     properties:
                       action:
-                        description: Action is the union key that ran (powerCycle, insertMedia, …).
+                        description: Action is the union key that ran (powerCycle, insertMedia, …), or "abort" for the record of an abort and what it undid.
                         type: string
                       finishedAt:
                         description: FinishedAt is when the step reached its goal (or failed).
@@ -691,6 +695,7 @@ spec:
                         enum:
                           - Succeeded
                           - Failed
+                          - Aborted
                         type: string
                     required:
                       - action
@@ -698,6 +703,28 @@ spec:
                     type: object
                   type: array
                   x-kubernetes-list-type: atomic
+                talosStep:
+                  description: 'TalosStep is the progress of the Talos step in flight that restarts or wipes the node (talosReboot, talosUpgrade, talosApplyConfig, talosReset, talosShutdown): the node''s boot time before it acted, and when the request was accepted. A resumed operation waits for the boot time to move on instead of asking a second time.'
+                  properties:
+                    bootTime:
+                      description: BootTime is the node's boot time before the step acted. The step's restart shows as a later boot time.
+                      format: date-time
+                      type: string
+                    mode:
+                      description: 'Mode is how the node said it applies a config (talosApplyConfig): reboot, no-reboot, staged or try.'
+                      type: string
+                    requestedAt:
+                      description: RequestedAt is when the node accepted the request.
+                      format: date-time
+                      type: string
+                    step:
+                      description: Step is the index in spec.actions this progress belongs to.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                  required:
+                    - step
+                  type: object
               type: object
           required:
             - spec

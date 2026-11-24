@@ -149,7 +149,7 @@ var provisioningHolds = map[string]bool{
 }
 
 // ForOperation derives the HostOperation phase from Approved + Executed. A
-// finished Executed wins (Succeeded/Failed are terminal); an unstamped gate is
+// finished Executed wins (Succeeded/Failed/Aborted are terminal); an unstamped gate is
 // AwaitingApproval; a queued operation stays Proposed (blocked on its
 // predecessor); an approved, unfinished operation is Running.
 func ForOperation(conds []metav1.Condition) (metalv1alpha1.OperationPhase, string) {
@@ -157,6 +157,8 @@ func ForOperation(conds []metav1.Condition) (metalv1alpha1.OperationPhase, strin
 	switch {
 	case ex != nil && ex.Status == metav1.ConditionTrue:
 		return metalv1alpha1.OperationSucceeded, ""
+	case ex != nil && ex.Status == metav1.ConditionFalse && ex.Reason == metalv1alpha1.ReasonAborted:
+		return metalv1alpha1.OperationAborted, ""
 	case ex != nil && ex.Status == metav1.ConditionFalse:
 		return metalv1alpha1.OperationFailed, ""
 	}
