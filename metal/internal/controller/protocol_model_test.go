@@ -506,8 +506,13 @@ func executorPass(s state, v view, mask uint8, i opSlot, fail bool) *pass {
 			return p
 		}
 		// recordBootStart: a boot of the claim stamps the host, read from
-		// the API server, before its baseline.
-		if h := p.next.Host; i == slotBoot && h.Claimed && !powerOffDecided(hostObj(h), claimObj(v.Claim)) {
+		// the API server, before its baseline. A boot of a claim being
+		// deleted, or on a host the claim no longer holds, does not start
+		// and ends Failed.
+		if h, c := p.next.Host, p.next.Claim; i == slotBoot && (!h.Claimed || !c.Exists || c.Deleting) {
+			p.updateOp(i, o, func(m *mOp) { m.Outcome, m.Queued = 2, false })
+			return p
+		} else if i == slotBoot && !powerOffDecided(hostObj(h), claimObj(v.Claim)) {
 			if !p.updateHost(h, func(h *mHost) { h.PowerOff = true }) {
 				return p
 			}

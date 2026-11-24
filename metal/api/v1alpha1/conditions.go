@@ -79,6 +79,10 @@ const (
 	ReasonStepFailed = "StepFailed"
 	// ReasonHostNotFound on Executed=Unknown: hostRef names no Host (yet).
 	ReasonHostNotFound = "HostNotFound"
+	// ReasonHostNotClaimed on Executed=False: a boot of a claim was about to
+	// start, but the claim is being deleted or no longer holds the host; it
+	// never touched the machine.
+	ReasonHostNotClaimed = "HostNotClaimed"
 	// ReasonNoReachablePath on Executed=Unknown: every management path is down.
 	ReasonNoReachablePath = "NoReachablePath"
 )

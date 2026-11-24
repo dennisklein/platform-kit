@@ -146,6 +146,7 @@ func waitingOn(format string, args ...any) stepState {
 // +kubebuilder:rbac:groups=metal.pk.io,resources=hostoperations,verbs=get;list;watch;delete
 // +kubebuilder:rbac:groups=metal.pk.io,resources=hostoperations/status,verbs=update
 // +kubebuilder:rbac:groups=metal.pk.io,resources=hosts,verbs=get;list;watch;patch
+// +kubebuilder:rbac:groups=metal.pk.io,resources=hostclaims,verbs=get
 // +kubebuilder:rbac:groups=metal.pk.io,resources=managementendpoints,verbs=get;list;watch
 // +kubebuilder:rbac:groups=metal.pk.io,resources=biossettings,verbs=get;list;watch
 // +kubebuilder:rbac:groups=os.pk.io,resources=bootassets;talosnodes,verbs=get;list;watch
@@ -264,8 +265,11 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonNoReachablePath, hold)
 			return ctrl.Result{}, client.IgnoreNotFound(flush())
 		}
-		if err := r.recordBootStart(ctx, op, host); err != nil {
+		if refused, err := r.recordBootStart(ctx, op, host); err != nil {
 			return ctrl.Result{}, err
+		} else if refused != "" {
+			setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionFalse, metalv1alpha1.ReasonHostNotClaimed, refused)
+			return ctrl.Result{}, client.IgnoreNotFound(flush())
 		}
 		op.Status.Baseline = &metalv1alpha1.OperationBaseline{
 			PowerState: string(obs.PowerState),
@@ -531,30 +535,45 @@ func (r *HostOperationReconciler) expire(ctx context.Context, op *metalv1alpha1.
 // bind shows the host as free, and the boot would start with no record. The
 // patch carries the version read, so a host unbound since then is not
 // stamped for a claim it no longer serves.
-func (r *HostOperationReconciler) recordBootStart(ctx context.Context, op *metalv1alpha1.HostOperation, cached *metalv1alpha1.Host) error {
+//
+// A boot whose claim is being deleted, or no longer holds the host, does not
+// start: it returns why. Such a boot was made from a stale read of a claim
+// already being deleted; once started, it could run after the release handed
+// the machine back. Both are read from the API server.
+func (r *HostOperationReconciler) recordBootStart(ctx context.Context, op *metalv1alpha1.HostOperation,
+	cached *metalv1alpha1.Host) (refused string, err error) {
 	uid := op.Labels[labelClaimUID]
 	if op.Labels[labelPurpose] != purposeProvision || uid == "" {
-		return nil
+		return "", nil
+	}
+	claimKey := client.ObjectKey{Namespace: op.Labels[labelClaimNamespace], Name: op.Labels[labelClaimName]}
+	claim := &metalv1alpha1.HostClaim{}
+	if err := r.reader().Get(ctx, claimKey, claim); client.IgnoreNotFound(err) != nil {
+		return "", err
+	} else if err != nil || string(claim.UID) != uid || !claim.DeletionTimestamp.IsZero() {
+		return fmt.Sprintf("claim %s is gone or being deleted, so this boot does not start", claimKey), nil
 	}
 	if cached.Annotations[annotationReleasePowerOff] == uid {
-		return nil // already written; the cache shows only what was
+		return "", nil // already written; the cache shows only what was
 	}
 	host := &metalv1alpha1.Host{}
 	if err := r.reader().Get(ctx, client.ObjectKeyFromObject(cached), host); err != nil {
-		return err
+		return "", err
+	}
+	ref := host.Spec.ClaimRef
+	if ref == nil || ref.Namespace != claimKey.Namespace || ref.Name != claimKey.Name ||
+		ref.UID != "" && string(ref.UID) != uid {
+		return fmt.Sprintf("host %s is no longer held by claim %s, so this boot does not start", host.Name, claimKey), nil
 	}
 	if host.Annotations[annotationReleasePowerOff] == uid {
-		return nil
-	}
-	if ref := host.Spec.ClaimRef; ref == nil || ref.UID != "" && string(ref.UID) != uid {
-		return nil
+		return "", nil
 	}
 	base := host.DeepCopy()
 	if host.Annotations == nil {
 		host.Annotations = map[string]string{}
 	}
 	host.Annotations[annotationReleasePowerOff] = uid
-	return r.Patch(ctx, host, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
+	return "", r.Patch(ctx, host, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
 }
 
 // passTimeout budgets one executor pass by what it runs.

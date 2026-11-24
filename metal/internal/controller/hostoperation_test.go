@@ -659,7 +659,7 @@ func TestBootRecordsItsStartPastAStaleCache(t *testing.T) {
 	claim := testClaim("node-b")
 	boot := preClearedOp(metalv1alpha1.HostOperationAction{PowerCycle: &metalv1alpha1.PowerCycleAction{}})
 	boot.Labels = claimLabels(claim, purposeProvision)
-	r, _, _ := executorFor(t, "supermicro-x12", boot)
+	r, _, _ := executorFor(t, "supermicro-x12", boot, claim)
 	host := &metalv1alpha1.Host{}
 	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: "host-a"}, host))
 	free := host.DeepCopy()
@@ -687,4 +687,53 @@ func (c *staleHost) Get(ctx context.Context, key client.ObjectKey, obj client.Ob
 		return nil
 	}
 	return c.Client.Get(ctx, key, obj, opts...)
+}
+
+// A boot does not start once its claim is being deleted, or once the claim no
+// longer holds the host. It used to: a claim pass that read the claim from a
+// cache that had not yet seen the deletion made a new boot, which could start
+// after the release handed the machine back and mount its media there.
+func TestBootOfAReleasedClaimDoesNotStart(t *testing.T) {
+	ctx := t.Context()
+	for _, tc := range []struct {
+		name  string
+		setup func(t *testing.T, r *HostOperationReconciler, claim *metalv1alpha1.HostClaim)
+	}{
+		{"the claim is being deleted", func(t *testing.T, r *HostOperationReconciler, claim *metalv1alpha1.HostClaim) {
+			require.NoError(t, r.Delete(ctx, claim))
+		}},
+		{"the claim is gone", func(t *testing.T, r *HostOperationReconciler, claim *metalv1alpha1.HostClaim) {
+			claim.Finalizers = nil
+			require.NoError(t, r.Update(ctx, claim))
+			require.NoError(t, r.Delete(ctx, claim))
+		}},
+		{"the host was unbound", func(t *testing.T, r *HostOperationReconciler, _ *metalv1alpha1.HostClaim) {
+			host := &metalv1alpha1.Host{}
+			require.NoError(t, r.Get(ctx, client.ObjectKey{Name: "host-a"}, host))
+			host.Spec.ClaimRef = nil
+			require.NoError(t, r.Update(ctx, host))
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			claim := testClaim("node-b")
+			claim.Finalizers = []string{releaseFinalizer}
+			boot := preClearedOp(metalv1alpha1.HostOperationAction{PowerCycle: &metalv1alpha1.PowerCycleAction{}})
+			boot.Labels = claimLabels(claim, purposeProvision)
+			r, _, rec := executorFor(t, "supermicro-x12", boot, claim)
+			host := &metalv1alpha1.Host{}
+			require.NoError(t, r.Get(ctx, client.ObjectKey{Name: "host-a"}, host))
+			host.Spec.ClaimRef = &metalv1alpha1.ClaimReference{Namespace: claim.Namespace, Name: claim.Name, UID: claim.UID}
+			require.NoError(t, r.Update(ctx, host))
+			require.NoError(t, r.Get(ctx, client.ObjectKeyFromObject(claim), claim))
+			tc.setup(t, r, claim)
+
+			got := runOp(t, r)
+			ex := meta.FindStatusCondition(got.Status.Conditions, metalv1alpha1.ConditionExecuted)
+			require.NotNil(t, ex)
+			assert.Equal(t, metav1.ConditionFalse, ex.Status, "the boot ends")
+			assert.Equal(t, metalv1alpha1.ReasonHostNotClaimed, ex.Reason, ex.Message)
+			assert.Nil(t, got.Status.Baseline, "it never started")
+			assert.Empty(t, rec.powers, "the machine is not touched")
+		})
+	}
 }
