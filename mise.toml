@@ -203,6 +203,16 @@ description = "Unattended: move the operator from kind onto the first Talos clus
 depends = ["build"]
 run = "lab/lab.sh pivot"
 
+[tasks."lab:day2-upgrade"]
+description = "Unattended: upgrade a lab brought up on an older Talos (PK_LAB_TALOS=v1.14.5) to the spec's release through an approved rollout"
+depends = ["build"]
+run = "lab/lab.sh day2-upgrade"
+
+[tasks."lab:day2-config-change"]
+description = "Unattended: roll a node label (no reboot) through an approved Config rollout and check no machine rebooted"
+depends = ["build"]
+run = "lab/lab.sh day2-config-change"
+
 [tasks."lab:collect"]
 description = "Write logs and object dumps of the lab to .lab/diagnostics"
 run = "lab/lab.sh collect"
