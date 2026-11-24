@@ -14,6 +14,12 @@
 # its own job: the operator installs a one-machine Talos cluster from kind,
 # moves onto it with pk-metal pivot, kind is deleted, and from its new place
 # the operator installs a second one-machine cluster.
+#
+# A run started by hand can give node-2 a Huawei iBMC, which holds one
+# virtual medium only. Its machine then boots an installer the operator builds
+# for it, with its machine config inside (the imager runs as a Job in kind).
+# That run pulls the imager image (about 270 MB) and builds an ISO of about
+# 370 MB on top of the default run, so it is not the default.
 name: lab-e2e
 
 on:
@@ -21,6 +27,10 @@ on:
     inputs:
       pivot:
         description: "Also run the pivot round: move the operator from kind onto the cluster it built, then install a second cluster from there"
+        type: boolean
+        default: false
+      huawei:
+        description: Give node-2 a one-slot Huawei iBMC (builds an installer with its config inside)
         type: boolean
         default: false
   push:
@@ -81,6 +91,14 @@ jobs:
             ${{ steps.go.outputs.buildcache }}
           key: go-lab-${{ runner.os }}-${{ hashFiles('metal/go.sum') }}
           restore-keys: go-lab-${{ runner.os }}-
+
+      # The spec is changed in a copy: the default lab stays as committed.
+      - name: Give node-2 a one-slot Huawei iBMC
+        if: inputs.huawei
+        run: |
+          yq '.nodes."node-2" = {"personality": "huawei-2288h-v5"}' lab/lab.yaml >"$RUNNER_TEMP/lab.yaml"
+          yq '.nodes' "$RUNNER_TEMP/lab.yaml"
+          echo "PK_LAB_SPEC=$RUNNER_TEMP/lab.yaml" >>"$GITHUB_ENV"
 
       - name: What the runner has
         run: |

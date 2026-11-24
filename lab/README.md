@@ -51,7 +51,8 @@ of state lives, and lists what is destructive.
 - `lab/net.sh` makes the bridge, one tap per machine and the firewall rules. It
   is the only part that needs root, and `down` removes exactly what `up` made.
 - `lab/kind.yaml` is the management cluster. The operator's image is built from
-  the working tree and loaded into it; nothing is pulled from a registry.
+  the working tree and loaded into it; nothing is pulled from a registry
+  (except the Talos imager, for a one-slot BMC: see "A one-slot BMC").
 - `lab/lab.yaml` is the one file that describes the lab: the cluster name,
   the Talos and Kubernetes versions, the VIP, how many control planes and
   workers, their memory and CPUs, and per-machine overrides. `lab:up` renders
@@ -283,6 +284,45 @@ is `10.77.0.9`. To change the defaults, add a `workload:` section to
 `lab/lab.yaml` (there is a commented example at its end). Once the operator
 has moved, `lab:up` refuses to start kind again; take the lab down first. The
 whole procedure for a real site is in `docs/metal/pivot.md`.
+
+## A one-slot BMC
+
+Most BMCs in the lab hold two virtual media: the Talos installer in one slot
+and a small ISO with the machine config in the other. A Huawei iBMC
+(personality `huawei-2288h-v5`) holds one medium only. For such a machine the
+operator builds an installer for that one node, with its machine config inside,
+and the BMC fetches it over the same protected path as the config ISO. The
+machine needs no network path to the operator, and no config is sent to it
+over the network. [Concepts for system
+administrators](../docs/metal/concepts-for-sysadmins.md) says why, and what it
+means for secrets on disk.
+
+The default lab does not do this. To try it, give one machine that
+personality in a copy of the spec:
+
+```sh
+yq '.nodes."node-2" = {"personality": "huawei-2288h-v5"}' lab/lab.yaml >/tmp/lab-huawei.yaml
+PK_LAB_SPEC=/tmp/lab-huawei.yaml mise run lab:up
+mise run lab:wait
+```
+
+In CI, start the `lab-e2e` workflow by hand and tick `huawei`.
+
+What happens, and what it costs:
+
+- The operator starts a Job in the `pk-metal` namespace that runs the Talos
+  imager. kind pulls the imager image from `ghcr.io` (about 270 MB), so the
+  lab needs to reach that registry. The image is pinned by digest.
+- The build takes one to a few minutes and writes an ISO of about 370 MB to
+  the media store, a volume of the operator. `kubectl -n pk-metal get jobs`
+  shows the build; `kubectl -n pk-metal get bootassets` shows the result.
+- The Job runs as an ordinary user with the restricted Pod Security profile.
+  It needs no loop devices and no privileges, so it runs in kind as it is.
+  Give it up to 2 GiB of memory while it runs.
+- The approval plan (`mise run lab:approve`) says that the installer carries
+  the machine config of that node.
+- The build log never holds the machine config. `lab:collect` saves it to
+  `imager.log`.
 
 ## Look at a machine (there is no ssh)
 

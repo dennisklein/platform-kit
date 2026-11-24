@@ -40,8 +40,10 @@ nodes:
   # node-3 speaks the Supermicro X12 dialect (OEM board serial, three virtual
   # media slots, a UsbCd boot target), so a vendor other than the generic one
   # goes through the whole path. A Huawei iBMC (huawei-2288h-v5) holds one
-  # medium only, and a blank lab machine has no maintenance-mode Talos to boot
-  # into, so that personality would hold the install by design.
+  # medium only: its machine boots an installer built for it, with its config
+  # inside. To try it, give a machine that personality, for example
+  # node-2: { personality: huawei-2288h-v5 } ("A one-slot BMC" in
+  # lab/README.md).
   node-3: { personality: supermicro-x12 }
 
 # Talos machine configuration documents, merged into every node's

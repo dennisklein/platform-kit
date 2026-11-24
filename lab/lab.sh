@@ -1138,11 +1138,15 @@ collect() {
     kubectl get assets,managementendpoints,hosts,talosclusters,talosnodes,bootassets --output yaml >"$out/objects.yaml" 2>&1 || true
     kubectl get hostclaims,hostoperations --all-namespaces --output yaml >>"$out/objects.yaml" 2>&1 || true
     kubectl get events --all-namespaces --sort-by=.lastTimestamp >"$out/events.txt" 2>&1 || true
-    kubectl -n "$NAMESPACE" describe deployment,pod,service,configmap >"$out/operator-describe.txt" 2>&1 || true
+    kubectl -n "$NAMESPACE" describe deployment,pod,service,configmap,job,persistentvolumeclaim >"$out/operator-describe.txt" 2>&1 || true
     # Names and types only: a describe of a Secret shows sizes, never values.
     kubectl -n "$NAMESPACE" get secrets >"$out/secrets-list.txt" 2>&1 || true
     kubectl -n "$NAMESPACE" logs "deployment/$DEPLOYMENT" --all-containers --tail=-1 >"$out/operator.log" 2>&1 || true
     kubectl -n "$NAMESPACE" logs "deployment/$DEPLOYMENT" --all-containers --previous --tail=-1 >"$out/operator-previous.log" 2>&1 || true
+    # The installer builds for one-slot BMCs. Their log never holds the
+    # machine config: the build withholds the imager's output and prints a
+    # redacted tail only when it fails.
+    kubectl -n "$NAMESPACE" logs --selector app.kubernetes.io/component=imager --all-containers --prefix --tail=-1 >"$out/imager.log" 2>&1 || true
   fi
   if [[ -s $lab_dir/workload.kubeconfig ]]; then
     kubectl --kubeconfig "$lab_dir/workload.kubeconfig" --request-timeout=10s get nodes,pods --all-namespaces --output wide >"$out/workload.txt" 2>&1 || true
