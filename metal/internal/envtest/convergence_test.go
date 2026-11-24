@@ -21,10 +21,12 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc/sim"
@@ -567,5 +569,56 @@ func TestConvergence(t *testing.T) {
 			err := cl.Get(ctx, client.ObjectKey{Namespace: "default", Name: "ttl-cycle"}, &got)
 			return err != nil
 		}, waitFor, tick, "the finished operation never expired")
+	})
+	st.run(t, "a running node is drained around a BIOS change", func(t *testing.T) {
+		// The claim records that the machine runs a control plane: the
+		// install is done, so a BIOS change must move the node's work off
+		// first and wait for it (and its etcd member) to come back.
+		node := &osv1alpha1.TalosNode{
+			ObjectMeta: metav1.ObjectMeta{Name: "conv-cp"},
+			Spec: osv1alpha1.TalosNodeSpec{ClusterRef: osv1alpha1.Reference{Name: "conv"}, Role: osv1alpha1.RoleControlPlane,
+				Address: "192.0.2.31", InstallDiskSelector: osv1alpha1.DiskSelector{Serial: "sim-disk"}},
+		}
+		require.NoError(t, cl.Create(ctx, node))
+		require.Eventually(t, func() bool {
+			claim := &metalv1alpha1.HostClaim{}
+			if err := cl.Get(ctx, client.ObjectKey{Namespace: "default", Name: "fleet-conv"}, claim); err != nil {
+				return false
+			}
+			claim.Status.HandOff = &metalv1alpha1.ClaimHandOff{Host: smcHost, Node: node.Name, At: metav1.Now()}
+			return cl.Status().Update(ctx, claim) == nil
+		}, waitFor, tick)
+
+		role := &metalv1alpha1.BiosProfile{}
+		require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: "role-worker"}, role))
+		role.Spec.Attributes["QuietBoot"] = jv(t, false)
+		require.NoError(t, cl.Update(ctx, role))
+		bs := waitSettings(smcHost, func(bs metalv1alpha1.BiosSettings) bool {
+			return settingsReason(metalv1alpha1.ReasonAwaitingOperation)(bs) && bs.Status.Proposed != nil &&
+				string(bs.Spec.Attributes["QuietBoot"].Raw) == "false"
+		})
+		ns, name, _ := strings.Cut(bs.Status.Proposed.Operation, "/")
+		op := metalv1alpha1.HostOperation{}
+		require.NoError(t, cl.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &op))
+		var keys []string
+		for _, a := range op.Spec.Actions {
+			keys = append(keys, a.Key())
+		}
+		assert.Equal(t, []string{"applyBios", "waitEtcdHealthy", "cordon", "drain", "talosReboot",
+			"waitNodeReady", "waitEtcdHealthy", "uncordon"}, keys,
+			"staged first, etcd checked, drained, rebooted in order through the firmware, waited for, given back")
+		assert.Equal(t, node.Name, op.Spec.Actions[2].Cordon.NodeRef.Name)
+		assert.Equal(t, "PowerCycle", op.Spec.Actions[4].TalosReboot.Mode, "a kexec reboot would skip the firmware")
+
+		// The node goes away while nobody approved: the proposal names it in
+		// every drain step, so it is taken back and nothing reboots the
+		// machine until the record and the node agree again.
+		require.NoError(t, cl.Delete(ctx, node))
+		held := waitSettings(smcHost, settingsReason(metalv1alpha1.ReasonInstalledNodeMissing))
+		assert.Contains(t, converged(held).Message, "conv-cp")
+		assert.Nil(t, held.Status.Proposed, "the withdrawn plan is forgotten, not remembered as refused")
+		require.Eventually(t, func() bool {
+			return apierrors.IsNotFound(cl.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &metalv1alpha1.HostOperation{}))
+		}, waitFor, tick, "the unapproved proposal is withdrawn")
 	})
 }
