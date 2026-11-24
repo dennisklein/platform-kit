@@ -198,6 +198,10 @@ run = "lab/lab.sh wait"
 description = "Unattended: delete a claim (namespace/name), approve its shutdown and wait until its Host is Available"
 run = "lab/lab.sh release"
 
+[tasks."lab:observe"]
+description = "On a converged lab: check the CLUSTER/NODE tables of pk-metal status, the operator's metrics, and a maintenance window holding an approved operation until it opens"
+run = "lab/lab.sh observe"
+
 [tasks."lab:pivot"]
 description = "Unattended: move the operator from kind onto the first Talos cluster, delete kind, and install the second cluster (PK_LAB_WORKLOAD) from there"
 depends = ["build"]

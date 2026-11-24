@@ -122,6 +122,7 @@ root on that machine; on a shared workstation, decide that on purpose.
 | `mise run lab:load` | Rebuilds the operator image and rolls the manager. |
 | `mise run lab:wait` | Unattended: approves and waits until every machine is a Ready node. |
 | `mise run lab:release <namespace/name>` | Deletes a claim, approves the shutdown it proposes, and waits until its Host is Available. |
+| `mise run lab:observe` | On a converged lab: checks the CLUSTER and NODE tables of `pk-metal status`, the operator's metrics, and a maintenance window that holds an approved operation until it opens (about three minutes). |
 | `mise run lab:pivot` | Moves the operator from kind onto the first Talos cluster and installs a second one from there (see below). |
 | `mise run lab:collect` | Writes logs and object dumps to `.lab/diagnostics`. |
 | `mise run lab:down` | Stops everything and removes the network. Keeps disks and caches. |
