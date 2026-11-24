@@ -35,6 +35,10 @@ Go from one odd number of control planes to another: 1, 3 or 5.
 
 A cluster of 4 survives one failure, as a cluster of 3 does. Prefer odd sizes.
 
+<Callout type="note">
+`pk-metal scale --apply` makes and deletes HostClaims. If your claims are in git, change the files there, and use the command without `--apply` to read the plan. See [](concept:gitops).
+</Callout>
+
 ## Steps
 
 <Steps>

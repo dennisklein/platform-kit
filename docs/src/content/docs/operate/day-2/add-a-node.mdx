@@ -12,6 +12,7 @@ sources:
 ---
 
 import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
 
 ## Goal
 
@@ -22,6 +23,10 @@ Add one worker or one control plane to a running cluster.
 - A free [](kind:Host) exists: `Available`, not claimed, and wiped.
 - You are a member of the admin group.
 - The cluster is `Available`. For a control plane, etcd is healthy.
+
+<Callout type="note">
+`pk-metal scale --apply` makes HostClaims. If your claims are in git, add the claim file there, and use the command without `--apply` to read the plan. See [](concept:gitops).
+</Callout>
 
 ## Steps
 

@@ -32,6 +32,10 @@ Run a node on other hardware, with the same node name.
 | Failed (power supply, main board) | [](cli:replace). The operator releases the old machine first. |
 | Has a failed install disk only | Replace the disk, then [](howto:reinstall-a-node). |
 
+<Callout type="note">
+`pk-metal replace` changes `spec.assetRef` of the HostClaim. If the claim is in git, change the field there too, or your GitOps tool writes the old machine back. See [](concept:gitops).
+</Callout>
+
 ## Steps
 
 <Tabs>
