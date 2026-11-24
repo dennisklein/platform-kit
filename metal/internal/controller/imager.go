@@ -73,7 +73,7 @@ const (
 	imagerTmp         = "/tmp"
 	// imagerHelperDir holds the copy of the manager binary the imager runs
 	// through, and imagerBinary is the imager in its own image.
-	imagerHelperDir = "/pk-metal"
+	imagerHelperDir = "/helper"
 	imagerBinary    = "/bin/imager"
 	// imagerUID is the user the build runs as: the manager's, so that the
 	// manager can import and remove what the build wrote.

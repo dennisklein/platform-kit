@@ -897,11 +897,17 @@ cluster_converged() {
   (( ready == nodes ))
 }
 
-# Prints what failed when a claim is held because its operation failed, or
-# nothing. Such a claim waits for a person (pk-metal retry), so an unattended
+# Prints what failed when a claim is held because its operation failed, or a
+# boot asset cannot be built; nothing otherwise. Such a claim waits for a person (pk-metal retry), so an unattended
 # wait would only run into its deadline.
 failed_operations() {
   local held
+  # A boot asset whose build failed, or that has no builder, holds its machine
+  # before any operation is proposed; it waits for a person just the same.
+  kubectl get bootassets --output json | jq -r '
+    .items[] | . as $ba | (.status.conditions // [])[]
+    | select(.type == "Ready" and (.reason == "BuildFailed" or .reason == "BuilderUnavailable"))
+    | "bootasset \($ba.metadata.name): \(.reason): \(.message)"'
   held=$(kubectl get hostclaims --all-namespaces --output json | jq -r '
     [.items[] | select(.status.blockedOn == "OperationFailed")] | length')
   (( held > 0 )) || return 0
@@ -935,7 +941,7 @@ wait_converged() {
       last=$line
     fi
     failed=$(failed_operations 2>/dev/null || true)
-    [[ -z $failed ]] || die "an operation failed and its claim waits for a person:
+    [[ -z $failed ]] || die "something failed and waits for a person:
 $failed
   Look at it: mise run lab:status; collect the evidence: mise run lab:collect;
   retry it: metal/bin/pk-metal retry <claim>"
@@ -1102,7 +1108,7 @@ pivot() {
       last=$line
     fi
     failed=$(failed_operations 2>/dev/null || true)
-    [[ -z $failed ]] || die "an operation failed on the operator's new cluster and its claim waits for a person:
+    [[ -z $failed ]] || die "something failed on the operator's new cluster and waits for a person:
 $failed
   Look at it: mise run lab:status; collect the evidence: mise run lab:collect"
     (( SECONDS < deadline )) || die "TalosCluster $second did not come up within ${timeout}s. Last state: $line

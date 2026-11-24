@@ -128,8 +128,8 @@ func TestEmbeddedInstallerBuildsInAJobAndImportsTheResult(t *testing.T) {
 	// keeps the profile dump (it holds the config) out of the log.
 	require.Len(t, pod.InitContainers, 1)
 	assert.Equal(t, "registry.example/pk-metal:test", pod.InitContainers[0].Image)
-	assert.Equal(t, []string{"/manager", "imager-stage", "/pk-metal/manager"}, pod.InitContainers[0].Command)
-	assert.Equal(t, []string{"/pk-metal/manager", "imager-run", "/config/config.yaml", "/bin/imager", "iso"}, c.Command[:5])
+	assert.Equal(t, []string{"/manager", "imager-stage", "/helper/manager"}, pod.InitContainers[0].Command)
+	assert.Equal(t, []string{"/helper/manager", "imager-run", "/config/config.yaml", "/bin/imager", "iso"}, c.Command[:5])
 	assert.NotContains(t, all, "version: v1alpha1", "the config never travels in arguments")
 	for _, e := range c.Env {
 		assert.NotContains(t, e.Value, "v1alpha1", "nor in the environment")
