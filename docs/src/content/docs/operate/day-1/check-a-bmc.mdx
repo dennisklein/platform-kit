@@ -1,0 +1,95 @@
+---
+title: Check a BMC
+description: Make sure that a BMC answers Redfish and read its inventory, before you enrol the machine.
+type: howto
+day: 1
+xref: { cat: howto, id: check-a-bmc }
+sidebar:
+  order: 2
+sources:
+  - /repo/metal/cmd/pk-metal/main.go
+  - /repo/metal/internal/inventory/factfile.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Goal
+
+Make sure that one BMC answers, and find its serial number, media slots and NIC MAC addresses.
+
+## Before you start
+
+- You have the `pk-metal` binary on a workstation that can reach the BMC on TCP 443.
+- You have the BMC user name and password. Usually these are the factory values.
+- The machine can be on or off. The two commands read only. They change nothing on the machine.
+
+## Steps
+
+<Steps>
+
+1. Put the BMC password in the environment. The commands read it only from there.
+
+   ```sh
+   read -rs PK_METAL_BMC_PASSWORD && export PK_METAL_BMC_PASSWORD
+   ```
+
+2. Check the BMC. Use `--insecure` if the BMC has a self-signed certificate.
+
+   ```sh
+   pk-metal check --user admin --insecure https://192.0.2.21
+   ```
+
+   ```text
+   manager:  Huawei fw 3.08.00.00
+   media:    CD             dialect=insert-media
+   system:   1 serial=SIMHW2288V5000397 power=Off
+   check:    OK (read-only)
+   ```
+
+3. Read the inventory into a file.
+
+   ```sh
+   pk-metal inventory --user admin --insecure --node sim-0001 https://192.0.2.21 > sim-0001.yaml
+   ```
+
+   The file has the BMC MAC, the media slots, the serial number and the NICs.
+
+4. Write down the serial number and the BMC MAC. You need them for the [](kind:Asset).
+
+</Steps>
+
+## Read the result
+
+<dl>
+  <dt>`media:` lines</dt>
+  <dd>One line for each virtual media slot. One line only means a [](term:one-slot-bmc). Read [](concept:one-slot-bmc) before the install.</dd>
+  <dt>`dialect=none`</dt>
+  <dd>The slot cannot mount an image. The operator cannot boot the machine from it.</dd>
+  <dt>More than one `system:` line</dt>
+  <dd>The BMC controls more than one machine. Your [](kind:HostClaim) must set `spec.systemRef`.</dd>
+  <dt>`serial=-`</dt>
+  <dd>The system has no serial. The inventory file then shows the board serial of the chassis.</dd>
+</dl>
+
+<Callout type="note">
+The inventory file has the MAC addresses of your site. Do not publish it.
+</Callout>
+
+## Verify
+
+The last line of [](cli:check) is `check:    OK (read-only)`.
+
+## If it fails
+
+| What you see | Go to |
+| --- | --- |
+| `check failed:` with a timeout or a TLS error | [](rb:bmc-unreachable) |
+| `401` or `403` in the error | Check the user name and the password. |
+| No `media:` line | [](rb:media-slot-busy) |
+
+## Related
+
+- [](cli:inventory), [](cli:check)
+- [](howto:enrol-hosts) is the next step.
+- [](howto:network-checklist)

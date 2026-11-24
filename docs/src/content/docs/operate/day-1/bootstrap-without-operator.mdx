@@ -1,0 +1,109 @@
+---
+title: Bootstrap without the operator
+description: Render the configs, boot each machine through its BMC and start a Talos cluster, with no management cluster.
+type: howto
+day: 1
+xref: { cat: howto, id: bootstrap-without-operator }
+sidebar:
+  order: 6
+sources:
+  - /repo/metal/cmd/pk-metal/render.go
+  - /repo/metal/cmd/pk-metal/boot.go
+  - /repo/metal/cmd/pk-metal/bootstrap.go
+  - /repo/metal/internal/bootstrap/bootstrap.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Goal
+
+Make the first Talos cluster of a site from a workstation, when no management cluster exists.
+Later, you can [](howto:pivot) the operator onto this cluster.
+
+## Before you start
+
+- You have the [](kind:TalosCluster) and [](kind:TalosNode) files of the cluster in one directory. See [](howto:define-a-cluster).
+- You have the secrets bundle from `talosctl gen secrets`.
+- Your workstation, or a host that runs [](cli:relay), can reach the BMCs. The BMCs can reach it back.
+- You have the BMC password of each machine.
+
+<Callout type="note">
+The usual way is different. Start kind on a workstation, install the operator there, and let it install the machines.
+[](tut:lab-first-cluster) shows that way. Use this page only when you cannot run kind.
+</Callout>
+
+## Steps
+
+<Steps>
+
+1. Render the machine configs. This touches no machine.
+
+   ```sh
+   pk-metal render --dir manifests --secrets secrets.yaml --out clusterconfig
+   ```
+
+   The directory `clusterconfig` has one `<node>.yaml` for each node, a `talosconfig` and a `kubeconfig`.
+
+2. Put the BMC password of the first machine in the environment.
+
+   ```sh
+   read -rs PK_METAL_BMC_PASSWORD && export PK_METAL_BMC_PASSWORD
+   ```
+
+3. Boot the first machine into its config. `--listen` is an address on your workstation that the BMC can reach.
+
+   ```sh
+   pk-metal boot --config clusterconfig/cp-1.yaml --node cp-1 --listen 192.0.2.5:8443 https://192.0.2.21
+   ```
+
+   The command shows its steps. Without `--yes`, it refuses to reset a machine that is on.
+
+4. Do step 2 and step 3 for each other machine.
+
+5. Start the cluster. The command bootstraps etcd one time and waits until each node is `Ready`.
+
+   ```sh
+   pk-metal bootstrap --dir manifests --secrets secrets.yaml
+   ```
+
+   The last line is `bootstrap: OK: prod is bootstrapped and its nodes are ready`.
+
+</Steps>
+
+<Callout type="warning">
+Do not run [](cli:boot) against a machine that runs a system you must keep.
+If the machine is on, the command does a hard reset. Running work stops without a clean shutdown.
+</Callout>
+
+## If the BMCs cannot reach your workstation
+
+Run [](cli:relay) on a host on the BMC network. Then give `--relay` to [](cli:boot) in place of `--listen`.
+The relay and boot share a secret. [](concept:relay) explains why.
+
+```sh
+ssh -L 9443:127.0.0.1:9443 relay-host
+pk-metal boot --relay 127.0.0.1:9443 --relay-secret-file ./relay.secret \
+  --config clusterconfig/cp-1.yaml --node cp-1 https://192.0.2.21
+```
+
+## Verify
+
+```sh
+kubectl --kubeconfig clusterconfig/kubeconfig get nodes
+```
+
+Each node is `Ready`.
+
+## If it fails
+
+| What you see | Fix |
+| --- | --- |
+| `boot` times out and the image was not read | The BMC cannot reach `--listen`. Use `--relay`, or open the port. |
+| `bootstrap` waits for a node | Read the serial console of the node. See [](rb:node-not-ready). |
+| `bootstrap` reports data in etcd | A member has old etcd data. See [](rb:bootstrap-refused). |
+
+## Related
+
+- [](cli:render), [](cli:boot), [](cli:bootstrap), [](cli:relay)
+- [](howto:pivot) moves the operator onto the new cluster.

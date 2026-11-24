@@ -1,0 +1,91 @@
+---
+title: Behind a proxy
+description: Give the operator and the Talos nodes an HTTPS proxy, and keep local traffic off it.
+type: howto
+day: 1
+xref: { cat: howto, id: behind-a-proxy }
+sidebar:
+  order: 8
+sources:
+  - /repo/lab/README.md
+  - /repo/lab/lab.sh
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Goal
+
+Send outbound HTTPS from the operator and from the nodes through your proxy.
+Keep the BMC network, the node network and the cluster networks off the proxy.
+
+## Before you start
+
+- You have the proxy URL, for example `http://proxy.example.org:3128`.
+- You know the address ranges of the BMC network and the node network.
+- The nodes do not get the proxy from the operator. You give it to them in the [](kind:TalosCluster).
+
+## Steps
+
+<Steps>
+
+1. Add the proxy to the environment of the manager Deployment, with a patch in your overlay.
+
+   ```yaml
+   env:
+     - name: HTTPS_PROXY
+       value: http://proxy.example.org:3128
+     - name: NO_PROXY
+       value: 192.0.2.0/24,10.96.0.0/12,10.244.0.0/16,.svc,.cluster.local,localhost,127.0.0.1
+   ```
+
+2. Apply the overlay.
+
+   ```sh
+   kubectl apply -k overlays/site
+   ```
+
+3. Add an `EnvironmentConfig` patch to the TalosCluster. It gives the proxy to the nodes.
+
+   ```yaml
+   spec:
+     patches:
+       - inline: |
+           apiVersion: v1alpha1
+           kind: EnvironmentConfig
+           variables:
+             https_proxy: http://proxy.example.org:3128
+             no_proxy: 192.0.2.0/24,10.96.0.0/12,10.244.0.0/16,.svc,.cluster.local,localhost,127.0.0.1
+   ```
+
+4. If your firewall blocks the default DNS or NTP servers, add `ResolverConfig` and `TimeSyncConfig` patches. [](howto:air-gapped-site) has an example.
+
+5. Apply the TalosCluster before you install the first machine.
+
+   ```sh
+   kubectl apply -f cluster.yaml
+   ```
+
+</Steps>
+
+<Callout type="caution">
+Put the BMC network in `NO_PROXY`. A proxy cannot reach the BMCs or the media service.
+</Callout>
+
+## Verify
+
+- The TalosNodes show `Rendered=True`.
+- A new install reaches `Provisioned`. See [](howto:install-hosts).
+
+## If it fails
+
+| What you see | Go to |
+| --- | --- |
+| Endpoints stay `Unreachable` | `NO_PROXY` does not include the BMC network. See [](rb:bmc-unreachable). |
+| `Rendered=False`, `SchematicUnavailable` | The manager cannot reach the image factory through the proxy. |
+| The node boots but does not become `Ready` | [](rb:node-not-ready) |
+
+## Related
+
+- [](howto:network-checklist)
+- In the lab, the lab tasks set the proxy for you. See [](lab:page/network).

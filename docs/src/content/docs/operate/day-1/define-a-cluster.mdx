@@ -1,0 +1,133 @@
+---
+title: Define a cluster
+description: Write the secrets bundle, the TalosCluster and one TalosNode for each machine.
+type: howto
+day: 1
+xref: { cat: howto, id: define-a-cluster }
+sidebar:
+  order: 4
+sources:
+  - /repo/metal/config/samples/talos.yaml
+  - /repo/metal/internal/controller/talosnode_controller.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Goal
+
+Make the operator render a Talos [](term:machine-config) for each node of a new cluster.
+
+## Before you start
+
+- You have `talosctl`, at the Talos release that the cluster will run.
+- You have the node addresses, the gateway and the VIP. See [](howto:network-checklist).
+- You have the serial number of the install disk of each machine. [](howto:check-a-bmc) or the [](kind:Host) inventory shows it.
+
+## Steps
+
+<Steps>
+
+1. Make the [](term:secrets-bundle). Keep the file secret.
+
+   ```sh
+   talosctl gen secrets -o secrets.yaml
+   ```
+
+2. Put the bundle into a Secret in `pk-metal`. The key must be `secrets.yaml`.
+
+   ```sh
+   kubectl -n pk-metal create secret generic prod-talos-secrets --from-file=secrets.yaml
+   ```
+
+3. Remove the plain file from your workstation.
+
+   ```sh
+   shred -u secrets.yaml
+   ```
+
+4. Write the [](kind:TalosCluster).
+
+   ```yaml title="cluster.yaml"
+   apiVersion: os.pk.io/v1alpha1
+   kind: TalosCluster
+   metadata:
+     name: prod
+   spec:
+     talosVersion: v1.14.6
+     kubernetesVersion: v1.36.2
+     endpoint: https://192.0.2.100:6443
+     controlPlane:
+       vip: 192.0.2.100
+     secretsRef:
+       namespace: pk-metal
+       name: prod-talos-secrets
+     schematic:
+       customization:
+         extraKernelArgs:
+           - console=ttyS1,115200n8
+   ```
+
+5. Write one [](kind:TalosNode) for each machine. Select the install disk by its serial.
+
+   ```yaml title="cp-1.yaml"
+   apiVersion: os.pk.io/v1alpha1
+   kind: TalosNode
+   metadata:
+     name: cp-1
+   spec:
+     clusterRef:
+       name: prod
+     role: controlplane
+     installDiskSelector:
+       serial: SIM-DISK-0001
+     network:
+       links:
+         - name: lan
+           hardwareAddr: "02:00:48:0b:80:01"
+           addresses:
+             - 192.0.2.11/24
+           routes:
+             - gateway: 192.0.2.1
+   ```
+
+6. Apply the files.
+
+   ```sh
+   kubectl apply -f cluster.yaml -f nodes/
+   ```
+
+</Steps>
+
+<Callout type="warning">
+Do not use a disk selector that can match a data disk.
+The install overwrites the first disk that matches. Use `serial` or `wwid`.
+</Callout>
+
+<Callout type="note">
+The `console=` argument must name the serial port that the BMC sends to serial-over-LAN.
+With the wrong port, the install works but the console stays dark.
+</Callout>
+
+## Verify
+
+```sh
+kubectl get talosnodes -o wide
+```
+
+Each node has the condition `Rendered=True`. Nothing changes on a machine until you claim it.
+
+## If it fails
+
+| Condition on the TalosNode | Fix |
+| --- | --- |
+| `Rendered=False`, `SecretsUnavailable` | The Secret is missing or has no key `secrets.yaml`. Do step 2 again. |
+| `Rendered=False`, `ClusterNotFound` | `spec.clusterRef.name` names no TalosCluster. |
+| `Rendered=False`, `RenderFailed` | The message has the Talos validation error. Correct the patch or the field. |
+| `Rendered=False`, `UnsupportedVersionPair` | Talos does not support this Kubernetes version. Change one of the two versions. |
+
+## Related
+
+- [](concept:talos-rendering) explains how the config comes from the two objects.
+- [](howto:air-gapped-site) and [](howto:behind-a-proxy) add mirrors and patches.
+- [](howto:install-hosts) is the next step.

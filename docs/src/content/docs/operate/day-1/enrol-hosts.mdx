@@ -1,0 +1,112 @@
+---
+title: Enrol hosts
+description: Write an Asset, a credentials Secret and a ledger line for each machine.
+type: howto
+day: 1
+xref: { cat: howto, id: enrol-hosts }
+sidebar:
+  order: 3
+sources:
+  - /repo/metal/config/samples/asset.yaml
+  - /repo/metal/config/samples/ledger.yaml
+  - /repo/metal/internal/controller/asset_controller.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Goal
+
+Make the operator find each new machine and make a [](kind:Host) for it.
+
+## Before you start
+
+- The operator runs in the management cluster.
+- You have the serial number and the BMC MAC of each machine. [](howto:check-a-bmc) shows them.
+- Each BMC has a fixed address. See [](howto:network-checklist).
+
+## Steps
+
+<Steps>
+
+1. Add one [](term:ledger) line for each BMC to the ledger file of your overlay. The key is the BMC MAC in lower case.
+
+   ```yaml title="ledger.yaml"
+   "02:00:48:0b:74:83": https://192.0.2.21
+   ```
+
+2. Apply the overlay. The manager reads the ledger when it starts, so the change restarts it.
+
+   ```sh
+   kubectl apply -k overlays/site
+   ```
+
+3. Make the credentials Secret in the namespace `pk-metal`.
+
+   ```sh
+   kubectl -n pk-metal create secret generic bmc-factory \
+     --from-literal=username=admin --from-literal=password="$PK_METAL_BMC_PASSWORD"
+   ```
+
+4. Write one [](kind:Asset) for each machine.
+
+   ```yaml title="sim-0001.yaml"
+   apiVersion: metal.pk.io/v1alpha1
+   kind: Asset
+   metadata:
+     name: sim-0001
+   spec:
+     cid: "CI-00397"
+     serial: "SIMHW2288V5000397"
+     bmcMac: "02:00:48:0b:74:83"
+     credentialsRef:
+       name: bmc-factory
+   ```
+
+5. Apply the Assets.
+
+   ```sh
+   kubectl apply -f assets/
+   ```
+
+6. Monitor the endpoints.
+
+   ```sh
+   kubectl get managementendpoints -w
+   ```
+
+   The phase goes from `Connecting` to `Ready`.
+
+</Steps>
+
+<Callout type="note">
+An Asset changes nothing on the machine. The operator logs in to the BMC and reads.
+</Callout>
+
+## Verify
+
+```sh
+kubectl get hosts
+```
+
+Each machine has a Host. The name is the serial number in lower case. The phase is `Available`.
+
+```text
+NAME                ASSET      SERIAL              VENDOR   PHASE       BLOCKED   CLAIM   AGE
+simhw2288v5000397   sim-0001   SIMHW2288V5000397   Huawei   Available                     2m
+```
+
+## If it fails
+
+| What you see | Go to |
+| --- | --- |
+| Asset `Materialized=False`, reason `NoLedgerEntry` | Add the ledger line. Do step 2 again. |
+| Endpoint phase `Unreachable` | [](rb:bmc-unreachable) |
+| Endpoint phase `Mismatch`, `SerialMismatch` or `MACMismatch` | [](rb:host-mismatch) |
+
+## Related
+
+- [](kind:Asset), [](kind:ManagementEndpoint), [](kind:Host)
+- [](ctrl:asset), [](ctrl:managementendpoint), [](ctrl:host)
+- [](concept:identity) and [](concept:ledger)
+- [](howto:rotate-bmc-credentials) replaces the factory password after the enrolment.

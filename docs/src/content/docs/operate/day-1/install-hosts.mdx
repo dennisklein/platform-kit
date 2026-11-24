@@ -1,0 +1,139 @@
+---
+title: Install hosts
+description: Claim a machine, approve the install and watch the node join the cluster.
+type: howto
+day: 1
+xref: { cat: howto, id: install-hosts }
+sidebar:
+  order: 5
+sources:
+  - /repo/metal/internal/controller/hostclaim_controller.go
+  - /repo/metal/internal/controller/provisioning.go
+  - /repo/metal/config/policy/hostclaim-provisioning.yaml
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+import Provision from '../../../../components/explainers/Provision.astro';
+
+## Goal
+
+Install Talos on each machine and make the cluster `Available`.
+
+## Before you start
+
+- Each machine has a [](kind:Host) in the phase `Available`. See [](howto:enrol-hosts).
+- Each node has a [](kind:TalosNode) with `Rendered=True`. See [](howto:define-a-cluster).
+- You are a member of the admin group (`pk-metal:admins` by default). Only this group can set `spec.os` on a claim.
+- A person who can approve is available. The ClusterRole `pk-metal-approver` gives this permission.
+
+## What happens
+
+<Provision />
+
+## Steps
+
+<Steps>
+
+1. Write one [](kind:HostClaim) for each machine. `spec.os.nodeRef` names the TalosNode.
+
+   ```yaml title="claims/cp-1.yaml"
+   apiVersion: metal.pk.io/v1alpha1
+   kind: HostClaim
+   metadata:
+     name: cp-1
+     namespace: default
+   spec:
+     assetRef:
+       name: sim-0001
+     labels:
+       role: controlplane
+     os:
+       nodeRef:
+         name: cp-1
+   ```
+
+2. Apply the claims.
+
+   ```sh
+   kubectl apply -f claims/
+   ```
+
+   Each claim is `Bound`. The operator proposes one install operation for each machine.
+
+3. Show the operations that wait.
+
+   ```sh
+   pk-metal status
+   ```
+
+   The `OPERATION` table shows `AwaitingApproval` for each install.
+
+4. Read the plan of one operation and approve it. Type `y` when the command asks.
+
+   ```sh
+   pk-metal approve pk-metal/provision-simhw2288v5000397-0f3c9a1e
+   ```
+
+5. Approve the other operations in the same way.
+
+6. Monitor the hosts.
+
+   ```sh
+   kubectl get hosts -w
+   ```
+
+   Each Host goes to `Provisioning`, then to `Provisioned`.
+
+7. Monitor the cluster. The operator bootstraps etcd when all control planes answer.
+
+   ```sh
+   kubectl get taloscluster prod
+   ```
+
+   The column `AVAILABLE` shows `True`.
+
+8. Write the admin kubeconfig to a file.
+
+   ```sh
+   kubectl -n pk-metal get secret prod-kubeconfig -o jsonpath='{.data.kubeconfig}' | base64 -d > prod.kubeconfig
+   ```
+
+</Steps>
+
+<Callout type="warning">
+Do not claim a machine with `spec.os` if its disk has data that you must keep.
+After the approval, the install overwrites the disk that the TalosNode selects.
+</Callout>
+
+## Verify
+
+```sh
+kubectl --kubeconfig prod.kubeconfig get nodes
+```
+
+Each node is `Ready`. The published kubeconfig expires after the TTL of the cluster (24 hours by default).
+
+## Say no to an install
+
+- Remove `spec.os` from the claim. The operator deletes the install operations that did not finish.
+- Or hold the claim with [](cli:hold). See [](howto:approve-hold-retry).
+- Do not delete only the proposed operation. The operator proposes the same plan again.
+
+## If it fails
+
+| What you see | Go to |
+| --- | --- |
+| Operation `Failed` | [](rb:operation-failed) |
+| Claim `Ambiguous` | [](rb:claim-ambiguous) |
+| Claim blocked on `DiskNotWiped` | [](rb:disk-not-wiped) |
+| Operation fails at `insertMedia` | [](rb:media-slot-busy) |
+| Host `Provisioning` for a long time, node not `Ready` | [](rb:node-not-ready) |
+| Cluster `Bootstrapped=False` | [](rb:bootstrap-refused) |
+
+## Related
+
+- [](cli:approve), [](cli:status), [](kind:HostOperation)
+- [](concept:approval) and [](concept:virtual-media-boot)
+- [](flow:rack-to-node)
+- [](howto:back-up-etcd): set a backup policy on the new cluster at once.

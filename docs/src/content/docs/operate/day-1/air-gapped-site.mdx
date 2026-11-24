@@ -1,0 +1,124 @@
+---
+title: Air-gapped site
+description: Mirror the image factory, the container images and the operator image for a site with no internet access.
+type: howto
+day: 1
+xref: { cat: howto, id: air-gapped-site }
+sidebar:
+  order: 7
+sources:
+  - /repo/metal/api/os/v1alpha1/taloscluster_types.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Goal
+
+Install and run clusters at a site that has no internet access.
+
+## Before you start
+
+- You have an OCI registry at the site, for example `registry.example.org`.
+- You can run your own Talos [](term:image-factory). It is open source and has the same API.
+- You have DNS and NTP servers at the site.
+- Do these steps before the first install. A node pulls its images during the install.
+
+## What to mirror
+
+| Item | Source | Where you set the mirror |
+| --- | --- | --- |
+| Installer ISOs and installer images | `factory.talos.dev` | Manager flag `--image-factory=<host>` |
+| Talos and Kubernetes images | `ghcr.io`, `registry.k8s.io` and others | [](kind:TalosCluster) `spec.registryMirrors` |
+| Firmware images | Your vendor | [](kind:FirmwareProfile) `image`, digest-pinned |
+| The operator image | This repository | The manager Deployment |
+| The Talos imager (one-slot BMCs only) | `ghcr.io/siderolabs/imager` | Manager flag `--imager-repository=<copy>` |
+
+## Steps
+
+<Steps>
+
+1. List the images that Talos and Kubernetes need for your release.
+
+   ```sh
+   talosctl images default
+   ```
+
+2. Copy each image into your registry.
+
+3. Run your own image factory. Give its host to the manager.
+
+   ```text
+   --image-factory=factory.example.org
+   ```
+
+4. If your registry has a certificate from an internal CA, give the CA to the manager with `--registry-ca`.
+
+5. Add one mirror for each upstream registry to the [](kind:TalosCluster).
+
+   ```yaml
+   spec:
+     registryMirrors:
+       - registry: ghcr.io
+         endpoints:
+           - https://registry.example.org
+       - registry: registry.k8s.io
+         endpoints:
+           - https://registry.example.org
+   ```
+
+   The operator writes the mirrors into the config of each node, before the first node installs.
+   The nodes ask the mirror for the same paths as upstream.
+
+6. Point the nodes at your DNS and NTP servers with patches.
+
+   ```yaml
+   spec:
+     patches:
+       - inline: |
+           apiVersion: v1alpha1
+           kind: ResolverConfig
+           nameservers:
+             - address: 192.0.2.53
+       - inline: |
+           apiVersion: v1alpha1
+           kind: TimeSyncConfig
+           ntp:
+             servers:
+               - ntp.example.org
+   ```
+
+7. Build the operator image and push it to your registry.
+
+   ```sh
+   mise run image
+   ```
+
+8. For one-slot BMCs, copy `ghcr.io/siderolabs/imager` at the pinned digest. Give the copy to the manager with `--imager-repository`.
+
+</Steps>
+
+<Callout type="note">
+`spec.registryMirrors` with `registry: "*"` sends all pulls to one mirror.
+If your mirror keeps each upstream under its own path prefix, the nodes need the Talos setting `overridePath`. `registryMirrors` does not set it. For such a registry, write a `RegistryMirrorConfig` patch instead.
+</Callout>
+
+## Verify
+
+1. Apply a [](kind:TalosNode) and make sure that it has `Rendered=True`.
+2. Install one machine. See [](howto:install-hosts).
+3. Make sure that the node becomes `Ready` with no internet route.
+
+## If it fails
+
+| What you see | Go to |
+| --- | --- |
+| `Rendered=False`, `SchematicUnavailable` | The manager cannot reach your image factory. Check `--image-factory`. |
+| BootAsset `Ready=False`, `BuilderUnavailable` | The message names the imager flag to set. See [](rb:media-slot-busy). |
+| The node does not become `Ready` | [](rb:node-not-ready) |
+
+## Related
+
+- [](howto:network-checklist)
+- [](howto:behind-a-proxy)
+- [](kind:BootAsset)

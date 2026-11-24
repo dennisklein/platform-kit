@@ -1,0 +1,97 @@
+---
+title: Network checklist
+description: The connections that the operator, the BMCs and the nodes need before the first install.
+type: howto
+day: 1
+xref: { cat: howto, id: network-checklist }
+sidebar:
+  order: 1
+sources:
+  - /repo/metal/config/manager/deployment.yaml
+---
+
+import Callout from '../../../../components/Callout.astro';
+import Figure from '../../../../components/diagram/Figure.astro';
+import Box from '../../../../components/diagram/Box.astro';
+import Edge from '../../../../components/diagram/Edge.astro';
+import Zone from '../../../../components/diagram/Zone.astro';
+
+## Goal
+
+Open every network path that the install needs, before you enrol the first machine.
+
+## Before you start
+
+- You know the address range of the BMC network and of the node network.
+- You know the address that the BMCs use to reach the [](term:media-service). This is the `--media-url` flag of the [](ctrl:manager).
+- Your network team can change firewall rules and DHCP reservations.
+
+## The paths
+
+<Figure
+  title="Network paths: the operator calls the BMCs and the Talos API; the BMCs fetch media from the operator; the nodes pull images."
+  caption="Arrows point from the side that opens the connection."
+  width={760}
+  height={250}
+  wide
+>
+  <Zone x={6} y={8} w={230} h={234} label="management cluster" />
+  <Zone x={262} y={8} w={230} h={234} label="machines" />
+  <Zone x={518} y={8} w={236} h={234} label="outside" />
+  <Box x={26} y={60} w={190} h={50} label="Operator" sub="manager pod" variant="accent" />
+  <Box x={26} y={160} w={190} h={50} label="Media service" sub="NodePort 30443" />
+  <Box x={282} y={60} w={190} h={50} label="BMC" sub="Redfish, TCP 443" />
+  <Box x={282} y={160} w={190} h={50} label="Node" sub="Talos API, TCP 50000" />
+  <Box x={538} y={60} w={196} h={50} label="Image factory" sub="factory.talos.dev" />
+  <Box x={538} y={160} w={196} h={50} label="Registries, DNS, NTP" sub="ghcr.io, registry.k8s.io" />
+  <Edge points={[[216, 76], [282, 76]]} label="1" at={[249, 70]} />
+  <Edge points={[[282, 100], [216, 176]]} label="2" at={[262, 140]} />
+  <Edge points={[[216, 100], [282, 184]]} label="4" at={[232, 156]} />
+  <Edge points={[[472, 76], [538, 76]]} label="3" at={[505, 70]} />
+  <Edge points={[[472, 185], [538, 185]]} label="6" at={[505, 179]} />
+  <Edge points={[[121, 60], [121, 30], [636, 30], [636, 60]]} variant="muted" label="5" at={[380, 24]} />
+</Figure>
+
+## Steps
+
+Check each row with your network team. The number is the arrow in the figure.
+
+| # | From | To | Port | Why |
+| --- | --- | --- | --- | --- |
+| 1 | Management cluster nodes | Each BMC | TCP 443 (or the port in the ledger URL) | The operator reads and controls the machine through [Redfish](https://www.dmtf.org/standards/redfish). |
+| 2 | Each BMC | The media service address (`--media-url`) | TCP 30443 (NodePort) or your load balancer | The BMC downloads the installer and the machine config. |
+| 3 | Each BMC | The image factory | TCP 443 | The BMC downloads the installer ISO, unless you serve it from inside. |
+| 4 | Management cluster nodes | Each installed node | TCP 50000 | The operator checks that the node came up and reads its state. |
+| 5 | Management cluster nodes | The image factory | TCP 443 | The operator registers the image [](term:schematic). |
+| 6 | Each node | DNS, NTP, the image factory registry, `ghcr.io`, `registry.k8s.io` | TCP 443, UDP 53, UDP 123 | Talos pulls its installer image and the Kubernetes images. |
+
+Also do these steps:
+
+1. Give each BMC a fixed address. Use a DHCP reservation or a static address.
+2. Write one [](term:ledger) line for each BMC: the BMC MAC and `https://<address>`.
+3. Write the static node addresses, the gateway and the VIP in your notes. You need them in the [](kind:TalosNode) and [](kind:TalosCluster) objects.
+4. If your BMCs use one virtual media slot, let the management cluster pull `ghcr.io/siderolabs/imager`.
+
+<Callout type="note">
+The BMCs do not verify the certificate of the media service.
+The manager makes its own certificate when `--media-cert-secret` is not set.
+</Callout>
+
+## Verify
+
+1. From a management cluster node, run [](cli:check) against one BMC. The last line is `check:    OK (read-only)`.
+2. From the BMC network, open `https://<media-url>/`. The answer `404` is correct.
+
+## If it fails
+
+| What you see | Go to |
+| --- | --- |
+| The endpoint phase is `Unreachable` | [](rb:bmc-unreachable) |
+| `insertMedia` fails | [](rb:media-slot-busy) |
+| The node boots but does not check in | [](rb:node-not-ready) |
+
+## Related
+
+- [](howto:air-gapped-site) and [](howto:behind-a-proxy) change rows 3, 5 and 6.
+- [](howto:pivot) adds the same paths for the new management cluster.
+- [](concept:architecture) shows where each part runs.
