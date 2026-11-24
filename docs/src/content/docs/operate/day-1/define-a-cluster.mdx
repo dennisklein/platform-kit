@@ -40,11 +40,14 @@ Make the operator render a Talos [](term:machine-config) for each node of a new 
    kubectl -n pk-metal create secret generic prod-talos-secrets --from-file=secrets.yaml
    ```
 
-3. Remove the plain file from your workstation.
+3. Put a copy of the file into your secret store. Then remove the plain file.
 
    ```sh
-   shred -u secrets.yaml
+   rm secrets.yaml
    ```
+
+   The bundle has the CA keys of the cluster. Without a copy, the Secret in the management cluster is the only one.
+   [](howto:bootstrap-without-operator) and [](cli:render) need the file again. See [](concept:credentials).
 
 4. Write the [](kind:TalosCluster).
 
@@ -97,7 +100,84 @@ Make the operator render a Talos [](term:machine-config) for each node of a new 
    kubectl apply -f cluster.yaml -f nodes/
    ```
 
+7. Wait until the operator rendered each config.
+
+   ```sh
+   kubectl wait --for=condition=Rendered talosnode --all --timeout=120s
+   ```
+
 </Steps>
+
+## Options
+
+### DNS and time servers
+
+Without a patch, Talos uses public DNS and NTP servers. A closed site blocks them, and then a node does not become ready.
+Add the two patches to `spec.patches` of the TalosCluster.
+
+```yaml title="cluster.yaml"
+spec:
+  patches:
+    - inline: |
+        apiVersion: v1alpha1
+        kind: ResolverConfig
+        nameservers:
+          - address: 192.0.2.53
+    - inline: |
+        apiVersion: v1alpha1
+        kind: TimeSyncConfig
+        ntp:
+          servers:
+            - ntp.example.org
+```
+
+### Control planes without workers
+
+If the cluster has only control planes, set `spec.controlPlane.allowScheduling: true` on the TalosCluster.
+Without it, ordinary pods have no node. The operator also needs such a node after a [pivot](howto:pivot).
+
+### VLANs and bonds
+
+The fields of a [](kind:TalosNode) describe plain links. For a VLAN or a bond, add a Talos document as a patch of the TalosNode.
+A link of `spec.network.links` is the parent. The patch uses the name of the link.
+
+```yaml title="A VLAN on the link lan"
+spec:
+  patches:
+    - inline: |
+        apiVersion: v1alpha1
+        kind: VLANConfig
+        name: lan.120
+        vlanID: 120
+        parent: lan
+        addresses:
+          - address: 198.51.100.11/24
+```
+
+```yaml title="A bond of two links, on a worker"
+spec:
+  network:
+    links:
+      - name: lan1
+        hardwareAddr: "02:00:48:0b:80:01"
+      - name: lan2
+        hardwareAddr: "02:00:48:0b:80:02"
+  patches:
+    - inline: |
+        apiVersion: v1alpha1
+        kind: BondConfig
+        name: bond0
+        links: [lan1, lan2]
+        bondMode: 802.3ad
+        addresses:
+          - address: 192.0.2.11/24
+        routes:
+          - gateway: 192.0.2.1
+```
+
+- The renderer accepts the two examples, and Talos validation passes. They are not tested on a machine.
+- A control plane with a VIP needs a static address in the subnet of the VIP on a link of `spec.network.links`. A bond patch cannot supply that address.
+- The Talos documentation has all fields of [VLANConfig](https://www.talos.dev/v1.14/reference/configuration/network/vlanconfig/) and [BondConfig](https://www.talos.dev/v1.14/reference/configuration/network/bondconfig/).
 
 <Callout type="warning">
 Do not use a disk selector that can match a data disk.
@@ -112,10 +192,10 @@ With the wrong port, the install works but the console stays dark.
 ## Verify
 
 ```sh
-kubectl get talosnodes -o wide
+kubectl get talosnodes -o custom-columns='NAME:.metadata.name,RENDERED:.status.conditions[?(@.type=="Rendered")].status'
 ```
 
-Each node has the condition `Rendered=True`. Nothing changes on a machine until you claim it.
+Each node shows `True`. Nothing changes on a machine until you claim it.
 
 ## If it fails
 
