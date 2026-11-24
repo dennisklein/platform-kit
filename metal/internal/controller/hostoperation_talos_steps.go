@@ -718,7 +718,9 @@ func (x *exec) talosShutdown(ctx context.Context, i int, a *metalv1alpha1.TalosS
 const (
 	// talosGoneAfter is how long the node must stay silent, and
 	// talosGoneLooks in how many looks in a row, before the step counts it
-	// as gone. A node that answers in between starts the count again.
+	// as gone. A node that answers in between starts the count again. An
+	// executor that looks more often than every five seconds (the tests)
+	// waits six of its wait intervals instead.
 	talosGoneAfter = 30 * time.Second
 	talosGoneLooks = 3
 	// talosResendAfter is when a reset the node accepted, on a node that
@@ -784,12 +786,13 @@ func (x *exec) silenceKey(i int) silenceKey {
 // step done once the silence is long enough.
 func (x *exec) silent(i int, node *osv1alpha1.TalosNode, what string, err error) stepState {
 	now := talosClock()
+	gone := min(talosGoneAfter, 6*x.r.waitInterval())
 	s := silences.note(x.silenceKey(i), now)
-	if s.looks >= talosGoneLooks && now.Sub(s.since) >= talosGoneAfter {
+	if s.looks >= talosGoneLooks && now.Sub(s.since) >= gone {
 		return x.left(i)
 	}
 	return waitingOn("asked node %s to %s; it has not answered since %s (%v); it counts as gone once it "+
-		"stays silent for %s", node.Name, what, s.since.UTC().Format(time.RFC3339), err, talosGoneAfter)
+		"stays silent for %s", node.Name, what, s.since.UTC().Format(time.RFC3339), err, gone)
 }
 
 // left ends a reset or shutdown step: the node is gone.
