@@ -60,13 +60,13 @@ contexts:
   context: {cluster: mgmt, user: admin}
 current-context: admin@mgmt
 `), 0o600))
-	cfg, name, err := restConfig(path, "")
+	cfg, name, err := namedRestConfig(path, "")
 	require.NoError(t, err)
 	assert.Equal(t, "admin@mgmt", name)
 	assert.Equal(t, "https://192.0.2.10:6443", cfg.Host)
-	_, name, err = restConfig(path, "other")
+	_, name, err = namedRestConfig(path, "other")
 	require.NoError(t, err)
 	assert.Equal(t, "other", name)
-	_, _, err = restConfig(filepath.Join(t.TempDir(), "missing"), "")
+	_, _, err = namedRestConfig(filepath.Join(t.TempDir(), "missing"), "")
 	require.Error(t, err)
 }

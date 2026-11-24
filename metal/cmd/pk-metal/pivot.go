@@ -69,11 +69,11 @@ func pivotCmd(args []string) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	scheme := newScheme()
-	srcCfg, srcName, err := restConfig(global.kubeconfig, global.context)
+	srcCfg, srcName, err := namedRestConfig(global.kubeconfig, global.context)
 	if err != nil {
 		die(err)
 	}
-	dstCfg, dstName, err := restConfig(*to, *toContext)
+	dstCfg, dstName, err := namedRestConfig(*to, *toContext)
 	if err != nil {
 		die(err)
 	}
@@ -169,9 +169,9 @@ func (p prefixed) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-// restConfig loads a kubeconfig the way newClient does, and names the
+// namedRestConfig loads a kubeconfig the way restConfig does, and names the
 // cluster for messages by its context, or by the file.
-func restConfig(path, context string) (*rest.Config, string, error) {
+func namedRestConfig(path, context string) (*rest.Config, string, error) {
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()
 	rules.ExplicitPath = path
 	loader := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(rules,
