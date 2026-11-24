@@ -256,6 +256,11 @@ func (r *EndpointConvergenceReconciler) ensureIdentityInFlight(ctx context.Conte
 	return sec, csrPEM, nil
 }
 
+// csrTimeout bounds a pass that has the manager make a key and a request.
+// An on-manager 2048-bit key takes a BMC up to a minute or more; a pass
+// that gives up early and starts again only restarts the generation.
+const csrTimeout = 5 * time.Minute
+
 // managerCSR has a csr-native manager build the request — the key never
 // leaves it.
 func (r *EndpointConvergenceReconciler) managerCSR(ctx context.Context, ep *metalv1alpha1.ManagementEndpoint, desired identityDesired) ([]byte, error) {
@@ -273,7 +278,7 @@ func (r *EndpointConvergenceReconciler) managerCSR(ctx context.Context, ep *meta
 		subject.Organization, subject.OrganizationalUnit = s.Organization, s.OrganizationalUnit
 	}
 	var csr []byte
-	err = withSession(ctx, r.Dial, cfg, func(ctx context.Context, cl bmc.Client) error {
+	err = withSessionFor(ctx, csrTimeout, r.Dial, cfg, func(ctx context.Context, cl bmc.Client) error {
 		csr, err = cl.GenerateCSR(ctx, subject)
 		return err
 	})

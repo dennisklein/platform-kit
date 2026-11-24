@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	gofishclient "github.com/dennisklein/platform-kit/metal/internal/bmc/gofish"
@@ -25,7 +26,13 @@ func (d Dialer) orDefault() Dialer {
 // dial error when the dial fails, else whatever fn returns; a caller that
 // must tell the two apart keeps fn's failures out of the return value.
 func withSession(ctx context.Context, dial Dialer, cfg gofishclient.Config, fn func(ctx context.Context, cl bmc.Client) error) error {
-	cctx, cancel := context.WithTimeout(ctx, connectTimeout)
+	return withSessionFor(ctx, connectTimeout, dial, cfg, fn)
+}
+
+// withSessionFor is withSession with a budget of its own, for a pass that
+// waits on the BMC longer than a read pass does.
+func withSessionFor(ctx context.Context, budget time.Duration, dial Dialer, cfg gofishclient.Config, fn func(ctx context.Context, cl bmc.Client) error) error {
+	cctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 	cl, err := dial.orDefault()(cctx, cfg)
 	if err != nil {

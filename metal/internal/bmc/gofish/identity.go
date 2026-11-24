@@ -243,6 +243,14 @@ func (c *client) oemGenerateCSR(ctx context.Context, uri string, subject bmc.CSR
 			payload[k] = v
 		}
 	}
+	// The resource keeps serving the previous request while the manager
+	// makes the new key, which takes a while. Only a request that differs
+	// from the one served before the POST is the new one: a signed copy of
+	// the old one would not match the key the manager now holds.
+	before, err := c.pendingCSR(uri)
+	if err != nil {
+		return nil, err
+	}
 	resp, err := c.api.Post(uri+"/Actions/HttpsCert.GenerateCSR", payload)
 	if err != nil {
 		return nil, fmt.Errorf("bmc: GenerateCSR: %w", err)
@@ -251,22 +259,34 @@ func (c *client) oemGenerateCSR(ctx context.Context, uri string, subject bmc.CSR
 
 	var csr []byte
 	err = poll.Until(ctx, taskBackoff, func(context.Context) (bool, error) {
-		var doc struct {
-			CertificateSigningRequest string
+		pending, err := c.pendingCSR(uri)
+		if err != nil {
+			return false, err
 		}
-		if _, err := c.getJSON(uri, &doc); err != nil {
-			return false, fmt.Errorf("bmc: HttpsCert: %w", err)
-		}
-		if strings.Contains(doc.CertificateSigningRequest, "BEGIN CERTIFICATE REQUEST") {
-			csr = []byte(doc.CertificateSigningRequest)
+		if pending != "" && pending != before {
+			csr = []byte(pending)
 			return true, nil
 		}
 		return false, nil
 	})
 	if err != nil && ctx.Err() != nil {
-		return nil, fmt.Errorf("bmc: CSR never appeared: %w", err)
+		return nil, fmt.Errorf("bmc: no new CSR appeared: %w", err)
 	}
 	return csr, err
+}
+
+// pendingCSR reads the request HttpsCert serves; empty when it serves none.
+func (c *client) pendingCSR(uri string) (string, error) {
+	var doc struct {
+		CertificateSigningRequest string
+	}
+	if _, err := c.getJSON(uri, &doc); err != nil {
+		return "", fmt.Errorf("bmc: HttpsCert: %w", err)
+	}
+	if !strings.Contains(doc.CertificateSigningRequest, "BEGIN CERTIFICATE REQUEST") {
+		return "", nil
+	}
+	return doc.CertificateSigningRequest, nil
 }
 
 // ImportServerCertificate hands the signed chain back to the manager that

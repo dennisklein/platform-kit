@@ -78,6 +78,11 @@ type Fixture struct {
 		CertificateService bool `yaml:"certificate_service"`
 		CSRNative          bool `yaml:"csr_native"`
 		KeyUpload          bool `yaml:"key_upload"`
+		// CSRDelay is how long the csr_native manager takes to make a new
+		// key and request. Until then HttpsCert keeps serving the previous
+		// request, and the pending key stays the previous one. Zero makes
+		// the request inside the GenerateCSR call.
+		CSRDelay time.Duration `yaml:"csr_delay"`
 	} `yaml:"identity"`
 
 	// Update is the UpdateService: which transports are advertised and the

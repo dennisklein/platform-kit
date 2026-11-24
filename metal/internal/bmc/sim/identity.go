@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net"
 	"reflect"
+	"time"
 
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 )
@@ -36,6 +37,22 @@ type identityState struct {
 	pendingKey *ecdsa.PrivateKey
 	pendingCSR []byte           // PEM, as served in CertificateSigningRequest
 	staged     *tls.Certificate // applied at the next manager reset
+
+	// The request being made (Identity.CSRDelay): it replaces the pending
+	// one at nextAt.
+	nextKey *ecdsa.PrivateKey
+	nextCSR []byte
+	nextAt  time.Time
+}
+
+// promoteCSRLocked makes the request being made the pending one once it is
+// ready.
+func (s *State) promoteCSRLocked() {
+	if s.identity.nextCSR == nil || time.Now().Before(s.identity.nextAt) {
+		return
+	}
+	s.identity.pendingKey, s.identity.pendingCSR = s.identity.nextKey, s.identity.nextCSR
+	s.identity.nextKey, s.identity.nextCSR = nil, nil
 }
 
 // identityDialect derives the certificate-replacement dialect.
@@ -141,7 +158,12 @@ func (s *State) GenerateCSR(_ context.Context, subject bmc.CSRSubject) ([]byte, 
 		return nil, err
 	}
 	csr := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der})
+	if d := s.f.Identity.CSRDelay; d > 0 {
+		s.identity.nextKey, s.identity.nextCSR, s.identity.nextAt = key, csr, time.Now().Add(d)
+		return csr, nil
+	}
 	s.identity.pendingKey, s.identity.pendingCSR = key, csr
+	s.identity.nextKey, s.identity.nextCSR = nil, nil
 	return csr, nil
 }
 
@@ -163,6 +185,7 @@ func (s *State) ImportServerCertificate(_ context.Context, chainPEM []byte) erro
 	if s.f.identityDialect() != bmc.DialectCSRNative {
 		return refuse("fixture models no certificate import")
 	}
+	s.promoteCSRLocked()
 	if s.identity.pendingKey == nil {
 		return refuse("no pending CSR to match the certificate against")
 	}
@@ -216,6 +239,7 @@ func (s *State) applyIdentityLocked() {
 func (s *State) PendingCSR() []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.promoteCSRLocked()
 	return s.identity.pendingCSR
 }
 

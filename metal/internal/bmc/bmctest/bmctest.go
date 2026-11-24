@@ -482,9 +482,9 @@ func Run(t *testing.T, c bmc.Client, f *sim.Fixture, readOnly bool) {
 			CommonName:         "bmc-test.metal.internal",
 			DNSNames:           []string{"bmc-test.metal.internal"},
 			IPAddresses:        []string{"127.0.0.1"},
-			Country:            "DE",
-			State:              "Hessen",
-			Locality:           "Darmstadt",
+			Country:            "XX",
+			State:              "Example State",
+			Locality:           "Example City",
 			Organization:       "bmctest",
 			OrganizationalUnit: "conformance",
 		}
@@ -504,7 +504,12 @@ func Run(t *testing.T, c bmc.Client, f *sim.Fixture, readOnly bool) {
 
 			assert.Error(t, c.UploadServerIdentity(ctx, []byte("x"), []byte("y")),
 				"the key-upload route is not this vendor's dialect")
-			chain, _ := signCSR(t, csr)
+			// A second request is a new key: the client must hand back the
+			// new request, not the one the manager served before.
+			againPEM, err := c.GenerateCSR(ctx, subject)
+			require.NoError(t, err)
+			assert.NotEqual(t, string(csrPEM), string(againPEM), "a second GenerateCSR answers with a new request")
+			chain, _ := signCSR(t, parseCSR(t, againPEM))
 			require.NoError(t, c.ImportServerCertificate(ctx, chain),
 				"the signed chain must import against the manager-held key")
 		case bmc.DialectKeyUpload:
