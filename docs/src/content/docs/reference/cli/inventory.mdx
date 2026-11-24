@@ -38,9 +38,10 @@ The password comes from the environment variable `PK_METAL_BMC_PASSWORD`. It is 
 
 ## What it does
 
-1. The command opens a read-only Redfish session on the BMC.
-2. It reads the manager, the virtual media slots, the first system and the chassis.
-3. It prints the fact file to stdout.
+1. The command connects to the BMC with HTTP Basic authentication. It cannot write.
+2. It reads the manager, the virtual media slots, the systems and the chassis.
+3. It selects the system of [`--system`](cli:inventory#--system). A BMC with one system needs no `--system`. A BMC with more systems needs it, and the command stops with the list of system ids if you do not give it.
+4. It prints the fact file to stdout.
 
 The fact file has these parts:
 

@@ -7,6 +7,7 @@ xref: { cat: cli, id: check }
 sidebar: { label: check }
 sources:
   - /repo/metal/cmd/pk-metal/main.go
+  - /repo/metal/internal/bmc/gofish/hw_test.go
 ---
 
 import Callout from '../../../../components/Callout.astro';
@@ -36,9 +37,14 @@ The command talks to the BMC directly. It does not use the operator or the clust
 
 The password comes from the environment variable `PK_METAL_BMC_PASSWORD`. It is never a flag.
 
+[`--bmc-ca`](cli:check#--bmc-ca) names a PEM file with the CA certificates of your site. The command then accepts only a BMC certificate that chains to one of them.
+[`--insecure`](cli:check#--insecure) stops the certificate check. The command then prints a warning: a host on the network path can read the BMC password.
+
+Each request to the BMC must answer in 30 seconds. <kbd>Ctrl</kbd>+<kbd>C</kbd> stops the command at once.
+
 ## What it does
 
-1. The command opens a read-only Redfish session on the BMC.
+1. The command connects to the BMC with HTTP Basic authentication. It opens no Redfish session, so nothing stays open on the BMC when the command stops.
 2. It reads the manager: the vendor and the firmware version.
 3. It reads each virtual media slot and the dialect that the slot uses to mount an image.
 4. It reads each system: the serial number and the power state.
@@ -55,16 +61,37 @@ text={`
     $ pk-metal check --user admin https://192.0.2.11
     manager:  Huawei fw 6.76
     media:    CD             dialect=vmm-control
+    media:    USBStick       dialect=none
     system:   1 serial=SIMHW2288V5000397 power=On
     check:    OK (read-only)
 `}
 />
+
+A slot with `dialect=none` cannot mount an image. This BMC has one slot that can: it is a [](term:one-slot-bmc).
+
+Check a BMC whose certificate comes from the CA of your site:
+
+```sh
+pk-metal check --bmc-ca site-ca.pem https://192.0.2.11
+```
 
 A BMC in the lab has a self-signed certificate. Add [`--insecure`](cli:check#--insecure) only for such a BMC.
 
 ```sh
 pk-metal check --insecure https://10.77.0.1:8441
 ```
+
+## Check the client against real hardware
+
+The test suite has read-only checks for a real BMC. They test that each read answers, that the identity of the machine is there, and that two reads give the same chassis and systems.
+The client of the checks refuses each request that writes.
+
+```sh
+export PK_METAL_BMC_PASSWORD=...
+PK_METAL_HW_URL=https://192.0.2.11 PK_METAL_HW_CA=site-ca.pem mise run test:hardware
+```
+
+Without `PK_METAL_HW_CA`, the checks do not verify the BMC certificate. `PK_METAL_HW_USER` sets the user. The default is `admin`.
 
 ## Objects
 
