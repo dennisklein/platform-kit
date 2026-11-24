@@ -562,8 +562,9 @@ func executorPass(s state, v view, mask uint8, i opSlot, fail bool) *pass {
 			return p
 		}
 		// activePredecessorUncached: hostHolder over the operations as the
-		// API server holds them. Passes run one at a time, so this read and
-		// the baseline write below are one turn.
+		// API server holds them. Passes on one host run one at a time
+		// (passLocks), so this read and the baseline write below are one
+		// turn.
 		if holder(p.next.Ops) != i {
 			if !o.Queued {
 				p.updateOp(i, o, func(m *mOp) { m.Queued = true })

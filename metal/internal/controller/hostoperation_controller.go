@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -65,6 +66,11 @@ const (
 	// guard: what it waits for (another control plane coming back, etcd's
 	// majority) is observed on other objects, which do not wake it.
 	selfRecheck = 30 * time.Second
+	// defaultWorkers is how many passes run at once, each on another host
+	// and another BMC (see passLocks). One firmware flash holds its pass
+	// for up to flashTimeout; a single worker would hold every other
+	// host's install, release and power-off behind it.
+	defaultWorkers = 4
 )
 
 // HostOperationReconciler runs approved disruptive one-shots — the model's ONE
@@ -115,6 +121,17 @@ type HostOperationReconciler struct {
 	// Self keeps the operator from starting a power action on a machine it
 	// runs on (see SelfGuard); nil allows every one.
 	Self *SelfGuard
+	// Workers is how many passes run at once. Zero defaults.
+	Workers int
+
+	// locks keeps two passes off one host and off one BMC. startMu makes a
+	// guarded start (the self guard's verdict through the baseline write)
+	// one at a time across hosts. clock remembers when each waiting step
+	// was first looked at. All three are process memory: a restart loses
+	// no pass, since none runs then.
+	locks   passLocks
+	startMu sync.Mutex
+	clock   stepClocks
 }
 
 // reader is the uncached reader when one is wired, the client otherwise.
@@ -172,16 +189,16 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		if apierrors.IsNotFound(err) {
 			// A deleted operation takes its grants with it: whatever it
 			// mounted stops answering.
-			r.revokeGrants(req.NamespacedName)
+			r.forget(req.NamespacedName)
 		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if !op.DeletionTimestamp.IsZero() {
-		r.revokeGrants(req.NamespacedName)
+		r.forget(req.NamespacedName)
 		return ctrl.Result{}, nil
 	}
 	if opFinished(op) {
-		r.revokeGrants(req.NamespacedName)
+		r.forget(req.NamespacedName)
 		return r.expire(ctx, op)
 	}
 
@@ -230,6 +247,17 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			metalv1alpha1.ReasonHostNotFound, fmt.Sprintf("host %s not found", op.Spec.HostRef.Name))
 		return ctrl.Result{}, client.IgnoreNotFound(flush())
 	}
+
+	// Passes run side by side, but never two on one host or on one BMC: the
+	// queue check below and the baseline write are one step only while no
+	// other pass on the host runs between them, and one BMC is driven by one
+	// pass at a time, as before. A pass that finds either taken comes back
+	// later; it changed nothing yet.
+	keys := passKeys(host)
+	if !r.locks.tryLock(keys) {
+		return ctrl.Result{RequeueAfter: r.waitInterval()}, nil
+	}
+	defer r.locks.unlock(keys)
 
 	// A host in maintenance belongs to a person: an operation that has not
 	// started waits until it comes back. One already running finishes —
@@ -288,22 +316,8 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonNoReachablePath, hold)
 			return ctrl.Result{}, client.IgnoreNotFound(flush())
 		}
-		if refused, err := r.recordBootStart(ctx, op, host); err != nil {
-			return ctrl.Result{}, err
-		} else if refused != "" {
-			setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionFalse, metalv1alpha1.ReasonHostNotClaimed, refused)
-			return ctrl.Result{}, client.IgnoreNotFound(flush())
-		}
-		op.Status.Baseline = &metalv1alpha1.OperationBaseline{
-			PowerState: string(obs.PowerState),
-			CapturedAt: ptrTime(metav1.Now()),
-		}
-		if !obs.LastResetTime.IsZero() {
-			op.Status.Baseline.LastResetTime = &metav1.MicroTime{Time: obs.LastResetTime}
-		}
-		setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonExecuting, "")
-		if err := flush(); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
+		if res, started, err := r.begin(ctx, op, host, obs, setCond, flush); !started {
+			return res, err
 		}
 	}
 
@@ -317,7 +331,7 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			metalv1alpha1.ReasonStepFailed, fmt.Sprintf("step %d/%d %s: %v", i+1, len(op.Spec.Actions), name, err))
 		r.Recorder.Eventf(op, nil, corev1.EventTypeWarning, metalv1alpha1.ReasonStepFailed,
 			"Execute", "step %s failed: %v", name, err)
-		r.revokeGrants(req.NamespacedName)
+		r.forget(req.NamespacedName)
 		return ctrl.Result{}, client.IgnoreNotFound(flush())
 	}
 	// wait leaves step i in flight and comes back after the given pause.
@@ -351,7 +365,7 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		// A pass can outlive its operation: a release deletes an unfinished
 		// provisioning operation, and the steps after that must not run.
 		if gone, err := r.opGone(ctx, req.NamespacedName); err != nil || gone {
-			r.revokeGrants(req.NamespacedName)
+			r.forget(req.NamespacedName)
 			return ctrl.Result{}, err
 		}
 		// A pass that cannot fit another power settle stops between steps
@@ -360,6 +374,7 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			return wait(i, "pass budget spent, continuing", passResume)
 		}
 		name := actionName(op.Spec.Actions[i])
+		entered := time.Now()
 		st, err := x.step(bctx, i)
 		if perr := (*persistError)(nil); errors.As(err, &perr) {
 			// The machine did what was asked; only the record of it did
@@ -371,7 +386,7 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		if err != nil && stepTransient(bctx, op.Spec.Actions[i], err) {
 			return held(i, err)
 		}
-		if err == nil && st.waiting != "" && time.Since(x.stepStart(i)) > x.stepBudget(i) {
+		if err == nil && st.waiting != "" && time.Since(x.waitStart(i, entered)) > x.stepBudget(i) {
 			err = fmt.Errorf("%s (gave up after %s)%s", st.waiting, x.stepBudget(i), st.hint)
 		}
 		switch {
@@ -399,12 +414,151 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			op.Status.ObservedResetTime = &metav1.MicroTime{Time: after.LastResetTime}
 		}
 	}
-	r.revokeGrants(req.NamespacedName)
+	r.forget(req.NamespacedName)
 	setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionTrue,
 		metalv1alpha1.ReasonStepsSucceeded, fmt.Sprintf("%d steps", len(op.Spec.Actions)))
 	r.Recorder.Eventf(op, nil, corev1.EventTypeNormal, metalv1alpha1.ReasonStepsSucceeded,
 		"Execute", "%d steps succeeded on host %s", len(op.Spec.Actions), op.Spec.HostRef.Name)
 	return ctrl.Result{}, client.IgnoreNotFound(flush())
+}
+
+// begin starts an operation: it records, before the first mutating call, the
+// boot's power-off decision on the host and the operation's baseline. It
+// reports whether the operation started; when it did not, the pass ends with
+// res and err.
+//
+// A power action the self guard watches is decided once more here, and that
+// decision and the baseline write are one step across all hosts (startMu).
+// The guard counts the other control planes that are down or being taken
+// down; two passes on two control planes deciding at the same time would
+// each count the other as up, and both would start.
+func (r *HostOperationReconciler) begin(ctx context.Context, op *metalv1alpha1.HostOperation, host *metalv1alpha1.Host,
+	obs baseline.Observation, setCond func(string, metav1.ConditionStatus, string, string), flush func() error) (res ctrl.Result, started bool, err error) {
+	if r.Self != nil && disrupts(op) {
+		r.startMu.Lock()
+		defer r.startMu.Unlock()
+		msg, err := r.Self.Check(ctx, host)
+		if err != nil {
+			return ctrl.Result{}, false, err
+		}
+		if msg != "" {
+			setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonSelfDisruption,
+				msg+". This operation starts once that is resolved")
+			return ctrl.Result{RequeueAfter: selfRecheck}, false, client.IgnoreNotFound(flush())
+		}
+	}
+	if refused, err := r.recordBootStart(ctx, op, host); err != nil {
+		return ctrl.Result{}, false, err
+	} else if refused != "" {
+		setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionFalse, metalv1alpha1.ReasonHostNotClaimed, refused)
+		return ctrl.Result{}, false, client.IgnoreNotFound(flush())
+	}
+	op.Status.Baseline = &metalv1alpha1.OperationBaseline{
+		PowerState: string(obs.PowerState),
+		CapturedAt: ptrTime(metav1.Now()),
+	}
+	if !obs.LastResetTime.IsZero() {
+		op.Status.Baseline.LastResetTime = &metav1.MicroTime{Time: obs.LastResetTime}
+	}
+	setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonExecuting, "")
+	if err := flush(); err != nil {
+		return ctrl.Result{}, false, client.IgnoreNotFound(err)
+	}
+	return ctrl.Result{}, true, nil
+}
+
+// passKeys are the locks a pass on host takes: the host, and every BMC that
+// manages it. A machine behind two BMCs locks both; two machines behind one
+// BMC (a chassis manager) share its lock, so their passes, which mount media
+// and switch power through it, do not interleave within a pass.
+func passKeys(host *metalv1alpha1.Host) []string {
+	keys := []string{"host/" + host.Name}
+	for _, p := range host.Status.ManagedBy {
+		keys = append(keys, "endpoint/"+p.EndpointRef.Name)
+	}
+	return keys
+}
+
+// passLocks is a set of held keys. A pass takes all of its keys or none, and
+// never waits for one: a busy key sends the pass back to the queue, so no
+// worker sits blocked behind a fifteen-minute firmware flash, and no two
+// passes can wait on each other.
+type passLocks struct {
+	mu   sync.Mutex
+	held map[string]bool
+}
+
+func (l *passLocks) tryLock(keys []string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, k := range keys {
+		if l.held[k] {
+			return false
+		}
+	}
+	if l.held == nil {
+		l.held = map[string]bool{}
+	}
+	for _, k := range keys {
+		l.held[k] = true
+	}
+	return true
+}
+
+func (l *passLocks) unlock(keys []string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, k := range keys {
+		delete(l.held, k)
+	}
+}
+
+// stepClocks remembers, per operation, when this process first looked at the
+// step in flight. A waiting step's budget counts from there (exec.waitStart).
+type stepClocks struct {
+	mu sync.Mutex
+	m  map[types.NamespacedName]stepClock
+}
+
+type stepClock struct {
+	uid   types.UID
+	step  int
+	since time.Time
+}
+
+// since is when step of the operation was first looked at; now when this is
+// the first look.
+func (c *stepClocks) since(key types.NamespacedName, uid types.UID, step int, now time.Time) time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if e, ok := c.m[key]; ok && e.uid == uid && e.step == step {
+		return e.since
+	}
+	if c.m == nil {
+		c.m = map[types.NamespacedName]stepClock{}
+	}
+	c.m[key] = stepClock{uid: uid, step: step, since: now}
+	return now
+}
+
+func (c *stepClocks) forget(key types.NamespacedName) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.m, key)
+}
+
+// forget drops what this process holds for an operation that ended: its
+// grants, and its step clock.
+func (r *HostOperationReconciler) forget(key types.NamespacedName) {
+	r.revokeGrants(key)
+	r.clock.forget(key)
+}
+
+func (r *HostOperationReconciler) workers() int {
+	if r.Workers > 0 {
+		return r.Workers
+	}
+	return defaultWorkers
 }
 
 // awaitingApprovalMessage says who may let the operation run and how; for an
@@ -674,8 +828,8 @@ func (r *HostOperationReconciler) activePredecessor(ctx context.Context, op *met
 // activePredecessorUncached is activePredecessor over the operations as the
 // API server holds them. The cache can lag behind another operation's
 // baseline write; deciding from it would let two operations start on one
-// host. Reconciles of operations run one at a time (SetupWithManager), so a
-// pass that confirms here and then writes its baseline is seen by the next.
+// host. Passes on one host run one at a time (passLocks), so a pass that
+// confirms here and then writes its baseline is seen by the next.
 func (r *HostOperationReconciler) activePredecessorUncached(ctx context.Context, op *metalv1alpha1.HostOperation) (string, error) {
 	ops := &metalv1alpha1.HostOperationList{}
 	if err := r.reader().List(ctx, ops); err != nil {
@@ -849,10 +1003,11 @@ func (r *HostOperationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&metalv1alpha1.HostOperation{}).
 		Watches(&metalv1alpha1.HostOperation{}, handler.EnqueueRequestsFromMapFunc(r.siblingOps)).
 		Watches(&metalv1alpha1.Host{}, handler.EnqueueRequestsFromMapFunc(r.opsForHost)).
-		// One pass at a time: the uncached queue check before a start is
-		// only a guard when no other pass can start between it and the
-		// baseline write.
-		WithOptions(controller.Options{MaxConcurrentReconciles: 1}).
+		// Passes on different hosts run side by side. Those on one host
+		// or one BMC still run one at a time (passLocks): the uncached
+		// queue check before a start is only a guard when no other pass on
+		// the host can start between it and the baseline write.
+		WithOptions(controller.Options{MaxConcurrentReconciles: r.workers()}).
 		Named("hostoperation").
 		Complete(r)
 }

@@ -64,6 +64,26 @@ func (x *exec) step(ctx context.Context, i int) (stepState, error) {
 	return stepState{}, fmt.Errorf("action carries no known key")
 }
 
+// waitStart is where a waiting step's budget counts from.
+//
+// A step that acts (a power transition) counts from the moment this process
+// first looked at it, entered being when this pass entered it. Counting from
+// the previous step's end would also count the time the operation sat in the
+// queue, behind other passes, before anyone acted: a power-on that one settle
+// window did not show would fail for good after a single look. A restart
+// starts the count again, which can only make a step fail later.
+//
+// awaitCheckIn acts on nothing: the machine has been booting since the
+// previous step ended, whether or not anyone looked, so its budget counts
+// from there.
+func (x *exec) waitStart(i int, entered time.Time) time.Time {
+	if x.op.Spec.Actions[i].AwaitCheckIn != nil {
+		return x.stepStart(i)
+	}
+	key := types.NamespacedName{Namespace: x.op.Namespace, Name: x.op.Name}
+	return x.r.clock.since(key, x.op.UID, i, entered)
+}
+
 // stepStart is when step i began: the previous step's end, else the baseline.
 func (x *exec) stepStart(i int) time.Time {
 	if i > 0 && i <= len(x.op.Status.Steps) {
