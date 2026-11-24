@@ -1,0 +1,136 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: firmwareprofiles.metal.pk.io
+spec:
+  group: metal.pk.io
+  names:
+    categories:
+      - metal
+    kind: FirmwareProfile
+    listKind: FirmwareProfileList
+    plural: firmwareprofiles
+    singular: firmwareprofile
+  scope: Cluster
+  versions:
+    - additionalPrinterColumns:
+        - jsonPath: .spec.layer
+          name: Layer
+          type: integer
+        - jsonPath: .spec.manager.version
+          name: Version
+          type: string
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: 'FirmwareProfile is the firmware some group of machines should be running — authored in git, applying to whichever Hosts match its selector. Like BiosProfile it states intent and is never reconciled directly: a machine that drifts from it gets a HostOperation proposed against it, and flashing firmware is disruptive enough that the operation waits for approval.'
+          properties:
+            apiVersion:
+              description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+              type: string
+            kind:
+              description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: FirmwareProfileSpec is one layer of desired firmware for the Hosts it matches. Like BiosProfile it is controller-less data; the convergence reconciler compares the desired version against what the fronting endpoints serve and proposes a flash operation on drift. Firmware converges before BIOS — the BIOS schema depends on firmware.
+              properties:
+                layer:
+                  default: 0
+                  description: 'Layer orders overlapping profiles exactly as on BiosProfile: (layer, name) merge order, later overrides, same-layer disagreement is a conflict.'
+                  format: int32
+                  type: integer
+                manager:
+                  description: Manager is the desired management-controller firmware. It is flashed over the multipart push the endpoint advertises; endpoints that advertise only SimpleUpdate hold at NoUpdateTransport rather than flashing over an unproven path. Flashing the manager does not stop the machine it manages.
+                  properties:
+                    image:
+                      description: 'Image is a digest-pinned OCI reference to the firmware image (a single- layer artifact in the internal registry, e.g. registry.pk.internal:5000/firmware/x12-bmc@sha256:…). The digest is required: the executor refuses to flash bytes it cannot verify.'
+                      pattern: '@sha256:[a-f0-9]{64}$'
+                      type: string
+                    version:
+                      description: Version is the desired firmware version, compared verbatim against the version the endpoint serves — the convergence observable.
+                      minLength: 1
+                      type: string
+                  required:
+                    - image
+                    - version
+                  type: object
+                match:
+                  description: Match selects Hosts by label (same two axes as BiosProfile.spec.match).
+                  properties:
+                    matchExpressions:
+                      description: matchExpressions is a list of label selector requirements. The requirements are ANDed.
+                      items:
+                        description: A label selector requirement is a selector that contains values, a key, and an operator that relates the key and values.
+                        properties:
+                          key:
+                            description: key is the label key that the selector applies to.
+                            type: string
+                          operator:
+                            description: operator represents a key's relationship to a set of values. Valid operators are In, NotIn, Exists and DoesNotExist.
+                            type: string
+                          values:
+                            description: values is an array of string values. If the operator is In or NotIn, the values array must be non-empty. If the operator is Exists or DoesNotExist, the values array must be empty. This array is replaced during a strategic merge patch.
+                            items:
+                              type: string
+                            type: array
+                            x-kubernetes-list-type: atomic
+                        required:
+                          - key
+                          - operator
+                        type: object
+                      type: array
+                      x-kubernetes-list-type: atomic
+                    matchLabels:
+                      additionalProperties:
+                        type: string
+                      description: matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels map is equivalent to an element of matchExpressions, whose key field is "key", the operator is "In", and the values array contains only "value". The requirements are ANDed.
+                      type: object
+                  type: object
+                  x-kubernetes-map-type: atomic
+                system:
+                  description: 'System is the desired system firmware: BIOS/UEFI, network cards, RAID controllers, whatever the machine''s UpdateService lists in its FirmwareInventory. Each image is staged to apply at the next reset of the machine, so on a machine that runs a node the change is proposed with a drain before and a wait for the node after. System firmware converges after the manager''s and before BIOS settings (a BIOS update can change the settings it offers).'
+                  items:
+                    description: SystemFirmwareTarget is the desired version of one system component.
+                    properties:
+                      component:
+                        description: 'Component matches FirmwareInventory member ids, as a regular expression over the whole id: BIOS, NIC\.Slot\.[0-9]+, RAID.*. Ids are vendor shaped; kubectl describe managementendpoint lists the ones a machine serves. Every matching entry is brought to the version; a pattern that matches nothing holds the profile at NoMatchingComponent.'
+                        minLength: 1
+                        type: string
+                      image:
+                        description: Image is the digest-pinned OCI reference of the vendor's update package for this component.
+                        pattern: '@sha256:[a-f0-9]{64}$'
+                        type: string
+                      version:
+                        description: Version is the desired version, compared verbatim against the version the inventory entry reports.
+                        minLength: 1
+                        type: string
+                    required:
+                      - component
+                      - image
+                      - version
+                    type: object
+                  maxItems: 16
+                  type: array
+                  x-kubernetes-list-map-keys:
+                    - component
+                  x-kubernetes-list-type: map
+              required:
+                - match
+              type: object
+              x-kubernetes-validations:
+                - message: give manager, system, or both
+                  rule: has(self.manager) || (has(self.system) && size(self.system) > 0)
+          required:
+            - spec
+          type: object
+      served: true
+      storage: true
+      subresources: {}

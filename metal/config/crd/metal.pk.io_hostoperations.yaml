@@ -1,0 +1,822 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: hostoperations.metal.pk.io
+spec:
+  group: metal.pk.io
+  names:
+    categories:
+      - metal
+    kind: HostOperation
+    listKind: HostOperationList
+    plural: hostoperations
+    singular: hostoperation
+  scope: Namespaced
+  versions:
+    - additionalPrinterColumns:
+        - jsonPath: .spec.hostRef.name
+          name: Host
+          type: string
+        - jsonPath: .status.phase
+          name: Phase
+          type: string
+        - jsonPath: .spec.reason
+          name: Reason
+          type: string
+        - jsonPath: .spec.proposedBy
+          name: Proposed
+          priority: 1
+          type: string
+        - jsonPath: .spec.approval.approvedBy
+          name: Approved
+          type: string
+        - jsonPath: .status.blockedOn
+          name: Blocked
+          priority: 1
+          type: string
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: |-
+            HostOperation is one step that changes a machine — an install, a shutdown, a BIOS change, a firmware flash — and the record of what happened. The operator proposes it; spec.actions lists exactly what will be done, in order, so read it before you approve.
+
+            - Approve:   pk-metal approve <namespace>/<operation> (someone other than the proposer must approve).
+            - Refuse:    delete the operation, or set metal.pk.io/hold on the HostClaim so the operator stops proposing.
+            - Retry:     pk-metal retry <namespace>/<operation> once you have fixed the cause. A failed operation is never retried on its own.
+
+            kubectl get hostoperations shows what waits (Phase AwaitingApproval) and what failed; kubectl describe shows each step's message.
+          properties:
+            apiVersion:
+              description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+              type: string
+            kind:
+              description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: |-
+                HostOperationSpec is what to do to a machine, and the approval that lets it happen.
+
+                The operator proposes an operation by creating it; a person approves it by setting spec.approval. The machine and the actions cannot be changed after creation, so the right to edit an operation is only the right to approve it. The cluster checks who may approve, and refuses an approval by the person who proposed the operation.
+              properties:
+                actions:
+                  description: 'Actions run in order; each entry is exactly one action. A failed step fails the operation — disruptive one-shots never auto-retry. At most one power action per operation: the power-cycle proof lives in status once.'
+                  items:
+                    description: 'HostOperationAction is a one-of union: exactly one action per entry.'
+                    maxProperties: 1
+                    minProperties: 1
+                    properties:
+                      applyBios:
+                        description: ApplyBios stages a BiosSettings object's desired attributes into the machine's pending (@Redfish.Settings) object. Staging changes nothing — the world moves at the next system reset, so a convergence operation pairs this with a powerCycle.
+                        properties:
+                          attributes:
+                            additionalProperties:
+                              x-kubernetes-preserve-unknown-fields: true
+                            description: Attributes are the values to stage, copied in at proposal time — what the approver saw is exactly what is applied. Keys already current are left out; keys already staged with the wanted value are PATCHed again with the rest, so the staging carries the apply time this client asks for, and a refusal to stage only such keys again counts as staged.
+                            minProperties: 1
+                            type: object
+                          settingsRef:
+                            description: 'SettingsRef names the BiosSettings the attributes came from — provenance only: the executor never reads it, so an edit after approval cannot change what runs.'
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                        required:
+                          - attributes
+                        type: object
+                      awaitCheckIn:
+                        description: AwaitCheckIn waits, without touching the machine, until the named TalosNode reports that the machine runs its config — the point after which the boot media are no longer needed. It changes nothing; it keeps the operation (and the grants it issued) alive until the hand-off.
+                        properties:
+                          nodeRef:
+                            description: 'NodeRef names the TalosNode (os.pk.io) whose check-in ends the wait: MachineReachable=True over the authenticated machine API, or Ready=True.'
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                          timeoutSeconds:
+                            default: 1800
+                            description: TimeoutSeconds bounds the wait, counted from the previous step's end. Running out fails the step — the media are ejected and the grants revoked either way.
+                            format: int32
+                            maximum: 86400
+                            minimum: 60
+                            type: integer
+                        required:
+                          - nodeRef
+                        type: object
+                      cordon:
+                        description: Cordon marks the node's Kubernetes Node unschedulable. Already cordoned is success.
+                        properties:
+                          nodeRef:
+                            description: NodeRef names the TalosNode (os.pk.io); its hostname is the Kubernetes Node's name.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                        required:
+                          - nodeRef
+                        type: object
+                      deleteKubernetesNode:
+                        description: DeleteKubernetesNode deletes the node's Node object from its cluster's Kubernetes API, the last trace of a removed node there. Already gone is success.
+                        properties:
+                          nodeRef:
+                            description: NodeRef names the TalosNode (os.pk.io); its name is the Kubernetes Node's name, and its cluster says which Kubernetes API to ask.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                        required:
+                          - nodeRef
+                        type: object
+                      drain:
+                        description: 'Drain evicts the pods on the node through the Eviction API, so that PodDisruptionBudgets hold: an eviction a budget refuses is waited out, not forced, until the timeout fails the step. The node stays cordoned either way. A node not yet cordoned is cordoned first.'
+                        properties:
+                          deleteEmptyDirData:
+                            description: DeleteEmptyDirData lets the drain evict pods with emptyDir volumes, whose data is lost. Without it such a pod fails the step.
+                            type: boolean
+                          gracePeriodSeconds:
+                            description: GracePeriodSeconds overrides each pod's termination grace period; unset keeps the pod's own.
+                            format: int32
+                            maximum: 3600
+                            minimum: 0
+                            type: integer
+                          nodeRef:
+                            description: NodeRef names the TalosNode (os.pk.io) to drain.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                          timeoutSeconds:
+                            default: 900
+                            description: TimeoutSeconds bounds the whole drain, budget waits included. Running out fails the step and leaves the node cordoned.
+                            format: int32
+                            maximum: 86400
+                            minimum: 30
+                            type: integer
+                        required:
+                          - nodeRef
+                        type: object
+                      ejectMedia:
+                        description: EjectMedia unmounts a virtual-media slot.
+                        properties:
+                          mediaId:
+                            description: MediaID is the virtual-media slot to empty.
+                            type: string
+                        required:
+                          - mediaId
+                        type: object
+                      etcdForfeitLeadership:
+                        description: EtcdForfeitLeadership hands etcd leadership to another member when the node's member leads, asked on the node itself; a follower is left as it is. A control plane that is about to leave or go down does it first, so that its departure does not cost an election under load.
+                        properties:
+                          nodeRef:
+                            description: NodeRef names the control-plane TalosNode (os.pk.io) whose member gives up leadership.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                        required:
+                          - nodeRef
+                        type: object
+                      etcdLeave:
+                        description: 'EtcdLeave makes the node''s etcd member leave the cluster, asked on the node itself: the orderly removal of a control plane that still answers.'
+                        properties:
+                          nodeRef:
+                            description: NodeRef names the control-plane TalosNode (os.pk.io) that leaves.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                        required:
+                          - nodeRef
+                        type: object
+                      etcdRecover:
+                        description: 'EtcdRecover restores the etcd of a cluster that lost all of it from an EtcdSnapshot, on one control plane: a person uploads the decrypted snapshot (pk-metal restore upload), then Talos starts etcd from it. See EtcdRecoverAction and the docs site: operate/day-2/restore-etcd.'
+                        properties:
+                          nodeRef:
+                            description: NodeRef names the control-plane TalosNode (os.pk.io) etcd is restored on.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                          sha256:
+                            description: 'SHA256 pins the plaintext snapshot (sha256:<hex>) the approver approved: the EtcdSnapshot''s record must still say so, and the upload must name it.'
+                            pattern: ^sha256:[a-f0-9]{64}$
+                            type: string
+                          snapshotRef:
+                            description: SnapshotRef names the EtcdSnapshot (os.pk.io) to restore.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                          timeoutSeconds:
+                            default: 7200
+                            description: TimeoutSeconds bounds the step, the wait for the upload included, counted from the previous step's end (or the approval).
+                            format: int32
+                            maximum: 86400
+                            minimum: 300
+                            type: integer
+                        required:
+                          - nodeRef
+                          - sha256
+                          - snapshotRef
+                        type: object
+                      etcdRemoveMember:
+                        description: 'EtcdRemoveMember removes one etcd member by its ID, asked through a healthy control-plane peer: the path for a member whose node can no longer leave by itself (wiped, dead, unreachable).'
+                        properties:
+                          hostname:
+                            description: Hostname is the member's hostname as etcd listed it at proposal, for the approver.
+                            type: string
+                          memberId:
+                            description: 'MemberID is the etcd member ID in hex, as etcd lists it, fixed at proposal: the executor removes exactly this member, never "whatever carries that hostname now", which after a rejoin is the new member.'
+                            pattern: ^[0-9a-f]{1,16}$
+                            type: string
+                          nodeRef:
+                            description: 'NodeRef names the TalosNode (os.pk.io) whose member is removed: provenance for the approver, and how the executor finds the cluster and a peer to ask.'
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                        required:
+                          - memberId
+                          - nodeRef
+                        type: object
+                      flashFirmware:
+                        description: 'FlashFirmware pushes a firmware image to the management controller and waits for proof that it took: the controller rebooting, and the expected version reading back afterwards. A reported success is not believed on its own.'
+                        properties:
+                          image:
+                            description: Image is the digest-pinned OCI reference to fetch and push (the same shape as FirmwareProfile.spec.manager.image).
+                            pattern: '@sha256:[a-f0-9]{64}$'
+                            type: string
+                          version:
+                            description: 'Version is the version expected to read back after the flash — the convergence goal: a manager already serving it makes this step a no-op.'
+                            minLength: 1
+                            type: string
+                        required:
+                          - image
+                          - version
+                        type: object
+                      insertMedia:
+                        description: InsertMedia mounts an image URL on a virtual-media slot, dispatching the dialect the endpoint advertises (standard InsertMedia vs OEM VmmControl).
+                        properties:
+                          bootAssetRef:
+                            description: BootAssetRef names the BootAsset (os.pk.io) to mount.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                          digest:
+                            description: 'Digest pins the artifact bytes (sha256:<hex>) the approver saw: an artifact rebuilt since the proposal fails the step instead of mounting content nobody approved. With a digest the asset need not be Ready: the artifact approved is mounted while a newer build runs, and an asset that names no artifact yet makes the step wait. Secret-bearing assets (configISO, embeddedInstaller) only.'
+                            pattern: ^sha256:[a-f0-9]{64}$
+                            type: string
+                          imageUrl:
+                            description: ImageURL is what to mount. Already-mounted with the same URL is success — steps converge to their goal, so a resumed operation never double-issues.
+                            type: string
+                          mediaId:
+                            description: MediaID is the virtual-media slot ("CD", "USBStick", …).
+                            type: string
+                        required:
+                          - mediaId
+                        type: object
+                        x-kubernetes-validations:
+                          - message: exactly one of imageUrl and bootAssetRef
+                            rule: has(self.imageUrl) != has(self.bootAssetRef)
+                          - message: digest pins a bootAssetRef
+                            rule: '!has(self.digest) || has(self.bootAssetRef)'
+                      powerCycle:
+                        description: 'PowerCycle restarts the system: off, observed off, on, observed on — or just on when it was off at the baseline. Each half converges on the reported power state, which every vendor serves, so a resumed operation never cycles a machine twice (the iBMC serves no reset time to tell).'
+                        type: object
+                      powerOff:
+                        description: PowerOff turns the system off and waits until it reports off. With gracefulTimeoutSeconds it first asks the OS to shut down, and forces the machine off only if it is still on when that time has passed.
+                        properties:
+                          gracefulTimeoutSeconds:
+                            description: GracefulTimeoutSeconds, when set, makes the step ask the OS to shut down first (Redfish GracefulShutdown, the same as a short press of the power button or `ipmitool chassis power soft`), wait this long for the machine to report off, and only then force it off. Unset or 0 forces the machine off at once. A BMC that refuses a graceful shutdown is forced at once too.
+                            format: int32
+                            maximum: 3600
+                            minimum: 0
+                            type: integer
+                        type: object
+                      setBootOverride:
+                        description: SetBootOverride sets the source the machine boots from next. The target must be one the endpoint actually offers — machines disagree about what they call a virtual CD, so the value is checked against what was discovered rather than assumed.
+                        properties:
+                          mode:
+                            description: Mode is the firmware boot mode for the override. Omitted leaves the machine's own setting alone (some firmware rejects the property).
+                            enum:
+                              - UEFI
+                              - Legacy
+                            type: string
+                          once:
+                            default: true
+                            description: Once limits the override to the next boot (the default); false is Continuous.
+                            type: boolean
+                          target:
+                            description: Target is the boot source (UsbCd, Cd, Pxe, …) — validated against the endpoint's discovered AllowableValues at execution, not at admission.
+                            type: string
+                        required:
+                          - target
+                        type: object
+                      stageFirmware:
+                        description: StageFirmware pushes a system firmware image (BIOS/UEFI, NIC, RAID) to the BMC to apply at the machine's next reset. Staging changes nothing that runs; a reboot later in the operation applies it, and the version the inventory reports afterwards is the proof.
+                        properties:
+                          image:
+                            description: Image is the digest-pinned OCI reference of the update package.
+                            pattern: '@sha256:[a-f0-9]{64}$'
+                            type: string
+                          targets:
+                            description: 'Targets are the FirmwareInventory member ids to update, fixed at proposal: the approver sees which components change.'
+                            items:
+                              type: string
+                            maxItems: 16
+                            minItems: 1
+                            type: array
+                            x-kubernetes-list-type: set
+                          version:
+                            description: 'Version is the version the entries report once the package applied: an entry that already reports it is not staged again.'
+                            minLength: 1
+                            type: string
+                        required:
+                          - image
+                          - targets
+                          - version
+                        type: object
+                      talosApplyConfig:
+                        description: TalosApplyConfig applies a rendered machine config, the bytes pinned by digest at proposal.
+                        properties:
+                          configSecretRef:
+                            description: ConfigSecretRef names the Secret, in the operator's namespace, that holds the rendered config.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                          digest:
+                            description: 'Digest pins the config bytes (sha256:<hex>) the approver saw: a Secret whose content no longer hashes to it fails the step instead of applying a config nobody approved.'
+                            pattern: ^sha256:[a-f0-9]{64}$
+                            type: string
+                          mode:
+                            default: NoReboot
+                            description: 'Mode is how the node takes the config: NoReboot fails when a change needs a reboot, Reboot always reboots, Staged applies at the next boot, Try rolls back after tryTimeoutSeconds unless confirmed, Auto lets the node choose.'
+                            enum:
+                              - Auto
+                              - NoReboot
+                              - Reboot
+                              - Staged
+                              - Try
+                            type: string
+                          nodeRef:
+                            description: NodeRef names the TalosNode (os.pk.io) whose config this is.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                          tryTimeoutSeconds:
+                            description: TryTimeoutSeconds bounds Try mode; unset is the node's default.
+                            format: int32
+                            maximum: 3600
+                            minimum: 10
+                            type: integer
+                        required:
+                          - configSecretRef
+                          - digest
+                          - nodeRef
+                        type: object
+                      talosReboot:
+                        description: 'TalosReboot asks Talos to reboot the node: services stop and filesystems unmount before the kernel restarts, unlike a BMC powerCycle, which cuts the power.'
+                        properties:
+                          mode:
+                            default: Default
+                            description: Mode is Default (kexec or a warm reboot) or PowerCycle (a cold start at the end, for firmware that applies only then).
+                            enum:
+                              - Default
+                              - PowerCycle
+                            type: string
+                          nodeRef:
+                            description: NodeRef names the TalosNode (os.pk.io) to reboot.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                        required:
+                          - nodeRef
+                        type: object
+                      talosReset:
+                        description: TalosReset wipes the node through Talos, back towards maintenance mode.
+                        properties:
+                          graceful:
+                            default: true
+                            description: Graceful leaves etcd (on a control plane) and cordons and drains the node before wiping. A node that cannot reach its peers needs false, and its member is then removed by an etcdRemoveMember step.
+                            type: boolean
+                          mode:
+                            default: All
+                            description: 'Mode picks the disks: All (system and user disks), SystemDisk or UserDisks.'
+                            enum:
+                              - All
+                              - SystemDisk
+                              - UserDisks
+                            type: string
+                          nodeRef:
+                            description: NodeRef names the TalosNode (os.pk.io) to reset.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                          reboot:
+                            description: Reboot boots the node into maintenance mode afterwards; false leaves it powered off.
+                            type: boolean
+                          systemPartitions:
+                            description: SystemPartitions limits the wipe to these system partitions; empty wipes what mode names. STATE holds the machine config and its credentials, EPHEMERAL the pod data and etcd.
+                            items:
+                              description: SystemPartition is a Talos system partition label.
+                              enum:
+                                - STATE
+                                - EPHEMERAL
+                                - META
+                              type: string
+                            maxItems: 3
+                            type: array
+                            x-kubernetes-list-type: set
+                        required:
+                          - nodeRef
+                        type: object
+                        x-kubernetes-validations:
+                          - message: systemPartitions do not apply to mode UserDisks
+                            rule: '!has(self.systemPartitions) || !has(self.mode) || self.mode != ''UserDisks'''
+                      talosShutdown:
+                        description: TalosShutdown asks Talos to shut the node down cleanly.
+                        properties:
+                          force:
+                            description: Force shuts down even when the node cannot cordon and drain itself first (its Kubernetes API is down).
+                            type: boolean
+                          nodeRef:
+                            description: NodeRef names the TalosNode (os.pk.io) to shut down.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                        required:
+                          - nodeRef
+                        type: object
+                      talosUpgrade:
+                        description: TalosUpgrade installs another Talos version from an installer image and reboots into it.
+                        properties:
+                          force:
+                            description: Force skips the etcd health check Talos runs before upgrading a control plane.
+                            type: boolean
+                          image:
+                            description: 'Image is the installer image, pinned by digest: what the approver saw is what is installed.'
+                            pattern: '@sha256:[a-f0-9]{64}$'
+                            type: string
+                          nodeRef:
+                            description: NodeRef names the TalosNode (os.pk.io) to upgrade.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                          preserve:
+                            default: true
+                            description: Preserve keeps the EPHEMERAL partition (pod data, etcd). Talos 1.8 and later always preserve it; the field is passed through for older nodes.
+                            type: boolean
+                          rebootMode:
+                            default: Default
+                            description: RebootMode is how the reboot into the new image ends.
+                            enum:
+                              - Default
+                              - PowerCycle
+                            type: string
+                          stage:
+                            description: Stage writes the new image and upgrades at the next reboot, for a node whose open files would block an upgrade in place.
+                            type: boolean
+                          version:
+                            description: 'Version is the Talos version expected to read back afterwards, the step''s goal: a node that already reports it is not upgraded again.'
+                            pattern: ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$
+                            type: string
+                        required:
+                          - image
+                          - nodeRef
+                          - version
+                        type: object
+                      uncordon:
+                        description: Uncordon marks the node schedulable again. Already schedulable is success.
+                        properties:
+                          nodeRef:
+                            description: NodeRef names the TalosNode (os.pk.io).
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                        required:
+                          - nodeRef
+                        type: object
+                      waitEtcdHealthy:
+                        description: 'WaitEtcdHealthy waits, changing nothing, until the etcd cluster of the node''s TalosCluster is healthy: every member answers, none reports an error or alarm, and none is a learner.'
+                        properties:
+                          nodeRef:
+                            description: 'NodeRef names a control-plane TalosNode (os.pk.io) of the cluster. Its own member must be listed too, as a voting member: after a join or a reboot, that is the member the wait is for.'
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                          timeoutSeconds:
+                            default: 900
+                            description: TimeoutSeconds bounds the wait, counted from the previous step's end.
+                            format: int32
+                            maximum: 86400
+                            minimum: 60
+                            type: integer
+                        required:
+                          - nodeRef
+                        type: object
+                      waitNodeReady:
+                        description: 'WaitNodeReady waits, changing nothing, until the node runs and is ready: Talos stage running with every readiness condition met, and its Kubernetes Node Ready.'
+                        properties:
+                          nodeRef:
+                            description: NodeRef names the TalosNode (os.pk.io) to wait for.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                          timeoutSeconds:
+                            default: 1800
+                            description: TimeoutSeconds bounds the wait, counted from the previous step's end.
+                            format: int32
+                            maximum: 86400
+                            minimum: 60
+                            type: integer
+                          version:
+                            description: 'Version, when set, is also waited for: the Talos version the node must report, the proof an upgrade took.'
+                            pattern: ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$
+                            type: string
+                        required:
+                          - nodeRef
+                        type: object
+                    type: object
+                  maxItems: 32
+                  minItems: 1
+                  type: array
+                  x-kubernetes-list-type: atomic
+                  x-kubernetes-validations:
+                    - message: at most one power action per operation
+                      rule: self.filter(a, has(a.powerCycle) || has(a.powerOff)).size() <= 1
+                    - message: actions are frozen after creation
+                      rule: self == oldSelf
+                approval:
+                  default:
+                    required: true
+                  description: Approval is the human gate. Omitted means required — the safe default is a closed gate.
+                  properties:
+                    approvedBy:
+                      description: ApprovedBy is stamped by the approver — the ValidatingAdmissionPolicy enforces that it equals the requesting username, is empty at creation, and is write-once.
+                      type: string
+                    required:
+                      default: true
+                      description: 'Required: this operation must be approved before it runs (from the disruption policy; explicit false only where the policy waives the gate, and admission lets only the operator or an admin create such an operation). A pointer so that EVERY client that says nothing — YAML omitting the key, a Go zero value — gets the safe default: a closed gate. Frozen: flipping it would be an approval without a name on it.'
+                      type: boolean
+                      x-kubernetes-validations:
+                        - message: approval.required is frozen after creation
+                          rule: self == oldSelf
+                  type: object
+                hostRef:
+                  description: HostRef names the Host this operation acts on.
+                  properties:
+                    name:
+                      type: string
+                  required:
+                    - name
+                  type: object
+                  x-kubernetes-validations:
+                    - message: hostRef is frozen after creation
+                      rule: self == oldSelf
+                planHash:
+                  description: PlanHash binds a proposed operation to the desired state it serves — an unchanged hash never spawns a second op (the convergence reconcilers' guard).
+                  type: string
+                proposedBy:
+                  description: 'ProposedBy is the username that created the operation. Admission checks it against the creating request, so it cannot name someone else, and refuses an approval stamped by the same person: nobody approves their own proposal.'
+                  minLength: 1
+                  type: string
+                reason:
+                  description: Reason names the desired-state gate this operation serves (BiosConvergence, FirmwareConvergence, …); empty for a human-requested op. It becomes the Approval(<reason>) domain on the Host's blockedOn — hence the condition-reason shape.
+                  maxLength: 128
+                  pattern: ^[A-Za-z][A-Za-z0-9]*$
+                  type: string
+                rolloutRef:
+                  description: 'RolloutRef names the rollout (os.pk.io TalosRollout) this operation is one node''s part of, and the plan it was created for. The executor refuses an operation whose rollout is gone, not approved, or approved for another planHash: an operation the rollout''s approval covers carries no approval of its own, so the binding is what makes that approval mean this operation. Empty for an operation approved on its own.'
+                  properties:
+                    name:
+                      description: Name is the TalosRollout's name.
+                      minLength: 1
+                      type: string
+                    planHash:
+                      description: PlanHash is the rollout's planHash when this operation was created.
+                      minLength: 1
+                      type: string
+                  required:
+                    - name
+                    - planHash
+                  type: object
+                ttlSecondsAfterFinished:
+                  description: 'TTLSecondsAfterFinished garbage-collects a succeeded operation Job-style. A failed one stays until a person retries or deletes it: it is the record they decide on. Unset keeps it forever (human-requested ops stay as their own record); convergence proposals set it — the plan memory on the proposing object, not the operation''s existence, is what keeps an unchanged planHash from spawning again.'
+                  format: int32
+                  minimum: 0
+                  type: integer
+              required:
+                - actions
+                - hostRef
+                - proposedBy
+              type: object
+              x-kubernetes-validations:
+                - message: proposedBy is frozen after creation
+                  rule: '!has(oldSelf.proposedBy) || (has(self.proposedBy) && self.proposedBy == oldSelf.proposedBy)'
+                - message: rolloutRef is frozen after creation
+                  rule: has(self.rolloutRef) == has(oldSelf.rolloutRef) && (!has(self.rolloutRef) || self.rolloutRef == oldSelf.rolloutRef)
+            status:
+              description: 'HostOperationStatus is what happened: which steps ran and how they ended, plus the observations that prove the machine really did what was asked.'
+              properties:
+                baseline:
+                  description: Baseline is captured (and persisted) before the first mutating call.
+                  properties:
+                    capturedAt:
+                      description: CapturedAt is when the baseline was taken — the start of execution, which bounds how long a power transition may take to show.
+                      format: date-time
+                      type: string
+                    lastResetTime:
+                      description: 'LastResetTime as observed before any action ran. Micro precision: the sim resets faster than a second, and second-precision would blind the advance predicate.'
+                      format: date-time
+                      type: string
+                    powerState:
+                      type: string
+                  type: object
+                blockedOn:
+                  description: BlockedOn is derived — why the operation isn't advancing (AwaitingApproval, OperationQueued).
+                  type: string
+                conditions:
+                  description: Conditions are the truth — the only thing reconcilers branch on.
+                  items:
+                    description: Condition contains details for one aspect of the current state of this API Resource.
+                    properties:
+                      lastTransitionTime:
+                        description: lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                        format: date-time
+                        type: string
+                      message:
+                        description: message is a human readable message indicating details about the transition. This may be an empty string.
+                        maxLength: 32768
+                        type: string
+                      observedGeneration:
+                        description: observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      reason:
+                        description: reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty.
+                        maxLength: 1024
+                        minLength: 1
+                        pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                        type: string
+                      status:
+                        description: status of the condition, one of True, False, Unknown.
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                        type: string
+                      type:
+                        description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                        maxLength: 316
+                        pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                        type: string
+                    required:
+                      - lastTransitionTime
+                      - message
+                      - reason
+                      - status
+                      - type
+                    type: object
+                  type: array
+                  x-kubernetes-list-map-keys:
+                    - type
+                  x-kubernetes-list-type: map
+                cordonedNode:
+                  description: CordonedNode is the Kubernetes Node this operation made unschedulable (a cordon or drain step that found it schedulable). An abort makes it schedulable again; a node a person had cordoned before is left as it was.
+                  type: string
+                observedResetTime:
+                  description: ObservedResetTime is the reset-time observation after the last step — the proof the reset happened, and what marks a Host reset-time advance as explained rather than Drifted.
+                  format: date-time
+                  type: string
+                offObserved:
+                  description: OffObserved is when the executor saw the machine report off during a power cycle — the first half of the cycle, recorded so that a resumed operation finishes the cycle instead of starting a second one.
+                  format: date-time
+                  type: string
+                phase:
+                  description: 'Phase summarizes the conditions below for people and for kubectl columns. It is a summary, not the contract: automation should read conditions.'
+                  enum:
+                    - Proposed
+                    - AwaitingApproval
+                    - Running
+                    - Succeeded
+                    - Failed
+                    - Aborted
+                  type: string
+                shutdownRequested:
+                  description: ShutdownRequested is when the executor asked the OS to shut down for a graceful powerOff. The step forces the machine off once the graceful window, counted from here, has passed; recording it means a resumed operation neither asks again nor restarts the window.
+                  format: date-time
+                  type: string
+                steps:
+                  description: 'Steps records each action''s outcome in execution order, written as each step reaches its goal. A resumed operation continues after the last recorded step: a goal that a later step consumed (a Once boot override used up by the boot that followed) is never re-armed.'
+                  items:
+                    description: OperationStep is one executed action's outcome.
+                    properties:
+                      action:
+                        description: Action is the union key that ran (powerCycle, insertMedia, …), or "abort" for the record of an abort and what it undid.
+                        type: string
+                      finishedAt:
+                        description: FinishedAt is when the step reached its goal (or failed).
+                        format: date-time
+                        type: string
+                      message:
+                        type: string
+                      phase:
+                        enum:
+                          - Succeeded
+                          - Failed
+                          - Aborted
+                        type: string
+                    required:
+                      - action
+                      - phase
+                    type: object
+                  type: array
+                  x-kubernetes-list-type: atomic
+                talosStep:
+                  description: 'TalosStep is the progress of the Talos step in flight that restarts or wipes the node (talosReboot, talosUpgrade, talosApplyConfig, talosReset, talosShutdown): the node''s boot time before it acted, and when the request was accepted. A resumed operation waits for the boot time to move on instead of asking a second time.'
+                  properties:
+                    bootTime:
+                      description: BootTime is the node's boot time before the step acted. The step's restart shows as a later boot time.
+                      format: date-time
+                      type: string
+                    mode:
+                      description: 'Mode is how the node said it applies a config (talosApplyConfig): reboot, no-reboot, staged or try.'
+                      type: string
+                    requestedAt:
+                      description: RequestedAt is when the node accepted the request.
+                      format: date-time
+                      type: string
+                    step:
+                      description: Step is the index in spec.actions this progress belongs to.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                  required:
+                    - step
+                  type: object
+              type: object
+          required:
+            - spec
+          type: object
+      served: true
+      storage: true
+      subresources:
+        status: {}

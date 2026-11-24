@@ -25,9 +25,44 @@ dir = "metal"
 run = "go test ./..."
 
 [tasks.lint]
-description = "golangci-lint"
-depends = ["lint:go"]
+description = "golangci-lint and shellcheck"
+depends = ["lint:go", "lint:shell"]
+
+[tasks."lint:shell"]
+description = "bash -n and shellcheck over the hack scripts"
+# shellcheck is a system package (apt-get install shellcheck); there is no mise pin for it.
+run = '''
+for script in metal/hack/*.sh; do
+  bash -n "$script"
+done
+shellcheck --severity=warning metal/hack/*.sh
+echo "lint:shell: clean"
+'''
 
 [tasks."lint:go"]
 dir = "metal"
 run = "golangci-lint run"
+
+[tasks.generate]
+description = "Regenerate everything derived from the Go sources: deepcopy code, CRDs"
+dir = "metal"
+run = [
+  "go tool controller-gen object paths=./api/...",
+  "go tool controller-gen crd paths=./api/... output:crd:artifacts:config=config/crd",
+  "go run ./hack/reflowdesc config/crd/*_*.yaml",
+  "hack/crd-kustomization.sh config/crd",
+]
+
+[tasks."generate:check"]
+description = "Fail when a generated file is out of date with its source"
+depends = ["generate"]
+run = '''
+drift=$(git status --porcelain -- metal/api metal/config)
+if [ -n "$drift" ]; then
+  echo "generate:check: generated files are out of date. Run 'mise run generate' and commit the result:" >&2
+  echo "$drift" >&2
+  git --no-pager diff --stat -- metal/api metal/config >&2
+  exit 1
+fi
+echo "generate:check: clean"
+'''

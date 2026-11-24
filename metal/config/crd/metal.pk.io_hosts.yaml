@@ -1,0 +1,229 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: hosts.metal.pk.io
+spec:
+  group: metal.pk.io
+  names:
+    categories:
+      - metal
+    kind: Host
+    listKind: HostList
+    plural: hosts
+    singular: host
+  scope: Cluster
+  versions:
+    - additionalPrinterColumns:
+        - jsonPath: .metadata.labels.metal\.pk\.io/asset
+          name: Asset
+          type: string
+        - jsonPath: .status.identity.serial
+          name: Serial
+          type: string
+        - jsonPath: .status.identity.vendor
+          name: Vendor
+          type: string
+        - jsonPath: .status.phase
+          name: Phase
+          type: string
+        - jsonPath: .status.blockedOn
+          name: Blocked
+          priority: 1
+          type: string
+        - jsonPath: .spec.claimRef.name
+          name: Claim
+          priority: 1
+          type: string
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: |-
+            Host is one physical machine as the operator found it through its BMC. The operator creates it and names it after the machine's serial number, in lower case; the label metal.pk.io/asset names the Asset it was found by. You read it to see the state of the machine: kubectl get hosts shows the asset, serial, vendor and phase, and kubectl describe host <name> shows why it waits.
+
+            A HostClaim binds a Host for use. To take a machine out of the operator's hands for hardware work, set the metal.pk.io/maintenance annotation on it.
+          properties:
+            apiVersion:
+              description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+              type: string
+            kind:
+              description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: HostSpec is written by the operator from the HostClaim that binds the machine; you do not edit it. Everything else about a Host is what the operator found, not what anyone wrote.
+              properties:
+                claimRef:
+                  description: 'ClaimRef names the HostClaim that holds this machine. The first claim to set it wins; any other claim on the same machine waits (HostAlreadyClaimed). The UID pins the exact claim: a claim deleted and created again under the same name is a new claim.'
+                  properties:
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                    uid:
+                      description: UID is a type that holds unique ID values, including UUIDs.  Because we don't ONLY use UUIDs, this is an alias to string.  Being a type captures intent and helps make sure that UIDs and names do not get conflated.
+                      type: string
+                  required:
+                    - name
+                    - namespace
+                  type: object
+                os:
+                  description: OS is the TalosNode this machine should run, copied from the claim and cleared when the claim is released. Until it is set, a bound machine is reserved and nothing is done to it.
+                  properties:
+                    nodeRef:
+                      description: NodeRef names the TalosNode (os.pk.io) whose config this machine boots.
+                      properties:
+                        name:
+                          type: string
+                      required:
+                        - name
+                      type: object
+                  required:
+                    - nodeRef
+                  type: object
+              type: object
+            status:
+              description: HostStatus is what the operator found out about the machine itself.
+              properties:
+                blockedOn:
+                  description: BlockedOn says why the host is not moving on (Approval(Provisioning), SerialMismatch, HostInMaintenance); a reason, not a phase, because it can happen in any phase.
+                  type: string
+                conditions:
+                  description: Conditions are the truth — the only thing reconcilers branch on.
+                  items:
+                    description: Condition contains details for one aspect of the current state of this API Resource.
+                    properties:
+                      lastTransitionTime:
+                        description: lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                        format: date-time
+                        type: string
+                      message:
+                        description: message is a human readable message indicating details about the transition. This may be an empty string.
+                        maxLength: 32768
+                        type: string
+                      observedGeneration:
+                        description: observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      reason:
+                        description: reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty.
+                        maxLength: 1024
+                        minLength: 1
+                        pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                        type: string
+                      status:
+                        description: status of the condition, one of True, False, Unknown.
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                        type: string
+                      type:
+                        description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                        maxLength: 316
+                        pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                        type: string
+                    required:
+                      - lastTransitionTime
+                      - message
+                      - reason
+                      - status
+                      - type
+                    type: object
+                  type: array
+                  x-kubernetes-list-map-keys:
+                    - type
+                  x-kubernetes-list-type: map
+                firmwareProposed:
+                  description: FirmwareProposed remembers the last firmware plan proposed for this machine, so the same plan is not proposed twice. Written by the firmware lane only.
+                  properties:
+                    operation:
+                      description: Operation is the proposed HostOperation as namespace/name.
+                      type: string
+                    planHash:
+                      description: PlanHash is the sha256 of the desired state the operation serves.
+                      type: string
+                  required:
+                    - operation
+                    - planHash
+                  type: object
+                identity:
+                  description: 'HostIdentity identifies the machine, whichever BMC it is reached through: the same machine seen through two BMCs gets the same identity, and so one Host. Vendors put the serial number in different places (Huawei on the system, Supermicro on the board); the operator reads the right one for each.'
+                  properties:
+                    serial:
+                      description: 'Serial is the machine''s serial number: the board serial on Supermicro, the system serial on Huawei and other vendors.'
+                      type: string
+                    uuid:
+                      type: string
+                    vendor:
+                      type: string
+                  type: object
+                lastResetTime:
+                  description: LastResetTime is when the BMC last saw the machine reset. When it moves and no operation explains it, the Drifted condition says somebody reset the machine another way (ipmitool, the BMC web page, the power button). Not every BMC reports it (Huawei iBMC does not); drift is then not detected.
+                  format: date-time
+                  type: string
+                managedBy:
+                  description: ManagedBy lists the ways to reach the machine — usually one BMC.
+                  items:
+                    description: 'ManagementPath is one way to reach this host: a BMC and the system behind it. A machine can have more than one, each reachable or not on its own.'
+                    properties:
+                      endpointRef:
+                        description: EndpointRef names the ManagementEndpoint (the BMC).
+                        properties:
+                          name:
+                            type: string
+                        required:
+                          - name
+                        type: object
+                      reachable:
+                        description: Reachable says whether this BMC answers.
+                        type: boolean
+                      systemId:
+                        description: SystemID is the Redfish ComputerSystem id behind that BMC.
+                        type: string
+                    required:
+                      - endpointRef
+                      - reachable
+                      - systemId
+                    type: object
+                  type: array
+                  x-kubernetes-list-type: atomic
+                phase:
+                  description: 'Phase summarizes the conditions below for people and for kubectl columns. It is a summary, not the contract: automation should read conditions.'
+                  enum:
+                    - Enrolling
+                    - Inspecting
+                    - Available
+                    - Assigned
+                    - Provisioning
+                    - Provisioned
+                    - Releasing
+                    - Failed
+                    - Maintenance
+                  type: string
+                systemFirmwareProposed:
+                  description: SystemFirmwareProposed is the system-firmware lane's plan memory, the same guard as firmwareProposed for the components a reset applies.
+                  properties:
+                    operation:
+                      description: Operation is the proposed HostOperation as namespace/name.
+                      type: string
+                    planHash:
+                      description: PlanHash is the sha256 of the desired state the operation serves.
+                      type: string
+                  required:
+                    - operation
+                    - planHash
+                  type: object
+              type: object
+          type: object
+      served: true
+      storage: true
+      subresources:
+        status: {}

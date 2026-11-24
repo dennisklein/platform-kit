@@ -1,0 +1,78 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: biosschemas.metal.pk.io
+spec:
+  group: metal.pk.io
+  names:
+    categories:
+      - metal
+    kind: BiosSchema
+    listKind: BiosSchemaList
+    plural: biosschemas
+    singular: biosschema
+  scope: Cluster
+  versions:
+    - additionalPrinterColumns:
+        - jsonPath: .spec.registry
+          name: Registry
+          type: string
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: |-
+            BiosSchema is the BIOS attribute registry discovered on one machine: which settings that machine's firmware actually has, what each one accepts, and which are read-only. It is written by the cluster, not by hand — it is how you find out what a BiosProfile is allowed to ask for.
+
+            Cluster-scoped, named after its Host and owned by it.
+          properties:
+            apiVersion:
+              description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+              type: string
+            kind:
+              description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: 'BiosSchemaSpec is the discovered attribute registry of one host''s BIOS. Like Asset it is spec-only — the object IS the data; nothing about it is derived further. Written by the convergence reconciler from the registry the Bios resource advertises (registry names are normalized on the client: the spelled identity differs between the Bios resource, the Registries member, and the file on both vendors).'
+              properties:
+                attributes:
+                  description: Attributes lists the registry's entries, sorted by name. Desired values in a materialized BiosSettings are validated against this before any operation is proposed — the machine would otherwise reject an unknown attribute at PATCH and silently drop an out-of-range value at apply.
+                  items:
+                    description: BiosSchemaAttribute is one registry entry, mirroring the seam's shape.
+                    properties:
+                      allowedValues:
+                        description: AllowedValues enumerates the legal values; empty for non-enumerations.
+                        items:
+                          type: string
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      name:
+                        type: string
+                      type:
+                        description: 'Type is the registry''s attribute type: Enumeration, Boolean, Integer or String — kept as served.'
+                        type: string
+                    required:
+                      - name
+                      - type
+                    type: object
+                  type: array
+                  x-kubernetes-list-type: atomic
+                registry:
+                  description: Registry is the registry identity as the Bios resource advertises it, kept verbatim (e.g. BiosAttributeRegistry.v1_0_0).
+                  type: string
+              required:
+                - attributes
+              type: object
+          required:
+            - spec
+          type: object
+      served: true
+      storage: true
+      subresources: {}

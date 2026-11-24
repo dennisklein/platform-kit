@@ -1,0 +1,227 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: maintenancewindows.metal.pk.io
+spec:
+  group: metal.pk.io
+  names:
+    categories:
+      - metal
+    kind: MaintenanceWindow
+    listKind: MaintenanceWindowList
+    plural: maintenancewindows
+    singular: maintenancewindow
+  scope: Cluster
+  versions:
+    - additionalPrinterColumns:
+        - jsonPath: .status.open
+          name: Open
+          type: boolean
+        - jsonPath: .status.nextChange
+          name: Next change
+          type: date
+        - jsonPath: .spec.timeZone
+          name: Zone
+          type: string
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: |-
+            MaintenanceWindow says when disruptive work may start on a set of machines. An approved HostOperation on a covered machine waits, with blockedOn OutsideMaintenanceWindow, until one of the windows that cover it opens; then it starts. A machine covered by no window is not held. Work already running is never stopped by a window closing: stopping a machine half-way through a change leaves it worse off than finishing.
+
+            New installs (operations with reason Provisioning) are not held: they disturb no running workload. To let one operation start now anyway:
+
+            kubectl annotate hostoperation -n pk-metal <name> metal.pk.io/ignore-window="<why>"
+          properties:
+            apiVersion:
+              description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+              type: string
+            kind:
+              description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: MaintenanceWindowSpec says which machines the window covers and when it is open.
+              properties:
+                clusters:
+                  description: 'Clusters names TalosClusters (os.pk.io): a Host whose node belongs to one of them is covered. A Host is covered when it matches the selector or runs a node of a named cluster.'
+                  items:
+                    type: string
+                  maxItems: 64
+                  type: array
+                  x-kubernetes-list-type: set
+                hostSelector:
+                  description: HostSelector selects Hosts by label, the same labels profiles match (metal.pk.io/vendor, metal.pk.io/model, and the claim's own labels). An empty selector ({}) selects every Host.
+                  properties:
+                    matchExpressions:
+                      description: matchExpressions is a list of label selector requirements. The requirements are ANDed.
+                      items:
+                        description: A label selector requirement is a selector that contains values, a key, and an operator that relates the key and values.
+                        properties:
+                          key:
+                            description: key is the label key that the selector applies to.
+                            type: string
+                          operator:
+                            description: operator represents a key's relationship to a set of values. Valid operators are In, NotIn, Exists and DoesNotExist.
+                            type: string
+                          values:
+                            description: values is an array of string values. If the operator is In or NotIn, the values array must be non-empty. If the operator is Exists or DoesNotExist, the values array must be empty. This array is replaced during a strategic merge patch.
+                            items:
+                              type: string
+                            type: array
+                            x-kubernetes-list-type: atomic
+                        required:
+                          - key
+                          - operator
+                        type: object
+                      type: array
+                      x-kubernetes-list-type: atomic
+                    matchLabels:
+                      additionalProperties:
+                        type: string
+                      description: matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels map is equivalent to an element of matchExpressions, whose key field is "key", the operator is "In", and the values array contains only "value". The requirements are ANDed.
+                      type: object
+                  type: object
+                  x-kubernetes-map-type: atomic
+                once:
+                  description: Once are single windows, for a planned intervention outside the usual schedule.
+                  items:
+                    description: OnceWindow is a single window between two points in time.
+                    properties:
+                      end:
+                        description: End is when it closes.
+                        format: date-time
+                        type: string
+                      start:
+                        description: Start is when the window opens (RFC 3339, with its offset).
+                        format: date-time
+                        type: string
+                    required:
+                      - end
+                      - start
+                    type: object
+                    x-kubernetes-validations:
+                      - message: end must be after start
+                        rule: self.end > self.start
+                  maxItems: 32
+                  type: array
+                  x-kubernetes-list-type: atomic
+                timeZone:
+                  default: UTC
+                  description: TimeZone is the IANA time zone the weekly windows are read in, such as Europe/Berlin; daylight saving time is followed. Default UTC.
+                  type: string
+                weekly:
+                  description: Weekly are windows that recur every week.
+                  items:
+                    description: WeeklyWindow is a window that recurs every week on the given days.
+                    properties:
+                      days:
+                        description: Days are the days the window opens on, in the window's time zone.
+                        items:
+                          description: Weekday is a day of the week as a three-letter English abbreviation.
+                          enum:
+                            - Mon
+                            - Tue
+                            - Wed
+                            - Thu
+                            - Fri
+                            - Sat
+                            - Sun
+                          type: string
+                        maxItems: 7
+                        minItems: 1
+                        type: array
+                        x-kubernetes-list-type: set
+                      duration:
+                        description: 'Duration is how long the window stays open, such as 4h or 90m: at least a minute, at most a week. A window may run past midnight.'
+                        type: string
+                      start:
+                        description: Start is the local time the window opens, as HH:MM (24-hour clock).
+                        pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
+                        type: string
+                    required:
+                      - days
+                      - duration
+                      - start
+                    type: object
+                  maxItems: 32
+                  type: array
+                  x-kubernetes-list-type: atomic
+              type: object
+              x-kubernetes-validations:
+                - message: 'name the machines: hostSelector, clusters, or both'
+                  rule: has(self.hostSelector) || (has(self.clusters) && size(self.clusters) > 0)
+                - message: give at least one weekly or once window
+                  rule: (has(self.weekly) && size(self.weekly) > 0) || (has(self.once) && size(self.once) > 0)
+            status:
+              description: 'MaintenanceWindowStatus is what the operator reads from the spec: whether the window is open now and when that changes.'
+              properties:
+                conditions:
+                  description: 'Conditions: Valid is False when the time zone or the selector cannot be read. An invalid window still covers what it can name and is never open, so a mistake in it holds work back instead of letting it run.'
+                  items:
+                    description: Condition contains details for one aspect of the current state of this API Resource.
+                    properties:
+                      lastTransitionTime:
+                        description: lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                        format: date-time
+                        type: string
+                      message:
+                        description: message is a human readable message indicating details about the transition. This may be an empty string.
+                        maxLength: 32768
+                        type: string
+                      observedGeneration:
+                        description: observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance.
+                        format: int64
+                        minimum: 0
+                        type: integer
+                      reason:
+                        description: reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty.
+                        maxLength: 1024
+                        minLength: 1
+                        pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                        type: string
+                      status:
+                        description: status of the condition, one of True, False, Unknown.
+                        enum:
+                          - "True"
+                          - "False"
+                          - Unknown
+                        type: string
+                      type:
+                        description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                        maxLength: 316
+                        pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                        type: string
+                    required:
+                      - lastTransitionTime
+                      - message
+                      - reason
+                      - status
+                      - type
+                    type: object
+                  type: array
+                  x-kubernetes-list-map-keys:
+                    - type
+                  x-kubernetes-list-type: map
+                nextChange:
+                  description: 'NextChange is when Open flips next: the close of the window that is open, or the start of the next one. Empty when no window comes again.'
+                  format: date-time
+                  type: string
+                open:
+                  description: Open is true while one of the windows is open.
+                  type: boolean
+              type: object
+          required:
+            - spec
+          type: object
+      served: true
+      storage: true
+      subresources:
+        status: {}
