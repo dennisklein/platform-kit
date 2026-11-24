@@ -119,7 +119,7 @@ func TestEveryActionIsDescribed(t *testing.T) {
 			ConfigSecretRef: metalv1alpha1.Reference{Name: "machineconfig-cp-2"}, Digest: digest, Mode: "Reboot"},
 		EtcdLeave:        &metalv1alpha1.EtcdLeaveAction{NodeRef: node},
 		EtcdRemoveMember: &metalv1alpha1.EtcdRemoveMemberAction{NodeRef: node, MemberID: "8e9e05c52164694d", Hostname: "cp-2"},
-		TalosReset:       &metalv1alpha1.TalosResetAction{NodeRef: node, Graceful: ptr.To(false)},
+		TalosReset:       &metalv1alpha1.TalosResetAction{NodeRef: node, Graceful: ptr.To(false), UserDisks: []string{"/dev/sdb"}},
 		WaitNodeReady:    &metalv1alpha1.WaitNodeReadyAction{NodeRef: node, Version: "v1.14.7"},
 		WaitEtcdHealthy:  &metalv1alpha1.WaitEtcdHealthyAction{NodeRef: node},
 	}
@@ -138,7 +138,9 @@ func TestEveryActionIsDescribed(t *testing.T) {
 	assert.Equal(t, len(metalv1alpha1.ActionKeys()), v.NumField(), "the test sets every action")
 
 	reset := describeAction(metalv1alpha1.HostOperationAction{TalosReset: all.TalosReset}, pc)
-	assert.Contains(t, reset, "WIPE the system disk and the user disks")
+	assert.Contains(t, reset, "WIPE the system disk and the user disks /dev/sdb of")
+	bare := describeAction(metalv1alpha1.HostOperationAction{TalosReset: &metalv1alpha1.TalosResetAction{NodeRef: node}}, pc)
+	assert.Contains(t, bare, "WIPE the system disk and no user disk of", "a reset that names no user disk says so")
 	assert.Contains(t, reset, "not graceful")
 	upgrade := describeAction(metalv1alpha1.HostOperationAction{TalosUpgrade: all.TalosUpgrade}, pc)
 	assert.Contains(t, upgrade, "UPGRADE Talos on node cp-2 (control plane of cluster lab) to v1.14.7 from factory.talos.dev/installer/x:v1.14.7")

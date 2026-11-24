@@ -440,7 +440,7 @@ spec:
                             type: boolean
                           mode:
                             default: All
-                            description: 'Mode picks the disks: All (system and user disks), SystemDisk or UserDisks.'
+                            description: 'Mode picks the disks: All (the system disk and the disks in userDisks), SystemDisk, or UserDisks (only the disks in userDisks).'
                             enum:
                               - All
                               - SystemDisk
@@ -469,12 +469,25 @@ spec:
                             maxItems: 3
                             type: array
                             x-kubernetes-list-type: set
+                          userDisks:
+                            description: 'UserDisks names the data disks to wipe in mode All or UserDisks, by device path (/dev/sdb). Talos finds no user disk by itself: a disk that is not named keeps its data. Talos refuses a path it does not know, a read-only disk and the system disk.'
+                            items:
+                              maxLength: 128
+                              pattern: ^/dev/[A-Za-z0-9._/:-]+$
+                              type: string
+                            maxItems: 16
+                            type: array
+                            x-kubernetes-list-type: set
                         required:
                           - nodeRef
                         type: object
                         x-kubernetes-validations:
                           - message: systemPartitions do not apply to mode UserDisks
                             rule: '!has(self.systemPartitions) || !has(self.mode) || self.mode != ''UserDisks'''
+                          - message: userDisks do not apply to mode SystemDisk
+                            rule: '!has(self.userDisks) || !has(self.mode) || self.mode != ''SystemDisk'''
+                          - message: 'mode UserDisks needs userDisks: Talos wipes only the user disks a reset names'
+                            rule: '!has(self.mode) || self.mode != ''UserDisks'' || (has(self.userDisks) && size(self.userDisks) > 0)'
                       talosShutdown:
                         description: TalosShutdown asks Talos to shut the node down cleanly.
                         properties:

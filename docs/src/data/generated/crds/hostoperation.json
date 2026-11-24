@@ -821,6 +821,14 @@
         {
           "rule": "!has(self.systemPartitions) || !has(self.mode) || self.mode != 'UserDisks'",
           "message": "systemPartitions do not apply to mode UserDisks"
+        },
+        {
+          "rule": "!has(self.userDisks) || !has(self.mode) || self.mode != 'SystemDisk'",
+          "message": "userDisks do not apply to mode SystemDisk"
+        },
+        {
+          "rule": "!has(self.mode) || self.mode != 'UserDisks' || (has(self.userDisks) && size(self.userDisks) > 0)",
+          "message": "mode UserDisks needs userDisks: Talos wipes only the user disks a reset names"
         }
       ]
     },
@@ -847,7 +855,7 @@
         "SystemDisk",
         "UserDisks"
       ],
-      "description": "Mode picks the disks: All (system and user disks), SystemDisk or UserDisks."
+      "description": "Mode picks the disks: All (the system disk and the disks in userDisks), SystemDisk, or UserDisks (only the disks in userDisks)."
     },
     {
       "path": "spec.actions[].talosReset.nodeRef",
@@ -891,6 +899,18 @@
       "maxItems": 3,
       "listType": "set",
       "description": "SystemPartitions limits the wipe to these system partitions; empty wipes what mode names. STATE holds the machine config and its credentials, EPHEMERAL the pod data and etcd."
+    },
+    {
+      "path": "spec.actions[].talosReset.userDisks",
+      "name": "userDisks",
+      "parent": "spec.actions[].talosReset",
+      "depth": 3,
+      "type": "[]string",
+      "required": false,
+      "pattern": "^/dev/[A-Za-z0-9._/:-]+$",
+      "maxItems": 16,
+      "listType": "set",
+      "description": "UserDisks names the data disks to wipe in mode All or UserDisks, by device path (/dev/sdb). Talos finds no user disk by itself: a disk that is not named keeps its data. Talos refuses a path it does not know, a read-only disk and the system disk."
     },
     {
       "path": "spec.actions[].talosShutdown",

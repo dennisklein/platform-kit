@@ -178,12 +178,16 @@ func applyModeText(c *metalv1alpha1.TalosApplyConfigAction) string {
 }
 
 func describeReset(r *metalv1alpha1.TalosResetAction, node string) string {
-	what := "the system disk and the user disks"
+	disks := "no user disk"
+	if len(r.UserDisks) > 0 {
+		disks = "the user disks " + strings.Join(r.UserDisks, ", ")
+	}
+	what := "the system disk and " + disks
 	switch r.Mode {
 	case "SystemDisk":
 		what = "the system disk"
 	case "UserDisks":
-		what = "the user disks"
+		what = disks
 	}
 	if len(r.SystemPartitions) > 0 {
 		var parts []string

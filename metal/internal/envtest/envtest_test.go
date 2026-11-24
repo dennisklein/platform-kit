@@ -191,12 +191,15 @@ func TestAPI(t *testing.T) {
 
 		// What the markers refuse, the apiserver refuses.
 		for name, bad := range map[string]metalv1alpha1.HostOperationAction{
-			"undigested config":   {TalosApplyConfig: &metalv1alpha1.TalosApplyConfigAction{NodeRef: node, ConfigSecretRef: node, Digest: "latest"}},
-			"tagged image":        {TalosUpgrade: &metalv1alpha1.TalosUpgradeAction{NodeRef: node, Image: "installer:v1.14.7", Version: "v1.14.7"}},
-			"member id not hex":   {EtcdRemoveMember: &metalv1alpha1.EtcdRemoveMemberAction{NodeRef: node, MemberID: "node-1"}},
-			"unknown partition":   {TalosReset: &metalv1alpha1.TalosResetAction{NodeRef: node, SystemPartitions: []metalv1alpha1.SystemPartition{"BOOT"}}},
-			"partitions of users": {TalosReset: &metalv1alpha1.TalosResetAction{NodeRef: node, Mode: "UserDisks", SystemPartitions: []metalv1alpha1.SystemPartition{"STATE"}}},
-			"unbounded drain":     {Drain: &metalv1alpha1.DrainAction{NodeRef: node, TimeoutSeconds: 5}},
+			"undigested config":    {TalosApplyConfig: &metalv1alpha1.TalosApplyConfigAction{NodeRef: node, ConfigSecretRef: node, Digest: "latest"}},
+			"tagged image":         {TalosUpgrade: &metalv1alpha1.TalosUpgradeAction{NodeRef: node, Image: "installer:v1.14.7", Version: "v1.14.7"}},
+			"member id not hex":    {EtcdRemoveMember: &metalv1alpha1.EtcdRemoveMemberAction{NodeRef: node, MemberID: "node-1"}},
+			"unknown partition":    {TalosReset: &metalv1alpha1.TalosResetAction{NodeRef: node, SystemPartitions: []metalv1alpha1.SystemPartition{"BOOT"}}},
+			"partitions of users":  {TalosReset: &metalv1alpha1.TalosResetAction{NodeRef: node, Mode: "UserDisks", SystemPartitions: []metalv1alpha1.SystemPartition{"STATE"}}},
+			"user disks unnamed":   {TalosReset: &metalv1alpha1.TalosResetAction{NodeRef: node, Mode: "UserDisks"}},
+			"user disks of system": {TalosReset: &metalv1alpha1.TalosResetAction{NodeRef: node, Mode: "SystemDisk", UserDisks: []string{"/dev/sdb"}}},
+			"user disk not a path": {TalosReset: &metalv1alpha1.TalosResetAction{NodeRef: node, UserDisks: []string{"sdb"}}},
+			"unbounded drain":      {Drain: &metalv1alpha1.DrainAction{NodeRef: node, TimeoutSeconds: 5}},
 		} {
 			o := &metalv1alpha1.HostOperation{
 				ObjectMeta: metav1.ObjectMeta{Name: "bad-" + strings.ReplaceAll(name, " ", "-"), Namespace: "default"},

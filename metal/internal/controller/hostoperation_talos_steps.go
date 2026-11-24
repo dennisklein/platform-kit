@@ -589,6 +589,7 @@ func (x *exec) talosReset(ctx context.Context, i int, a *metalv1alpha1.TalosRese
 	for _, p := range a.SystemPartitions {
 		opts.SystemPartitions = append(opts.SystemPartitions, string(p))
 	}
+	opts.UserDisks = slices.Clone(a.UserDisks)
 	p := x.progress(i)
 	if p == nil {
 		return x.askReset(ctx, i, node, acc, opts, nil)

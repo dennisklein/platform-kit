@@ -298,15 +298,12 @@ Wipes the node through Talos. A node that does not answer cannot do a reset: ins
 | `nodeRef` | object | — | The TalosNode to reset. |
 | `graceful` | boolean | `true` | Leaves etcd, cordons and drains first. A node that cannot reach its peers needs `false`. |
 | `reboot` | boolean | `false` | Boots into maintenance mode after the wipe. `false` leaves the node off. |
-| `mode` | `All`, `SystemDisk`, `UserDisks` | `All` | The disks to wipe. See the note below. |
+| `mode` | `All`, `SystemDisk`, `UserDisks` | `All` | The disks to wipe. `All` wipes the system disk and the disks in `userDisks`. `UserDisks` wipes only the disks in `userDisks`. |
 | `systemPartitions` | list, up to 3 | all | Wipes only these system partitions. STATE holds the machine config. EPHEMERAL holds pod data and etcd. |
+| `userDisks` | list of device paths, up to 16 | none | The data disks to wipe, for example `/dev/sdb`. Talos does not find user disks itself. A disk that is not in this list keeps its data. Mode `UserDisks` needs at least one disk. Mode `SystemDisk` takes none. |
 
 <Callout type="warning">
 Do not approve a `talosReset` on a node whose data you must keep. The reset erases the disks that `mode` names.
-</Callout>
-
-<Callout type="note">
-Talos wipes a user disk only when the reset names it. The action has no field for user disks yet. Thus `All` wipes only the system disk, and `UserDisks` wipes no disk. Data on other disks stays after a reset.
 </Callout>
 
 ## etcd

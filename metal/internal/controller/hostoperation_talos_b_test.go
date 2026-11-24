@@ -167,3 +167,15 @@ func TestTalosApplyConfigConfirmsATry(t *testing.T) {
 		assert.Len(t, lab.machines["w-1"].ApplyCalls(), 1, "nothing confirmed the try")
 	})
 }
+
+func TestTalosResetNamesTheUserDisks(t *testing.T) {
+	tickTalosClock(t, 20*time.Second)
+	lab := newTalosLab(t, talosOp("w-1", metalv1alpha1.HostOperationAction{TalosReset: &metalv1alpha1.TalosResetAction{
+		NodeRef: ref("w-1"), Graceful: ptr.To(false), Mode: "UserDisks", UserDisks: []string{"/dev/sdb", "/dev/sdc"}}}))
+	m := lab.machines["w-1"]
+
+	lab.pass(t)
+	require.Len(t, m.Resets(), 1)
+	assert.Equal(t, talos.WipeUserDisks, m.Resets()[0].Mode)
+	assert.Equal(t, []string{"/dev/sdb", "/dev/sdc"}, m.Resets()[0].UserDisks, "Talos wipes only the user disks the reset names")
+}

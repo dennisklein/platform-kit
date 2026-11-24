@@ -599,6 +599,8 @@ type EtcdRemoveMemberAction struct {
 // TalosResetAction wipes a node through Talos.
 //
 // +kubebuilder:validation:XValidation:rule="!has(self.systemPartitions) || !has(self.mode) || self.mode != 'UserDisks'",message="systemPartitions do not apply to mode UserDisks"
+// +kubebuilder:validation:XValidation:rule="!has(self.userDisks) || !has(self.mode) || self.mode != 'SystemDisk'",message="userDisks do not apply to mode SystemDisk"
+// +kubebuilder:validation:XValidation:rule="!has(self.mode) || self.mode != 'UserDisks' || (has(self.userDisks) && size(self.userDisks) > 0)",message="mode UserDisks needs userDisks: Talos wipes only the user disks a reset names"
 type TalosResetAction struct {
 	// NodeRef names the TalosNode (os.pk.io) to reset.
 	NodeRef Reference `json:"nodeRef"`
@@ -615,8 +617,8 @@ type TalosResetAction struct {
 	// +optional
 	Reboot bool `json:"reboot,omitempty"`
 
-	// Mode picks the disks: All (system and user disks), SystemDisk or
-	// UserDisks.
+	// Mode picks the disks: All (the system disk and the disks in
+	// userDisks), SystemDisk, or UserDisks (only the disks in userDisks).
 	// +kubebuilder:validation:Enum=All;SystemDisk;UserDisks
 	// +kubebuilder:default=All
 	// +optional
@@ -629,6 +631,17 @@ type TalosResetAction struct {
 	// +listType=set
 	// +optional
 	SystemPartitions []SystemPartition `json:"systemPartitions,omitempty"`
+
+	// UserDisks names the data disks to wipe in mode All or UserDisks, by
+	// device path (/dev/sdb). Talos finds no user disk by itself: a disk
+	// that is not named keeps its data. Talos refuses a path it does not
+	// know, a read-only disk and the system disk.
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:items:MaxLength=128
+	// +kubebuilder:validation:items:Pattern=`^/dev/[A-Za-z0-9._/:-]+$`
+	// +listType=set
+	// +optional
+	UserDisks []string `json:"userDisks,omitempty"`
 }
 
 // SystemPartition is a Talos system partition label.
