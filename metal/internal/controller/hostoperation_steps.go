@@ -179,9 +179,14 @@ func (x *exec) powerTo(ctx context.Context, want bmc.PowerState) (stepState, err
 	if want == bmc.PowerOff {
 		action = bmc.ActionForceOff
 	}
-	cl, sysID, _ := x.client(ctx)
-	if err := cl.SetPower(ctx, sysID, action); err != nil {
-		return stepState{}, err
+	// A machine on its way to want (PoweringOn, PoweringOff) got the action
+	// already, in this pass or an earlier one: a second one could be
+	// refused, or restart the transition.
+	if cur != towards(want) {
+		cl, sysID, _ := x.client(ctx)
+		if err := cl.SetPower(ctx, sysID, action); err != nil {
+			return stepState{}, err
+		}
 	}
 	if cur, err = x.settle(ctx, want); err != nil {
 		return stepState{}, err
@@ -190,6 +195,14 @@ func (x *exec) powerTo(ctx context.Context, want bmc.PowerState) (stepState, err
 		return stepDone, nil
 	}
 	return waitingOn("%s issued, machine still reports %s", action, cur), nil
+}
+
+// towards is the transitional state a system reports on its way to want.
+func towards(want bmc.PowerState) bmc.PowerState {
+	if want == bmc.PowerOn {
+		return bmc.PowerPoweringOn
+	}
+	return bmc.PowerPoweringOff
 }
 
 // powerOff turns the machine off. With a graceful window it first asks the OS
@@ -253,7 +266,9 @@ func (x *exec) powerOff(ctx context.Context, a *metalv1alpha1.PowerOffAction) (s
 // (iBMC) — and would cycle the machine a second time, into a boot that
 // already used up its Once override.
 func (x *exec) powerCycle(ctx context.Context) (stepState, error) {
-	if b := x.op.Status.Baseline; b != nil && b.PowerState != string(bmc.PowerOn) {
+	// A machine on its way on (PoweringOn) is cycled like one that is on.
+	if b := x.op.Status.Baseline; b != nil &&
+		b.PowerState != string(bmc.PowerOn) && b.PowerState != string(bmc.PowerPoweringOn) {
 		return x.powerTo(ctx, bmc.PowerOn)
 	}
 	if x.op.Status.OffObserved == nil {

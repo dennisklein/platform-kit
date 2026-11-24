@@ -322,6 +322,9 @@ type PowerState string
 const (
 	PowerOn  PowerState = "On"
 	PowerOff PowerState = "Off"
+	// The transitional states a system reports while a reset takes effect.
+	PowerPoweringOn  PowerState = "PoweringOn"
+	PowerPoweringOff PowerState = "PoweringOff"
 )
 
 // PowerAction values follow Redfish ResetType — discovered from AllowableValues in

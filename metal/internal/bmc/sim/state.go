@@ -24,6 +24,7 @@ type State struct {
 	faults    map[Fault]bool
 	resets    map[string]int        // boots per system — test observability
 	lastReset map[string]time.Time  // advances on reset — only for systems whose fixture serves it
+	powerAt   map[string]time.Time  // when the last reset changed the power state (Protocol.PowerTransition)
 	machines  map[string]Machine    // real machines behind systems (machine.go); absent = state only
 	progress  map[string]string     // boot progress last read from a machine, by system id
 	fw        fwState               // manager firmware and staging slot (convergence.go)
@@ -81,6 +82,7 @@ func NewState(f *Fixture) *State {
 		faults:    map[Fault]bool{},
 		resets:    map[string]int{},
 		lastReset: map[string]time.Time{},
+		powerAt:   map[string]time.Time{},
 		progress:  map[string]string{},
 		fw:        fwState{version: f.Manager.Firmware, lastReset: f.Manager.LastResetTime, versions: map[string]string{}, onReset: map[string]string{}},
 		bios:      map[string]*biosState{},
@@ -260,7 +262,15 @@ func (s *State) reportedPower(systemID string) bmc.PowerState {
 	if s.faults[FaultStalePower] {
 		return bmc.PowerOn
 	}
-	return s.power[systemID]
+	p := s.power[systemID]
+	if d := s.f.Protocol.PowerTransition; d > 0 && time.Since(s.powerAt[systemID]) < d {
+		// The state the reset moves to, not reached yet.
+		if p == bmc.PowerOn {
+			return bmc.PowerPoweringOn
+		}
+		return bmc.PowerPoweringOff
+	}
+	return p
 }
 
 func (s *State) Power(ctx context.Context, systemID string) (bmc.PowerState, error) {
@@ -305,9 +315,13 @@ func (s *State) SetPower(ctx context.Context, systemID string, action bmc.PowerA
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !boots {
+		if s.power[systemID] != bmc.PowerOff {
+			s.powerAt[systemID] = time.Now()
+		}
 		s.power[systemID] = bmc.PowerOff
 		return nil
 	}
+	s.powerAt[systemID] = time.Now()
 	s.power[systemID] = bmc.PowerOn
 	s.resets[systemID]++
 	// The reset-time observable only advances where the fixture serves it —

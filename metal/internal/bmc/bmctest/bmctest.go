@@ -160,14 +160,10 @@ func Run(t *testing.T, c bmc.Client, f *sim.Fixture, readOnly bool) {
 		require.NoError(t, err)
 
 		require.NoError(t, c.SetPower(ctx, id, bmc.ActionForceOff))
-		state, err := c.Power(ctx, id)
-		require.NoError(t, err)
-		assert.Equal(t, bmc.PowerOff, state, "after ForceOff")
+		settles(t, ctx, c, id, bmc.PowerOff, "after ForceOff")
 
 		require.NoError(t, c.SetPower(ctx, id, bmc.ActionOn))
-		state, err = c.Power(ctx, id)
-		require.NoError(t, err)
-		assert.Equal(t, bmc.PowerOn, state, "after On")
+		settles(t, ctx, c, id, bmc.PowerOn, "after On")
 
 		require.NoError(t, c.SetPower(ctx, id, bmc.ActionForceRestart))
 	})
@@ -310,10 +306,9 @@ func Run(t *testing.T, c bmc.Client, f *sim.Fixture, readOnly bool) {
 			}
 			// Restart-shaped actions need a running system to act on.
 			require.NoError(t, c.SetPower(ctx, id, bmc.ActionOn))
+			settles(t, ctx, c, id, bmc.PowerOn, "before %s", action)
 			require.NoError(t, c.SetPower(ctx, id, bmc.PowerAction(action)), "reset type %s", action)
-			state, err := c.Power(ctx, id)
-			require.NoError(t, err)
-			assert.Equal(t, want, state, "after %s", action)
+			settles(t, ctx, c, id, want, "after %s", action)
 		}
 		assert.Error(t, c.SetPower(ctx, id, bmc.PowerAction("Nmi-NotOffered")),
 			"a reset type outside AllowableValues must be rejected")
@@ -528,6 +523,24 @@ func Run(t *testing.T, c bmc.Client, f *sim.Fixture, readOnly bool) {
 			"an unknown attribute must be rejected at PATCH time")
 	})
 }
+
+// settles asserts that the system reports want within powerSettle. A real
+// BMC reports PoweringOn or PoweringOff for a while after a reset.
+func settles(t *testing.T, ctx context.Context, c bmc.Client, id string, want bmc.PowerState, msgAndArgs ...any) {
+	t.Helper()
+	var last bmc.PowerState
+	ok := assert.Eventually(t, func() bool {
+		state, err := c.Power(ctx, id)
+		last = state
+		return err == nil && state == want
+	}, powerSettle, 20*time.Millisecond, msgAndArgs...)
+	if !ok {
+		t.Logf("last power state read: %q, want %q", last, want)
+	}
+}
+
+// powerSettle bounds the wait for a power state to show.
+const powerSettle = 30 * time.Second
 
 // assertList compares two lists where an empty one and an absent one are the
 // same fact — which of the two a transport hands back is its own business.

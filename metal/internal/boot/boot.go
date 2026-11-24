@@ -106,7 +106,7 @@ func Run(ctx context.Context, o Options) (Result, error) {
 	// the machine as it was. An unreadable state counts as on: the reset is
 	// what needs consent.
 	state, perr := o.Client.Power(ctx, system.ID)
-	running := perr != nil || state == bmc.PowerOn
+	running := perr != nil || state != bmc.PowerOff
 	power := "power the machine on"
 	switch {
 	case o.NoPower:
@@ -201,7 +201,7 @@ func Run(ctx context.Context, o Options) (Result, error) {
 		// Read again: the state may have changed while the medium went in,
 		// and a machine somebody switched on meanwhile needs consent too.
 		action := bmc.ActionOn
-		if state, err := o.Client.Power(ctx, system.ID); err == nil && state == bmc.PowerOn {
+		if state, err := o.Client.Power(ctx, system.ID); err != nil || state != bmc.PowerOff {
 			if !o.AllowRestart {
 				return res, cleanupAfter(ctx, o, grants, grant.Token, slot, ErrMachineOn)
 			}

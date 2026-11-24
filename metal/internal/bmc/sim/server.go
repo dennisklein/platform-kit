@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // Server exposes a State as a Redfish HTTP tree — the same world the in-process
@@ -24,6 +25,9 @@ type Server struct {
 	st  *State
 	f   *Fixture
 	mux *http.ServeMux
+	// conns holds one token per request in flight (Protocol.MaxConnections);
+	// nil is no limit.
+	conns chan struct{}
 }
 
 const (
@@ -44,6 +48,9 @@ const (
 
 func NewServer(st *State) *Server {
 	s := &Server{st: st, f: st.f, mux: http.NewServeMux()}
+	if n := st.f.Protocol.MaxConnections; n > 0 {
+		s.conns = make(chan struct{}, n)
+	}
 	s.rootRoutes()
 	s.systemRoutes()
 	s.managerRoutes()
@@ -60,6 +67,26 @@ func NewServer(st *State) *Server {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if s.conns != nil {
+		select {
+		case s.conns <- struct{}{}:
+			defer func() { <-s.conns }()
+		default:
+			w.Header().Set("Retry-After", "1")
+			s.fail(w, &Error{
+				Status: http.StatusServiceUnavailable, MessageID: "ServiceTemporarilyUnavailable",
+				Message: "the service has no free connection; retry later", Args: []string{"1"},
+			})
+			return
+		}
+	}
+	if d := s.f.Protocol.Latency; d > 0 {
+		select {
+		case <-time.After(d):
+		case <-r.Context().Done():
+			return
+		}
+	}
 	w.Header().Set("OData-Version", "4.0")
 	w.Header().Set("Cache-Control", "no-cache")
 	// A trailing slash names the same resource (the service root is commonly

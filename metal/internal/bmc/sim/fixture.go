@@ -88,8 +88,8 @@ type Fixture struct {
 		CertificateService bool `yaml:"certificate_service"`
 		CSRNative          bool `yaml:"csr_native"`
 		KeyUpload          bool `yaml:"key_upload"`
-		// CSRDelay is how long the csr_native manager takes to make a new
-		// key and request. Until then HttpsCert keeps serving the previous
+		// CSRDelay is how long the csr_native (OEM) manager takes to make a
+		// new key and request; the standard action answers with the request. Until then HttpsCert keeps serving the previous
 		// request, and the pending key stays the previous one. Zero makes
 		// the request inside the GenerateCSR call.
 		CSRDelay time.Duration `yaml:"csr_delay"`
@@ -223,6 +223,17 @@ type Protocol struct {
 	// it out. A client that follows only the header takes the operation as
 	// done at once.
 	TaskInBody bool `yaml:"task_in_body"`
+	// Latency delays every HTTP answer by this much: a real BMC answers in
+	// 0.3 to 1.5 seconds. Zero answers at once.
+	Latency time.Duration `yaml:"latency"`
+	// MaxConnections is how many HTTP requests the service handles at the
+	// same time; one more is answered 503 with Retry-After, as a BMC with a
+	// small connection table does. Zero is no limit.
+	MaxConnections int `yaml:"max_connections"`
+	// PowerTransition is how long a system reports PoweringOn or
+	// PoweringOff after a reset before it reports On or Off. Zero changes
+	// the reported state inside the request.
+	PowerTransition time.Duration `yaml:"power_transition"`
 }
 
 // Layout is where the endpoint puts resources the specification has moved over
@@ -405,6 +416,9 @@ func (f *Fixture) validate() error {
 		if slices.Contains(f.ReservedAccountSlots, a.ID) {
 			return fmt.Errorf("account %s is seeded into reserved slot %s", a.Username, a.ID)
 		}
+	}
+	if f.Protocol.Latency < 0 || f.Protocol.PowerTransition < 0 || f.Protocol.MaxConnections < 0 {
+		return fmt.Errorf("protocol: latency, power_transition and max_connections must not be negative")
 	}
 	if f.LockoutThreshold < 0 {
 		return fmt.Errorf("lockout_threshold %d is negative", f.LockoutThreshold)

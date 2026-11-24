@@ -158,7 +158,7 @@ func (s *State) GenerateCSR(_ context.Context, subject bmc.CSRSubject) ([]byte, 
 		return nil, err
 	}
 	csr := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der})
-	if d := s.f.Identity.CSRDelay; d > 0 {
+	if d := s.f.Identity.CSRDelay; d > 0 && !s.f.Identity.CertificateService {
 		s.identity.nextKey, s.identity.nextCSR, s.identity.nextAt = key, csr, time.Now().Add(d)
 		return csr, nil
 	}
