@@ -347,3 +347,55 @@ func TestParseAnywhere(t *testing.T) {
 	assert.Equal(t, "f", *in)
 	assert.Empty(t, argAt(nil, 0))
 }
+
+// hangingEtcd is a node whose etcd calls hang until their deadline, as a
+// control plane whose etcd does not run can: the machine API answers, etcd
+// does not.
+type hangingEtcd struct{ talos.Client }
+
+func (h hangingEtcd) EtcdStatus(ctx context.Context) (talos.EtcdStatus, error) {
+	<-ctx.Done()
+	return talos.EtcdStatus{}, ctx.Err()
+}
+
+func (h hangingEtcd) EtcdMembers(ctx context.Context) ([]talos.EtcdMember, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// TestRestorePlanSeesNodesWhoseEtcdHangs: a node whose etcd calls run into
+// their deadline still answers, so the restore has a target. With one budget
+// for every call, the etcd calls used it up and the node looked silent.
+func TestRestorePlanSeesNodesWhoseEtcdHangs(t *testing.T) {
+	old := probeTimeout
+	probeTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { probeTimeout = old })
+
+	w := newDRWorld(true)
+	inner := w.fleet.Dialer()
+	dial := func(ctx context.Context, target talos.Target) (talos.Client, error) {
+		c, err := inner(ctx, target)
+		if err != nil {
+			return nil, err
+		}
+		return hangingEtcd{c}, nil
+	}
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	objs := append(w.objs, verifiedSnapshot("dr-daily-new", now.Add(-time.Hour), etcdbackuptest.Snapshot(3)))
+	p, err := planRestore(t.Context(), fakeClient(objs...), dial, []byte("tc"), restoreInput{Cluster: "dr", User: "alice", Now: now})
+	require.NoError(t, err)
+	for _, v := range p.Views {
+		assert.Equal(t, "stopped", v.State, "%s answers; only its etcd does not", v.Node.Name)
+	}
+	require.Len(t, p.Ops, 1)
+	assert.Equal(t, "dr-etcd-recover-cp-1", p.Ops[0].Name)
+
+	// When none answers, the error says what each one said.
+	w.cps["cp-1"].SetUnreachable(true)
+	w.cps["cp-2"].SetUnreachable(true)
+	w.cps["cp-3"].SetUnreachable(true)
+	_, err = planRestore(t.Context(), fakeClient(objs...), dial, []byte("tc"), restoreInput{Cluster: "dr", User: "alice", Now: now})
+	require.ErrorContains(t, err, "no control plane answers")
+	assert.ErrorContains(t, err, "cp-2 at 192.0.2.12")
+	assert.ErrorContains(t, err, "connection refused")
+}

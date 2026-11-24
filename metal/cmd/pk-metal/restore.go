@@ -171,13 +171,34 @@ type memberView struct {
 	Errors  []string
 }
 
+// probeTimeout bounds each machine-API call of a probe on its own. A node
+// whose etcd does not run can hold an etcd call until its deadline: sharing
+// one budget across the calls let that use it up, so the version call that
+// tells "answers without etcd" from "does not answer" failed too, and a node
+// that had only lost its etcd data looked silent. The restore then refused
+// to start for want of a control plane that answers.
+var probeTimeout = 10 * time.Second
+
 func probeMember(ctx context.Context, dial talos.Dialer, tc []byte, v *memberView) {
-	pctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
 	v.State = "silent"
-	err := talos.With(pctx, dial, talos.Target{Endpoint: v.Endpoint, Talosconfig: tc}, func(c talos.Client) error {
-		st, serr := c.EtcdStatus(pctx)
-		ms, merr := c.EtcdMembers(pctx)
+	call := func(fn func(ctx context.Context) error) error {
+		cctx, cancel := context.WithTimeout(ctx, probeTimeout)
+		defer cancel()
+		return fn(cctx)
+	}
+	err := talos.With(ctx, dial, talos.Target{Endpoint: v.Endpoint, Talosconfig: tc}, func(c talos.Client) error {
+		// Whether the node answers at all comes first, and on its own.
+		if verr := call(func(ctx context.Context) error { _, err := c.Version(ctx); return err }); verr != nil {
+			v.Detail = verr.Error()
+			return nil
+		}
+		var (
+			st   talos.EtcdStatus
+			ms   []talos.EtcdMember
+			serr error
+		)
+		merr := call(func(ctx context.Context) (err error) { ms, err = c.EtcdMembers(ctx); return err })
+		serr = call(func(ctx context.Context) (err error) { st, err = c.EtcdStatus(ctx); return err })
 		switch {
 		case merr == nil && len(ms) > 0:
 			v.State, v.Members = "listening", ms
@@ -187,10 +208,6 @@ func probeMember(ctx context.Context, dial talos.Dialer, tc []byte, v *memberVie
 		case serr == nil:
 			v.State, v.Detail = "stuck", fmt.Sprintf("etcd runs but lists no members: %v", merr)
 		default:
-			if _, verr := c.Version(pctx); verr != nil {
-				v.Detail = verr.Error()
-				return nil
-			}
 			v.State, v.Detail = "stopped", "etcd does not run"
 		}
 		return nil
@@ -339,7 +356,12 @@ func (p *restorePlan) planRecovery(ctx context.Context, cl client.Client, cluste
 	}
 	target := p.chooseTarget()
 	if target == nil {
-		return fmt.Errorf("no control plane answers; bring at least one back before restoring")
+		var why []string
+		for _, v := range p.Views {
+			why = append(why, fmt.Sprintf("%s at %s: %s", v.Node.Name, orDash(v.Endpoint), orDash(v.Detail)))
+		}
+		return fmt.Errorf("no control plane answers; bring at least one back before restoring (%s)",
+			strings.Join(why, "; "))
 	}
 	var silent []string
 	for _, v := range p.Views {
