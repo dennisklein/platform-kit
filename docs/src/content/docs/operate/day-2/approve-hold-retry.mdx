@@ -65,7 +65,15 @@ Control each [](kind:HostOperation): run it, stop new proposals, run a failed on
 
    The operation goes to `Running`, or it waits for its [](kind:MaintenanceWindow).
 
+3. To approve several operations, give several names. The command shows the plan of each one, and it asks about each one.
+
+   ```sh
+   pk-metal approve pk-metal/provision-simhw2288v5000397-0f3c9a1e pk-metal/provision-simhw2288v5000398-5e6f7a8b
+   ```
+
 </Steps>
+
+No command approves all operations that wait. Each approval is an answer to one plan. See [](cli:approve).
 
 The command reads the operation again after your answer. If the plan changed, it approves nothing.
 
