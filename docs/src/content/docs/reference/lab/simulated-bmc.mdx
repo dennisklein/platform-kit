@@ -1,0 +1,222 @@
+---
+title: Simulated BMC
+description: The simulated Redfish BMCs of the virtual lab, their personalities, the state endpoint and the firmware-hang guard.
+type: lab
+eyebrow: Lab · reference
+xref: { cat: lab, id: page/simulated-bmc }
+sidebar:
+  order: 5
+sources:
+  - /repo/metal/internal/bmc/sim/fixture.go
+  - /repo/metal/internal/bmc/sim/fixtures
+  - /repo/metal/internal/bmc/sim/fleet/config.go
+  - /repo/metal/internal/bmc/sim/fleet/state.go
+  - /repo/metal/internal/machine/qemu/hang.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import Figure from '../../../../components/diagram/Figure.astro';
+import Box from '../../../../components/diagram/Box.astro';
+import Edge from '../../../../components/diagram/Edge.astro';
+
+Each machine of the virtual lab has a simulated BMC. The operator speaks Redfish to it, as it does to a real BMC.
+One process, `pk-metal sim fleet`, serves all BMCs of the lab.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Command</dt>
+  <dd>[](cli:sim): `pk-metal sim fleet --config .lab/generated/fleet.yaml`</dd>
+  <dt>Started by</dt>
+  <dd>[](lab:up)</dd>
+  <dt>Addresses</dt>
+  <dd>`https://10.77.0.1:<8440+n>` for machine `n`, with a self-signed certificate.</dd>
+  <dt>Account</dt>
+  <dd>User `admin`, password `admin-pass`. The lab uses these values only.</dd>
+  <dt>Personalities</dt>
+  <dd>`generic`, `supermicro-x12`, `huawei-2288h-v5`</dd>
+  <dt>Backends</dt>
+  <dd>`qemu` in the lab. `none` and `docker` are for tests.</dd>
+  <dt>State endpoint</dt>
+  <dd>`http://127.0.0.1:8440/state`, read-only.</dd>
+  <dt>Log</dt>
+  <dd>`.lab/fleet.log`</dd>
+</dl>
+
+## How a BMC controls its machine
+
+<Figure
+  title="The operator sends Redfish requests to the simulated BMC. The BMC starts and stops a QEMU virtual machine and gives it the mounted images as drives."
+  caption="One simulated BMC and the virtual machine that it controls."
+  width={720}
+  height={150}
+>
+  <Box x={10} y={46} w={150} h={56} label="Operator" sub="in kind" />
+  <Box x={260} y={46} w={170} h={56} label="Simulated BMC" sub="personality + state" variant="accent" />
+  <Box x={540} y={46} w={170} h={56} label="QEMU machine" sub="OVMF, disk, tap" variant="ok" />
+  <Edge points={[[160, 74], [260, 74]]} label="Redfish" at={[210, 66]} />
+  <Edge points={[[430, 62], [540, 62]]} label="power" at={[485, 54]} />
+  <Edge points={[[430, 88], [540, 88]]} label="media, boot order" at={[485, 106]} />
+  <Edge points={[[345, 102], [345, 132]]} variant="muted" label="/state on loopback" at={[353, 128]} anchor="start" />
+</Figure>
+
+1. The operator inserts an image into a virtual media slot. The BMC downloads the image.
+2. The operator sets a boot override and resets the system.
+3. The BMC starts QEMU with the images as drives and with the boot order of the override.
+4. The BMC reports the power state and the boot progress of the virtual machine.
+
+## Personalities
+
+A personality is a fixture file: the facts that the BMC serves and the dialect that it speaks.
+`generic` follows the DMTF specification and has no OEM extensions.
+The two vendor personalities copy the behaviour of real hardware, with its deviations.
+
+| Property | `generic` | `supermicro-x12` | `huawei-2288h-v5` |
+| --- | --- | --- | --- |
+| Vendor | Generic | Supermicro | Huawei |
+| Virtual media slots | 2: one `USBStick`, one `CD`/`DVD` | 3: each takes `CD`, `DVD`, `Floppy`, `USBStick` | 1 usable: `CD` |
+| Insert action | Standard | Standard | OEM action `VmmControl` |
+| Serial number | On the system | Only as OEM board serial number | On the system |
+| Boot targets | `Cd`, `Usb`, `UefiHttp` and others | `Cd`, `UsbCd` and others | `Cd` and others. No `UsbCd`. |
+| BIOS pending object | `Bios/Settings` | `Bios/SD` | `Bios/Settings` |
+| Firmware update | Multipart push, also `OnReset` | Multipart push and `SimpleUpdate` | `SimpleUpdate` |
+| Certificate | `CertificateService` | OEM upload of certificate and key | OEM CSR |
+| Time source | Standard NTP block | Standard NTP block | OEM NTP service |
+
+In the default lab, `node-3` has the personality `supermicro-x12`. All other machines are `generic`.
+
+### One-slot BMC
+
+The personality `huawei-2288h-v5` holds one medium only.
+For such a machine, the operator builds an installer that contains the machine config of that one node.
+See [](concept:one-slot-bmc).
+
+To try it, give one machine that personality in a copy of the spec:
+
+```sh
+yq '.nodes."node-2" = {"personality": "huawei-2288h-v5"}' lab/lab.yaml > /tmp/lab-huawei.yaml
+PK_LAB_SPEC=/tmp/lab-huawei.yaml mise run lab:up
+```
+
+| Cost | Value |
+| --- | --- |
+| The imager image, from `ghcr.io` | About 270 MB |
+| Installer ISO in the media store | About 370 MB |
+| Build time | One to a few minutes |
+| Memory for the build Job | Up to 2 GiB |
+
+`kubectl -n pk-metal get jobs` shows the build. `kubectl -n pk-metal get bootassets` shows the result. See [](kind:BootAsset).
+
+### Other vendor shapes
+
+The simulator has no Dell or HPE personality.
+A fixture can copy two behaviours of those vendors for the BIOS settings. Tests use them.
+
+| Fixture field | Copies | Behaviour |
+| --- | --- | --- |
+| `bios.apply_time_required` | Dell iDRAC 9 | A change without an apply time stays pending after each reset. Only a change that asks for `OnReset` applies. |
+| `bios.pending_full_set` | HPE iLO 5 | The pending object shows all attributes, not only the changed attributes. |
+
+A fixture is a YAML file. `personality` in a fleet file can be the name of an embedded fixture or the path of a file.
+
+## Fleet file
+
+[](lab:render) writes `.lab/generated/fleet.yaml`. The fleet reads it one time, when it starts.
+
+```yaml
+stateDir: .lab/state
+mediaCache: .lab/cache
+machines:
+  - name: node-1
+    listen: 10.77.0.1:8441
+    personality: generic
+    credentials: { username: admin, password: admin-pass }
+    identity: { serial: PKLAB0001, uuid: ..., bmcMAC: "02:77:00:00:01:01", nicMACs: ["52:54:00:77:00:11"] }
+    backend: qemu
+    qemu: { tap: pktap1, memoryMiB: 4096, cpus: 2, diskGiB: 20, diskSerial: pklab-disk-1 }
+```
+
+| Key | Meaning |
+| --- | --- |
+| `stateDir` | One directory for each machine: disk, firmware variables, console log. |
+| `mediaCache` | Large public images. The fleet downloads each one time for all machines. |
+| `machines[].listen` | The address of the Redfish service. |
+| `machines[].personality` | The fixture. Empty is `generic`. |
+| `machines[].identity` | Serial number, UUID and MAC addresses. No two machines can have the same value. |
+| `machines[].backend` | `none`, `qemu` or `docker`. |
+| `machines[].qemu` | Tap, memory, CPUs, disk size and disk serial number. |
+
+## State endpoint
+
+The state endpoint shows what each BMC holds and what its virtual machine does, in one JSON document.
+[](cli:top) reads it for the simulator lines of [](lab:top).
+
+<dl class="pk-glance">
+  <dt>Address</dt>
+  <dd>`http://127.0.0.1:8440/state`. Change it with `--state-listen`. An empty value turns it off.</dd>
+  <dt>Access</dt>
+  <dd>Read-only, HTTP, no account. Keep it on loopback.</dd>
+  <dt>Secrets</dt>
+  <dd>None. It shows no passwords, no credentials in URLs and no process IDs.</dd>
+  <dt>Version</dt>
+  <dd>`1`. New keys can come. The keys that exist keep their meaning.</dd>
+</dl>
+
+```sh
+curl -s http://127.0.0.1:8440/state | jq '.machines[] | {name, power, media, backend}'
+```
+
+```json
+{
+  "name": "node-2",
+  "power": "On",
+  "media": [
+    { "id": "1", "inserted": true, "imageURL": "https://10.77.0.1:30443/..." },
+    { "id": "2", "inserted": true, "imageURL": "https://factory.talos.dev/..." }
+  ],
+  "backend": { "kind": "qemu", "running": true, "bootProgress": "OSBootStarted", "hangCycles": 0 }
+}
+```
+
+The example is shorter than a real answer.
+
+| Key of a machine | Meaning |
+| --- | --- |
+| `name`, `personality`, `bmc` | The machine, its fixture and its Redfish address. |
+| `serial`, `bmcMAC` | The identity values that the [](kind:Host) and the [](kind:Asset) also have. |
+| `power`, `bootProgress` | The state of the first system. |
+| `bootOverride` | `target`, `enabled` and `mode` of the boot override. |
+| `media[]` | Each slot: `id`, `inserted`, `imageURL`. |
+| `requests[]` | The last 20 Redfish requests: `time`, `method`, `path`, `status`. |
+| `backend` | `kind`, `running`, `bootProgress`, `hangCycles`. |
+| `consoleLog` | The path of the serial console log. |
+
+## Firmware-hang guard
+
+OVMF sometimes stops immediately after a power-on, before it tries a boot option.
+The console then shows only control sequences that clear the screen.
+The fleet does what an administrator does with real hardware: it power cycles the virtual machine.
+
+| Property | Value |
+| --- | --- |
+| Condition | No readable text on the console for 90 seconds after a power-on |
+| Action | A power cycle, up to three times for each power-on |
+| Log | `FIRMWARE HANG` in `.lab/fleet.log` |
+| Counter | `backend.hangCycles` in the state endpoint, and `hang-cycled` in [](lab:top) |
+| Change the time | `pk-metal sim fleet --hang-timeout <duration>`. `0` turns the guard off. |
+
+The guard cannot reset a system that runs.
+The first readable character on the console stops the guard for that power-on.
+The guard also watches the machine after its own power cycle. The log line tells which try it is.
+A power-on through the BMC starts a new count. If the machine stops a fourth time, a person must examine it.
+
+<Callout type="note">
+Read the console log when a machine does not start: `.lab/state/<machine>/console.log`.
+It shows the output from the first firmware line.
+</Callout>
+
+## Related tasks
+
+- [](lab:up)
+- [](lab:top)
+- [](lab:page/troubleshooting)

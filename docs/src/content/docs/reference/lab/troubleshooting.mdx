@@ -1,0 +1,236 @@
+---
+title: Lab troubleshooting
+description: How to find the cause when the virtual lab does not start or a machine does not install, and what the diagnostics contain.
+type: lab
+eyebrow: Lab · reference
+xref: { cat: lab, id: page/troubleshooting }
+sidebar:
+  order: 9
+sources:
+  - /repo/lab/README.md
+  - /repo/lab/lab.sh
+  - /repo/lab/net.sh
+---
+
+import Callout from '../../../../components/Callout.astro';
+
+Start with [](lab:status). The column `BLOCKED` shows what each Host, operation and endpoint waits for.
+Then collect the logs with [](lab:collect).
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>First command</dt>
+  <dd>[](lab:status)</dd>
+  <dt>Live view</dt>
+  <dd>[](lab:top)</dd>
+  <dt>Logs in one directory</dt>
+  <dd>[](lab:collect), into `.lab/diagnostics/`</dd>
+  <dt>Console of a machine</dt>
+  <dd>`.lab/state/<machine>/console.log`</dd>
+  <dt>Fleet log</dt>
+  <dd>`.lab/fleet.log`</dd>
+  <dt>Network</dt>
+  <dd>`lab/net.sh status`</dd>
+  <dt>Start again</dt>
+  <dd>[](lab:down), then [](lab:reset)</dd>
+</dl>
+
+## Symptoms
+
+| Symptom | Section |
+| --- | --- |
+| `lab:up` stops with `MISS` lines | [The doctor stops lab:up](#the-doctor-stops-labup) |
+| kind does not start | [The kind cluster does not start](#the-kind-cluster-does-not-start) |
+| A ManagementEndpoint stays unreachable | [Endpoints stay unreachable](#endpoints-stay-unreachable) |
+| An operation fails at `insertMedia` | [The operation fails at this action](#an-operation-fails-at-insertmedia) |
+| An operation fails with `gave up waiting for TalosNode` | [A machine boots but does not check in](#a-machine-boots-but-does-not-check-in) |
+| The console log has no text | [A machine stays in its firmware](#a-machine-stays-in-its-firmware) |
+| `lab:up` refuses a new size | [The lab refuses a new size](#the-lab-refuses-a-new-size) |
+| `lab:up` says that the operator moved | [The lab refuses to start after a pivot](#the-lab-refuses-to-start-after-a-pivot) |
+
+## The doctor stops lab:up
+
+Each check that fails prints `MISS` and a line `fix:`.
+
+1. Do what the `fix:` line says.
+2. Run `mise run lab:up` again. It continues where it stopped.
+
+The checks are in [what the doctor checks](lab:page/prerequisites#what-the-doctor-checks).
+
+## The kind cluster does not start
+
+<dl class="pk-glance">
+  <dt>cgroup v1</dt>
+  <dd>Kubernetes 1.35 and later need cgroup v2. Boot the workstation with `systemd.unified_cgroup_hierarchy=1`. As an alternative, copy `lab/kind.yaml`, set `image: kindest/node:v1.34.0` in the copy, and set `PK_LAB_KIND_CONFIG` to the copy.</dd>
+  <dt>`cannot assign requested address`</dt>
+  <dd>`lab/kind.yaml` publishes the media port on `10.77.0.1`. This address exists only while the lab network is up. Run `mise run lab:up`, or run `lab/net.sh up` before `lab/lab.sh cluster`.</dd>
+  <dt>The node container does not run</dt>
+  <dd>After a reboot of the workstation, `lab:up` starts the node container again. If Docker cannot start it, run [](lab:down), then [](lab:up).</dd>
+</dl>
+
+## Endpoints stay unreachable
+
+The operator in kind must get to `10.77.0.1:8441` and up on the workstation.
+
+1. Show the network and its rules.
+
+   ```sh
+   lab/net.sh status
+   ```
+
+   A line with `MISSING` shows the part that is not there.
+
+2. Find your firewall in this table, and do the fix.
+
+   | Firewall | Fix |
+   | --- | --- |
+   | `firewalld` | A `firewall-cmd --reload` removes the runtime setting. Run `mise run lab:up` again, or run `sudo firewall-cmd --zone=trusted --add-interface=pkbr0`. |
+   | Your own `nftables` ruleset | `lab/net.sh up` prints the `nft` commands that accept the lab traffic. The script does not find reject rules at the end of a chain: read `sudo nft list ruleset`. |
+   | `ufw` | Run `sudo ufw allow in on pkbr0`. |
+
+3. Make sure that the BMC answers.
+
+   ```sh
+   curl -sk https://10.77.0.1:8441/redfish/v1 | jq .RedfishVersion
+   ```
+
+If the BMC of a real machine does not answer, use [](rb:bmc-unreachable).
+
+## An operation fails at `insertMedia`
+
+The simulated BMC downloads two images: the installer from `factory.talos.dev` and the node configuration from the operator.
+
+1. Make sure that the workstation can get to `https://factory.talos.dev`.
+2. Make sure that the media port answers. The answer `404` is correct.
+
+   ```sh
+   curl -k https://10.77.0.1:30443/
+   ```
+
+3. If a proxy is set, make sure that `NO_PROXY` contains `10.77.0.0/24`. See [Behind a proxy](lab:page/network#behind-a-proxy).
+4. Try the operation again with [](cli:retry).
+
+See also [](rb:operation-failed).
+
+## A machine boots but does not check in
+
+The operation fails with `gave up waiting for TalosNode ... to check in`. See [](act:AwaitCheckIn).
+
+1. Read the console of the machine.
+
+   ```sh
+   tail -f .lab/state/node-2/console.log
+   ```
+
+2. If the machine is in maintenance mode, the configuration medium did not get to it. Examine its addresses.
+
+   ```sh
+   talosctl -n 10.77.0.12 --insecure get addresses
+   ```
+
+3. Make sure that the machines can get to the outside. Without NAT or DNS, Talos cannot pull its installer or set its clock.
+
+## A machine stays in its firmware
+
+The console log contains only control sequences and no text.
+The [firmware-hang guard](lab:page/simulated-bmc#firmware-hang-guard) power cycles such a machine after 90 seconds, up to three times for each power-on.
+
+1. Look for the guard in the fleet log.
+
+   ```sh
+   grep 'FIRMWARE HANG' .lab/fleet.log
+   ```
+
+2. If the machine stopped a fourth time, the guard does not act again. Examine the machine in [](lab:top).
+3. Try the failed operation again with [](cli:retry).
+
+## The lab refuses a new size
+
+The fleet reads its file one time, when it starts. You cannot change the size of a lab that runs.
+
+```sh
+mise run lab:down && mise run lab:reset
+PK_LAB_NODES=3cp+2w mise run lab:up
+```
+
+## The lab refuses to start after a pivot
+
+After [](lab:pivot), the operator runs on the first Talos cluster and kind is gone.
+A new kind cluster with an operator would put two operators on the same machines.
+
+Run [](lab:down) first. Then start the lab again.
+
+## Examine a machine
+
+Talos has no shell and no SSH. Use `talosctl`. [](lab:kubeconfig) writes the talosconfig.
+
+```sh
+export TALOSCONFIG=$PWD/.lab/talosconfig
+```
+
+| Command | Shows |
+| --- | --- |
+| `talosctl -n 10.77.0.12 dashboard` | Load, the kernel log and the state of the services |
+| `talosctl -n 10.77.0.12 dmesg` | The kernel log |
+| `talosctl -n 10.77.0.12 services` | The services and their state |
+| `talosctl -n 10.77.0.12 logs kubelet` | The log of one service |
+| `talosctl -n 10.77.0.12 get addresses` | The addresses. Also: `get links`, `get routes`, `get disks` |
+| `talosctl -n 10.77.0.12 --insecure get disks` | The disks of a machine in maintenance mode |
+
+To examine the management cluster, use the kubeconfig of the lab:
+
+```sh
+export KUBECONFIG=$PWD/.lab/kubeconfig
+kubectl get metal
+kubectl describe host pklab0002
+```
+
+The state of each simulated BMC is at the [state endpoint](lab:page/simulated-bmc#state-endpoint).
+
+## Diagnostics
+
+[](lab:collect) writes these files to `.lab/diagnostics/`.
+The directory contains no Secret values, no kubeconfig and no disks. You can attach it to a bug report.
+
+| File | Contents |
+| --- | --- |
+| `network.txt` | The output of `lab/net.sh status` |
+| `fleet.log` | The log of the simulated fleet |
+| `machines/<machine>/console.log` | The serial console of each machine |
+| `status.txt` | The output of [](cli:status) |
+| `get.txt` | All objects of the operator, as a list |
+| `objects.yaml` | All objects of the operator, as YAML |
+| `events.txt` | The events of all namespaces |
+| `operator-describe.txt` | The Deployment, the pods and the other objects in the namespace `pk-metal` |
+| `secrets-list.txt` | The names and types of the Secrets. No values. |
+| `operator.log`, `operator-previous.log` | The log of the manager, and the log before its last restart |
+| `imager.log` | The log of the installer builds for one-slot BMCs. It does not contain the machine config. |
+| `workload.txt` | The nodes and pods of the Talos cluster |
+
+For a real site, see [](howto:collect-diagnostics).
+
+## Start again
+
+1. Stop the lab and delete the disks.
+
+   ```sh
+   mise run lab:down && mise run lab:reset
+   ```
+
+2. Start the lab.
+
+   ```sh
+   mise run lab:up
+   ```
+
+<Callout type="note">
+Delete the directory `.lab/` only if you also want a new Talos secrets bundle and an empty image cache.
+The next start then downloads the installer image again.
+</Callout>
+
+## Related pages
+
+- [](lab:page/network)
+- [](lab:page/simulated-bmc)
+- [](lab:page/tasks)

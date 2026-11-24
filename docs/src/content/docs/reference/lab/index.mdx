@@ -1,0 +1,125 @@
+---
+title: Virtual lab
+description: What runs where in the virtual lab. The machines are QEMU virtual machines, and each one has a simulated BMC.
+type: lab
+eyebrow: Lab · reference
+xref: { cat: lab, id: page/index }
+sidebar:
+  order: 1
+sources:
+  - /repo/lab/README.md
+  - /repo/lab/lab.sh
+  - /repo/lab/kind.yaml
+---
+
+import Callout from '../../../../components/Callout.astro';
+import LabTopology from '../../../../components/lab/LabTopology.astro';
+import LabUpSteps from '../../../../components/lab/LabUpSteps.astro';
+import TermReplay from '../../../../components/lab/TermReplay.astro';
+
+The virtual lab runs the operator and a small rack of machines on one workstation.
+The machines are real UEFI machines in QEMU, and the install is a real Talos install.
+Only the hardware is simulated.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Start</dt>
+  <dd>[](lab:up)</dd>
+  <dt>Default size</dt>
+  <dd>One control plane and two workers. Change it with [`PK_LAB_NODES`](lab:page/lab-yaml#pk_lab_nodes).</dd>
+  <dt>Management cluster</dt>
+  <dd>A kind cluster with the name `pk-metal`. It runs the operator.</dd>
+  <dt>Machines</dt>
+  <dd>`node-1`, `node-2`, and so on. Each one is a QEMU virtual machine with a [simulated BMC](lab:page/simulated-bmc).</dd>
+  <dt>Network</dt>
+  <dd>The bridge `pkbr0` with `10.77.0.0/24`. See [](lab:page/network).</dd>
+  <dt>State</dt>
+  <dd>The directory `.lab/`. Git ignores it. The lab does not read or write `~/.kube/config`.</dd>
+  <dt>Root</dt>
+  <dd>Only `lab/net.sh` uses `sudo`. See [](lab:page/what-runs-as-root).</dd>
+  <dt>Source</dt>
+  <dd>[lab/lab.sh](/repo/lab/lab.sh)</dd>
+</dl>
+
+## What runs where
+
+<LabTopology />
+
+<dl class="pk-glance">
+  <dt>Kind cluster `pk-metal`</dt>
+  <dd>The management cluster. It has one node, a container on the workstation. [lab/kind.yaml](/repo/lab/kind.yaml) defines it.</dd>
+  <dt>Operator pod</dt>
+  <dd>The Deployment `pk-metal-manager` in the namespace `pk-metal`. The lab builds its image from the working tree. See [](ctrl:manager).</dd>
+  <dt>Media store</dt>
+  <dd>The operator serves boot media on port 8443. The NodePort 30443 publishes it at `https://10.77.0.1:30443`, on the bridge address only.</dd>
+  <dt>Simulated fleet</dt>
+  <dd>One `pk-metal sim fleet` process on the workstation. It serves one BMC for each machine, at `10.77.0.1:8441` and up. See [](cli:sim).</dd>
+  <dt>QEMU virtual machines</dt>
+  <dd>One for each BMC. A BMC starts and stops its virtual machine and gives it the virtual media. Machine `n` has the address `10.77.0.<10+n>`.</dd>
+  <dt>Cluster VIP</dt>
+  <dd>`10.77.0.10`. The control planes share this address for the Kubernetes API.</dd>
+  <dt>Bridge `pkbr0`</dt>
+  <dd>The workstation has the address `10.77.0.1` on it. Each machine connects through one tap. The machines go to the outside through NAT.</dd>
+</dl>
+
+## What is real and what is simulated
+
+| Part | In the lab | At a real site |
+| --- | --- | --- |
+| Operator image and manifests | The same | The same |
+| Approval step | The same: [](cli:approve) | The same |
+| Talos install and cluster | The same | The same |
+| Machine | QEMU virtual machine with OVMF | Server |
+| BMC | Simulated Redfish service | BMC of the server |
+| Management cluster | kind | A small cluster, then the cluster after a [pivot](concept:pivot-model) |
+
+## How the lab starts
+
+[](lab:up) runs seven parts in order. You can run it again. It continues where it stopped.
+
+<LabUpSteps />
+
+<TermReplay src="casts/lab-up.json" caption="A replay of lab:up with example data. The output is shorter than the real output." />
+
+After the last part, the operator enrols the machines and proposes one install for each machine.
+No machine changes before you approve. See [](concept:approval).
+
+## Files that the lab writes
+
+All files are below `.lab/`. Set [`PK_LAB_DIR`](lab:page/lab-yaml#environment-variables) to move the directory.
+
+| Path | Contents |
+| --- | --- |
+| `generated/` | The files that [](lab:render) writes from `lab/lab.yaml`. Do not edit them. |
+| `kubeconfig` | The kubeconfig of the management cluster. |
+| `workload.kubeconfig`, `talosconfig` | The access files of the Talos cluster. [](lab:kubeconfig) writes them. |
+| `deploy/` | The generated deployment of the operator and the Talos secrets bundle. |
+| `state/<machine>/` | The disk, the firmware variables and `console.log` of each machine. |
+| `cache/` | Installer images. The fleet downloads each image one time. |
+| `fleet.log`, `fleet.pid` | The log and the process ID of the simulated fleet. |
+| `diagnostics/` | The output of [](lab:collect). |
+
+<Callout type="warning">
+Do not apply a HostClaim with `spec.os` to try something.
+A HostClaim with `spec.os` is an install order. After the approval, the operator overwrites the install disk.
+</Callout>
+
+## Pages in this section
+
+- [](lab:page/prerequisites)
+- [](lab:page/lab-yaml)
+- [](lab:page/tasks)
+- [](lab:page/simulated-bmc)
+- [](lab:page/network)
+- [](lab:page/what-runs-as-root)
+- [](lab:page/lab-e2e)
+- [](lab:page/troubleshooting)
+
+## Tutorials
+
+- [](tut:lab-first-cluster)
+- [](tut:lab-day-2)
+- [](tut:lab-scaling)
+- [](tut:lab-disaster-recovery)
+- [](tut:lab-pivot)

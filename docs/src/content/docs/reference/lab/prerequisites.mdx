@@ -1,0 +1,128 @@
+---
+title: Lab prerequisites
+description: The hardware, the packages for each Linux distribution and the container engine that the virtual lab needs.
+type: lab
+eyebrow: Lab · reference
+xref: { cat: lab, id: page/prerequisites }
+sidebar:
+  order: 2
+sources:
+  - /repo/lab/lab.sh
+  - /repo/lab/distro.sh
+  - /repo/mise.toml
+---
+
+import Callout from '../../../../components/Callout.astro';
+
+The virtual lab runs on a Linux workstation or a CI runner.
+[](lab:doctor) checks each item on this page and prints the fix for each item that is missing.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>System</dt>
+  <dd>Linux with KVM and cgroup v2.</dd>
+  <dt>Memory</dt>
+  <dd>About 12 GiB free for the default size. `3cp+2w` needs about 19 GiB.</dd>
+  <dt>Disk</dt>
+  <dd>15 GiB free below `.lab/`</dd>
+  <dt>Container engine</dt>
+  <dd>Docker Engine, as root.</dd>
+  <dt>Packages</dt>
+  <dd>QEMU, `qemu-img`, OVMF, `ip`, `iptables`, `curl`, `sudo`</dd>
+  <dt>Tools from mise</dt>
+  <dd>`go`, `kind`, `kubectl`, `talosctl`, `yq`, `jq`</dd>
+  <dt>Check</dt>
+  <dd>[](lab:doctor)</dd>
+</dl>
+
+## Install the packages
+
+1. Install the packages for your distribution.
+
+   | Distribution | Command |
+   | --- | --- |
+   | Debian, Ubuntu | `sudo apt-get install qemu-system-x86 qemu-utils ovmf` |
+   | Fedora | `sudo dnf install qemu-system-x86-core qemu-img edk2-ovmf` |
+   | RHEL 9, Rocky, Alma | `sudo dnf install qemu-kvm qemu-img edk2-ovmf iptables-nft` |
+
+2. Install the pinned tools.
+
+   ```sh
+   mise install
+   ```
+
+3. Check the workstation.
+
+   ```sh
+   mise run lab:doctor
+   ```
+
+   The last line is `the workstation has what the lab needs`.
+
+On RHEL and its rebuilds, QEMU is `/usr/libexec/qemu-kvm`. The fleet finds it there.
+
+## Memory
+
+The doctor adds the memory of all machines and 3072 MiB for kind and the fleet.
+It compares the sum with the available memory.
+
+| Role | Default memory | Default CPUs |
+| --- | --- | --- |
+| Control plane | 4096 MiB | 2 |
+| Worker | 2048 MiB | 2 |
+
+| Size | Machines | The doctor asks for |
+| --- | --- | --- |
+| `1cp+2w` (default) | 3 | 11264 MiB |
+| `1cp+0w` | 1 | 7168 MiB |
+| `3cp+2w` | 5 | 19456 MiB |
+
+To change the memory of a role or of one machine, edit [lab.yaml](lab:page/lab-yaml).
+
+## Container engine
+
+The lab needs Docker Engine that the `docker` service of the system runs as root.
+
+| Engine | Result | Reason |
+| --- | --- | --- |
+| Docker Engine, as root | Works | The kind node is on a bridge of the workstation. |
+| `podman`, `podman-docker` | Does not work | The lab uses the `DOCKER-USER` chain of Docker. |
+| Docker Desktop | Does not work | The engine runs in a virtual machine. The kind node cannot get to the lab bridge. |
+| Rootless Docker | Does not work | The kind node is not on a bridge of the workstation. |
+
+<Callout type="caution">
+Do not add a person to the `docker` group on a shared workstation without a decision.
+A member of the `docker` group has the same rights as root on that workstation.
+</Callout>
+
+## What the doctor checks
+
+| Check | Fix when it is missing |
+| --- | --- |
+| `go`, `kind`, `kubectl`, `talosctl`, `yq`, `jq` | `mise install` |
+| `curl` | Install the package. |
+| The Docker daemon answers | Install Docker Engine and start it. |
+| Docker is Docker Engine, as root | Remove `podman-docker`. Do not use Docker Desktop or rootless Docker. |
+| The kind configuration is readable | Set or unset [`PK_LAB_KIND_CONFIG`](lab:page/lab-yaml#environment-variables). |
+| cgroup v2 | Boot with `systemd.unified_cgroup_hierarchy=1`, or use an older node image. See [](lab:page/troubleshooting). |
+| `/dev/kvm` is usable | Set virtualization to on in the firmware. Join the group `kvm`. |
+| QEMU and `qemu-img` | Install the packages, or set `PK_METAL_QEMU`. |
+| OVMF | Install the package, or set `PK_METAL_OVMF_CODE` and `PK_METAL_OVMF_VARS`. |
+| `ip` and `iptables` | Install `iproute2` and `iptables`. |
+| `sudo` | Use a terminal where `sudo` can ask for the password. |
+| `firewall-cmd`, if `firewalld` is active | Install `firewalld`. |
+| `NO_PROXY` includes `10.77.0.0/24`, if a proxy is set | See [Behind a proxy](lab:page/network#behind-a-proxy). |
+| `https://factory.talos.dev` answers | Give the workstation access, or set a proxy. |
+| `https://ghcr.io` answers | Give the machines access through the workstation. |
+| The lab spec renders | The message names the line to correct in `lab/lab.yaml`. |
+| Available memory | Stop other programs, or use a smaller size. |
+| Free disk below `.lab/` | Free some space, or set `PK_LAB_DIR`. |
+
+The doctor changes nothing. The `sudo` check can ask for your password.
+
+## Related tasks
+
+- [](lab:doctor)
+- [](lab:up)
+- [](tut:lab-first-cluster)

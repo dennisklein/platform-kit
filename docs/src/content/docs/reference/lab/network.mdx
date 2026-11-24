@@ -1,0 +1,184 @@
+---
+title: Lab network
+description: The bridge pkbr0, the addresses and ports of the virtual lab, the firewall rules and the proxy settings.
+type: lab
+eyebrow: Lab · reference
+xref: { cat: lab, id: page/network }
+sidebar:
+  order: 6
+sources:
+  - /repo/lab/net.sh
+  - /repo/lab/kind.yaml
+  - /repo/metal/internal/lab/spec.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import Figure from '../../../../components/diagram/Figure.astro';
+import Zone from '../../../../components/diagram/Zone.astro';
+import Box from '../../../../components/diagram/Box.astro';
+import Edge from '../../../../components/diagram/Edge.astro';
+
+The lab network is one bridge on the workstation. The workstation routes between the bridge, the kind network and the outside.
+[lab/net.sh](/repo/lab/net.sh) makes the network and removes it.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Bridge</dt>
+  <dd>`pkbr0`</dd>
+  <dt>Subnet</dt>
+  <dd>`10.77.0.0/24`</dd>
+  <dt>Workstation</dt>
+  <dd>`10.77.0.1`</dd>
+  <dt>Cluster VIP</dt>
+  <dd>`10.77.0.10`. The second cluster uses `10.77.0.9`.</dd>
+  <dt>Machines</dt>
+  <dd>`10.77.0.11` and up, one tap for each: `pktap1`, `pktap2`, and so on.</dd>
+  <dt>Made by</dt>
+  <dd>`lab/net.sh up`, which [](lab:up) calls.</dd>
+  <dt>Removed by</dt>
+  <dd>`lab/net.sh down`, which [](lab:down) calls.</dd>
+</dl>
+
+## Paths
+
+<Figure
+  title="The kind node, the virtual machines and the uplink connect through the routing of the workstation. The virtual machines are on the bridge pkbr0 through taps."
+  caption="The three parties of the lab network. The workstation routes between them."
+  width={720}
+  height={220}
+>
+  <Zone x={10} y={10} w={700} h={200} label="Workstation" />
+  <Box x={30} y={40} w={170} h={50} label="kind node" sub="Docker network" />
+  <Box x={30} y={140} w={170} h={50} label="Uplink" sub="NAT to the outside" variant="soft" />
+  <Box x={275} y={90} w={170} h={50} label="pkbr0" sub="10.77.0.1/24" variant="accent" />
+  <Box x={530} y={40} w={160} h={38} label="node-1" sub="10.77.0.11 · pktap1" variant="ok" />
+  <Box x={530} y={96} w={160} h={38} label="node-2" sub="10.77.0.12 · pktap2" variant="ok" />
+  <Box x={530} y={152} w={160} h={38} label="node-3" sub="10.77.0.13 · pktap3" variant="ok" />
+  <Edge points={[[200, 65], [240, 65], [240, 105], [275, 105]]} both label="routing" at={[246, 58]} anchor="start" />
+  <Edge points={[[275, 125], [240, 125], [240, 165], [200, 165]]} label="masquerade" at={[246, 182]} anchor="start" />
+  <Edge points={[[445, 105], [490, 105], [490, 59], [530, 59]]} both />
+  <Edge points={[[445, 115], [530, 115]]} both label="taps" at={[487, 136]} />
+  <Edge points={[[445, 125], [490, 125], [490, 171], [530, 171]]} both />
+</Figure>
+
+## Addresses and ports
+
+| Address | Port | Service | Used by |
+| --- | --- | --- | --- |
+| `10.77.0.1` | `8441` and up | Simulated BMCs, HTTPS | The operator |
+| `10.77.0.1` | `30443` | Media store of the operator, HTTPS | The simulated BMCs |
+| `10.77.0.1` | `5000` | Image registry, only for [](lab:pivot) | The first Talos cluster |
+| `127.0.0.1` | `8440` | [State endpoint](lab:page/simulated-bmc#state-endpoint), HTTP | [](lab:top) |
+| `10.77.0.10` | `6443` | Kubernetes API of the cluster | You, the operator |
+| `10.77.0.<10+n>` | `50000` | Talos API of machine `n` | `talosctl`, the operator |
+
+The BMCs and the media port listen on the bridge address only. They do not answer on the other interfaces of the workstation.
+After a pivot, the BMCs get the boot media from the first control plane, at `https://<node address>:30443`.
+
+## Firewall rules
+
+Each rule has the comment `pk-metal-lab`. `lab/net.sh down` removes only rules with this comment.
+
+| Table and chain | Rule | Purpose |
+| --- | --- | --- |
+| `filter` `DOCKER-USER` | `-i pkbr0 -j ACCEPT` | From the machines to other machines, to kind and to the outside |
+| `filter` `DOCKER-USER` | `-o pkbr0 -j ACCEPT` | To the machines: answers, and the operator to the Talos API |
+| `filter` `INPUT` | `-i pkbr0 -d 10.77.0.1/32 -j ACCEPT` | From the machines to the workstation |
+| `filter` `INPUT` | `-i br-+ -d 10.77.0.1/32 -j ACCEPT` | From kind to the BMCs |
+| `nat` `POSTROUTING` | `-s 10.77.0.0/24 ! -o pkbr0 -j MASQUERADE` | From the machines to the outside |
+
+Without Docker, the forward rules go into the chain `FORWARD`.
+
+`lab/net.sh` also does these things:
+
+- It sets `net.ipv4.ip_forward=1` if it was off. `down` sets it back.
+- With `firewalld`, it puts `pkbr0` into the zone `trusted`. This is a runtime setting only.
+- With an `nftables` ruleset that drops traffic by policy, it prints the `nft` commands that accept the lab traffic.
+
+## Check the network
+
+```sh
+lab/net.sh status pktap1 pktap2 pktap3
+```
+
+```console
+bridge   pkbr0 10.77.0.1/24
+tap      pktap1
+tap      pktap2
+tap      pktap3
+forward  net.ipv4.ip_forward=1
+rule     filter DOCKER-USER -i pkbr0 -j ACCEPT
+...
+```
+
+A part that is missing has the word `MISSING` at the end of its line. The exit status is then not zero.
+
+## Behind a proxy
+
+### The workstation
+
+1. Set `HTTPS_PROXY`.
+2. Add the lab network to `NO_PROXY`.
+
+   ```sh
+   export NO_PROXY="${NO_PROXY:+$NO_PROXY,}10.77.0.0/24,localhost,127.0.0.1,.local"
+   export no_proxy="$NO_PROXY"
+   ```
+
+3. Add the kind network also. This command shows it:
+
+   ```sh
+   docker network inspect kind --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}'
+   ```
+
+[](lab:doctor) checks `NO_PROXY`. [](lab:up) gives the proxy settings to the Deployment of the operator.
+
+### The Talos machines
+
+The machines do not get the proxy settings of the workstation.
+They use the DNS servers and the time settings in the `patches` list of [lab.yaml](lab:page/lab-yaml).
+The defaults are the DNS servers `1.1.1.1` and `8.8.8.8`.
+
+At a site that blocks these, replace the entries in the `patches` list:
+
+```yaml
+patches:
+  - inline: |
+      apiVersion: v1alpha1
+      kind: ResolverConfig
+      nameservers:
+        - address: 192.0.2.53
+  - inline: |
+      apiVersion: v1alpha1
+      kind: TimeSyncConfig
+      bootTimeout: 2m0s
+      ntp:
+        servers:
+          - ntp.example.org
+  - inline: |
+      apiVersion: v1alpha1
+      kind: EnvironmentConfig
+      variables:
+        https_proxy: http://proxy.example.org:3128
+        no_proxy: 10.77.0.0/24,10.96.0.0/12,10.244.0.0/16,.svc,.cluster.local,localhost,127.0.0.1
+```
+
+<Callout type="note">
+Replace the `ResolverConfig` and `TimeSyncConfig` entries that exist. Do not add a second entry of the same kind.
+Run [](lab:up) before you approve the installs.
+</Callout>
+
+## Environment variables of lab/net.sh
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `PK_LAB_BRIDGE` | `pkbr0` | The bridge name |
+| `PK_LAB_ADDRESS` | `10.77.0.1/24` | The address of the workstation on the bridge. The script supports only `/24` and `/16`. |
+| `PK_LAB_TAP_USER` | The user that starts the lab | The owner of the taps |
+
+## Related pages
+
+- [](lab:page/what-runs-as-root)
+- [](lab:page/troubleshooting)
+- [](concept:virtual-media-boot)

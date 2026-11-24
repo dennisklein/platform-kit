@@ -1,0 +1,90 @@
+---
+title: What runs as root
+description: The one script of the virtual lab that uses sudo, what it changes on the workstation, and how it removes the changes.
+type: lab
+eyebrow: Lab · reference
+xref: { cat: lab, id: page/what-runs-as-root }
+sidebar:
+  order: 7
+sources:
+  - /repo/lab/net.sh
+---
+
+import Callout from '../../../../components/Callout.astro';
+
+Only one script of the lab uses `sudo`: [lab/net.sh](/repo/lab/net.sh).
+QEMU, the simulated fleet and kind run as your user.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Script</dt>
+  <dd>`lab/net.sh`</dd>
+  <dt>Called by</dt>
+  <dd>[](lab:up), [](lab:down) and [](lab:collect) (status only)</dd>
+  <dt>Commands as root</dt>
+  <dd>`ip`, `iptables`, `sysctl`, `nft` (read only), `firewall-cmd`</dd>
+  <dt>Mark</dt>
+  <dd>`pk-metal-lab`, as the alias of each interface and the comment of each rule.</dd>
+  <dt>Files in `/etc`</dt>
+  <dd>None.</dd>
+  <dt>After a reboot</dt>
+  <dd>No change stays.</dd>
+</dl>
+
+## What it changes
+
+| Change | Made by `up` | Removed by `down` |
+| --- | --- | --- |
+| Bridge `pkbr0` with `10.77.0.1/24` | Yes | Yes, if it has the mark |
+| One tap for each machine, owned by you | Yes | Yes, if it has the mark |
+| `net.ipv4.ip_forward=1` | Only if it was off | Only if `up` turned it on |
+| iptables rules with the comment `pk-metal-lab` | Yes | Yes |
+| `pkbr0` in the `firewalld` zone `trusted` (runtime) | Only with `firewalld` | Yes |
+
+The rules are in [firewall rules](lab:page/network#firewall-rules).
+
+`down` removes only the things that have the mark.
+If a bridge or a tap with the same name has no mark, the script does not touch it. It tells you.
+The script records in `/run/pk-metal-lab` if it turned IPv4 forwarding on.
+
+## What does not run as root
+
+| Part | Runs as | Reason |
+| --- | --- | --- |
+| QEMU virtual machines | You | You own the taps, and `/dev/kvm` is usable by your user. |
+| Simulated fleet | You | It listens on ports above 1024. |
+| kind, kubectl, pk-metal | You | They speak to the Docker daemon and to the cluster. |
+| Docker daemon | root | It is the service of the system. The lab does not start it. |
+
+<Callout type="caution">
+Do not give a person access to the Docker daemon without a decision.
+A member of the `docker` group has the same rights as root on the workstation.
+</Callout>
+
+## Read before you run
+
+1. Read the script. It is short.
+
+   ```sh
+   less lab/net.sh
+   ```
+
+2. Show what exists now. This command changes nothing.
+
+   ```sh
+   lab/net.sh status
+   ```
+
+3. For `sudo` without a password, add only `ip`, `iptables`, `sysctl`, `nft` and `firewall-cmd` to the `sudo` rules.
+
+## Who can get to the lab services
+
+The simulated BMCs and the media port listen on `10.77.0.1` only.
+The firewall rules accept input to that address from the lab bridge and from the Docker bridges only.
+The network of the workstation cannot get to them.
+
+## Related pages
+
+- [](lab:page/network)
+- [](lab:page/prerequisites)

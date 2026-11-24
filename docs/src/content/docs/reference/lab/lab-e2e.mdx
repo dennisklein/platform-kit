@@ -1,0 +1,127 @@
+---
+title: lab-e2e workflow
+description: The GitHub workflow that runs the virtual lab from an Asset to a Ready node, its inputs and its jobs.
+type: lab
+eyebrow: Lab · reference
+xref: { cat: lab, id: page/lab-e2e }
+sidebar:
+  order: 8
+sources:
+  - /repo/.github/workflows/lab-e2e.yml
+---
+
+import Figure from '../../../../components/diagram/Figure.astro';
+import Box from '../../../../components/diagram/Box.astro';
+import Edge from '../../../../components/diagram/Edge.astro';
+
+The workflow `lab-e2e` runs the virtual lab on a hosted runner.
+It uses the same tasks as you do. [](lab:wait) does the approval, through the same [](cli:approve) that a person uses.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>File</dt>
+  <dd>[.github/workflows/lab-e2e.yml](/repo/.github/workflows/lab-e2e.yml)</dd>
+  <dt>Starts on</dt>
+  <dd>A push to a branch `claude/**`, or by hand (`workflow_dispatch`)</dd>
+  <dt>Runner</dt>
+  <dd>`ubuntu-latest`, with KVM.</dd>
+  <dt>Default run</dt>
+  <dd>The job `lab` only: three machines, one of them a simulated Supermicro X12.</dd>
+  <dt>Inputs</dt>
+  <dd>Seven, all `false` by default.</dd>
+  <dt>On failure</dt>
+  <dd>[](lab:collect), then the directory `.lab/diagnostics` as an artifact.</dd>
+</dl>
+
+## The default job
+
+<Figure
+  title="The job lab runs doctor, up, wait, status and kubeconfig. With inputs it runs day2 and observe. Then it releases one claim. On failure it collects diagnostics."
+  caption="The steps of the job lab. The steps day2 and observe run only with their input."
+  width={736}
+  height={150}
+  wide
+>
+  <Box x={8} y={20} w={84} h={40} label="doctor" mono />
+  <Box x={112} y={20} w={84} h={40} label="up" mono />
+  <Box x={216} y={20} w={84} h={40} label="wait" mono variant="accent" />
+  <Box x={320} y={20} w={84} h={40} label="status" mono />
+  <Box x={424} y={20} w={84} h={40} label="day2" mono variant="soft" />
+  <Box x={528} y={20} w={84} h={40} label="observe" mono variant="soft" />
+  <Box x={632} y={20} w={96} h={40} label="release" mono />
+  <Edge points={[[92, 40], [112, 40]]} />
+  <Edge points={[[196, 40], [216, 40]]} />
+  <Edge points={[[300, 40], [320, 40]]} />
+  <Edge points={[[404, 40], [424, 40]]} />
+  <Edge points={[[508, 40], [528, 40]]} />
+  <Edge points={[[612, 40], [632, 40]]} />
+  <Box x={216} y={100} w={188} h={40} label="collect + upload" sub="only on failure" variant="warn" />
+  <Edge points={[[258, 60], [258, 100]]} variant="muted" label="failed or cancelled" at={[266, 86]} anchor="start" />
+  <text class="t-small t-label" x={518} y={78} text-anchor="middle">only with their input</text>
+</Figure>
+
+1. The job gives the runner user access to KVM. It installs QEMU and OVMF.
+2. `mise run lab:doctor` checks the runner.
+3. `mise run lab:up` starts the lab.
+4. `mise run lab:wait` approves the installs and waits for three Provisioned Hosts and three Ready nodes.
+5. `mise run lab:status` and `mise run lab:kubeconfig` show the result.
+6. `mise run lab:release default/node-3` releases one machine and waits until its Host is Available.
+
+## Inputs
+
+| Input | Job | What it adds |
+| --- | --- | --- |
+| `huawei` | `lab` | `node-2` gets a [one-slot BMC](lab:page/simulated-bmc#one-slot-bmc). The operator builds an installer for it. |
+| `day2` | `lab` | [](lab:day2) before the release: two reboots and a Config rollout without a reboot. |
+| `observe` | `lab` | [](lab:observe) after the install: status tables, metrics and a maintenance window. |
+| `upgrade` | `upgrade` | A lab that starts on Talos `v1.14.5`, then [](lab:upgrade). |
+| `backup_restore` | `backup-restore` | A lab with one machine, then [](lab:backup-restore). |
+| `scale` | `scale` | A lab with five machines, then [](lab:scale). |
+| `pivot` | `pivot` | Two clusters with one machine each, then [](lab:pivot). |
+
+## Jobs
+
+| Job | Size | Environment | Time limit |
+| --- | --- | --- | --- |
+| `lab` | `1cp+2w` (default) | `PK_LAB_RELEASE_TIMEOUT=600` | 75 minutes. 85 with `observe`, 135 with `day2`. |
+| `pivot` | `1cp+0w` and `1cp+0w` | `PK_LAB_NODES`, `PK_LAB_WORKLOAD` | 90 minutes |
+| `backup-restore` | `1cp+0w` | `PK_LAB_NODES` | 90 minutes |
+| `scale` | `3cp+2w` | `PK_LAB_NODES`, a spec with 2560 MiB for each control plane | 150 minutes |
+| `upgrade` | `1cp+1w` | `PK_LAB_TALOS=v1.14.5`, `PK_LAB_ROLLOUT_TIMEOUT=3000` | 120 minutes |
+
+All jobs set `PK_LAB_MIN_FREE_GIB=10` and `PK_LAB_WAIT_TIMEOUT=2400`.
+A hosted runner has 4 cores and 16 GB of memory. The `lab:up` step takes about four minutes, and the three installs take about three minutes more.
+
+## Start a run by hand
+
+1. Open the **Actions** tab of the repository.
+2. Select the workflow **lab-e2e**.
+3. Select **Run workflow** and the branch.
+4. Select the inputs that you want.
+5. Select **Run workflow**.
+
+With the `gh` command:
+
+```sh
+gh workflow run lab-e2e --ref <branch> -f day2=true -f observe=true
+```
+
+## Diagnostics
+
+On a failed or cancelled run, each job runs [](lab:collect) and uploads the result.
+
+| Job | Artifact |
+| --- | --- |
+| `lab` | `lab-diagnostics` |
+| `pivot` | `lab-pivot-diagnostics` |
+| `backup-restore` | `lab-backup-restore-diagnostics` |
+| `scale` | `lab-scale-diagnostics` |
+| `upgrade` | `lab-upgrade-diagnostics` |
+
+The files are in [diagnostics](lab:page/troubleshooting#diagnostics).
+
+## Related pages
+
+- [](lab:page/tasks)
+- [](lab:page/lab-yaml)

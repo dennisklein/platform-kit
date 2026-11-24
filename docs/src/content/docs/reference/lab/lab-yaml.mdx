@@ -1,0 +1,163 @@
+---
+title: lab.yaml
+description: The one file that describes the virtual lab, the files that the lab renders from it, and the environment variables that change it.
+type: lab
+eyebrow: Lab · reference
+xref: { cat: lab, id: page/lab-yaml }
+sidebar:
+  order: 3
+sources:
+  - /repo/lab/lab.yaml
+  - /repo/metal/internal/lab/spec.go
+  - /repo/metal/internal/lab/render.go
+  - /repo/lab/lab.sh
+---
+
+import Callout from '../../../../components/Callout.astro';
+
+`lab/lab.yaml` is the lab spec. It gives the cluster name, the versions, the size and the shape of the machines.
+[](lab:render) writes all other files of the lab from it.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>File</dt>
+  <dd>[lab/lab.yaml](/repo/lab/lab.yaml). Set `PK_LAB_SPEC` to use a different file.</dd>
+  <dt>Rendered into</dt>
+  <dd>`.lab/generated/`</dd>
+  <dt>Rendered by</dt>
+  <dd>[](lab:render), and [](lab:up) each time it runs.</dd>
+  <dt>Default size</dt>
+  <dd>One control plane and two workers.</dd>
+  <dt>Limit</dt>
+  <dd>99 machines.</dd>
+  <dt>Unknown keys</dt>
+  <dd>An error. The renderer does not ignore a key that it does not know.</dd>
+</dl>
+
+## Fields
+
+| Field | Default in the file | Meaning |
+| --- | --- | --- |
+| `cluster.name` | `lab` | The name of the [](kind:TalosCluster). |
+| `cluster.talosVersion` | `v1.14.6` | The Talos release. [`PK_LAB_TALOS`](#pk_lab_talos) replaces it. |
+| `cluster.kubernetesVersion` | `v1.36.2` | The Kubernetes release. |
+| `cluster.vip` | `10.77.0.10` | The address of the Kubernetes API. It must be below `.11`. |
+| `controlPlanes` | `1` | 1, 3 or 5. The renderer refuses an even number. |
+| `workers` | `2` | 0 or more. |
+| `controlPlane` | `{ memoryMiB: 4096, cpus: 2 }` | The shape of each control plane. |
+| `worker` | `{ memoryMiB: 2048, cpus: 2 }` | The shape of each worker. |
+| `nodes.<name>` | `node-3: { personality: supermicro-x12 }` | Values for one machine: `personality`, `memoryMiB`, `cpus`. |
+| `patches[].inline` | Time and DNS patches | Talos configuration documents. They go into the TalosCluster as they are. |
+| `workload` | None | A second cluster for [](lab:pivot): `name`, `vip`, `controlPlanes`, `workers`. |
+
+The renderer ignores an entry below `nodes` for a machine that the size does not include.
+The smallest memory for a machine is 1024 MiB.
+
+## What comes from the machine number
+
+The machines have the names `node-1`, `node-2`, and so on. The control planes come first.
+The renderer derives all identity values from the number `n`, so the files always agree.
+
+| Value | Rule | `node-1` |
+| --- | --- | --- |
+| Address | `10.77.0.<10+n>` | `10.77.0.11` |
+| BMC | `https://10.77.0.1:<8440+n>` | `https://10.77.0.1:8441` |
+| Serial number | `PKLAB` and `n` with four digits | `PKLAB0001` |
+| Host name | The serial number in lower case | `pklab0001` |
+| Tap | `pktap<n>` | `pktap1` |
+| BMC MAC address | `02:77:00:00:01:<n>` in hexadecimal | `02:77:00:00:01:01` |
+| NIC MAC address | `52:54:00:77:00:<0x10+n>` | `52:54:00:77:00:11` |
+| Disk serial number | `pklab-disk-<n>` | `pklab-disk-1` |
+
+## Rendered files
+
+| File in `.lab/generated/` | Contents | Read by |
+| --- | --- | --- |
+| `fleet.yaml` | The machines that the simulated BMCs serve | [](cli:sim) |
+| `manifests/10-machines.yaml` | The Secret with the BMC credentials and one [](kind:Asset) for each machine | The operator |
+| `manifests/20-talos.yaml` | The TalosCluster and one [](kind:TalosNode) for each machine | The operator |
+| `manifests/30-claims.yaml` | One [](kind:HostClaim) for each machine | The operator |
+| `taps` | The tap names | [lab/net.sh](lab:page/network) |
+| `ledger.yaml` | BMC MAC address to BMC URL | The operator. See [](concept:ledger). |
+| `lab.env` | Names and counts for `lab/lab.sh` | The lab tasks |
+| `workload/` | The TalosCluster, TalosNodes and HostClaims of the second cluster | [](lab:pivot) |
+
+<Callout type="note">
+Do not edit the files below `.lab/generated/`. Each [](lab:up) writes them again.
+Edit `lab/lab.yaml` and run [](lab:up) again.
+</Callout>
+
+## Environment variables
+
+### PK_LAB_NODES
+
+The size of the lab as `<control planes>cp+<workers>w`, for example `3cp+2w`.
+
+- [](lab:doctor), [](lab:render) and [](lab:up) read it. The other tasks use the size that the last [](lab:up) rendered.
+- Use 1, 3 or 5 control planes. etcd needs a majority.
+- `3cp+0w` is a correct size. The control planes then also run workloads.
+- With three or more control planes, the VIP moves to a different control plane when its holder stops.
+- You cannot change the size while the fleet runs.
+
+To change the size of a lab that runs:
+
+```sh
+mise run lab:down && mise run lab:reset
+PK_LAB_NODES=3cp+2w mise run lab:up
+```
+
+### PK_LAB_WORKLOAD
+
+The size of a second cluster, in the same form, for example `1cp+0w`.
+
+- Without a `workload` section in the spec, the second cluster has the name `work` and the VIP `10.77.0.9`.
+- Its machines come after the machines of the first cluster. With `1cp+0w` and `1cp+0w`, `node-2` is the second cluster.
+- The lab does not install the second cluster at [](lab:up). [](lab:pivot) installs it.
+- With a second cluster, the first cluster gets a registry mirror for `10.77.0.1:5000`.
+
+### PK_LAB_TALOS
+
+A Talos release that replaces `cluster.talosVersion`, for example `v1.14.5`.
+
+- The lab writes a copy of the spec to `.lab/spec.talos-<version>.yaml`. The file in git does not change.
+- [](lab:upgrade) upgrades the cluster to the release in the spec.
+- Set it again on each `lab:up` of that lab. Without it, `lab:up` renders the release in the spec.
+
+### Other variables
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `PK_LAB_DIR` | `<repo>/.lab` | The directory for the state of the lab. |
+| `PK_LAB_SPEC` | `<repo>/lab/lab.yaml` | The lab spec. |
+| `PK_LAB_KIND_CONFIG` | `<repo>/lab/kind.yaml` | The definition of the kind cluster. |
+| `PK_LAB_MIN_FREE_GIB` | `15` | The free disk that the doctor asks for. |
+| `PK_LAB_WAIT_TIMEOUT` | `2400` | Seconds for [](lab:wait), [](lab:scale), [](lab:pivot) and [](lab:backup-restore). |
+| `PK_LAB_RELEASE_TIMEOUT` | `900` | Seconds for [](lab:release). |
+| `PK_LAB_DAY2_TIMEOUT` | `1200` | Seconds for each reboot in [](lab:day2). |
+| `PK_LAB_ROLLOUT_TIMEOUT` | `2400` | Seconds for a rollout in [](lab:day2) and [](lab:upgrade). |
+| `PK_LAB_BRIDGE` | `pkbr0` | The bridge name. Read by `lab/net.sh`. |
+| `PK_LAB_ADDRESS` | `10.77.0.1/24` | The address of the workstation on the bridge. Read by `lab/net.sh`. |
+| `PK_LAB_TAP_USER` | The user that starts the lab | The owner of the taps. Read by `lab/net.sh`. |
+| `PK_METAL_QEMU` | Found on the `PATH` | The QEMU binary. |
+| `PK_METAL_OVMF_CODE`, `PK_METAL_OVMF_VARS` | Found in the system | The firmware pair for the machines. |
+
+<Callout type="caution">
+Do not change `PK_LAB_ADDRESS` only. The renderer and `lab/kind.yaml` use the fixed address `10.77.0.1`.
+With a different address, the BMCs and the media port do not answer.
+</Callout>
+
+## Change the Talos patches
+
+The `patches` list goes into the TalosCluster. Use it for DNS, time and a proxy.
+
+1. Edit the `patches` list in `lab/lab.yaml`.
+2. Run [](lab:up) before you approve the installs.
+
+See [Behind a proxy](lab:page/network#behind-a-proxy) for an example.
+
+## Related tasks
+
+- [](lab:render)
+- [](lab:up)
+- [](lab:doctor)

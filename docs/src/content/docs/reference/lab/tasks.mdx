@@ -1,0 +1,460 @@
+---
+title: Lab tasks
+description: Each mise run lab task and each verb of lab/lab.sh, with what it does, what it needs and what it changes.
+type: lab
+eyebrow: Lab · reference
+xref: { cat: lab, id: page/tasks }
+anchors:
+  lab: [doctor, render, up, load, down, reset, status, top, approve, apply, kubeconfig, collect, wait, release, day2, upgrade, scale, backup-restore, observe, pivot]
+sidebar:
+  order: 4
+sources:
+  - /repo/mise.toml
+  - /repo/lab/lab.sh
+---
+
+import Callout from '../../../../components/Callout.astro';
+import TermReplay from '../../../../components/lab/TermReplay.astro';
+import Shot from '../../../../components/lab/Shot.astro';
+
+You control the virtual lab with `mise run lab:<task>`.
+Each task calls one verb of [lab/lab.sh](/repo/lab/lab.sh). mise puts the pinned tools on the `PATH`.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Form</dt>
+  <dd>`mise run lab:<task>`</dd>
+  <dt>Defined in</dt>
+  <dd>[mise.toml](/repo/mise.toml)</dd>
+  <dt>Script</dt>
+  <dd>[lab/lab.sh](/repo/lab/lab.sh)</dd>
+  <dt>Cluster access</dt>
+  <dd>`.lab/kubeconfig` only. No task reads `~/.kube/config`.</dd>
+  <dt>Unattended tasks</dt>
+  <dd>They approve each operation that the operator proposes. Use them only where that is correct.</dd>
+</dl>
+
+## All tasks
+
+| Task | What it does | Changes |
+| --- | --- | --- |
+| [`doctor`](#doctor) | Checks the workstation. | Nothing |
+| [`render`](#render) | Renders the lab spec. | `.lab/generated/` |
+| [`up`](#up) | Starts the lab. | Workstation, cluster |
+| [`load`](#load) | Builds the operator again and restarts the manager. | Cluster |
+| [`status`](#status) | Shows the rack and all objects. | Nothing |
+| [`top`](#top) | Shows a live view of each machine. | Only when you press a key |
+| [`approve`](#approve) | Approves each operation that waits. | Machines |
+| [`apply`](#apply) | Applies manifests as a member of the admin group. | Cluster |
+| [`kubeconfig`](#kubeconfig) | Writes the access files of the Talos cluster. | `.lab/` |
+| [`wait`](#wait) | Approves and waits for all nodes. | Machines |
+| [`release`](#release) | Deletes one claim and waits for its Host. | Machines |
+| [`day2`](#day2) | Reboots two nodes and makes a change without a reboot. | Machines |
+| [`upgrade`](#upgrade) | Upgrades Talos through a rollout. | Machines |
+| [`scale`](#scale) | Adds, removes and replaces nodes. | Machines |
+| [`backup-restore`](#backup-restore) | Loses etcd and restores it. | Machines |
+| [`observe`](#observe) | Checks the status tables, the metrics and a maintenance window. | Cluster |
+| [`pivot`](#pivot) | Moves the operator and installs a second cluster. | Machines, cluster |
+| [`collect`](#collect) | Writes diagnostics. | `.lab/diagnostics/` |
+| [`down`](#down) | Stops the lab. | Workstation, cluster |
+| [`reset`](#reset) | Deletes the disks of the machines. | `.lab/state/` |
+
+## The usual round
+
+1. Start the lab: `mise run lab:up`.
+2. Read the proposals: `mise run lab:status`.
+3. Approve the installs: `mise run lab:approve`.
+4. Look again until all Hosts are Provisioned: `mise run lab:status`.
+5. Get the access files: `mise run lab:kubeconfig`.
+6. Stop the lab: `mise run lab:down`.
+
+[](tut:lab-first-cluster) shows this round with the expected output.
+
+## Start and stop
+
+### doctor
+
+Checks the workstation for all that the lab needs. Each item that is missing prints its fix.
+
+<dl class="pk-glance">
+  <dt>Verb</dt>
+  <dd>`lab/lab.sh doctor`</dd>
+  <dt>Reads</dt>
+  <dd>`PK_LAB_NODES`, `PK_LAB_WORKLOAD`, `PK_LAB_SPEC`, `PK_LAB_MIN_FREE_GIB`, `PK_LAB_KIND_CONFIG`</dd>
+  <dt>Changes</dt>
+  <dd>Nothing. The `sudo` check can ask for your password.</dd>
+</dl>
+
+The checks are in [what the doctor checks](lab:page/prerequisites#what-the-doctor-checks).
+
+### render
+
+Renders the lab spec into `.lab/generated/`. Use it to read the manifests before you start the lab.
+
+<dl class="pk-glance">
+  <dt>Verb</dt>
+  <dd>`lab/lab.sh render`</dd>
+  <dt>Reads</dt>
+  <dd>`PK_LAB_NODES`, `PK_LAB_WORKLOAD`, `PK_LAB_SPEC`, `PK_LAB_TALOS`</dd>
+  <dt>Changes</dt>
+  <dd>The files in [rendered files](lab:page/lab-yaml#rendered-files) only.</dd>
+</dl>
+
+### up
+
+Starts the lab. You can run it again: it uses again what exists, and it applies a changed spec.
+
+<dl class="pk-glance">
+  <dt>Verb</dt>
+  <dd>`lab/lab.sh up`</dd>
+  <dt>Runs first</dt>
+  <dd>`mise run build`, which builds `metal/bin/pk-metal`</dd>
+  <dt>Parts</dt>
+  <dd>`doctor`, `render`, `network`, `cluster`, `deploy`, `fleet`, `manifests`. See [Parts of up](#parts-of-up).</dd>
+  <dt>Uses sudo</dt>
+  <dd>Yes, for the network. See [](lab:page/what-runs-as-root).</dd>
+  <dt>Refuses</dt>
+  <dd>A different size while the fleet runs. A start after [`pivot`](#pivot), until you run [`down`](#down).</dd>
+</dl>
+
+<TermReplay src="casts/lab-up.json" caption="A replay with example data." />
+
+After `up`, the operator proposes one install for each machine. The installs wait for [`approve`](#approve).
+
+### load
+
+Builds the operator image from the working tree, loads it into kind and applies the deployment.
+Use it after you change the operator code.
+
+<dl class="pk-glance">
+  <dt>Verb</dt>
+  <dd>`lab/lab.sh deploy`</dd>
+  <dt>Needs</dt>
+  <dd>A lab that is up, and no pivot.</dd>
+  <dt>Changes</dt>
+  <dd>The image, the CRDs and the Deployment `pk-metal-manager`</dd>
+</dl>
+
+### down
+
+Stops the fleet, deletes the kind cluster and the registry container, and removes the lab network.
+
+<dl class="pk-glance">
+  <dt>Verb</dt>
+  <dd>`lab/lab.sh down`</dd>
+  <dt>Keeps</dt>
+  <dd>The disks of the machines, the image cache and the Talos secrets bundle.</dd>
+  <dt>Deletes</dt>
+  <dd>The kubeconfig files and the talosconfig files in `.lab/`</dd>
+</dl>
+
+The fleet turns the machines off before it stops. After 30 seconds, the script stops the fleet with force.
+
+### reset
+
+Deletes the state directory of the fleet: the disks and the firmware variables of all machines.
+The next [`up`](#up) installs each machine again.
+
+<dl class="pk-glance">
+  <dt>Verb</dt>
+  <dd>`lab/lab.sh reset`</dd>
+  <dt>Needs</dt>
+  <dd>A lab that is down.</dd>
+  <dt>Safety</dt>
+  <dd>It deletes the directory only if it is in `.lab/`, or if it has the mark file that the lab wrote.</dd>
+</dl>
+
+<Callout type="warning">
+Do not run `reset` to stop a lab. It deletes the installed systems of all machines.
+To stop the lab and keep the disks, run `down` only.
+</Callout>
+
+## Watch and approve
+
+### status
+
+Shows the output of [](cli:status), then all objects of the operator with `kubectl get`.
+
+<dl class="pk-glance">
+  <dt>Verb</dt>
+  <dd>`lab/lab.sh status`</dd>
+  <dt>Changes</dt>
+  <dd>Nothing.</dd>
+</dl>
+
+The column `BLOCKED` shows what each Host, operation and endpoint waits for.
+
+### top
+
+Starts [](cli:top) for the lab: one tile for each machine, with its BMC, its virtual machine, its operation and its node.
+
+<dl class="pk-glance">
+  <dt>Verb</dt>
+  <dd>None. The task starts `metal/bin/pk-metal top --fleet http://127.0.0.1:8440/state`.</dd>
+  <dt>Runs first</dt>
+  <dd>`mise run build`</dd>
+  <dt>Needs</dt>
+  <dd>`.lab/kubeconfig`. With `.lab/workload.kubeconfig`, it also shows the state of each kubelet.</dd>
+</dl>
+
+<TermReplay src="casts/top.json" caption="A replay with example data." />
+
+| Mark | Meaning |
+| --- | --- |
+| `●` | The part is as it must be. |
+| `◐` | The part changes, or it waits for you. |
+| `✗` | The part failed or cannot continue. |
+| `○` | The part is off, or there is nothing. |
+
+| Key | Effect |
+| --- | --- |
+| `tab`, arrows | Select a machine. |
+| `a` | Show the plan of the operation that waits. Approve it only when you press `y`. |
+| `h` | Put the claim of the machine on hold, or remove the hold. |
+| `r` | Try a failed operation again. |
+| `q` | Stop. |
+
+<Shot src="top-3-all-ready.png" alt="pk-metal top with three tiles. Each machine is Provisioned, and each node is Ready." caption="A mock screen of lab:top when the lab is complete. The data is an example." width={1600} height={529} />
+
+### approve
+
+Approves each [](kind:HostOperation) that waits for a person. It runs `pk-metal approve --yes` for each one.
+
+<dl class="pk-glance">
+  <dt>Verb</dt>
+  <dd>`lab/lab.sh approve`</dd>
+  <dt>Acts as</dt>
+  <dd>The admin of the kind cluster. The ServiceAccount of the operator cannot approve.</dd>
+  <dt>Changes</dt>
+  <dd>Machines. An approved install overwrites the install disk.</dd>
+</dl>
+
+To read each plan before you approve, use [](cli:approve) or the key `a` in [`top`](#top).
+
+### apply
+
+Runs `kubectl apply` as a member of the group `pk-metal:admins`.
+Without arguments, it applies `.lab/generated/manifests/`.
+
+<dl class="pk-glance">
+  <dt>Verb</dt>
+  <dd>`lab/lab.sh apply [path...]`</dd>
+  <dt>Why</dt>
+  <dd>The claim policy accepts a claim with `spec.os` only from that group. The admin of kind is not a member.</dd>
+  <dt>Example</dt>
+  <dd>`mise run lab:apply .lab/generated/manifests/30-claims.yaml`</dd>
+</dl>
+
+### kubeconfig
+
+Writes `.lab/workload.kubeconfig` and `.lab/talosconfig` from the Secrets that the TalosCluster names.
+
+<dl class="pk-glance">
+  <dt>Verb</dt>
+  <dd>`lab/lab.sh kubeconfig`</dd>
+  <dt>Needs</dt>
+  <dd>A bootstrapped first control plane.</dd>
+</dl>
+
+### collect
+
+Writes logs and object lists to `.lab/diagnostics/`. The directory has no secret values.
+
+<dl class="pk-glance">
+  <dt>Verb</dt>
+  <dd>`lab/lab.sh collect`</dd>
+  <dt>Changes</dt>
+  <dd>It deletes the old `.lab/diagnostics/` and writes a new one.</dd>
+</dl>
+
+The files are in [diagnostics](lab:page/troubleshooting#diagnostics).
+
+## Unattended rounds
+
+These tasks do the work of the person who approves. Each one checks the result, not only the operation.
+
+<Callout type="caution">
+Do not use these tasks on a lab where you want to read each plan.
+They approve all operations that wait, also operations that a different task proposed.
+</Callout>
+
+### wait
+
+Approves each proposal and waits until each Host is Provisioned and each node is Ready.
+
+<dl class="pk-glance">
+  <dt>Verb</dt>
+  <dd>`lab/lab.sh wait`</dd>
+  <dt>Time limit</dt>
+  <dd>`PK_LAB_WAIT_TIMEOUT`, default 2400 seconds.</dd>
+  <dt>Stops early</dt>
+  <dd>When an operation fails, or when the operator cannot build a [](kind:BootAsset).</dd>
+  <dt>Writes</dt>
+  <dd>`.lab/workload.kubeconfig` and `.lab/talosconfig`</dd>
+</dl>
+
+<TermReplay src="casts/lab-wait.json" caption="A replay with example data. Each line has the date, the local time and the time zone." />
+
+### release
+
+Deletes one HostClaim, approves the shutdown that the operator proposes, and waits until the Host is Available.
+
+<dl class="pk-glance">
+  <dt>Verb</dt>
+  <dd>`lab/lab.sh release <namespace/name>`</dd>
+  <dt>Example</dt>
+  <dd>`mise run lab:release default/node-3`</dd>
+  <dt>Time limit</dt>
+  <dd>`PK_LAB_RELEASE_TIMEOUT`, default 900 seconds.</dd>
+</dl>
+
+<Callout type="warning">
+Do not release a machine that has data you must keep.
+The node leaves the cluster and Talos wipes the system disk.
+</Callout>
+
+### day2
+
+Runs two day-2 rounds on a lab that is complete.
+
+1. It reboots one worker and one control plane with [](cli:reboot). A second user, `lab-proposer`, proposes each reboot. The admin approves it.
+2. It checks that the boot ID of each node changed, and that the node is Ready and schedulable.
+3. It adds the label `lab.pk.io/day2` to each TalosNode. The operator proposes a Config rollout.
+4. It approves the rollout, continues it after the pause, and checks that no machine rebooted.
+
+<dl class="pk-glance">
+  <dt>Verb</dt>
+  <dd>`lab/lab.sh day2`</dd>
+  <dt>Runs first</dt>
+  <dd>`mise run build`</dd>
+  <dt>Time limits</dt>
+  <dd>`PK_LAB_DAY2_TIMEOUT` for each reboot, `PK_LAB_ROLLOUT_TIMEOUT` for the rollout.</dd>
+  <dt>One control plane</dt>
+  <dd>It sets the annotation `metal.pk.io/override-cluster-guard` on the reboot operation. Without it, the cluster guard holds the reboot.</dd>
+</dl>
+
+### upgrade
+
+Upgrades the Talos release of the cluster through an approved [](kind:TalosRollout).
+
+<dl class="pk-glance">
+  <dt>Verb</dt>
+  <dd>`lab/lab.sh upgrade`</dd>
+  <dt>Needs</dt>
+  <dd>A lab that started on an older release: `PK_LAB_TALOS=v1.14.5 mise run lab:up`</dd>
+  <dt>Target</dt>
+  <dd>`cluster.talosVersion` in the lab spec.</dd>
+  <dt>Time limit</dt>
+  <dd>`PK_LAB_ROLLOUT_TIMEOUT`, default 2400 seconds.</dd>
+</dl>
+
+1. It runs [](cli:upgrade) with the target release.
+2. It approves the rollout with [](cli:rollout).
+3. After the first node, the rollout pauses. The task checks that all nodes are Ready. Then it continues the rollout.
+4. It checks that each TalosNode reports the target release.
+
+### scale
+
+Runs the scale round on a lab with three control planes and two workers.
+
+<dl class="pk-glance">
+  <dt>Verb</dt>
+  <dd>`lab/lab.sh scale`</dd>
+  <dt>Needs</dt>
+  <dd>`PK_LAB_NODES=3cp+2w`, and all nodes Ready.</dd>
+  <dt>Uses</dt>
+  <dd>[](cli:scale) and [](cli:replace)</dd>
+  <dt>Checks</dt>
+  <dd>etcd on each turn: not more than one learner, and not less than the smallest number of voters for that step.</dd>
+</dl>
+
+| Step | Command | Result |
+| --- | --- | --- |
+| 1 | `scale lab --control-planes 1 --workers 2 --apply --ack-etcd-risk` | 1 etcd voter, 3 nodes |
+| 2 | `scale lab --control-planes 3 --workers 2 --apply` | 3 etcd voters, 5 nodes |
+| 3 | `scale lab --control-planes 3 --workers 1 --apply` | 3 etcd voters, 4 nodes |
+| 4 | `replace node-2 --host <host of node-5> --ack-etcd-risk` | `node-2` runs on a different machine |
+| 5 | `scale lab --control-planes 1 --workers 1 --apply --ack-etcd-risk` | 1 etcd voter, 2 nodes |
+
+After each removal, the task checks that the Host is Available and has no mark for a disk that was not wiped.
+
+### backup-restore
+
+Runs the worst etcd case: all control planes lose their etcd data, and the cluster comes back from a snapshot.
+
+<dl class="pk-glance">
+  <dt>Verb</dt>
+  <dd>`lab/lab.sh backup-restore`</dd>
+  <dt>Needs</dt>
+  <dd>A lab with all nodes Ready. `PK_LAB_NODES=1cp+0w` is the quickest.</dd>
+  <dt>Uses</dt>
+  <dd>[](cli:backup), [](cli:restore), [](kind:EtcdBackupPolicy), [](act:EtcdRecover)</dd>
+  <dt>Writes</dt>
+  <dd>`.lab/backup-restore/`: an age identity, the snapshot and a kubeconfig for the user `lab-restorer`</dd>
+</dl>
+
+1. It adds the backup volume to the manager.
+2. It makes an EtcdBackupPolicy with a `pvc` sink and an age recipient.
+3. It writes the ConfigMap `dr-before`, takes a snapshot, and writes the ConfigMap `dr-after`.
+4. It wipes the partition `EPHEMERAL` on each control plane with `talosctl reset`.
+5. It waits until the TalosCluster reports `EtcdDataLost`. The operator does not bootstrap the cluster again.
+6. It proposes the restore as `lab-restorer`, approves it as the admin, and uploads the snapshot.
+7. It checks that `dr-before` is back and that `dr-after` is not.
+
+### observe
+
+Checks what a person and a monitoring system see on a lab that is complete. It takes about three minutes.
+
+<dl class="pk-glance">
+  <dt>Verb</dt>
+  <dd>`lab/lab.sh observe`</dd>
+  <dt>Status</dt>
+  <dd>`pk-metal status -o json`: each cluster is available and each node is Ready.</dd>
+  <dt>Metrics</dt>
+  <dd>The operator serves `pk_metal_host_phase`, `pk_metal_talosnode_ready`, `pk_metal_taloscluster_available`, `pk_metal_bmc_reachable` and `pk_metal_credentials_expiry_timestamp_seconds`.</dd>
+  <dt>Window</dt>
+  <dd>A [](kind:MaintenanceWindow) that opens in 120 seconds holds an approved operation. The operation starts after the window opens.</dd>
+</dl>
+
+The operation ejects an empty virtual media slot, so it changes nothing on the machine.
+
+### pivot
+
+Moves the operator from kind to the first Talos cluster, deletes kind, and installs a second cluster from there.
+
+<dl class="pk-glance">
+  <dt>Verb</dt>
+  <dd>`lab/lab.sh pivot`</dd>
+  <dt>Needs</dt>
+  <dd>A second cluster in the spec (`PK_LAB_WORKLOAD`), and a first cluster with all nodes Ready.</dd>
+  <dt>Uses</dt>
+  <dd>[](cli:pivot) with `--media-store ephemeral`</dd>
+  <dt>Writes</dt>
+  <dd>`.lab/second.kubeconfig`, `.lab/second.talosconfig` and the mark file `.lab/pivoted`</dd>
+</dl>
+
+1. It starts an image registry at `10.77.0.1:5000` and pushes the operator image.
+2. It runs `pk-metal pivot --to .lab/workload.kubeconfig`.
+3. It deletes the kind cluster. `.lab/kubeconfig` now names the first Talos cluster.
+4. It applies `.lab/generated/workload/`, approves, and waits for the nodes of the second cluster.
+
+If the task fails, run it again. It continues where it stopped.
+
+## Parts of up
+
+For a partial run, call a part directly. Each part uses the files that the last `up` rendered.
+
+| Verb | What it does |
+| --- | --- |
+| `lab/lab.sh network` | Makes the bridge, the taps and the firewall rules. |
+| `lab/lab.sh cluster` | Makes the kind cluster, or starts its node container again. |
+| `lab/lab.sh deploy` | Builds and deploys the operator. The task `load` calls this verb. |
+| `lab/lab.sh fleet` | Starts the simulated fleet and waits until each BMC answers. |
+| `lab/lab.sh manifests` | Applies `.lab/generated/manifests/` as a member of the admin group. |
+
+## Related pages
+
+- [](lab:page/lab-yaml)
+- [](lab:page/lab-e2e)
+- [](lab:page/troubleshooting)
