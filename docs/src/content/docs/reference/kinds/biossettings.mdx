@@ -1,0 +1,97 @@
+---
+title: BiosSettings
+description: The BIOS state of one machine. It shows the merged wanted values, the values on the machine and where each value came from.
+type: kind
+eyebrow: Kind · metal.pk.io/v1alpha1
+xref: { cat: kind, id: BiosSettings }
+sources:
+  - /repo/metal/api/v1alpha1/biossettings_types.go
+  - /repo/metal/internal/controller/convergence_controller.go
+---
+
+import FieldTable from '../../../../components/FieldTable.astro';
+import BiosFlow from '../../../../components/diagrams/BiosFlow.astro';
+
+A BiosSettings is the BIOS state of one machine: what you want, what the machine has, and why.
+The operator writes it. Read it before you approve a BIOS change.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Group and version</dt>
+  <dd>`metal.pk.io/v1alpha1`</dd>
+  <dt>Scope</dt>
+  <dd>Cluster.</dd>
+  <dt>Name</dt>
+  <dd>The name of its [](kind:Host). The Host owns it, so it goes when the Host goes.</dd>
+  <dt>Written by</dt>
+  <dd>[](ctrl:convergence), from the matching [BiosProfiles](kind:BiosProfile). Do not edit it.</dd>
+  <dt>Condition</dt>
+  <dd>`Converged`. The Host shows the same verdict as `BiosConverged`.</dd>
+</dl>
+
+## How it connects
+
+<BiosFlow />
+
+The convergence controller reads the machine through its BMC.
+It writes the values that the machine has in `status.observed`, and the staged values in `status.pending`.
+Staged values apply at the next reset of the machine.
+
+## Lifecycle
+
+1. A profile matches the Host. The controller makes the BiosSettings.
+2. The controller merges the profiles into `spec.attributes` and names the source of each value in `status.provenance`.
+3. It validates the values against the [](kind:BiosSchema). A value that the machine does not accept gives `SchemaViolation`.
+4. Firmware goes first. While the firmware of the machine is not converged, the reason is `AwaitingFirmware`.
+5. The values differ: the controller proposes a [](kind:HostOperation) and records it in `status.proposed`. The reason is `AwaitingOperation`.
+6. The operation ran and the values agree: `Converged=True`, reason `InSync`.
+
+If the Host runs a node, the operation drains it first and waits for it after the reboot:
+
+```text
+applyBios → waitEtcdHealthy* → cordon → drain → talosReboot (PowerCycle) → waitNodeReady → waitEtcdHealthy* → uncordon
+```
+
+The steps with `*` are for a control plane only. Without a node, the operation is [](act:ApplyBios), then [](act:PowerCycle).
+
+## Spec
+
+<FieldTable kind="BiosSettings" part="spec" />
+
+## Status
+
+<FieldTable kind="BiosSettings" part="status" />
+
+### Reasons of Converged
+
+| Reason | Status | Meaning |
+| --- | --- | --- |
+| `InSync` | True | The machine has all wanted values. |
+| `AwaitingOperation` | False | The operator proposed an operation. It waits for approval or runs. |
+| `AwaitingFirmware` | False | The firmware converges first. |
+| `ProfileConflict` | False | Two profiles on one layer disagree. The last merge stays. |
+| `SchemaViolation` | False | A value is not in the BiosSchema. |
+| `OperationFailed`, `OperationGone` | False | The operation failed, or a person deleted it. |
+| `SelfDisruption` | False | The machine runs the operator. The operator proposes no change. |
+| `DiskNotWiped` | False | The machine can hold a released node. It is not powered on. |
+| `InstalledNodeMissing` | False | The Host runs a node that has no TalosNode. The operator cannot drain it. |
+| `NoReachablePath` | Unknown | The BMC does not answer. |
+
+A deleted proposal refuses it. The operator makes a new proposal only after a profile changes.
+To try a failed proposal again, use [](cli:retry).
+
+## Example
+
+```console
+$ kubectl get biossettings
+NAME       CONVERGED   REASON              AGE
+sim-0001   True        InSync              3d
+sim-0002   False       AwaitingOperation   2m
+```
+
+## Tasks
+
+- [](howto:apply-bios-settings)
+- [](howto:approve-hold-retry)
+- [](rb:operation-failed)

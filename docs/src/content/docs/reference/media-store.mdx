@@ -1,0 +1,95 @@
+---
+title: Media store
+description: The volume and the HTTPS service from which BMCs fetch boot media that carry secrets, under short grants.
+type: reference
+eyebrow: Reference · manager
+xref: { cat: ref, id: media-store }
+sources:
+  - /repo/metal/internal/asset/store.go
+  - /repo/metal/internal/asset/service.go
+  - /repo/metal/internal/asset/grants.go
+  - /repo/metal/config/media-store/kustomization.yaml
+  - /repo/metal/cmd/manager/main.go
+---
+
+import Callout from '../../../components/Callout.astro';
+import MediaFlow from '../../../components/diagrams/MediaFlow.astro';
+
+The media store and the media service give boot media to the BMCs.
+A BMC fetches an image over HTTPS from the manager. A grant controls each fetch.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Media service</dt>
+  <dd>An HTTPS listener in the manager process. Only the leader serves, because the grants live in its memory.</dd>
+  <dt>Media store</dt>
+  <dd>A directory on a volume, for artifacts that are too large for a Secret: the [embedded installers](term:embedded-installer).</dd>
+  <dt>Used by</dt>
+  <dd>The [](act:InsertMedia) action, for a [](kind:BootAsset) of strategy `configISO` or `embeddedInstaller`.</dd>
+  <dt>Written by</dt>
+  <dd>The [](ctrl:bootasset) and its imager Jobs.</dd>
+  <dt>Installed by</dt>
+  <dd>The kustomize component [`config/media-store`](/repo/metal/config/media-store/kustomization.yaml).</dd>
+</dl>
+
+## How it works
+
+<MediaFlow />
+
+1. The [](kind:TalosNode) has a rendered config in a Secret.
+2. A BootAsset of strategy `embeddedInstaller` starts an imager Job. The Job writes an installer with the config inside to `builds/<job>/`.
+3. The manager imports the file with a rename to `assets/<asset>/<key>.iso`. A file is complete or absent, never half written.
+4. An approved [](kind:HostOperation) mounts the asset. The executor issues a grant: a URL with a random token.
+5. The BMC fetches the image through the grant. The service checks the digest that the approver saw.
+6. The grant ends when the node checks in, when an action ejects the media, when the operation ends, or when its time is over.
+
+A `configISO` asset is small (about 10 KB). It rests in a Secret, not in the store, but the service also serves it under a grant.
+A `factory` asset has no secret. The BMC fetches it from the image factory URL, with no grant.
+
+## Grants
+
+<dl>
+  <dt>Token</dt>
+  <dd>128 random bits in the URL path. The BMCs do not accept query strings.</dd>
+  <dt>Credentials</dt>
+  <dd>Each grant can also have its own user name and password, which the BMC sends as HTTP Basic. A URL alone then fetches nothing.</dd>
+  <dt>Lifetime</dt>
+  <dd>A grant has a time limit. It is in memory only. A restart of the manager forgets all grants. A mount in progress gets a new grant at the next try.</dd>
+  <dt>TLS</dt>
+  <dd>The service ends TLS itself, never at the [relay](concept:relay). The BMCs do not check the certificate. The grant controls the access.</dd>
+</dl>
+
+## Layout of the store
+
+| Path | Content |
+| --- | --- |
+| `builds/<job>/` | The output of one imager Job. The manager deletes it after the import. |
+| `assets/<asset>/<key>.iso` | The installer of one BootAsset, one file for each build key. |
+
+A build key names all inputs: the config, the Talos version, the schematic and the imager image.
+A change of one input gives a new key and a new build. The manager never writes a file again in place.
+When you delete a BootAsset, the manager deletes its files.
+
+## Manager flags
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--media-listen` | `:8443` | The address of the HTTPS listener in the pod. |
+| `--media-url` | empty | The `https://host[:port]` at which the BMCs reach the service, for example a NodePort. Empty stops the service. Then the operator cannot install machines. |
+| `--media-cert-secret` | empty | A Secret with `tls.crt` and `tls.key`. Empty: a self-signed certificate. |
+| `--media-store` | empty | The directory of the store. Empty: the operator cannot install machines behind a [one-slot BMC](concept:one-slot-bmc). |
+| `--media-store-claim` | empty | The PersistentVolumeClaim mounted at `--media-store`. The imager Jobs mount it too. Empty: the imager builds no installer. |
+
+The component makes the claim `pk-metal-media-store` of 10 GiB. One installer is about 400 MiB, so the claim holds about twenty machines.
+
+<Callout type="warning">
+Use a StorageClass that encrypts at rest for the media store. An embedded installer holds the machine config of its node in plain text, with keys and tokens.
+</Callout>
+
+## Related
+
+- [](kind:BootAsset)
+- [](act:InsertMedia), [](act:EjectMedia)
+- [](concept:virtual-media-boot)
+- [](rb:media-slot-busy)

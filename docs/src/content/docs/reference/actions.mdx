@@ -1,0 +1,401 @@
+---
+title: Actions
+description: The 24 actions that a HostOperation can run, with what each one does, what it needs and how long it can wait.
+type: reference
+eyebrow: Reference · HostOperation actions
+xref: { cat: act, id: index }
+anchors:
+  act: [PowerCycle, PowerOff, SetBootOverride, ApplyBios, InsertMedia, EjectMedia, FlashFirmware, StageFirmware, Cordon, Drain, Uncordon, DeleteKubernetesNode, TalosReboot, TalosShutdown, TalosUpgrade, TalosApplyConfig, TalosReset, EtcdLeave, EtcdRemoveMember, EtcdForfeitLeadership, EtcdRecover, AwaitCheckIn, WaitNodeReady, WaitEtcdHealthy]
+sources:
+  - /repo/metal/api/v1alpha1/hostoperation_types.go
+  - /repo/metal/internal/controller/hostoperation_steps.go
+  - /repo/metal/internal/controller/hostoperation_talos_steps.go
+  - /repo/metal/internal/controller/hostoperation_etcdrecover.go
+  - /repo/metal/internal/controller/selfprotect.go
+---
+
+import { Badge } from '@astrojs/starlight/components';
+import Callout from '../../../components/Callout.astro';
+
+An action is one entry of [`spec.actions`](kind:HostOperation#spec.actions) in a [](kind:HostOperation).
+Each entry has exactly one action. The [](ctrl:hostoperation) runs the actions in order, one at a time.
+
+## Rules for all actions
+
+1. An action checks its goal first. If the goal is already true, the action ends and changes nothing.
+2. A machine or node that does not answer is a wait, not a failure.
+3. A wait has a budget. When the budget ends, the step fails and the operation stops.
+4. A step that fails is not retried. Use [](cli:retry) after you fix the cause.
+5. A Talos or Kubernetes action names a TalosNode in `nodeRef`. That node must be the node that the Host runs.
+
+<dl>
+  <dt><Badge text="BMC" variant="note" /></dt>
+  <dd>The action goes through the BMC with Redfish. The operator records the power state and reset time first (the baseline).</dd>
+  <dt><Badge text="Talos API" variant="tip" /> <Badge text="Kubernetes API" variant="tip" /></dt>
+  <dd>The action goes through the node. It works while the BMC is down.</dd>
+  <dt><Badge text="Disruptive" variant="caution" /></dt>
+  <dd>The action takes the node down or removes its etcd member. The self guard and the cluster guard can make it wait.</dd>
+  <dt>Budget</dt>
+  <dd>How long the step can wait before it fails. A wait action counts from the end of the previous step. Other actions count from the first look.</dd>
+</dl>
+
+## Summary
+
+| Action | Key | Through | Disruptive | Budget |
+| --- | --- | --- | --- | --- |
+| [](act:PowerCycle) | `powerCycle` | BMC | yes | 5 min |
+| [](act:PowerOff) | `powerOff` | BMC | yes | 5 min + graceful time |
+| [](act:SetBootOverride) | `setBootOverride` | BMC | no | none |
+| [](act:ApplyBios) | `applyBios` | BMC | no | none |
+| [](act:InsertMedia) | `insertMedia` | BMC | no | 5 min |
+| [](act:EjectMedia) | `ejectMedia` | BMC | no | none |
+| [](act:FlashFirmware) | `flashFirmware` | BMC | no | 15 min |
+| [](act:StageFirmware) | `stageFirmware` | BMC | no | 15 min |
+| [](act:Cordon) | `cordon` | Kubernetes | no | none |
+| [](act:Drain) | `drain` | Kubernetes | no | 15 min |
+| [](act:Uncordon) | `uncordon` | Kubernetes | no | none |
+| [](act:DeleteKubernetesNode) | `deleteKubernetesNode` | Kubernetes | no | none |
+| [](act:TalosReboot) | `talosReboot` | Talos | yes | 20 min |
+| [](act:TalosShutdown) | `talosShutdown` | Talos | yes | 20 min |
+| [](act:TalosUpgrade) | `talosUpgrade` | Talos | yes | 45 min |
+| [](act:TalosApplyConfig) | `talosApplyConfig` | Talos | `Reboot`, `Auto` | 20 min |
+| [](act:TalosReset) | `talosReset` | Talos | yes | 20 min |
+| [](act:EtcdLeave) | `etcdLeave` | Talos | yes | 5 min |
+| [](act:EtcdRemoveMember) | `etcdRemoveMember` | Talos | no | 5 min |
+| [](act:EtcdForfeitLeadership) | `etcdForfeitLeadership` | Talos | no | 5 min |
+| [](act:EtcdRecover) | `etcdRecover` | Talos | no | 2 h |
+| [](act:AwaitCheckIn) | `awaitCheckIn` | TalosNode status | no | 30 min |
+| [](act:WaitNodeReady) | `waitNodeReady` | Talos, Kubernetes | no | 30 min |
+| [](act:WaitEtcdHealthy) | `waitEtcdHealthy` | Talos | no | 15 min |
+
+A dash (—) in the Default column means that you must set the field. The budgets are the defaults. A field such as `timeoutSeconds` changes the budget of a wait action.
+The manager flag `--checkin-timeout` sets the budget that the install operation gives to [](act:AwaitCheckIn).
+
+## BMC
+
+### PowerCycle
+
+<Badge text="BMC" variant="note" /> <Badge text="Disruptive" variant="caution" /> <Badge text="Budget 5 min" />
+
+Turns the machine off, waits until the BMC reports off, then turns it on and waits until the BMC reports on.
+If the machine was off at the baseline, it only turns the machine on.
+The operator records the "off" half, so a resumed operation never cycles the machine two times.
+
+Fields: none. An operation can have only one `powerCycle` or `powerOff`.
+
+### PowerOff
+
+<Badge text="BMC" variant="note" /> <Badge text="Disruptive" variant="caution" /> <Badge text="Budget 5 min + graceful time" />
+
+Turns the machine off and waits until the BMC reports off. A machine that is already off is a success.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `gracefulTimeoutSeconds` | integer, 0 to 3600 | 0 | First asks the OS to shut down, and waits this time. Then forces the machine off. 0 forces it off at once. |
+
+### SetBootOverride
+
+<Badge text="BMC" variant="note" />
+
+Sets the device that the machine boots from at the next start.
+The target must be a value that the BMC offers. The operator checks it when the step runs.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `target` | string | — | The boot source, for example `UsbCd`, `Cd` or `Pxe`. |
+| `once` | boolean | `true` | `true`: only the next boot. `false`: every boot (Continuous). |
+| `mode` | `UEFI`, `Legacy` | not set | The firmware boot mode. Not set: the machine keeps its own setting. |
+
+### ApplyBios
+
+<Badge text="BMC" variant="note" />
+
+Writes BIOS attributes to the pending settings of the BMC (`@Redfish.Settings`).
+This changes nothing that runs. The values apply at the next reset, so a BIOS operation also reboots the machine.
+The [](ctrl:convergence) copies the values from the [](kind:BiosSettings) into the action when it proposes the operation.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `attributes` | map | — | The values to stage. The approver sees exactly these values. |
+| `settingsRef` | object | not set | The BiosSettings that the values came from. For information only: the step does not read it. |
+
+## Media
+
+### InsertMedia
+
+<Badge text="BMC" variant="note" /> <Badge text="Budget 5 min" />
+
+Mounts an image on a virtual media slot of the BMC, as you put a disc into a drive.
+The image is a plain URL or a [](kind:BootAsset).
+The [media service](ref:media-store) serves a BootAsset with a secret (a config ISO or an embedded installer) under a grant.
+The grant ends when the operation ends.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `mediaId` | string | — | The slot, for example `CD` or `USBStick`. |
+| `imageUrl` | string | not set | The URL to mount. Give `imageUrl` or `bootAssetRef`, not both. |
+| `bootAssetRef` | object | not set | The BootAsset to mount. |
+| `digest` | `sha256:<hex>` | not set | The digest of the artifact that the approver saw. Other bytes fail the step. Only with `bootAssetRef`. |
+
+The step waits while a pinned BootAsset has no artifact yet.
+
+### EjectMedia
+
+<Badge text="BMC" variant="note" />
+
+Removes the image from a virtual media slot. An empty slot is a success.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `mediaId` | string | — | The slot to empty. |
+
+## Firmware
+
+### FlashFirmware
+
+<Badge text="BMC" variant="note" /> <Badge text="Budget 15 min" />
+
+Sends a firmware image to the BMC and waits for proof: the BMC restarts, and the new version reads back.
+The BMC restarts during the flash. The machine continues to run.
+A step that runs out of time fails at once. The operator does not send the image a second time.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `image` | OCI reference with `@sha256:` | — | The firmware image, pinned by digest. |
+| `version` | string | — | The version that must read back. A BMC that already has it makes the step a no-op. |
+
+### StageFirmware
+
+<Badge text="BMC" variant="note" /> <Badge text="Budget 15 min" />
+
+Sends a system firmware package (BIOS or UEFI, network card, RAID controller) to the BMC.
+The package applies at the next reset of the machine. A reboot later in the same operation applies it.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `image` | OCI reference with `@sha256:` | — | The update package, pinned by digest. |
+| `version` | string | — | The version that the components report after the update. |
+| `targets` | list, 1 to 16 | — | The firmware inventory IDs to update. The approver sees which components change. |
+
+## Kubernetes
+
+These actions use the admin kubeconfig that the [](kind:TalosCluster) publishes.
+
+### Cordon
+
+<Badge text="Kubernetes API" variant="tip" />
+
+Marks the Kubernetes Node as unschedulable. Pods that run stay.
+If this operation cordoned the node, an abort uncordons it again.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `nodeRef` | object | — | The TalosNode. Its name is the name of the Kubernetes Node. |
+
+### Drain
+
+<Badge text="Kubernetes API" variant="tip" /> <Badge text="Budget 15 min" />
+
+Cordons the node, then evicts its pods through the Eviction API, so that each PodDisruptionBudget holds.
+The step waits while a budget refuses an eviction. When the time is over, the step fails and the node stays cordoned.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `nodeRef` | object | — | The TalosNode to drain. |
+| `timeoutSeconds` | integer, 30 to 86400 | 900 | The time for the full drain. |
+| `gracePeriodSeconds` | integer, 0 to 3600 | not set | Replaces the termination grace period of each pod. |
+| `deleteEmptyDirData` | boolean | `false` | Lets the drain evict pods with `emptyDir` volumes. The pods lose that data. |
+
+### Uncordon
+
+<Badge text="Kubernetes API" variant="tip" />
+
+Marks the Kubernetes Node as schedulable again.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `nodeRef` | object | — | The TalosNode. |
+
+### DeleteKubernetesNode
+
+<Badge text="Kubernetes API" variant="tip" />
+
+Deletes the Node object from the Kubernetes API of the cluster. This is the last step when a node leaves a cluster.
+A Node that is already gone is a success.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `nodeRef` | object | — | The TalosNode. |
+
+## Talos
+
+Before an action restarts a node, it records the boot time of the node.
+A later boot time proves the restart. A resumed operation that sees the later boot time does not ask again.
+
+### TalosReboot
+
+<Badge text="Talos API" variant="tip" /> <Badge text="Disruptive" variant="caution" /> <Badge text="Budget 20 min" />
+
+Asks Talos to reboot the node. Talos stops the services and unmounts the file systems first.
+A BMC [](act:PowerCycle) cuts the power instead.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `nodeRef` | object | — | The TalosNode to reboot. |
+| `mode` | `Default`, `PowerCycle` | `Default` | `PowerCycle` makes a cold start, for firmware that applies only then. |
+
+### TalosShutdown
+
+<Badge text="Talos API" variant="tip" /> <Badge text="Disruptive" variant="caution" /> <Badge text="Budget 20 min" />
+
+Asks Talos to shut the node down. The node stays off until the BMC turns it on.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `nodeRef` | object | — | The TalosNode. |
+| `force` | boolean | `false` | Shuts down also when the node cannot cordon and drain itself. |
+
+### TalosUpgrade
+
+<Badge text="Talos API" variant="tip" /> <Badge text="Disruptive" variant="caution" /> <Badge text="Budget 45 min" />
+
+Installs a Talos version from an installer image, then reboots the node into it.
+The step ends when the node reports the new version. A node that comes back on the old version failed the upgrade.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `nodeRef` | object | — | The TalosNode to upgrade. |
+| `image` | OCI reference with `@sha256:` | — | The installer image, pinned by digest. |
+| `version` | `vX.Y.Z` | — | The version that the node must report after the upgrade. |
+| `stage` | boolean | `false` | Writes the image now and upgrades at the next reboot. |
+| `preserve` | boolean | `true` | Keeps the EPHEMERAL partition. Talos 1.8 and later always keep it. |
+| `force` | boolean | `false` | Skips the etcd health check of Talos on a control plane. |
+| `rebootMode` | `Default`, `PowerCycle` | `Default` | How the reboot into the new image ends. |
+
+### TalosApplyConfig
+
+<Badge text="Talos API" variant="tip" /> <Badge text="Disruptive in Reboot, Auto" variant="caution" /> <Badge text="Budget 20 min" />
+
+Sends a rendered machine config to the node. The content of the Secret must agree with the digest that the approver saw.
+If it does not agree, the step sends nothing and fails.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `nodeRef` | object | — | The TalosNode of the config. |
+| `configSecretRef` | object | — | The Secret in the operator namespace with the config. |
+| `digest` | `sha256:<hex>` | — | The digest of the config bytes. |
+| `mode` | `Auto`, `NoReboot`, `Reboot`, `Staged`, `Try` | `NoReboot` | `NoReboot` fails if the change needs a reboot. `Staged` applies at the next boot. `Try` rolls back after `tryTimeoutSeconds` unless confirmed. |
+| `tryTimeoutSeconds` | integer, 10 to 3600 | node default | The time for `Try` mode. |
+
+### TalosReset
+
+<Badge text="Talos API" variant="tip" /> <Badge text="Disruptive" variant="caution" /> <Badge text="Budget 20 min" />
+
+Wipes the node through Talos. A node that does not answer cannot do a reset: install it again.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `nodeRef` | object | — | The TalosNode to reset. |
+| `graceful` | boolean | `true` | Leaves etcd, cordons and drains first. A node that cannot reach its peers needs `false`. |
+| `reboot` | boolean | `false` | Boots into maintenance mode after the wipe. `false` leaves the node off. |
+| `mode` | `All`, `SystemDisk`, `UserDisks` | `All` | The disks to wipe. |
+| `systemPartitions` | list, up to 3 | all | Wipes only these system partitions. STATE holds the machine config. EPHEMERAL holds pod data and etcd. |
+
+<Callout type="warning">
+Do not approve a `talosReset` on a node whose data you must keep. The reset erases the disks that `mode` names.
+</Callout>
+
+## etcd
+
+### EtcdLeave
+
+<Badge text="Talos API" variant="tip" /> <Badge text="Disruptive" variant="caution" /> <Badge text="Budget 5 min" />
+
+Asks the etcd member of the node to leave the cluster. The member first moves the leadership to another member.
+The step refuses a worker and the only control plane of a cluster. The step ends when a peer no longer lists the member.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `nodeRef` | object | — | The control-plane TalosNode that leaves. |
+
+### EtcdRemoveMember
+
+<Badge text="Talos API" variant="tip" /> <Badge text="Budget 5 min" />
+
+Removes one etcd member by its ID, through a healthy peer. Use it for a node that cannot leave by itself.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `nodeRef` | object | — | The TalosNode of the member. The step finds the cluster and a peer through it. |
+| `memberId` | hex string | — | The member ID from the proposal. The step removes exactly this member. |
+| `hostname` | string | not set | The host name of the member, for the approver. |
+
+### EtcdForfeitLeadership
+
+<Badge text="Talos API" variant="tip" /> <Badge text="Budget 5 min" />
+
+Moves the etcd leadership to another member if the member of this node is the leader.
+A follower stays as it is. All members stay, so the guards do not hold this action.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `nodeRef` | object | — | The control-plane TalosNode. |
+
+### EtcdRecover
+
+<Badge text="Talos API" variant="tip" /> <Badge text="Budget 2 h" />
+
+Restores etcd from an [](kind:EtcdSnapshot) on one control plane, after the cluster lost all of etcd.
+
+1. The step refuses unless the cluster lost its etcd. The operator bootstrapped the cluster before, or the cluster has `os.pk.io/restore-pending`. No control plane runs etcd.
+2. A person runs `pk-metal restore upload`. This decrypts the snapshot on the machine of the person and sends it to the node.
+3. Talos starts etcd from the snapshot. The step waits until the node lists etcd members.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `nodeRef` | object | — | The control-plane TalosNode that gets the snapshot. |
+| `snapshotRef` | object | — | The EtcdSnapshot to restore. |
+| `sha256` | `sha256:<hex>` | — | The digest of the plaintext snapshot. The upload must have the same digest. |
+| `timeoutSeconds` | integer, 300 to 86400 | 7200 | The time for the step, the upload included. |
+
+See [](cli:restore).
+
+## Waits
+
+A wait action changes nothing. Its budget counts from the end of the previous step, because the machine starts to boot then.
+
+### AwaitCheckIn
+
+<Badge text="Budget 30 min" />
+
+Waits until the named [](kind:TalosNode) checks in: `MachineReachable=True` or `Ready=True`.
+The install uses it. After the check-in, the operation can eject the media and end the grants.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `nodeRef` | object | — | The TalosNode. |
+| `timeoutSeconds` | integer, 60 to 86400 | 1800 | The time for the wait. |
+
+### WaitNodeReady
+
+<Badge text="Talos API" variant="tip" /> <Badge text="Kubernetes API" variant="tip" /> <Badge text="Budget 30 min" />
+
+Waits until Talos reports the stage `running` and ready, and the Kubernetes Node is Ready.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `nodeRef` | object | — | The TalosNode. |
+| `version` | `vX.Y.Z` | not set | Also waits until the node reports this Talos version. This proves an upgrade. |
+| `timeoutSeconds` | integer, 60 to 86400 | 1800 | The time for the wait. |
+
+### WaitEtcdHealthy
+
+<Badge text="Talos API" variant="tip" /> <Badge text="Budget 15 min" />
+
+Waits until the etcd of the cluster is healthy. All members answer, no member has an error or an alarm, and no member is a learner.
+The member of the named node must be in the list, as a member that votes.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `nodeRef` | object | — | A control-plane TalosNode of the cluster. |
+| `timeoutSeconds` | integer, 60 to 86400 | 900 | The time for the wait. |

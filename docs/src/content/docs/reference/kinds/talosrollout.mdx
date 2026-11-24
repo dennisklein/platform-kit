@@ -1,0 +1,134 @@
+---
+title: TalosRollout
+description: One change rolled through the nodes of a cluster in a safe order, under one approval of a frozen plan.
+type: kind
+eyebrow: Kind · os.pk.io/v1alpha1
+xref: { cat: kind, id: TalosRollout }
+sources:
+  - /repo/metal/api/os/v1alpha1/talosrollout_types.go
+  - /repo/metal/internal/controller/talosrollout_controller.go
+  - /repo/metal/internal/controller/talosrollout_plan.go
+  - /repo/metal/internal/controller/talosrollout_proposer.go
+  - /repo/metal/config/policy/talosrollout-approval.yaml
+---
+
+import Callout from '../../../../components/Callout.astro';
+import FieldTable from '../../../../components/FieldTable.astro';
+import RollingUpgrade from '../../../../components/explainers/RollingUpgrade.astro';
+
+A TalosRollout is one change to all nodes of a [](kind:TalosCluster): a Talos upgrade, a Kubernetes upgrade, a config change or a reboot.
+One approval covers the full plan. The operator then changes one node at a time and checks the cluster between nodes.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Group and version</dt>
+  <dd>`os.pk.io/v1alpha1`</dd>
+  <dt>Scope</dt>
+  <dd>Cluster.</dd>
+  <dt>Written by</dt>
+  <dd>The [](ctrl:rolloutproposer), or you for a `Reboot`. The approver writes `spec.approval`.</dd>
+  <dt>Reconciled by</dt>
+  <dd>[](ctrl:talosrollout)</dd>
+  <dt>Makes</dt>
+  <dd>One [](kind:HostOperation) for each node, with `spec.rolloutRef`.</dd>
+  <dt>Conditions</dt>
+  <dd>`Planned`, `Approved`, `Progressing`, `Paused`, `Complete`.</dd>
+  <dt>Commands</dt>
+  <dd>[](cli:upgrade), [](cli:rollout)</dd>
+</dl>
+
+## Kinds of rollout
+
+| `spec.kind` | Change on each node | Reboot | Proposed by the operator when |
+| --- | --- | --- | --- |
+| `TalosUpgrade` | [](act:TalosUpgrade) to `target.talosVersion` | yes | a node runs another version than `spec.talosVersion` |
+| `KubernetesUpgrade` | [](act:TalosApplyConfig) with the new kubelet and control-plane images | only if the node needs it | the API server reports another version than `spec.kubernetesVersion` |
+| `Config` | [](act:TalosApplyConfig) with the current render | only if the node needs it | a node reports drift |
+| `Reboot` | [](act:TalosReboot) | yes | never: you create it |
+
+The operator checks these cases in this order and proposes only the first that applies.
+While a rollout of the cluster is not finished, it proposes nothing new.
+It does not propose a failed or aborted rollout again. Delete that rollout to get a new proposal.
+
+## The plan
+
+Before the approval, the operator writes the plan to `status.plan` on each pass:
+
+1. Control planes, one at a time. The etcd leader goes last, so etcd elects a new leader only one time.
+2. For a `KubernetesUpgrade`: one `KubeProxy` step that moves the kube-proxy DaemonSet to the new image.
+3. Workers, at most `spec.maxUnavailableWorkers` at a time.
+
+Each step names the node, its Host, the change (`from`, `to`), the pinned image or config digest, and the actions.
+`status.planHash` is a sha256 over the cluster, the kind, the target, the drain policy and all steps.
+
+The actions of a node step:
+
+```text
+drain → change → waitNodeReady → waitEtcdHealthy* → uncordon
+```
+
+`drain` and `uncordon` are only for a change that reboots the node. `waitEtcdHealthy` is only for a control plane.
+
+## Run
+
+<RollingUpgrade />
+
+- **Approval.** The approver names the `planHash` that they saw. After the approval, the plan is frozen.
+- **Plan changed.** If the plan that the operator would make now differs from the approved plan, the rollout ends with `Complete=False`, reason `PlanChanged`. Nothing runs.
+- **Pause after the first node.** The rollout always stops after the first node. [](cli:rollout) `resume` sets `os.pk.io/resume` to the plan hash.
+- **Health gate.** Before each step, the operator asks etcd and Kubernetes again. It needs a leader, no member with an error, no learner, all control planes as members and all other Nodes Ready. Until then, the reason is `WaitingForHealth`.
+- **One rollout per cluster.** A second approved rollout waits until the first one ends.
+- **Failure.** A step fails: the rollout stops with `RolloutFailed`. The steps that did not start are `Skipped`.
+
+<Callout type="caution">
+Do not abort a rollout to pause it. `spec.abort` cannot change back. Use `pk-metal rollout pause`, which sets `spec.paused`.
+A node that runs finishes in both cases.
+</Callout>
+
+## Approval rules
+
+A ValidatingAdmissionPolicy enforces the same rules as for a HostOperation:
+
+1. The creator must name themselves in `spec.proposedBy`.
+2. The approver must be another person, not the operator.
+3. `approvedBy` and `planHash` are set together, and cannot change after that.
+
+Before each node operation starts, the [](ctrl:hostoperation) checks that this rollout still covers it.
+If not, the operation fails with `RolloutRefused` and the machine does not change.
+
+## Spec
+
+<FieldTable kind="TalosRollout" part="spec" />
+
+## Status
+
+<FieldTable kind="TalosRollout" part="status" />
+
+### Conditions
+
+| Condition | Reasons |
+| --- | --- |
+| `Planned` | `PlanReady`, `PlanBlocked`, `NothingToDo` |
+| `Approved` | `AwaitingApproval`, `PlanApproved`, `PlanChanged` |
+| `Progressing` | `NotStarted`, `NodeRunning`, `WaitingForHealth`, `PausedAfterFirstNode`, `PausedByPerson`, `Succeeded`, `RolloutFailed`, `Aborted` |
+| `Paused` | `PausedAfterFirstNode`, `PausedByPerson`, `NotPaused` |
+| `Complete` | `Succeeded`, `NothingToDo`, `RolloutFailed`, `Aborted`, `PlanChanged` |
+
+Each step in `status.steps` is `Pending`, `Running`, `Succeeded`, `Failed` or `Skipped`.
+
+## Example
+
+```console
+$ pk-metal upgrade talos lab v1.14.7
+$ kubectl get talosrollouts
+NAME                        CLUSTER   KIND           APPROVED   PROGRESS   COMPLETE   AGE
+lab-talosupgrade-1a2b3c4d   lab       TalosUpgrade   False      0/5                   1m
+```
+
+## Tasks
+
+- [](howto:upgrade-talos)
+- [](howto:change-machine-config)
+- [](flow:day-2-change)
+- [](rb:node-not-ready)

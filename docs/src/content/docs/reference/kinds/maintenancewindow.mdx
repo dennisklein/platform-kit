@@ -1,0 +1,182 @@
+---
+title: MaintenanceWindow
+description: The times when an approved operation can start on a set of machines. You write it.
+type: kind
+eyebrow: Kind · metal.pk.io/v1alpha1
+xref: { cat: kind, id: MaintenanceWindow }
+sources:
+  - /repo/metal/api/v1alpha1/maintenancewindow_types.go
+  - /repo/metal/internal/controller/window.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import FieldTable from '../../../../components/FieldTable.astro';
+import WindowGate from '../../../../components/catalog/WindowGate.astro';
+
+A MaintenanceWindow tells the operator when work that disturbs a machine can start.
+You write it. A person must still approve each change. The window only sets the time when an approved change starts.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Group and version</dt>
+  <dd>`metal.pk.io/v1alpha1`</dd>
+  <dt>Scope</dt>
+  <dd>Cluster.</dd>
+  <dt>Written by</dt>
+  <dd>You. The operator writes the status.</dd>
+  <dt>Reconciled by</dt>
+  <dd>[](ctrl:maintenancewindow) writes the status. [](ctrl:hostoperation) applies the window.</dd>
+  <dt>Covers</dt>
+  <dd>[Hosts](kind:Host), by label or by the cluster of their node.</dd>
+  <dt>Delays</dt>
+  <dd>The start of an approved [](kind:HostOperation).</dd>
+  <dt>Phases</dt>
+  <dd>None. Read `status.open` and the condition `Valid`.</dd>
+  <dt>Source</dt>
+  <dd>[maintenancewindow_types.go](/repo/metal/api/v1alpha1/maintenancewindow_types.go)</dd>
+</dl>
+
+## How it works
+
+<WindowGate />
+
+The [executor](ctrl:hostoperation) examines the windows one time for each operation, before the first action.
+It calculates the result from the spec of each window. It does not read `status.open`.
+When you change a window, an operation that waits uses the new window in 5 minutes or less.
+
+## Rules
+
+<dl>
+  <dt>No window, no delay</dt>
+  <dd>A machine that no window covers is not delayed. With no MaintenanceWindow objects, the operator works as before.</dd>
+  <dt>One open window is enough</dt>
+  <dd>When more than one window covers a machine, the operation starts when one of them is open.</dd>
+  <dt>A window delays only the start</dt>
+  <dd>The operator does not stop an operation when the window closes. A machine with half of a change is in a worse condition.</dd>
+  <dt>A new install does not wait</dt>
+  <dd>An operation with the reason `Provisioning` starts immediately. The machine has no workload yet.</dd>
+  <dt>A wrong window stays closed</dt>
+  <dd>If the operator cannot read a window, that window is never open. The machines that it covers wait until you correct it.</dd>
+  <dt>An approval is always necessary</dt>
+  <dd>A window does not approve an operation. An operation with no approval does not start in an open window.</dd>
+</dl>
+
+All changes that go through a HostOperation wait for the window: BIOS and firmware changes, reboots, releases, and each node of a [](kind:TalosRollout).
+A rollout that comes to a node outside its window waits there, between two nodes.
+
+## Which machines a window covers
+
+A window covers a Host when one of these is true:
+
+- The labels of the Host agree with [`spec.hostSelector`](kind:MaintenanceWindow#spec.hostSelector). An empty selector (`{}`) covers all Hosts.
+- The Host runs a node of a [](kind:TalosCluster) in [`spec.clusters`](kind:MaintenanceWindow#spec.clusters).
+
+The labels are the same labels that profiles use: `metal.pk.io/vendor`, `metal.pk.io/model`, and the labels of the [](kind:HostClaim).
+A window must have a selector, a list of clusters, or the two.
+
+## When a window is open
+
+<dl>
+  <dt>`weekly`</dt>
+  <dd>A window on the given days, from `start` (local time, `HH:MM`) for `duration`. It can continue after midnight. The duration is 1 minute to 1 week.</dd>
+  <dt>`once`</dt>
+  <dd>One window from `start` to `end`, as full timestamps with an offset.</dd>
+  <dt>`timeZone`</dt>
+  <dd>The IANA time zone of the weekly windows, for example `Europe/Berlin`. The default is `UTC`. A weekly window keeps its local start time through a change to or from daylight saving time.</dd>
+</dl>
+
+A window must have one `weekly` or one `once` entry at a minimum.
+
+## Spec
+
+<FieldTable kind="MaintenanceWindow" part="spec" />
+
+## Status
+
+The status is for people and for `kubectl`. The [](ctrl:maintenancewindow) writes it again each time the window opens or closes.
+
+<FieldTable kind="MaintenanceWindow" part="status" />
+
+### Conditions
+
+| Condition | Status | Reason | Meaning |
+| --- | --- | --- | --- |
+| `Valid` | True | `WindowValid` | The operator can read the window. |
+| `Valid` | False | `WindowInvalid` | The time zone, a weekly entry or the selector is wrong. The message gives the cause. The window is never open. |
+
+An operation that waits has the condition `Executed` with the status Unknown and the reason `OutsideMaintenanceWindow`.
+Its phase is Proposed, and `blockedOn` shows the reason. The message gives the time when the next window opens.
+
+## Example
+
+```yaml
+apiVersion: metal.pk.io/v1alpha1
+kind: MaintenanceWindow
+metadata:
+  name: compute-weekend
+spec:
+  hostSelector:
+    matchLabels:
+      role: compute
+  clusters: [prod]
+  timeZone: Europe/Berlin
+  weekly:
+    - days: [Sat]
+      start: "22:00"
+      duration: 6h
+    - days: [Tue, Thu]
+      start: "06:00"
+      duration: 90m
+  once:
+    - start: "2026-12-03T18:00:00+01:00"
+      end: "2026-12-03T23:00:00+01:00"
+```
+
+```console
+$ kubectl get maintenancewindows
+NAME              OPEN    NEXT CHANGE   ZONE            AGE
+compute-weekend   false   2d            Europe/Berlin   5d
+```
+
+## Start one operation outside the windows
+
+Use this procedure for an urgent change, for example a security correction.
+
+1. Find the operation that waits. The column BLOCKED shows `OutsideMaintenanceWindow`.
+
+   ```sh
+   kubectl get hostoperations -n pk-metal -o wide
+   ```
+
+2. Set the annotation on the operation. Give the reason as the value.
+
+   ```sh
+   kubectl annotate hostoperation -n pk-metal <operation> metal.pk.io/ignore-window="urgent security correction"
+   ```
+
+3. Make sure that the phase of the operation is Running.
+
+   ```sh
+   kubectl get hostoperation -n pk-metal <operation>
+   ```
+
+The operation starts on the next pass of the operator, in a few seconds. The reason stays in the record of the operation.
+You can set the annotation before or after the approval. The operation does not start without the approval.
+
+<Callout type="caution">
+Make the window long enough for the work that you approve into it.
+An operation that starts in the window continues after the window closes.
+</Callout>
+
+<Callout type="note">
+An operation that waits for its window does not count as a problem in [](cli:status).
+The metric `pk_metal_operation_blocked` lists these operations with the reason `OutsideMaintenanceWindow`.
+</Callout>
+
+## Tasks
+
+- [](howto:approve-hold-retry)
+- [](howto:upgrade-talos)
+- [](howto:maintenance-mode)
+- [](ref:labels-annotations)

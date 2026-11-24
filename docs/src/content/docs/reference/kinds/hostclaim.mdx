@@ -1,0 +1,203 @@
+---
+title: HostClaim
+description: A request for one machine. It binds a Host and names the TalosNode to install. You write it.
+type: kind
+eyebrow: Kind · metal.pk.io/v1alpha1
+xref: { cat: kind, id: HostClaim }
+sources:
+  - /repo/metal/api/v1alpha1/hostclaim_types.go
+  - /repo/metal/internal/controller/hostclaim_controller.go
+  - /repo/metal/internal/controller/provisioning.go
+  - /repo/metal/internal/phase/phase.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import FieldTable from '../../../../components/FieldTable.astro';
+import ClaimRelations from '../../../../components/catalog/ClaimRelations.astro';
+import ClaimPhases from '../../../../components/catalog/ClaimPhases.astro';
+import PhaseTable from '../../../../components/catalog/PhaseTable.astro';
+
+A HostClaim takes one machine for your use. It names the machine by its Asset, and it can name the TalosNode to install.
+You write it. Keep claims in git, so that a person examines each change.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Group and version</dt>
+  <dd>`metal.pk.io/v1alpha1`</dd>
+  <dt>Scope</dt>
+  <dd>Namespace. Claims are usually in `default`.</dd>
+  <dt>Written by</dt>
+  <dd>You. The operator writes the status.</dd>
+  <dt>Reconciled by</dt>
+  <dd>[](ctrl:hostclaim)</dd>
+  <dt>Binds</dt>
+  <dd>One [](kind:Host). Only one claim can hold a Host.</dd>
+  <dt>Phases</dt>
+  <dd>Pending, Bound, Ambiguous.</dd>
+  <dt>Finalizer</dt>
+  <dd>`metal.pk.io/release` keeps a deleted claim until the operator frees the machine.</dd>
+  <dt>Source</dt>
+  <dd>[hostclaim_types.go](/repo/metal/api/v1alpha1/hostclaim_types.go)</dd>
+</dl>
+
+## What a claim does to a machine
+
+<dl>
+  <dt>With `spec.os`</dt>
+  <dd>The operator proposes an install of the [](kind:TalosNode). After the approval, the install erases the install disk.</dd>
+  <dt>Without `spec.os`</dt>
+  <dd>The claim only reserves the machine. The operator does nothing to it.</dd>
+  <dt>When you delete it</dt>
+  <dd>The operator releases the machine. If the operator installed the machine, it stops the machine. A machine that the claim did not install continues to run.</dd>
+</dl>
+
+## How it connects
+
+<ClaimRelations />
+
+The [](ctrl:hostclaim) follows [`spec.assetRef`](kind:HostClaim#spec.assetRef) to the [](kind:Asset), then to its [](kind:ManagementEndpoint), then to the Host.
+It writes the claim into [`spec.claimRef`](kind:Host#spec.claimRef) of the Host. The first claim that writes this field holds the Host.
+
+For each change to the machine, the controller proposes a [](kind:HostOperation). Read [](concept:approval).
+Use [](cli:status) to see the claims and the operations that wait, and [](cli:approve) to approve an operation.
+[](flow:rack-to-node) shows the full path, and [](flow:release-and-reuse) shows the release.
+
+## Lifecycle
+
+<ClaimPhases />
+
+1. You apply the claim. The phase is Pending.
+2. The controller finds the Host of the Asset and binds it. The phase is Bound, and the Host is Assigned.
+3. If the claim has `spec.os`, the controller proposes the install operation. The condition `Provisioned` is False and gives the cause of the wait.
+4. You approve the operation. The operator installs the machine.
+5. The node reports to the operator. The controller writes [`status.handOff`](kind:HostClaim#status.handOff), and `Provisioned` is True.
+6. You delete the claim. The controller proposes the release operation. The Host goes to Releasing and, after the release, to Available.
+
+The operator installs a machine only one time for each claim. The record in `status.handOff` tells the operator that the work is complete.
+If the node stops later, the operator does not install it again.
+
+<PhaseTable kind="HostClaim" />
+
+The Host has a different set of phases. Read [](kind:Host).
+
+## Spec
+
+<FieldTable kind="HostClaim" part="spec" />
+
+### Rules of the spec
+
+- A change of `spec.assetRef` or `spec.systemRef` moves the claim to another machine. The operator releases the old machine first, then binds the new one. Only a member of the admin group can do this. Use [](cli:replace).
+- You cannot change `spec.os.nodeRef`. To change the node, remove `spec.os`. Then set it again.
+- A key in `spec.labels` has no prefix and no `/`. A claim can have 16 labels at most.
+- `spec.provisioning.approval` is `Required` or `Automatic`. The default is `Required`.
+
+## Status
+
+<FieldTable kind="HostClaim" part="status" />
+
+### Conditions
+
+| Condition | True means | Effect on the phase |
+| --- | --- | --- |
+| `Bound` | The claim holds its Host. | Bound when True |
+| `Provisioned` | The machine runs the configuration of the TalosNode. Absent when the claim holds no Host. | None. A reason that needs a person shows in `blockedOn`. |
+
+### Why a claim waits
+
+The column BLOCKED of `kubectl get hostclaims -o wide` shows `status.blockedOn`.
+
+| `blockedOn` | Meaning | What to do |
+| --- | --- | --- |
+| `AssetNotFound` | No Asset has the name in `spec.assetRef`. | Write the Asset, or correct the name. |
+| `AssetNotMaterialized` | The Asset has no endpoint. | Read the condition `Materialized` of the [](kind:Asset). |
+| `HostAlreadyClaimed` | A different claim holds the Host. | Delete that claim, or use a different machine. |
+| `AmbiguousSystem` | The BMC manages more than one machine. | Make a new claim with `spec.systemRef`. |
+| `SystemNotFound` | The BMC has no system with the name in `spec.systemRef`. | Correct `spec.systemRef` in a new claim. |
+| `Approval(Provisioning)` | The install or the release waits for approval. | [](cli:approve) |
+| `HeldByUser` | The claim has the hold annotation. | [](cli:unhold) |
+| `HostInMaintenance` | The Host has the maintenance annotation. | [](howto:maintenance-mode) |
+| `OperationFailed` | The install operation failed. | [](rb:operation-failed) |
+| `ReleaseFailed` | The release operation failed. The machine stays bound. | [](rb:operation-failed) |
+
+An empty `blockedOn` on a Pending claim means that the machine did not appear yet. The operator waits.
+
+### Annotations
+
+| Annotation | Effect | Set it with |
+| --- | --- | --- |
+| `metal.pk.io/hold` | The operator proposes nothing for the claim. It removes the proposals that have no approval. | [](cli:hold) |
+| `metal.pk.io/reinstall` | The operator proposes a wipe and a new install on the same machine. | [](cli:reinstall) |
+| `metal.pk.io/ack-etcd-risk` | You accept the risk for etcd when a control plane goes. | `--ack-etcd-risk` |
+
+[](ref:labels-annotations) has the full text of each key.
+
+## Example
+
+```yaml
+apiVersion: metal.pk.io/v1alpha1
+kind: HostClaim
+metadata:
+  name: node-1
+  namespace: default
+spec:
+  assetRef:
+    name: ci-00397
+  labels:
+    role: worker
+  os:
+    nodeRef:
+      name: node-1
+  provisioning:
+    approval: Required
+```
+
+```console
+$ kubectl get hostclaims
+NAME     ASSET      HOST                NODE     PHASE   PROVISIONED         AGE
+node-1   ci-00397   simhw2288v5000397   node-1   Bound   HandedOff           3d
+node-2   ci-00398   simhw2288v5000398   node-2   Bound   AwaitingOperation   4m
+```
+
+## Stop the proposals for a claim
+
+Use a hold when you want the operator to wait, for example before a change window.
+
+1. Set the hold. Give the reason.
+
+   ```sh
+   pk-metal hold --reason "wait for the change window" default/node-2
+   ```
+
+2. Make sure that the claim shows the hold.
+
+   ```sh
+   kubectl get hostclaims -o wide
+   ```
+
+3. Do your work.
+4. Remove the hold.
+
+   ```sh
+   pk-metal unhold default/node-2
+   ```
+
+A hold does not stop an operation that has an approval and runs.
+
+<Callout type="warning">
+Do not delete the HostClaim of a machine that has data you must keep.
+The release removes the node from its cluster and erases its disk.
+</Callout>
+
+<Callout type="caution">
+Do not set `spec.provisioning.approval` to `Automatic` for machines that have data.
+With `Automatic`, the install and the release start with no approval.
+</Callout>
+
+## Tasks
+
+- [](howto:install-hosts)
+- [](howto:approve-hold-retry)
+- [](howto:release-a-host)
+- [](howto:replace-a-node)
+- [](rb:operation-failed)

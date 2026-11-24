@@ -1,0 +1,111 @@
+---
+title: Phases
+description: All phases of Host, HostClaim, HostOperation and ManagementEndpoint, with the rule that gives each phase.
+type: reference
+eyebrow: Catalog · status.phase
+xref: { cat: ref, id: phases }
+sources:
+  - /repo/metal/internal/phase/phase.go
+  - /repo/docs/src/data/generated/phases.json
+---
+
+import Callout from '../../../components/Callout.astro';
+import HostPhases from '../../../components/diagrams/HostPhases.astro';
+import PhaseTable from '../../../components/catalog/PhaseTable.astro';
+import EndpointPhases from '../../../components/catalog/EndpointPhases.astro';
+import ClaimPhases from '../../../components/catalog/ClaimPhases.astro';
+import OperationPhases from '../../../components/catalog/OperationPhases.astro';
+
+A phase is one word in `status.phase` that tells a person where an object is.
+Four kinds have a phase. This page lists each phase, what it tells you, and the rule that gives it.
+
+## How to read a phase
+
+<dl>
+  <dt>A summary</dt>
+  <dd>The operator calculates the phase from the conditions on each pass. The phase has no memory of the phase before.</dd>
+  <dt>Rules in order</dt>
+  <dd>Each kind has a list of rules. The first rule that applies gives the phase. The column "Rule" shows this order.</dd>
+  <dt>For people</dt>
+  <dd>The controllers read conditions and do not read the phase. Your scripts must also read the [conditions](ref:conditions).</dd>
+  <dt>One writer</dt>
+  <dd>Only the package [phase.go](/repo/metal/internal/phase/phase.go) writes `status.phase` and `status.blockedOn`.</dd>
+</dl>
+
+[](concept:phases-and-conditions) explains why the operator works in this way.
+
+<Callout type="note">
+The diagrams show the usual order. An object can go from one phase to a different phase in one pass, because the phase follows the conditions.
+</Callout>
+
+## Host
+
+A [](kind:Host) has nine phases. The [](ctrl:host) calculates the inputs.
+
+<HostPhases />
+
+<PhaseTable kind="Host" />
+
+## ManagementEndpoint
+
+A [](kind:ManagementEndpoint) has eight phases. Two controllers write its conditions: one [observes](ctrl:managementendpoint) the BMC, and one [configures](ctrl:endpointconvergence) it.
+
+<EndpointPhases />
+
+<PhaseTable kind="ManagementEndpoint" />
+
+The phase Configuring shows only when an [](kind:EndpointProfile) applies to the endpoint.
+
+## HostClaim
+
+A [](kind:HostClaim) has three phases. The [](ctrl:hostclaim) writes its conditions.
+
+<ClaimPhases />
+
+<PhaseTable kind="HostClaim" />
+
+## HostOperation
+
+A [](kind:HostOperation) has six phases. The [](ctrl:hostoperation) writes its conditions.
+
+<OperationPhases />
+
+<PhaseTable kind="HostOperation" />
+
+## blockedOn
+
+`status.blockedOn` tells you why an object does not continue. It is empty when the object is not blocked.
+The same reason can show in more than one phase, thus it is a different field.
+
+| Kind | Value of `blockedOn` | Source |
+| --- | --- | --- |
+| Host, ManagementEndpoint | The reason of `Verified`, for example `SerialMismatch` | `Verified` is False |
+| Host, ManagementEndpoint | `Approval(<domain>)`, for example `Approval(Provisioning)` | `ApprovalPending` is True |
+| Host | The reason of `DiskWiped`, for example `InstalledNodeRemains` | `DiskWiped` is False |
+| Host | `HostInMaintenance` | The Host is in Maintenance and no other reason applies |
+| HostClaim | The reason of `Bound`, for example `HostAlreadyClaimed` | The claim holds no Host |
+| HostClaim | The reason of `Provisioned`, for example `HeldByUser` | The claim holds a Host, and a person must act |
+| HostOperation | The reason of `Approved`, for example `AwaitingApproval` | The operation has no approval |
+| HostOperation | The reason of `Executed`, for example `OutsideMaintenanceWindow` | The operation has an approval and waits |
+
+For a Host and a ManagementEndpoint, the rows are in order of precedence. A failed verification comes before an approval that waits.
+
+A HostClaim with the reason `HostNotDiscovered` is not blocked. The machine did not appear yet, and the operator waits.
+
+## Other kinds
+
+These kinds have no phase. Read their conditions.
+
+- [](kind:Asset): the condition `Materialized`.
+- [](kind:MaintenanceWindow): the field `status.open` and the condition `Valid`.
+- [](kind:BiosSettings): the condition `Converged`.
+- [](kind:TalosNode), [](kind:TalosCluster), [](kind:TalosRollout), [](kind:BootAsset), [](kind:EtcdBackupPolicy) and [](kind:EtcdSnapshot): the conditions of the group `os.pk.io`.
+
+## Link to a phase
+
+Each phase has an anchor: the kind and the phase in lower case, with a hyphen between them.
+
+```md
+[Available](ref:phases#host-available)
+[Mismatch](ref:phases#managementendpoint-mismatch)
+```

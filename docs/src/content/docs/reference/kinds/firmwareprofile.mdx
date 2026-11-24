@@ -1,0 +1,95 @@
+---
+title: FirmwareProfile
+description: The firmware that a group of machines must run, for the BMC and for system parts such as BIOS, network cards and RAID controllers.
+type: kind
+eyebrow: Kind · metal.pk.io/v1alpha1
+xref: { cat: kind, id: FirmwareProfile }
+sources:
+  - /repo/metal/api/v1alpha1/firmwareprofile_types.go
+  - /repo/metal/internal/controller/convergence_controller.go
+  - /repo/metal/internal/controller/convergence_sysfw.go
+  - /repo/metal/config/samples/profiles.yaml
+---
+
+import Callout from '../../../../components/Callout.astro';
+import FieldTable from '../../../../components/FieldTable.astro';
+import FirmwareFlow from '../../../../components/diagrams/FirmwareFlow.astro';
+
+A FirmwareProfile names the firmware versions for the Hosts that match its selector.
+You write it in git. A machine with other versions gets a proposed [](kind:HostOperation).
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Group and version</dt>
+  <dd>`metal.pk.io/v1alpha1`</dd>
+  <dt>Scope</dt>
+  <dd>Cluster.</dd>
+  <dt>Written by</dt>
+  <dd>You, in git.</dd>
+  <dt>Read by</dt>
+  <dd>[](ctrl:convergence).</dd>
+  <dt>Host conditions</dt>
+  <dd>`FirmwareConverged` (the BMC) and `SystemFirmwareConverged` (the system parts).</dd>
+  <dt>Sample</dt>
+  <dd>[profiles.yaml](/repo/metal/config/samples/profiles.yaml)</dd>
+</dl>
+
+## How it connects
+
+<FirmwareFlow />
+
+<dl>
+  <dt>`spec.manager`</dt>
+  <dd>
+    The firmware of the BMC. A different version gives an operation with [](act:FlashFirmware).
+    The BMC restarts. The machine continues to run.
+    Only a BMC that offers the multipart push transport gets a flash. Other BMCs stay at reason `NoUpdateTransport`.
+  </dd>
+  <dt>`spec.system[]`</dt>
+  <dd>
+    The firmware of system parts, as the firmware inventory of the BMC names them.
+    A different version gives an operation with [](act:StageFirmware) and a reboot. The new version applies at the reset.
+    On a machine that runs a node, the operation drains the node first.
+  </dd>
+</dl>
+
+Firmware converges before BIOS, because a firmware update can change the [](kind:BiosSchema).
+Profiles merge by `layer` and name, as a [](kind:BiosProfile) does. Two profiles on one layer that disagree are a conflict (`ProfileConflict`).
+
+<Callout type="note">
+Pin each image by digest. The executor refuses bytes that it cannot verify.
+</Callout>
+
+## Spec
+
+<FieldTable kind="FirmwareProfile" part="spec" />
+
+## Example
+
+```yaml
+apiVersion: metal.pk.io/v1alpha1
+kind: FirmwareProfile
+metadata:
+  name: compute-system-firmware
+spec:
+  match:
+    matchLabels:
+      metal.pk.io/vendor: Generic
+  system:
+    - component: BIOS
+      version: "1.9.0"
+      image: registry.example.org/firmware/generic-bios@sha256:<digest>
+    - component: NIC\.Slot\.[0-9]+
+      version: "22.31.6"
+      image: registry.example.org/firmware/generic-nic@sha256:<digest>
+```
+
+`component` is a regular expression over the full inventory ID.
+`kubectl describe managementendpoint` lists the IDs that a machine has.
+
+## Tasks
+
+- [](howto:flash-firmware)
+- [](howto:approve-hold-retry)
+- [](rb:operation-failed)

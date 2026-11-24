@@ -1,0 +1,87 @@
+---
+title: BiosProfile
+description: A set of BIOS values that a group of machines must have. You write it in git. It selects Hosts by label.
+type: kind
+eyebrow: Kind · metal.pk.io/v1alpha1
+xref: { cat: kind, id: BiosProfile }
+sources:
+  - /repo/metal/api/v1alpha1/biosprofile_types.go
+  - /repo/metal/internal/controller/convergence_controller.go
+  - /repo/metal/config/samples/profiles.yaml
+---
+
+import FieldTable from '../../../../components/FieldTable.astro';
+import BiosFlow from '../../../../components/diagrams/BiosFlow.astro';
+
+A BiosProfile is a set of BIOS values for the Hosts that match its selector.
+You write it. No controller changes it: it states what you want.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Group and version</dt>
+  <dd>`metal.pk.io/v1alpha1`</dd>
+  <dt>Scope</dt>
+  <dd>Cluster.</dd>
+  <dt>Written by</dt>
+  <dd>You, in git.</dd>
+  <dt>Read by</dt>
+  <dd>[](ctrl:convergence). It merges the matching profiles into one [](kind:BiosSettings) for each Host.</dd>
+  <dt>Phases</dt>
+  <dd>None. A profile has no status.</dd>
+  <dt>Sample</dt>
+  <dd>[profiles.yaml](/repo/metal/config/samples/profiles.yaml)</dd>
+</dl>
+
+## How it connects
+
+<BiosFlow />
+
+1. The convergence controller finds all profiles whose `match` selects the [](kind:Host).
+2. It sorts them by `layer` and name, and merges them in that order. A higher layer overrides a lower layer.
+3. It writes the result into the BiosSettings of the Host, with the profile that gave each value.
+4. It checks the values against the [](kind:BiosSchema) of the machine.
+5. If the machine differs, it proposes a [](kind:HostOperation) with [](act:ApplyBios). A person approves it.
+
+[](concept:convergence) explains the model.
+
+## Layers
+
+Two label axes select machines:
+
+<dl>
+  <dt>What the machine is</dt>
+  <dd>Labels that the operator finds, for example `metal.pk.io/vendor` and `metal.pk.io/model`. They are present also on a free machine. Use them for a hardware baseline, for example layer 0.</dd>
+  <dt>What the machine is for</dt>
+  <dd>Labels from the bound [](kind:HostClaim), for example `role: worker`. They go away when the claim goes. Use them for a role profile, for example layer 10.</dd>
+</dl>
+
+Two profiles on the same layer that set one attribute to different values are a conflict.
+The operator then keeps the last merge and sets `BiosConverged=False` with reason `ProfileConflict`. It changes nothing.
+
+An attribute that no profile names is not managed. A higher layer can change a value, but cannot remove an attribute from management.
+
+## Spec
+
+<FieldTable kind="BiosProfile" part="spec" />
+
+## Example
+
+```yaml
+apiVersion: metal.pk.io/v1alpha1
+kind: BiosProfile
+metadata:
+  name: role-worker
+spec:
+  match:
+    matchLabels:
+      role: worker
+  layer: 10
+  attributes:
+    QuietBoot: true
+```
+
+## Tasks
+
+- [](howto:apply-bios-settings)
+- [](howto:approve-hold-retry)

@@ -1,0 +1,120 @@
+---
+title: TalosNode
+description: The configuration of one Talos node. The machine that a claim binds boots this configuration.
+type: kind
+eyebrow: Kind · os.pk.io/v1alpha1
+xref: { cat: kind, id: TalosNode }
+sources:
+  - /repo/metal/api/os/v1alpha1/talosnode_types.go
+  - /repo/metal/internal/controller/talosnode_controller.go
+  - /repo/metal/internal/controller/talosnode_day2.go
+  - /repo/metal/internal/controller/talosnode_finalizer.go
+---
+
+import FieldTable from '../../../../components/FieldTable.astro';
+import TalosRender from '../../../../components/diagrams/TalosRender.astro';
+
+A TalosNode is one member of a [](kind:TalosCluster): the part of the config that belongs to one machine.
+The operator renders its machine config and checks in with the machine that runs it.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Group and version</dt>
+  <dd>`os.pk.io/v1alpha1`</dd>
+  <dt>Scope</dt>
+  <dd>Cluster. The host name of the node is `metadata.name`.</dd>
+  <dt>Written by</dt>
+  <dd>You write the spec. The operator writes the status.</dd>
+  <dt>Reconciled by</dt>
+  <dd>[](ctrl:talosnode). A second controller keeps a finalizer until the node is out of its cluster.</dd>
+  <dt>Run by</dt>
+  <dd>A [](kind:Host), when a [](kind:HostClaim) names the node.</dd>
+  <dt>Conditions</dt>
+  <dd>`Rendered`, `MachineReachable`, `Ready`, `ConfigInSync`, `VersionCurrent`, `RemovalBlocked`.</dd>
+</dl>
+
+## How it connects
+
+<TalosRender />
+
+1. The controller renders the config for the Talos version that the machine runs. `status.renderedFor` shows that version.
+2. It writes the config to a Secret named after the node and the digest, for example `machineconfig-node-1-0123456789ab`.
+3. The Secret never changes. A new config gets a new Secret, so an approved operation always applies the bytes that a person saw.
+4. A [](kind:BootAsset) builds the boot media from the Secret.
+5. After the install, the controller checks in with the machine through the Talos API.
+6. Every 10 minutes, and every 30 seconds during a rollout, it asks the machine for a dry run of the config.
+
+If an input is broken, `Rendered=False` and the last good Secret stays. A broken input never removes the config of a machine.
+
+## Drift
+
+The dry run changes nothing. Its result is `ConfigInSync`:
+
+| Status | Reason | Meaning |
+| --- | --- | --- |
+| True | `InSync` | The machine runs the rendered config. |
+| False | `ConfigDrift` | The machine differs. `status.drift` gives the number of lines and the keys, never the values. |
+| Unknown | `DriftUnknown` | The dry run failed. The message tells why. |
+
+A drifted node makes the [](ctrl:rolloutproposer) propose a `Config` [](kind:TalosRollout).
+That is how your edit reaches the machine, and how the operator reverts a change that a person made with `talosctl`.
+
+## Removal
+
+When you delete a TalosNode, a finalizer holds it until no part of the node stays in its cluster:
+
+- no claim records an install of it,
+- no unfinished operation acts on it,
+- for a control plane of a running cluster, etcd lists no member with its name.
+
+While it waits, `RemovalBlocked` tells why, for example `EtcdMemberRemains`.
+
+## Spec
+
+<FieldTable kind="TalosNode" part="spec" />
+
+## Status
+
+<FieldTable kind="TalosNode" part="status" />
+
+### Conditions
+
+| Condition | True means |
+| --- | --- |
+| `Rendered` | The config Secret is current. |
+| `MachineReachable` | The machine answers on the Talos API (`MachineAPI`) or in maintenance mode (`MaintenanceMode`). |
+| `Ready` | The node runs and is ready. |
+| `ConfigInSync` | The machine runs the rendered config. |
+| `VersionCurrent` | The machine runs the Talos version of the cluster. False: `VersionSkew`. |
+| `RemovalBlocked` | A deletion waits. The reason tells for what. |
+
+## Example
+
+```yaml
+apiVersion: os.pk.io/v1alpha1
+kind: TalosNode
+metadata:
+  name: node-1
+spec:
+  clusterRef:
+    name: lab
+  role: controlplane
+  installDiskSelector:
+    serial: pklab-disk-1
+  network:
+    links:
+      - name: lan
+        hardwareAddr: "52:54:00:77:00:11"
+        addresses: [10.77.0.11/24]
+        routes:
+          - gateway: 10.77.0.1
+```
+
+## Tasks
+
+- [](howto:define-a-cluster)
+- [](howto:change-machine-config)
+- [](howto:replace-a-node)
+- [](howto:remove-a-node)
+- [](rb:node-not-ready)

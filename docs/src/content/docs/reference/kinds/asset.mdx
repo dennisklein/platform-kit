@@ -1,0 +1,156 @@
+---
+title: Asset
+description: One machine as your records know it. You write it, and the operator finds the BMC from it.
+type: kind
+eyebrow: Kind · metal.pk.io/v1alpha1
+xref: { cat: kind, id: Asset }
+sources:
+  - /repo/metal/api/v1alpha1/asset_types.go
+  - /repo/metal/internal/controller/asset_controller.go
+  - /repo/metal/config/samples/asset.yaml
+---
+
+import Callout from '../../../../components/Callout.astro';
+import FieldTable from '../../../../components/FieldTable.astro';
+import AssetChain from '../../../../components/catalog/AssetChain.astro';
+
+An Asset is one physical machine as your records know it: its serial number and the MAC address of its BMC.
+You write one Asset for each machine. The operator does nothing with a machine until an Asset names it.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Group and version</dt>
+  <dd>`metal.pk.io/v1alpha1`</dd>
+  <dt>Scope</dt>
+  <dd>Cluster. An Asset has no namespace.</dd>
+  <dt>Written by</dt>
+  <dd>You, by hand or from an export of your inventory. Keep it in git.</dd>
+  <dt>Reconciled by</dt>
+  <dd>[](ctrl:asset)</dd>
+  <dt>Name</dt>
+  <dd>Your choice. The [](kind:ManagementEndpoint) gets the same name.</dd>
+  <dt>Owns</dt>
+  <dd>One ManagementEndpoint. When you delete the Asset, Kubernetes deletes the endpoint.</dd>
+  <dt>Phases</dt>
+  <dd>None. Read the condition `Materialized`.</dd>
+  <dt>Source</dt>
+  <dd>[asset_types.go](/repo/metal/api/v1alpha1/asset_types.go)</dd>
+</dl>
+
+## How it connects
+
+<AssetChain />
+
+The [](ctrl:asset) looks for [`spec.bmcMac`](kind:Asset#spec.bmcMac) in the [ledger](concept:ledger). The ledger gives the address of the BMC.
+With the address, the controller makes the ManagementEndpoint. Through the BMC, the operator finds the machine and makes a [](kind:Host).
+A [](kind:HostClaim) names the Asset to get that Host.
+
+The Asset holds only what you know. The other two kinds hold what the operator found. [](concept:assert-vs-observe) explains this rule.
+The operator compares the two sets of facts. If they do not agree, it stops. Read [](concept:identity).
+
+## Lifecycle
+
+An Asset has no phase. It has one condition.
+
+1. You apply the Asset. `Materialized` is absent.
+2. The controller finds the MAC address in the ledger and makes the endpoint. `Materialized` is True, with the name and the address of the endpoint.
+3. If the controller cannot make the endpoint, `Materialized` is False. The reason tells you what to correct.
+4. When you change the Asset, the controller writes the endpoint again. The endpoint compares the new values with the BMC.
+
+The ManagementEndpoint and the Host keep a copy of the Asset spec that they used last.
+If the Asset is absent for a short time, the operator continues with that copy.
+
+## Spec
+
+<FieldTable kind="Asset" part="spec" />
+
+## Status
+
+<FieldTable kind="Asset" part="status" />
+
+### Conditions
+
+| Condition | Reason | Meaning | What to do |
+| --- | --- | --- | --- |
+| `Materialized` True | `EndpointMaterialized` | The ManagementEndpoint exists. The message gives its address. | Nothing. |
+| `Materialized` False | `NoBMCMac` | The Asset has no `spec.bmcMac`. | Set `spec.bmcMac`. |
+| `Materialized` False | `NoLedgerEntry` | The MAC address is not in the ledger. | Add the line to the ledger, or correct the MAC address. |
+| `Materialized` False | `LedgerEntryInvalid` | The ledger has the MAC address, but the operator cannot read the line. | Correct the line. The message gives the cause. |
+| `Materialized` False | `MaterializeConflict` | An endpoint with this name is the property of a different Asset. | Give the Asset a different name. |
+
+The operator also sends a warning event when the reason changes. [](ref:conditions) lists all reasons.
+
+## Example
+
+An Asset, and the Secret with the login of the BMC. The Secret must be in the namespace of the operator, `pk-metal`.
+
+```yaml
+apiVersion: metal.pk.io/v1alpha1
+kind: Asset
+metadata:
+  name: ci-00397
+spec:
+  cid: "CI-00397"
+  serial: "SIMHW2288V5000397"
+  bmcMac: "02:00:48:0b:74:83"
+  vlan: 1034
+  credentialsRef:
+    name: ibmc-factory
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ibmc-factory
+  namespace: pk-metal
+stringData:
+  username: Administrator
+  password: <the factory password>
+```
+
+The ledger must have a line for the MAC address:
+
+```yaml
+"02:00:48:0b:74:83": https://[fd6b:5a2e:1c4d:1034::14]
+```
+
+## Make sure that an Asset has its endpoint
+
+1. Apply the Asset.
+
+   ```sh
+   kubectl apply -f asset.yaml
+   ```
+
+2. Read the column ENDPOINT. It shows the reason of `Materialized`.
+
+   ```console
+   $ kubectl get assets
+   NAME       CID        SERIAL              BMC MAC             ENDPOINT               AGE
+   ci-00397   CI-00397   SIMHW2288V5000397   02:00:48:0b:74:83   EndpointMaterialized   2m
+   ci-00398   CI-00398   SIMHW2288V5000398   02:00:48:0b:74:84   NoLedgerEntry          2m
+   ```
+
+3. If the reason is not `EndpointMaterialized`, read the message.
+
+   ```sh
+   kubectl describe asset ci-00398
+   ```
+
+4. Correct the Asset or the ledger. Then do step 2 again.
+
+<Callout type="caution">
+Make sure that `spec.serial` and `spec.bmcMac` are the values on the label of the machine.
+If a value is wrong, the endpoint goes to the phase Mismatch and the operator does nothing to the machine.
+</Callout>
+
+<Callout type="note">
+You cannot delete the endpoint of a machine that a claim holds. The operator keeps the Host and its endpoint until the claim releases the machine.
+</Callout>
+
+## Tasks
+
+- [](howto:enrol-hosts)
+- [](rb:host-mismatch)
+- [](rb:bmc-unreachable)
+- [](tut:lab-first-cluster)

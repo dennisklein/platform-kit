@@ -1,0 +1,123 @@
+---
+title: TalosCluster
+description: One Talos cluster. It holds what all its nodes share, and shows the state of the cluster that they make.
+type: kind
+eyebrow: Kind · os.pk.io/v1alpha1
+xref: { cat: kind, id: TalosCluster }
+sources:
+  - /repo/metal/api/os/v1alpha1/taloscluster_types.go
+  - /repo/metal/internal/controller/taloscluster_controller.go
+  - /repo/metal/internal/controller/taloscluster_day2.go
+  - /repo/metal/config/samples/talos.yaml
+---
+
+import Callout from '../../../../components/Callout.astro';
+import FieldTable from '../../../../components/FieldTable.astro';
+import TalosRender from '../../../../components/diagrams/TalosRender.astro';
+
+A TalosCluster is one Talos cluster: the Talos and Kubernetes versions, the endpoint and the settings that all nodes share.
+The operator bootstraps it one time, publishes its admin credentials and reports its health.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Group and version</dt>
+  <dd>`os.pk.io/v1alpha1`</dd>
+  <dt>Scope</dt>
+  <dd>Cluster. The cluster name is `metadata.name`.</dd>
+  <dt>Written by</dt>
+  <dd>You write the spec. The operator writes the status.</dd>
+  <dt>Reconciled by</dt>
+  <dd>[](ctrl:taloscluster)</dd>
+  <dt>Members</dt>
+  <dd>Each [](kind:TalosNode) that names it in `spec.clusterRef`.</dd>
+  <dt>Conditions</dt>
+  <dd>`Bootstrapped`, `Available`, `VersionsSupported`, `VersionsCurrent`, `SecretsBundleHeld`.</dd>
+  <dt>Sample</dt>
+  <dd>[talos.yaml](/repo/metal/config/samples/talos.yaml)</dd>
+</dl>
+
+## How it connects
+
+<TalosRender />
+
+- The [](ctrl:talosnode) renders the config of each node from the cluster, the node and the [secrets bundle](term:secrets-bundle).
+- The cluster controller bootstraps etcd on the first control plane, when all control planes answer.
+- It publishes an admin kubeconfig and an admin talosconfig as Secrets in `pk-metal`.
+- The [](ctrl:rolloutproposer) compares the spec with the machines. On a difference, it proposes a [](kind:TalosRollout).
+- An [](kind:EtcdBackupPolicy) takes snapshots of its etcd.
+
+## Lifecycle
+
+1. You apply the TalosCluster and its TalosNodes. The machines install.
+2. All control planes answer. The operator bootstraps etcd and records `status.bootstrappedAt`.
+3. The Kubernetes API answers and all members are Ready: `Available=True`.
+4. You raise `spec.talosVersion` or `spec.kubernetesVersion`. The operator proposes a rollout.
+
+<Callout type="warning">
+The operator never bootstraps a cluster again after `status.bootstrappedAt` is set.
+If all control planes answer and none runs etcd, `Bootstrapped=False` with reason `EtcdDataLost`. Restore etcd with [](cli:restore). Do not start an empty cluster on top of your data.
+</Callout>
+
+## Credentials and the bundle
+
+<dl>
+  <dt>`spec.credentials.ttl`</dt>
+  <dd>The lifetime of the published credentials. The default is 24 hours. The operator issues new ones when less than a third of the lifetime remains.</dd>
+  <dt>`spec.credentials.readerTalosconfig`</dt>
+  <dd>Also publishes `<cluster>-talosconfig-reader` with the role `os:reader`. Use it to monitor the cluster.</dd>
+  <dt>`status.credentialsExpireAt`</dt>
+  <dd>When the first published credential expires. Copy it again before this time.</dd>
+  <dt>`<cluster>-bundle-applied`</dt>
+  <dd>The copy of the secrets bundle that the machines have. If the Secret in `spec.secretsRef` changes, the operator continues with this copy and sets `SecretsBundleHeld=True`.</dd>
+</dl>
+
+## Spec
+
+<FieldTable kind="TalosCluster" part="spec" />
+
+## Status
+
+<FieldTable kind="TalosCluster" part="status" />
+
+### Conditions
+
+| Condition | True means | Reasons when not True |
+| --- | --- | --- |
+| `Bootstrapped` | etcd runs. | `AwaitingControlPlane`, `NoControlPlane`, `BootstrapRefused`, `EtcdDataLost`, `EtcdUnavailable`, `EtcdDataPresent`, `RestorePending` |
+| `Available` | The Kubernetes API answers and all members are Ready. | `NotBootstrapped`, `KubernetesUnreachable`, `NodesNotReady` |
+| `VersionsSupported` | The Talos version supports the Kubernetes version. | `UnsupportedVersionPair` |
+| `VersionsCurrent` | All nodes and the API server run the versions of the spec. | `VersionsBehind` |
+| `SecretsBundleHeld` | The operator holds the applied bundle, because `spec.secretsRef` changed. | `BundleApplied` (False: no difference) |
+
+## Example
+
+```yaml
+apiVersion: os.pk.io/v1alpha1
+kind: TalosCluster
+metadata:
+  name: lab
+spec:
+  talosVersion: v1.14.6
+  kubernetesVersion: v1.36.2
+  endpoint: https://10.77.0.10:6443
+  controlPlane:
+    vip: 10.77.0.10
+  secretsRef:
+    namespace: pk-metal
+    name: lab-talos-secrets
+```
+
+```console
+$ kubectl get talosclusters
+NAME   TALOS     KUBERNETES   ENDPOINT                   CP    WORKERS   AVAILABLE
+lab    v1.14.6   v1.36.2      https://10.77.0.10:6443    3     2         True
+```
+
+## Tasks
+
+- [](howto:define-a-cluster)
+- [](howto:upgrade-talos)
+- [](howto:back-up-etcd)
+- [](howto:restore-etcd)
+- [](rb:etcd-unhealthy)

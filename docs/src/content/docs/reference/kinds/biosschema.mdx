@@ -1,0 +1,55 @@
+---
+title: BiosSchema
+description: The BIOS attributes that one machine has, what each one accepts, and which are read-only. The operator reads it from the BMC.
+type: kind
+eyebrow: Kind · metal.pk.io/v1alpha1
+xref: { cat: kind, id: BiosSchema }
+sources:
+  - /repo/metal/api/v1alpha1/biosschema_types.go
+  - /repo/metal/internal/controller/convergence_controller.go
+---
+
+import FieldTable from '../../../../components/FieldTable.astro';
+
+A BiosSchema is the BIOS attribute registry of one machine.
+It tells you which attributes a [](kind:BiosProfile) can set on that machine, and which values they accept.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Group and version</dt>
+  <dd>`metal.pk.io/v1alpha1`</dd>
+  <dt>Scope</dt>
+  <dd>Cluster.</dd>
+  <dt>Name</dt>
+  <dd>The name of its [](kind:Host). The Host owns it.</dd>
+  <dt>Written by</dt>
+  <dd>[](ctrl:convergence), from the attribute registry that the BMC serves through [Redfish](https://www.dmtf.org/standards/redfish). Do not edit it.</dd>
+  <dt>Status</dt>
+  <dd>None. The spec is the data.</dd>
+</dl>
+
+## How it connects
+
+The convergence controller writes the BiosSchema when it reads the BIOS of the machine.
+Before it proposes a change, it checks each wanted value in the [](kind:BiosSettings) against this schema.
+A wrong value stops the change with reason `SchemaViolation`. The machine never gets the value.
+
+The schema can change after a firmware update. That is why firmware converges before BIOS.
+
+## Spec
+
+<FieldTable kind="BiosSchema" part="spec" />
+
+## Example
+
+Find the values that an attribute accepts:
+
+```console
+$ kubectl get biosschema sim-0001 -o jsonpath='{.spec.attributes[?(@.name=="QuietBoot")]}'
+{"name":"QuietBoot","type":"Boolean"}
+```
+
+## Tasks
+
+- [](howto:apply-bios-settings)

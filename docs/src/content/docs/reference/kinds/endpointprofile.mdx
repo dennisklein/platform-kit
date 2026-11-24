@@ -1,0 +1,176 @@
+---
+title: EndpointProfile
+description: The account, the time servers and the certificate for a set of BMCs. You write it, and no approval is necessary.
+type: kind
+eyebrow: Kind · metal.pk.io/v1alpha1
+xref: { cat: kind, id: EndpointProfile }
+sources:
+  - /repo/metal/api/v1alpha1/endpointprofile_types.go
+  - /repo/metal/internal/controller/endpointprofile_controller.go
+  - /repo/metal/config/samples/profiles.yaml
+---
+
+import Callout from '../../../../components/Callout.astro';
+import FieldTable from '../../../../components/FieldTable.astro';
+import ProfileLanes from '../../../../components/catalog/ProfileLanes.astro';
+
+An EndpointProfile tells the operator how to configure a set of BMCs: the account of the operator, the time servers and the HTTPS certificate.
+You write it. The operator applies it to each BMC that the profile selects.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Group and version</dt>
+  <dd>`metal.pk.io/v1alpha1`</dd>
+  <dt>Scope</dt>
+  <dd>Cluster.</dd>
+  <dt>Written by</dt>
+  <dd>You. Keep it in git.</dd>
+  <dt>Reconciled by</dt>
+  <dd>[](ctrl:endpointconvergence)</dd>
+  <dt>Selects</dt>
+  <dd>[ManagementEndpoints](kind:ManagementEndpoint), by label.</dd>
+  <dt>Approval</dt>
+  <dd>None. The profile does not disturb the machine, thus the merge of the profile is the approval.</dd>
+  <dt>Status</dt>
+  <dd>None. Read the condition `Configured` of each ManagementEndpoint.</dd>
+  <dt>Source</dt>
+  <dd>[endpointprofile_types.go](/repo/metal/api/v1alpha1/endpointprofile_types.go)</dd>
+</dl>
+
+## How it connects
+
+<ProfileLanes />
+
+[The controller](ctrl:endpointconvergence) finds the profiles whose [`spec.match`](kind:EndpointProfile#spec.match) selects the labels of an endpoint.
+It writes to the BMC only when the endpoint has the condition `Verified`. Thus the operator does not configure a wrong machine.
+The result is the condition `Configured` on the [](kind:ManagementEndpoint).
+
+A profile is one of the three types of [convergence](concept:convergence). A [](kind:BiosProfile) and a [](kind:FirmwareProfile) change the machine, and they need an approved [](kind:HostOperation). An EndpointProfile does not.
+[](flow:credential-rotation) shows the credentials lane step by step.
+
+## The three lanes
+
+Each part of the spec is one lane. A lane is active only when the profile has that part.
+
+<dl>
+  <dt>`credentials`</dt>
+  <dd>The operator makes its own account on the BMC and keeps the password in a Secret, `endpoint-creds-<endpoint>`. It makes a new password when the Secret is older than `maxAge`.</dd>
+  <dt>`ntp`</dt>
+  <dd>The operator sets the time servers of the BMC. Then it reads them again to make sure that the BMC has them.</dd>
+  <dt>`tls`</dt>
+  <dd>The operator gets a certificate for `bmc-<endpoint>.<domain>` from cert-manager and puts it on the BMC. It gets a new certificate before the old one expires.</dd>
+</dl>
+
+### How a password changes
+
+1. The operator makes a new password and keeps it in the Secret, with the keys `next-username` and `next-password`.
+2. It sets the password on the BMC. It uses the managed account first, and the factory account second.
+3. It does a login with the new password.
+4. If the login works, the new password replaces the old one in the Secret.
+
+If the BMC refuses the password, the old password stays in the Secret and continues to work.
+The operator does not change the factory account. That account is the way back to the BMC.
+
+## More than one profile
+
+More than one profile can select the same endpoint. The operator merges them one part at a time.
+
+- The operator sorts the profiles by [`spec.layer`](kind:EndpointProfile#spec.layer). Profiles on one layer are in the order of their names.
+- A profile on a higher layer replaces the full part (`credentials`, `ntp` or `tls`) of a lower layer.
+- Two profiles on the same layer must agree on a part. If they do not, `Configured` is False with the reason `ProfileConflict`, and the operator writes nothing to that BMC.
+- An empty `spec.match` selects all endpoints.
+
+## Spec
+
+<FieldTable kind="EndpointProfile" part="spec" />
+
+An EndpointProfile has no status.
+
+### Reasons of Configured
+
+The condition is on the ManagementEndpoint. It is absent when no profile selects the endpoint.
+
+| Status | Reason | Meaning |
+| --- | --- | --- |
+| True | `InSync` | The BMC has the configuration of all lanes. |
+| Unknown | `AwaitingVerification` | A profile selects the endpoint, but the endpoint is not `Verified`. |
+| False | `ProfileConflict` | Two profiles on the same layer do not agree. |
+| False | `RotationFailed` | The operator could not set a password that works. The old password stays. |
+| False | `NTPFailed` | The operator could not set the time servers. |
+| False | `NoIdentityTransport` | The BMC has no method to replace its certificate. |
+| False | `AwaitingIssuance` | The certificate request has no signature yet. |
+| False | `IdentityPushed` | The certificate is on the BMC, and the BMC restarts. |
+| False | `IdentityPushHeld` | An operation runs on a machine of this BMC. The certificate waits for its end. |
+| False | `IdentityPushFailed` | The BMC does not use the certificate that the operator sent. |
+
+[](ref:conditions) has the full text of each reason.
+
+## Example
+
+```yaml
+apiVersion: metal.pk.io/v1alpha1
+kind: EndpointProfile
+metadata:
+  name: managed-bmcs
+spec:
+  match:
+    matchLabels:
+      metal.pk.io/vlan: "1034"
+  credentials:
+    username: pk-metal
+    maxAge: 2160h
+  ntp:
+    servers: ["ntp.example.org"]
+  tls:
+    issuerRef:
+      name: internal-ca
+    subject:
+      country: DE
+      organization: Example Org
+      organizationalUnit: Metal
+```
+
+The labels that you can select are `metal.pk.io/vendor`, `metal.pk.io/model` and `metal.pk.io/vlan`.
+
+## Apply a profile and examine the result
+
+1. Apply the profile.
+
+   ```sh
+   kubectl apply -f profile.yaml
+   ```
+
+2. Make sure that the endpoints go to the phase Ready.
+
+   ```console
+   $ kubectl get mep
+   NAME       ADDRESS                             VENDOR   PHASE         AGE
+   ci-00397   https://[fd6b:5a2e:1c4d:1034::14]   Huawei   Ready         3d
+   ci-00398   https://[fd6b:5a2e:1c4d:1034::15]   Huawei   Configuring   3d
+   ```
+
+3. If an endpoint stays in Configuring, read the reason of `Configured`.
+
+   ```sh
+   kubectl describe mep ci-00398
+   ```
+
+<Callout type="caution">
+Do not add `tls` to a profile during an install. The BMC restarts when it gets a certificate, and a restart removes the virtual media.
+The operator waits while an approved operation runs on a machine of that BMC.
+</Callout>
+
+<Callout type="caution">
+Make sure that you want the new certificate. The operator replaces the factory certificate of the BMC, and you cannot get it back.
+</Callout>
+
+<Callout type="note">
+When you delete a profile, the operator stops the work on the BMCs that it selected. The managed account and its password stay as they are.
+</Callout>
+
+## Tasks
+
+- [](flow:credential-rotation)
+- [](howto:enrol-hosts)
+- [](rb:bmc-unreachable)

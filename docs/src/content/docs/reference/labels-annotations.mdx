@@ -1,0 +1,105 @@
+---
+title: Labels, annotations and finalizers
+description: All keys under metal.pk.io and os.pk.io that the operator reads or writes, and who sets each key.
+type: reference
+eyebrow: Catalog · metadata
+xref: { cat: ref, id: labels-annotations }
+sources:
+  - /repo/metal/internal/controller/labels.go
+  - /repo/docs/src/data/generated/keys.json
+---
+
+import Callout from '../../../components/Callout.astro';
+import CatalogFilter from '../../../components/catalog/CatalogFilter.astro';
+import KeyList from '../../../components/catalog/KeyList.astro';
+import KeyRef from '../../../components/catalog/KeyRef.astro';
+import ComposedKeys from '../../../components/catalog/ComposedKeys.astro';
+
+The operator uses keys in `metadata` to take commands from you and to keep its own records.
+This page lists each key. The long text of each entry comes from the Go source.
+
+## Keys that you set
+
+These annotations are commands. Most of them have a `pk-metal` command that sets the annotation for you.
+
+| Annotation | On | Effect | Set it with |
+| --- | --- | --- | --- |
+| <KeyRef k="metal.pk.io/hold" /> | [](kind:HostClaim) | The operator proposes nothing for the claim. | [](cli:hold) |
+| <KeyRef k="metal.pk.io/maintenance" /> | [](kind:Host) | The operator starts nothing on the machine. | `kubectl annotate` |
+| <KeyRef k="metal.pk.io/ignore-window" /> | [](kind:HostOperation) | The operation starts when no [window](kind:MaintenanceWindow) is open. | `kubectl annotate` |
+| <KeyRef k="metal.pk.io/abort" /> | HostOperation | The operation stops before its next step. | [](cli:abort) |
+| <KeyRef k="metal.pk.io/retry" /> | HostOperation | The operator proposes a failed BIOS or firmware plan again. | [](cli:retry) |
+| <KeyRef k="metal.pk.io/reinstall" /> | HostClaim | The operator proposes a wipe and a new install on the same machine. | [](cli:reinstall) |
+| <KeyRef k="metal.pk.io/wipe" /> | Host | The operator proposes a wipe of a machine that it could not reset. | [](cli:wipe) |
+| <KeyRef k="metal.pk.io/ack-etcd-risk" /> | HostClaim, [](kind:TalosNode) | You accept a risk for etcd when a control plane goes. | `--ack-etcd-risk` |
+| <KeyRef k="metal.pk.io/allow-self-disruption" /> | Host | The operator can reboot the machine that it runs on. | `kubectl annotate` |
+| <KeyRef k="metal.pk.io/override-cluster-guard" /> | HostOperation | The operation can stop a control plane when etcd is not healthy. | `kubectl annotate` |
+| <KeyRef k="os.pk.io/resume" /> | [](kind:TalosRollout) | The rollout continues after the pause on the first node. | [](cli:rollout) |
+| <KeyRef k="os.pk.io/restore-pending" /> | [](kind:TalosCluster) | The operator does not bootstrap etcd, because you restore it. | `kubectl annotate` |
+
+In the table, each name is without its prefix `metal.pk.io/` or `os.pk.io/`.
+
+<Callout type="caution">
+Do not set `metal.pk.io/allow-self-disruption` or `metal.pk.io/override-cluster-guard` unless it is necessary.
+These annotations remove a protection of the cluster that the operator runs in.
+</Callout>
+
+## Labels for selectors
+
+The operator puts these labels on each [](kind:Host) and [](kind:ManagementEndpoint). Use them in the selector of a profile or of a [](kind:MaintenanceWindow).
+
+<ComposedKeys set="selector" />
+
+A Host also gets the labels from [`spec.labels`](kind:HostClaim#spec.labels) of the claim that holds it. These keys have no prefix, for example `role`.
+The operator removes them when the claim releases the Host.
+
+<dl>
+  <dt>[](kind:EndpointProfile)</dt>
+  <dd>Selects ManagementEndpoints. Use `vendor`, `model` and `vlan`.</dd>
+  <dt>[](kind:BiosProfile), [](kind:FirmwareProfile)</dt>
+  <dd>Select Hosts. Use `vendor`, `model` and the labels of the claim.</dd>
+  <dt>MaintenanceWindow</dt>
+  <dd>Selects Hosts with `spec.hostSelector`.</dd>
+</dl>
+
+A value is the text from the BMC with each character that a label cannot have changed to a hyphen. The model `2288H V5` becomes `2288H-V5`.
+
+<CatalogFilter label="Filter" placeholder="Type a key or a word" />
+
+## Annotations
+
+The mark "API" means that the key is a constant of the API package. The mark "internal" means that one controller uses the key for its own records.
+
+<KeyList kind="annotation" />
+
+## Labels
+
+<KeyList kind="label" />
+
+## Finalizers
+
+A finalizer keeps an object until the operator completes its work. Do not remove a finalizer by hand.
+
+<KeyList kind="finalizer" />
+
+<Callout type="warning">
+Do not remove the finalizer `metal.pk.io/release` from a HostClaim.
+Without it, the operator frees the machine as it is, and the node on its disk continues to run.
+</Callout>
+
+## Other internal keys
+
+The generated list does not have these keys, because the source makes each of them from a prefix and a name.
+
+<ComposedKeys set="internal" />
+
+Do not set or change an internal key. The operator can write it again or read a wrong record.
+
+## Link to a key
+
+The anchor of a key is the key.
+
+```md
+[](ref:labels-annotations#metal.pk.io/hold)
+[the hold annotation](ref:labels-annotations#metal.pk.io/hold)
+```

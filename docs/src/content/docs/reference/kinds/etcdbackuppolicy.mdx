@@ -1,0 +1,134 @@
+---
+title: EtcdBackupPolicy
+description: Takes encrypted etcd snapshots of one TalosCluster on a schedule, and keeps a limited number of them.
+type: kind
+eyebrow: Kind · os.pk.io/v1alpha1
+xref: { cat: kind, id: EtcdBackupPolicy }
+sources:
+  - /repo/metal/api/os/v1alpha1/etcdbackup_types.go
+  - /repo/metal/internal/controller/etcdbackup_controller.go
+  - /repo/metal/internal/etcdbackup/retention.go
+  - /repo/metal/config/samples/etcdbackup.yaml
+---
+
+import Callout from '../../../../components/Callout.astro';
+import FieldTable from '../../../../components/FieldTable.astro';
+import BackupPipeline from '../../../../components/diagrams/BackupPipeline.astro';
+
+An EtcdBackupPolicy takes snapshots of the etcd of one [](kind:TalosCluster) on a schedule.
+It says where to store them, for whom to encrypt them, and how many to keep.
+Each snapshot is an [](kind:EtcdSnapshot).
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Group and version</dt>
+  <dd>`os.pk.io/v1alpha1`</dd>
+  <dt>Scope</dt>
+  <dd>Cluster.</dd>
+  <dt>Written by</dt>
+  <dd>You write the spec. The operator writes the status.</dd>
+  <dt>Reconciled by</dt>
+  <dd>[](ctrl:etcdbackuppolicy) (schedule and retention) and [](ctrl:etcdsnapshot) (each snapshot).</dd>
+  <dt>Approval</dt>
+  <dd>None. A snapshot reads etcd and changes no machine. A restore needs approval.</dd>
+  <dt>Conditions</dt>
+  <dd>`Ready`, `BackedUp`.</dd>
+  <dt>Sample</dt>
+  <dd>[etcdbackup.yaml](/repo/metal/config/samples/etcdbackup.yaml)</dd>
+</dl>
+
+## Pipeline
+
+<BackupPipeline />
+
+1. **Schedule.** When `spec.interval` has passed, the policy makes an EtcdSnapshot named `<policy>-<UTC time>`. Only one snapshot of a policy runs at a time.
+2. **Snapshot.** The operator picks a healthy member that votes, a follower before the leader, and streams the snapshot from it.
+3. **Verify.** On the way in, it checks the bytes: a valid bbolt database, and the sha256 trailer of etcd when there is one.
+4. **Encrypt.** It encrypts the stream with [age](https://age-encryption.org) to the public keys in `spec.encryption.ageRecipients`.
+5. **Sink.** It writes the ciphertext to the S3 bucket or to the backup volume.
+6. **Read back.** It reads the object again and compares size and hash. Only then is the snapshot `Verified=True`.
+7. **Retention.** The policy deletes old snapshots: it deletes the stored object before the record.
+
+## Retention
+
+<dl>
+  <dt>`retention.count`</dt>
+  <dd>Keeps this many verified snapshots, the newest. The default is 14.</dd>
+  <dt>`retention.maxAge`</dt>
+  <dd>Deletes verified snapshots older than this. Not set: no age limit.</dd>
+  <dt>Newest verified</dt>
+  <dd>Never deleted, at any age. If all snapshots fail for a time, the last good one stays.</dd>
+  <dt>Failed snapshots</dt>
+  <dd>The policy keeps the 3 newest failures, so you can read why. It deletes older ones.</dd>
+</dl>
+
+## Sinks
+
+| Sink | Where | Use it for |
+| --- | --- | --- |
+| `s3` | A bucket of an S3-compatible store, off the cluster | Production. Always for the cluster that the operator runs on. |
+| `pvc` | The backup volume of the operator (component `config/etcd-backup`) | Clusters that the operator manages from outside |
+
+<Callout type="warning">
+Do not use a `pvc` sink for the cluster that the operator runs on. That volume is in the etcd that it backs up, so you lose both together.
+The operator refuses it with `Ready=False`, reason `SinkRefused`.
+</Callout>
+
+<Callout type="note">
+Name at least two age recipients, for example two persons, or one person and a key in a safe. The operator has no secret key and cannot read its own backups.
+</Callout>
+
+## Spec
+
+<FieldTable kind="EtcdBackupPolicy" part="spec" />
+
+## Status
+
+<FieldTable kind="EtcdBackupPolicy" part="status" />
+
+### Conditions
+
+| Condition | Reason | Meaning |
+| --- | --- | --- |
+| `Ready` | `SinkReady` | The cluster exists, and the sink and the recipients work. |
+| `Ready` | `SinkRefused`, `SinkUnavailable`, `RecipientsInvalid`, `ClusterNotFound` | The policy cannot take snapshots. |
+| `BackedUp` | `SnapshotRecent` | A verified snapshot is newer than two intervals. |
+| `BackedUp` | `NoSnapshot`, `BackupTooOld` | No verified snapshot, or the newest is older than two intervals. |
+
+Watch `status.consecutiveFailures`. Send an alert when it is above zero for longer than one interval.
+
+## Example
+
+```yaml
+apiVersion: os.pk.io/v1alpha1
+kind: EtcdBackupPolicy
+metadata:
+  name: lab-offsite
+spec:
+  clusterRef:
+    name: lab
+  interval: 6h
+  retention:
+    count: 28
+    maxAge: 336h
+  sink:
+    s3:
+      endpoint: https://s3.example.org
+      bucket: etcd-backups
+      prefix: metal/
+      credentialsSecretRef:
+        name: etcd-backup-s3
+  encryption:
+    ageRecipients:
+      - age1examplepersononexxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+      - age1exampleofflinekeyxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+Set `spec.suspend: true` to stop the schedule. [](cli:backup) `now` still takes a snapshot, and retention still runs.
+
+## Tasks
+
+- [](howto:back-up-etcd)
+- [](howto:restore-etcd)
+- [](rb:etcd-unhealthy)

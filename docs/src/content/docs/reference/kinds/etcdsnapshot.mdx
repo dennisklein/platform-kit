@@ -1,0 +1,95 @@
+---
+title: EtcdSnapshot
+description: One encrypted etcd snapshot of a TalosCluster, and the record of where it is and how the operator checked it.
+type: kind
+eyebrow: Kind · os.pk.io/v1alpha1
+xref: { cat: kind, id: EtcdSnapshot }
+sources:
+  - /repo/metal/api/os/v1alpha1/etcdbackup_types.go
+  - /repo/metal/internal/controller/etcdbackup_controller.go
+  - /repo/metal/internal/etcdbackup/pipeline.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import FieldTable from '../../../../components/FieldTable.astro';
+import BackupPipeline from '../../../../components/diagrams/BackupPipeline.astro';
+
+An EtcdSnapshot is the record of one encrypted etcd snapshot.
+The bytes are in the sink of its [](kind:EtcdBackupPolicy), at `status.location`.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Group and version</dt>
+  <dd>`os.pk.io/v1alpha1`</dd>
+  <dt>Scope</dt>
+  <dd>Cluster.</dd>
+  <dt>Written by</dt>
+  <dd>The policy on its schedule, or [](cli:backup) `now`. The operator writes the status.</dd>
+  <dt>Reconciled by</dt>
+  <dd>[](ctrl:etcdsnapshot)</dd>
+  <dt>Conditions</dt>
+  <dd>`Complete`, `Verified`.</dd>
+  <dt>Restored by</dt>
+  <dd>The [](act:EtcdRecover) action, after approval.</dd>
+</dl>
+
+## Lifecycle
+
+<BackupPipeline />
+
+1. The record exists. The operator looks for a healthy member. `Complete=Unknown`, reason `Taking`.
+2. No healthy member after 10 minutes: `Complete=False`, reason `SnapshotFailed`.
+3. Before the stream starts, the operator records `takenAt`, the member, the key and the recipients.
+4. The stream ends. `Complete=True`, reason `Stored`. The record has the size and sha256 of the plaintext and of the ciphertext.
+5. The checks pass and the read-back agrees: `Verified=True`, reason `Intact`.
+
+A stream has 30 minutes. If the operator stops during a stream, the snapshot fails as "interrupted" and the next schedule takes a new one.
+A failed snapshot is final.
+
+<Callout type="note">
+Deleting an EtcdSnapshot does not delete the stored object. Retention of the policy deletes both.
+</Callout>
+
+## Verified
+
+| Reason | Status | Meaning |
+| --- | --- | --- |
+| `Intact` | True | The plaintext is a valid bbolt database with the etcd hash, and the sink holds exactly the ciphertext that the operator sent. |
+| `Damaged` | False | The plaintext is not a valid snapshot. |
+| `ReadBackFailed` | False | The sink did not give back the same bytes. |
+
+You can restore only a verified snapshot. `pk-metal restore` uses the newest one unless you name another.
+
+## Spec
+
+<FieldTable kind="EtcdSnapshot" part="spec" />
+
+## Status
+
+<FieldTable kind="EtcdSnapshot" part="status" />
+
+## Example
+
+```console
+$ pk-metal backup list lab
+$ kubectl get etcdsnapshots
+NAME                           CLUSTER   FROM     SIZE       COMPLETE   VERIFIED   TAKEN
+lab-offsite-20261124-060000    lab       node-2   48234496   True       True       2026-11-24T06:00:00Z
+```
+
+Decrypt on your own machine:
+
+```sh
+pk-metal backup decrypt lab-offsite-20261124-060000 --identity ~/.config/age/keys.txt
+```
+
+<Callout type="warning">
+Delete a plaintext snapshot after you use it. It holds every Secret of the cluster.
+</Callout>
+
+## Tasks
+
+- [](howto:back-up-etcd)
+- [](howto:restore-etcd)
+- [](rb:etcd-unhealthy)

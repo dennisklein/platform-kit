@@ -1,0 +1,113 @@
+---
+title: BootAsset
+description: A boot artifact that the operator builds or addresses, and how a BMC fetches it. Three strategies, with or without secrets.
+type: kind
+eyebrow: Kind · os.pk.io/v1alpha1
+xref: { cat: kind, id: BootAsset }
+sources:
+  - /repo/metal/api/os/v1alpha1/bootasset_types.go
+  - /repo/metal/internal/controller/bootasset_controller.go
+  - /repo/metal/internal/controller/bootasset_embedded.go
+  - /repo/metal/config/samples/bootasset.yaml
+---
+
+import Callout from '../../../../components/Callout.astro';
+import FieldTable from '../../../../components/FieldTable.astro';
+
+A BootAsset is one boot image and the way to fetch it.
+The [](ctrl:bootasset) builds or addresses the image. The [](act:InsertMedia) action mounts it on the BMC.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Group and version</dt>
+  <dd>`os.pk.io/v1alpha1`</dd>
+  <dt>Scope</dt>
+  <dd>Cluster.</dd>
+  <dt>Written by</dt>
+  <dd>You, or the operator: it makes `<node>-embedded` for a machine behind a [one-slot BMC](concept:one-slot-bmc).</dd>
+  <dt>Reconciled by</dt>
+  <dd>[](ctrl:bootasset)</dd>
+  <dt>Condition</dt>
+  <dd>`Ready`</dd>
+  <dt>Sample</dt>
+  <dd>[`bootasset.yaml`](/repo/metal/config/samples/bootasset.yaml)</dd>
+</dl>
+
+## Strategies
+
+| Strategy | Content | Secret | Fields | Where it rests | How the BMC fetches it |
+| --- | --- | --- | --- | --- | --- |
+| `factory` | The generic Talos installer, with the [schematic](term:schematic) | no | `talosVersion`, `schematic` | the image factory | a stable URL in `status.url` |
+| `configISO` | The machine config of one node, about 10 KB | yes | `nodeRef` | a Secret in `pk-metal` | a grant of the [media service](ref:media-store) |
+| `embeddedInstaller` | An installer with the config of one node inside | yes | `nodeRef`, `talosVersion`, `schematic` | the [media store](ref:media-store) | a grant of the media service |
+
+The kind refuses fields that do not belong to the strategy.
+
+<dl>
+  <dt>`factory`</dt>
+  <dd>The controller registers the schematic with the image factory before it sets `Ready`. Then the URL points to an image that exists.</dd>
+  <dt>`configISO`</dt>
+  <dd>The controller packs the rendered config of the [](kind:TalosNode) into an ISO with the label `metal-iso`. Talos reads it at boot. A new config gives a new pack.</dd>
+  <dt>`embeddedInstaller`</dt>
+  <dd>For a BMC with one media slot. An imager Job builds the installer and writes it to the media store. A change of the config, the version, the schematic or the imager gives a new build key and a new build.</dd>
+</dl>
+
+## Lifecycle
+
+1. You or the operator create the BootAsset.
+2. The controller builds the artifact, or computes the URL. While a build runs, `Ready=False` with reason `Building`.
+3. The artifact is complete. `Ready=True` with reason `ArtifactBuilt` or `URLComputed`. `status.digest` names the bytes.
+4. An approved operation mounts it. The operation pins the digest. Other bytes fail the step.
+5. The inputs change. The controller builds again. The status names the old artifact until the new build is complete.
+
+<Callout type="warning">
+Do not give other pods access to the media store volume. An embedded installer holds the machine config in plain text, with keys and tokens.
+</Callout>
+
+## Spec
+
+<FieldTable kind="BootAsset" part="spec" />
+
+## Status
+
+<FieldTable kind="BootAsset" part="status" />
+
+### Reasons of Ready
+
+| Reason | Status | Meaning |
+| --- | --- | --- |
+| `ArtifactBuilt` | True | `configISO` or `embeddedInstaller` is complete. |
+| `URLComputed` | True | `factory`: the image factory knows the schematic, and the URL is in the status. |
+| `Building` | False | A build runs. |
+| `BuildFailed` | False | The build failed. The message gives the error. A failed imager Job stays, so you can read its log. |
+| `BuilderUnavailable` | False | `embeddedInstaller`: no media store, no imager image for the Talos version, or a Talos version without embedded config. The message names the flag or field. |
+| `SchematicUnavailable` | False | The image factory did not register the schematic, so the image can be missing. |
+| `NodeNotFound`, `ConfigNotRendered` | False | The TalosNode or its config is not there yet. |
+
+## Example
+
+```yaml
+apiVersion: os.pk.io/v1alpha1
+kind: BootAsset
+metadata:
+  name: node-1-config
+spec:
+  strategy: configISO
+  nodeRef:
+    name: node-1
+```
+
+```console
+$ kubectl get bootassets
+NAME            STRATEGY            NODE     SIZE
+node-1-config   configISO           node-1   10240
+install-drbd    factory
+node-3-embedded embeddedInstaller   node-3   419430400
+```
+
+## Tasks
+
+- [](howto:install-hosts)
+- [](howto:air-gapped-site)
+- [](rb:media-slot-busy)

@@ -1,0 +1,150 @@
+---
+title: Host
+description: One physical machine as the operator finds it through its BMC. The operator writes it. You read it.
+type: kind
+eyebrow: Kind · metal.pk.io/v1alpha1
+xref: { cat: kind, id: Host }
+sources:
+  - /repo/metal/api/v1alpha1/host_types.go
+  - /repo/metal/internal/phase/phase.go
+---
+
+import Callout from '../../../../components/Callout.astro';
+import FieldTable from '../../../../components/FieldTable.astro';
+import HostPhases from '../../../../components/diagrams/HostPhases.astro';
+import Provision from '../../../../components/explainers/Provision.astro';
+
+A Host is one physical machine as the operator finds it through its BMC.
+The operator makes the Host and writes all of it. You read it to see the state of the machine.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Group and version</dt>
+  <dd>`metal.pk.io/v1alpha1`</dd>
+  <dt>Scope</dt>
+  <dd>Cluster. A Host has no namespace.</dd>
+  <dt>Written by</dt>
+  <dd>The operator. Do not write or edit a Host.</dd>
+  <dt>Reconciled by</dt>
+  <dd>[](ctrl:host)</dd>
+  <dt>Name</dt>
+  <dd>The serial number of the machine, in lower case.</dd>
+  <dt>Bound by</dt>
+  <dd>A [](kind:HostClaim), through [`spec.claimRef`](kind:Host#spec.claimRef).</dd>
+  <dt>Phases</dt>
+  <dd>Enrolling, Inspecting, Available, Assigned, Provisioning, Provisioned, Releasing, Failed, Maintenance. [](ref:phases) has the rule for each.</dd>
+  <dt>Source</dt>
+  <dd>[host_types.go](/repo/metal/api/v1alpha1/host_types.go)</dd>
+</dl>
+
+## How it connects
+
+The [](ctrl:host) writes the status of each Host.
+A [](kind:HostClaim) binds the Host, and a [](kind:HostOperation) changes it with actions such as [](act:PowerCycle).
+Use [](cli:status) to see the phase, or [](lab:up) to make simulated Hosts in the lab.
+[](concept:phases-and-conditions) explains the phase, and [](flow:rack-to-node) shows the full path.
+For hardware work, follow [](howto:maintenance-mode). If the serial numbers do not agree, use [](rb:host-mismatch).
+To learn by practice, start with [](tut:lab-first-cluster).
+The operator reads the machine through [Redfish](https://www.dmtf.org/standards/redfish).
+
+## Lifecycle
+
+<HostPhases />
+
+1. The [](ctrl:asset) finds the BMC. The operator makes the Host. The phase is Enrolling.
+2. The BMC answers. The phase is Inspecting.
+3. The inventory is complete and the serial number agrees with the Asset. The phase is Available.
+4. A HostClaim binds the Host. The phase is Assigned.
+5. The install operation boots the machine. The phase is Provisioning.
+6. The node reports that it is ready. The phase is Provisioned.
+7. You delete the claim. The operator wipes the disk and releases the Host. The phase is Releasing, then Available.
+
+The steps below show the install from step 4 to step 6.
+
+<Provision />
+
+## Spec
+
+The operator writes the spec from the claim that binds the machine.
+
+<FieldTable kind="Host" part="spec" />
+
+## Status
+
+<FieldTable kind="Host" part="status" />
+
+### Conditions
+
+| Condition | True means | Effect on the phase |
+| --- | --- | --- |
+| `Inspected` | The operator has the hardware inventory. | Inspecting until True |
+| `Verified` | The serial number from the BMC agrees with the Asset. | Stays in Inspecting when False |
+| `Booted` | The machine started the installed system. | Failed when False |
+| `OSReady` | The node reports that it is ready. | Provisioned when True |
+| `Drifted` | The machine reset and no operation caused it. | None. It is information. |
+| `ApprovalPending` | A proposed operation waits for a person. | Sets `blockedOn` |
+| `Maintenance` | A person set the maintenance annotation. | Maintenance |
+
+[](ref:conditions) lists all conditions and reasons.
+
+## Example
+
+You do not write a Host. Read it with `kubectl`:
+
+```console
+$ kubectl get hosts
+NAME                ASSET      SERIAL              VENDOR   PHASE         AGE
+simhw2288v5000397   ci-00397   SIMHW2288V5000397   Huawei   Provisioned   3d
+simhw2288v5000398   ci-00398   SIMHW2288V5000398   Huawei   Available     3d
+```
+
+## Put a Host in maintenance
+
+Use maintenance mode for hardware work, for example to replace a memory module.
+
+1. Find the name of the Host.
+
+   ```sh
+   kubectl get hosts
+   ```
+
+2. Set the annotation. Give the reason as the value.
+
+   ```sh
+   kubectl annotate host simhw2288v5000398 metal.pk.io/maintenance="replace DIMM B2"
+   ```
+
+3. Make sure that the phase is Maintenance.
+
+   ```sh
+   kubectl get host simhw2288v5000398
+   ```
+
+4. Do the hardware work.
+5. Remove the annotation.
+
+   ```sh
+   kubectl annotate host simhw2288v5000398 metal.pk.io/maintenance-
+   ```
+
+An operation that already runs continues to its end. The operator starts no new operation.
+
+<Callout type="warning">
+Do not delete the HostClaim of a machine that has data you must keep.
+When the operator releases the Host, it wipes the disk.
+</Callout>
+
+<Callout type="caution">
+Do not set `metal.pk.io/allow-self-disruption` on a machine that runs the operator, unless it is necessary.
+With this annotation, the operator can reboot the machine that it runs on.
+</Callout>
+
+## Tasks
+
+- [](howto:enrol-hosts)
+- [](howto:install-hosts)
+- [](howto:maintenance-mode)
+- [](howto:release-a-host)
+- [](rb:host-mismatch)
+- [](rb:bmc-unreachable)

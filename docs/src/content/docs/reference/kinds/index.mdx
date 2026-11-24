@@ -1,0 +1,91 @@
+---
+title: Kinds
+description: All 17 kinds of pk-metal, with their group, their scope, who writes them and which controller reconciles them.
+type: kind
+eyebrow: Reference · API
+xref: { cat: kind, id: index }
+sidebar:
+  order: -1
+sources:
+  - /repo/metal/api/v1alpha1
+  - /repo/metal/api/os/v1alpha1
+  - /repo/metal/config/crd
+---
+
+import Callout from '../../../../components/Callout.astro';
+import KindMap from '../../../../components/catalog/KindMap.astro';
+
+A kind is a type of object in the Kubernetes API. pk-metal has 17 kinds in two groups.
+You write some kinds to tell the operator what you want. The operator writes the others to tell you what it found.
+
+## How the kinds connect
+
+<KindMap />
+
+1. You write an [](kind:Asset). The operator finds the BMC and makes a [](kind:ManagementEndpoint).
+2. The BMC reports its machines. The operator makes one [](kind:Host) for each machine.
+3. You write a [](kind:HostClaim). It binds the Host and names a [](kind:TalosNode).
+4. The operator proposes a [](kind:HostOperation). You approve it, and the operator installs the machine.
+
+[](flow:rack-to-node) shows this path in detail. [](concept:assert-vs-observe) explains why two sets of kinds exist.
+
+## Group metal.pk.io
+
+These kinds describe the hardware and the changes to it. The version is `v1alpha1`.
+
+| Kind | Scope | Written by | Controller | Purpose |
+| --- | --- | --- | --- | --- |
+| [](kind:Asset) | Cluster | You | [asset](ctrl:asset) | One machine as your records know it: serial number and BMC MAC address. |
+| [](kind:ManagementEndpoint) | Cluster | Operator | [endpoint](ctrl:managementendpoint) | One BMC and the facts that it reports. |
+| [](kind:EndpointProfile) | Cluster | You | [endpoint convergence](ctrl:endpointconvergence) | The account, the time servers and the certificate of a set of BMCs. |
+| [](kind:Host) | Cluster | Operator | [host](ctrl:host) | One physical machine as the operator finds it through its BMC. |
+| [](kind:HostClaim) | Namespace | You | [claim](ctrl:hostclaim) | A request for one machine and for the node to install on it. |
+| [](kind:HostOperation) | Namespace | Operator | [operation](ctrl:hostoperation) | One change to one machine, as a list of actions. A person approves it. |
+| [](kind:MaintenanceWindow) | Cluster | You | [window](ctrl:maintenancewindow) | The times when an approved change can start on a set of machines. |
+| [](kind:BiosProfile) | Cluster | You | [convergence](ctrl:convergence) | BIOS settings for a set of machines. |
+| [](kind:BiosSchema) | Cluster | Operator | [convergence](ctrl:convergence) | The BIOS settings that one machine has, and the values that each accepts. |
+| [](kind:BiosSettings) | Cluster | Operator | [convergence](ctrl:convergence) | The BIOS settings of one machine: wanted, actual, and the profile of each value. |
+| [](kind:FirmwareProfile) | Cluster | You | [convergence](ctrl:convergence) | The firmware version for a set of machines. |
+
+## Group os.pk.io
+
+These kinds describe Talos Linux on the machines. The version is `v1alpha1`. All of them have cluster scope.
+
+| Kind | Written by | Controller | Purpose |
+| --- | --- | --- | --- |
+| [](kind:TalosCluster) | You | [cluster](ctrl:taloscluster) | One Talos cluster: the configuration that its nodes share, and its state. |
+| [](kind:TalosNode) | You | [node](ctrl:talosnode) | One node of a cluster: its part of the configuration, and its state. |
+| [](kind:BootAsset) | Operator, or you | [boot asset](ctrl:bootasset) | A boot image or a configuration medium, and where to get it. |
+| [](kind:TalosRollout) | Operator | [rollout](ctrl:talosrollout) | One change that goes through the nodes of a cluster, one node at a time. A person approves it. |
+| [](kind:EtcdBackupPolicy) | You | [backup](ctrl:etcdbackuppolicy) | A schedule for encrypted etcd snapshots of one cluster. |
+| [](kind:EtcdSnapshot) | Operator, or `pk-metal backup` | [snapshot](ctrl:etcdsnapshot) | One encrypted etcd snapshot. |
+
+## Who writes what
+
+<dl>
+  <dt>You write</dt>
+  <dd>The kinds that say what must be true. Keep them in git. The operator reads their spec and writes only their status.</dd>
+  <dt>The operator writes</dt>
+  <dd>The kinds that say what the operator found or what it proposes. Read them. Do not edit their spec.</dd>
+  <dt>You approve</dt>
+  <dd>A HostOperation and a TalosRollout change machines. The operator proposes them, and they wait for a person. Read [](concept:approval).</dd>
+</dl>
+
+<Callout type="note">
+All kinds have the category `metal`. The command `kubectl get metal` lists the objects of all 17 kinds.
+The kinds of `os.pk.io` also have the category `os`.
+</Callout>
+
+## Names and scope
+
+- A [](kind:HostClaim) and a [](kind:HostOperation) have a namespace. All other kinds have cluster scope.
+- A ManagementEndpoint has the name of its Asset. A Host has the serial number of the machine in lower case.
+- A BiosSchema and a BiosSettings have the name of their Host.
+- The short name of ManagementEndpoint is `mep`.
+
+## Catalogs
+
+- [](ref:phases): the phases of the four kinds that have `status.phase`.
+- [](ref:conditions): each condition type and each reason.
+- [](ref:labels-annotations): each key that the operator reads or writes.
+- [](act:index): the actions of a HostOperation.

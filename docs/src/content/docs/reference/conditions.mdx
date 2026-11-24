@@ -1,0 +1,94 @@
+---
+title: Conditions and reasons
+description: All condition types and reasons that the operator writes, for the groups metal.pk.io and os.pk.io.
+type: reference
+eyebrow: Catalog · status.conditions
+xref: { cat: ref, id: conditions }
+sources:
+  - /repo/metal/api/v1alpha1/conditions.go
+  - /repo/metal/api/os/v1alpha1/conditions.go
+  - /repo/docs/src/data/generated/conditions.json
+---
+
+import Callout from '../../../components/Callout.astro';
+import CatalogFilter from '../../../components/catalog/CatalogFilter.astro';
+import ConditionTable from '../../../components/catalog/ConditionTable.astro';
+import ReasonTable from '../../../components/catalog/ReasonTable.astro';
+import OperationReasonTable from '../../../components/catalog/OperationReasonTable.astro';
+
+Conditions are the facts about an object. Each condition has a type, a status, a reason and a message.
+This page lists each type and each reason. The text of the tables comes from the Go source.
+
+## How to read a condition
+
+```console
+$ kubectl get mep ci-00398 -o json | jq '.status.conditions[] | select(.type == "Verified")'
+{
+  "type": "Verified",
+  "status": "False",
+  "reason": "SerialMismatch",
+  "message": "asserted serial SIMHW2288V5000398 not among discovered [SIMHW2288V5000399]"
+}
+```
+
+<dl>
+  <dt>type</dt>
+  <dd>The name of the fact. Find it in the tables of conditions.</dd>
+  <dt>status</dt>
+  <dd>True, False or Unknown. Unknown usually means that the work is in progress. An absent condition means that the operator did not examine the fact.</dd>
+  <dt>reason</dt>
+  <dd>One word for the cause. Find it in the tables of reasons. `status.blockedOn` and `pk-metal status` show the same word.</dd>
+  <dt>message</dt>
+  <dd>A sentence for a person. It often gives the command to run.</dd>
+</dl>
+
+The phase is a summary of the conditions. [](ref:phases) lists the rules, and [](concept:phases-and-conditions) explains the model.
+Use [](cli:status) to see the reasons that need a person.
+
+<CatalogFilter label="Filter" placeholder="Type a condition, a reason or a word" />
+
+## Conditions of metal.pk.io
+
+These conditions are on [](kind:Asset), [](kind:ManagementEndpoint), [](kind:Host), [](kind:HostClaim), [](kind:HostOperation), [](kind:BiosSettings) and [](kind:MaintenanceWindow).
+
+<ConditionTable group="metal.pk.io" />
+
+In the column "Reasons", the border shows the status that the reason goes with: green for True, red for False, and dashed for Unknown.
+
+## Conditions of os.pk.io
+
+These conditions are on [](kind:TalosCluster), [](kind:TalosNode), [](kind:TalosRollout), [](kind:BootAsset), [](kind:EtcdBackupPolicy) and [](kind:EtcdSnapshot).
+
+<ConditionTable group="os.pk.io" />
+
+## Reasons of metal.pk.io
+
+Each block is one group of reasons in the source. The column "On" shows the condition and the status that the source names for the reason.
+
+<ReasonTable group="metal.pk.io" />
+
+## Reasons of os.pk.io
+
+<ReasonTable group="os.pk.io" />
+
+<Callout type="note">
+The list has only the reasons that the API packages declare. A controller can write a reason that is not in this list, for example `SessionUp` on `Reachable`.
+</Callout>
+
+## Operation reasons
+
+The field `spec.reason` of a [](kind:HostOperation) tells you why the operator proposed the operation. These values are in the API package.
+
+<OperationReasonTable />
+
+## Link to a condition or a reason
+
+The anchor of a condition is its name in lower case. The anchor of a reason has the prefix `reason-`.
+When the two groups have the same name, the anchor for `os.pk.io` has `os-` before the name.
+
+```md
+[Verified](ref:conditions#verified)
+[Verified](ref:conditions#os-verified)
+[SerialMismatch](ref:conditions#reason-serialmismatch)
+[BiosConvergence](ref:conditions#opreason-biosconvergence)
+```

@@ -1,0 +1,229 @@
+---
+title: HostOperation
+description: One planned change to one machine, as a list of actions. A person approves it before it runs.
+type: kind
+eyebrow: Kind · metal.pk.io/v1alpha1
+xref: { cat: kind, id: HostOperation }
+sources:
+  - /repo/metal/api/v1alpha1/hostoperation_types.go
+  - /repo/metal/internal/controller/hostoperation_controller.go
+  - /repo/metal/internal/controller/hostoperation_abort.go
+  - /repo/metal/internal/controller/hostoperation_rollout.go
+  - /repo/metal/internal/controller/window.go
+  - /repo/metal/internal/phase/phase.go
+  - /repo/metal/config/policy/hostoperation-approval.yaml
+---
+
+import Callout from '../../../../components/Callout.astro';
+import FieldTable from '../../../../components/FieldTable.astro';
+import OperationPhases from '../../../../components/diagrams/OperationPhases.astro';
+import OperationLife from '../../../../components/explainers/OperationLife.astro';
+
+A HostOperation is one planned change to one machine: an install, a reboot, a BIOS change, a firmware flash.
+It lists the actions in order. A person approves it, then the operator runs it and records each step.
+
+## At a glance
+
+<dl class="pk-glance">
+  <dt>Group and version</dt>
+  <dd>`metal.pk.io/v1alpha1`</dd>
+  <dt>Scope</dt>
+  <dd>Namespaced. The operator makes its operations in the `pk-metal` namespace.</dd>
+  <dt>Written by</dt>
+  <dd>A controller (the proposal) or a person. The approver writes only `spec.approval.approvedBy`.</dd>
+  <dt>Reconciled by</dt>
+  <dd>[](ctrl:hostoperation), the only writer to a BMC.</dd>
+  <dt>Acts on</dt>
+  <dd>One [](kind:Host), through [`spec.hostRef`](kind:HostOperation#spec.hostRef). The Talos actions also name its [](kind:TalosNode).</dd>
+  <dt>Phases</dt>
+  <dd>Proposed, AwaitingApproval, Running, Succeeded, Failed, Aborted.</dd>
+  <dt>Frozen after creation</dt>
+  <dd>`hostRef`, `actions`, `proposedBy`, `rolloutRef` and `approval.required`.</dd>
+  <dt>Source</dt>
+  <dd>[hostoperation_types.go](/repo/metal/api/v1alpha1/hostoperation_types.go)</dd>
+</dl>
+
+## How it connects
+
+These controllers propose operations:
+
+- The [](ctrl:hostclaim) proposes the install when a [](kind:HostClaim) binds a Host.
+- The [](ctrl:convergence) proposes BIOS and firmware changes from a [](kind:BiosProfile) or a [](kind:FirmwareProfile).
+- The [](ctrl:talosrollout) makes one operation for each node of an approved [](kind:TalosRollout).
+- Commands such as [](cli:reboot), [](cli:replace) and [](cli:restore) propose day-2 operations.
+
+You approve with [](cli:approve), stop with [](cli:abort) and run again with [](cli:retry).
+The actions are in the [action catalog](act:index), for example [](act:PowerCycle) and [](act:TalosUpgrade).
+[](concept:approval) explains why a person approves each change. [](flow:approval-flow) shows the full path.
+
+## Lifecycle
+
+<OperationPhases />
+
+1. A controller or a person creates the operation. The phase changes from Proposed to AwaitingApproval.
+2. A second person approves it. The gates start.
+3. A gate can hold the operation. The phase shows Proposed again, and `blockedOn` gives the reason.
+4. All gates open. The operator records a baseline and the phase is Running.
+5. Each action runs in order. When all actions reach their goal, the phase changes to Succeeded.
+6. An action fails. The phase changes to Failed. The operator does not retry it.
+7. A person aborts it. The phase changes to Aborted.
+
+The steps below show one operation from the proposal to its end.
+
+<OperationLife />
+
+## Approval
+
+An operation needs approval unless [`spec.approval.required`](kind:HostOperation#spec.approval.required) is `false`.
+Omitted means `true`: the safe default is a closed gate.
+
+A [ValidatingAdmissionPolicy](/repo/metal/config/policy/hostoperation-approval.yaml) enforces these rules:
+
+1. Nobody can create an operation that is already approved.
+2. `spec.proposedBy` must be the user who creates the operation.
+3. Only the operator or an admin can create an operation with `required: false`.
+4. `approvedBy` must be the user who approves.
+5. The proposer cannot approve the proposal.
+6. An approval cannot change after it is set.
+
+<Callout type="note">
+Read `spec.actions` before you approve. [](cli:approve) shows each action in plain words, then asks.
+After your yes, it reads the operation again and approves only if the plan did not change.
+</Callout>
+
+To refuse a proposal, delete it. To stop new proposals for a claim, use [](cli:hold).
+
+### Rollout operations
+
+An operation with [`spec.rolloutRef`](kind:HostOperation#spec.rolloutRef) has no approval of its own.
+The approval of its [](kind:TalosRollout) covers it. Before the operation starts, the operator makes sure that:
+
+- the rollout exists and is not aborted,
+- the rollout approval names the same `planHash` as the operation,
+- the plan has a step for this node on this Host,
+- the actions of the operation are the actions of that step.
+
+If one of these is not true, the operation fails with reason `RolloutRefused`. The machine does not change.
+After the start, the operator does not do this check again.
+
+## Gates before the start
+
+An approved operation starts only when all gates open. The operator checks them in this order.
+
+| Gate | Holds when | `blockedOn` | Release |
+| --- | --- | --- | --- |
+| Abort | `metal.pk.io/abort` is set | none: ends as Aborted | none |
+| Rollout | the rollout does not cover the operation | none: ends as Failed (`RolloutRefused`) | none |
+| Queue | another operation holds the Host | `OperationQueued` | wait |
+| Host maintenance | the Host has `metal.pk.io/maintenance` | `HostInMaintenance` | remove the annotation |
+| Window | a [](kind:MaintenanceWindow) covers the Host and none is open | `OutsideMaintenanceWindow` | wait, or `metal.pk.io/ignore-window` |
+| Self guard | a disruptive action targets a machine that runs the operator | `SelfDisruption` | `metal.pk.io/allow-self-disruption` on the Host |
+| Cluster guard | a disruptive action would take down a second control plane, or etcd is not fully healthy without this node | `ClusterDisruption` | wait, or `metal.pk.io/override-cluster-guard` |
+
+Only one operation runs on a Host at a time.
+An operation that started holds the Host until it ends. Of the others, the oldest goes first.
+
+A new install (`spec.reason: Provisioning`) ignores maintenance windows: it stops no workload.
+The cluster guard checks again before each disruptive action, not only at the start.
+[Self-protection](concept:self-protection) explains the two guards.
+
+## Annotations
+
+Set these annotations on the HostOperation. The value tells who asked and why.
+
+<dl>
+  <dt>`metal.pk.io/abort`</dt>
+  <dd>
+    Stops the operation. If it did not start, it ends at once. If it runs, it stops before the next action.
+    An action that already acted finishes first. Then the operator ejects the media, clears the boot override and uncordons the node that this operation cordoned.
+    The phase changes to Aborted. [](cli:abort) sets it.
+  </dd>
+  <dt>`metal.pk.io/retry`</dt>
+  <dd>
+    On a failed BIOS or firmware proposal: the operator deletes it and proposes the same plan again, as a new operation that waits for approval.
+    [](cli:retry) sets it. For other operations, `retry` deletes the failed operation and the controller proposes it again.
+  </dd>
+  <dt>`metal.pk.io/override-cluster-guard`</dt>
+  <dd>
+    Lets a disruptive action take down a control plane when etcd is not fully healthy.
+    Use it to repair a broken etcd or for a cluster with one control plane.
+    It does not lift the rule "one control plane at a time", and it does not lift self-protection.
+  </dd>
+  <dt>`metal.pk.io/ignore-window`</dt>
+  <dd>Lets the operation start outside the maintenance windows. [](cli:restore) sets it, because a cluster without etcd is already down.</dd>
+</dl>
+
+<Callout type="caution">
+Do not delete an operation that runs, to stop it. Deletion stops the operation but undoes nothing: media can stay mounted and the node can stay cordoned.
+Use [](cli:abort).
+</Callout>
+
+## How the steps run
+
+- **Check, then act.** Each action checks its goal first. A goal that is already true is a success with no change.
+- **Resume, never repeat.** The operator writes each step to `status.steps` when the step ends. After a restart, it continues after the last recorded step.
+- **A wait is not a failure.** A BMC or a node that does not answer is a wait. Each action has a time budget. When the budget ends, the step fails.
+- **No automatic retry.** A failed step fails the operation. The record stays until a person retries or deletes it.
+- **One power action.** An operation has at most one `powerCycle` or `powerOff`.
+- **No BMC for Talos actions.** An operation with only Talos and Kubernetes actions runs while the BMC is down.
+
+The [action catalog](act:index) gives the budget and the guard for each action.
+
+## Spec
+
+<FieldTable kind="HostOperation" part="spec" />
+
+## Status
+
+<FieldTable kind="HostOperation" part="status" />
+
+### Conditions
+
+| Condition | Reason | Meaning |
+| --- | --- | --- |
+| `Approved` | `AwaitingApproval` | A person must approve. The message gives the command. |
+| `Approved` | `Approved` | A person approved, or the rollout approval covers it. |
+| `Approved` | `ApprovalNotRequired` | `required: false`. |
+| `Executed` | `Executing` | Steps run. The message names the current step. |
+| `Executed` | `OperationQueued`, `HostNotFound`, `HostInMaintenance`, `OutsideMaintenanceWindow`, `SelfDisruption`, `ClusterDisruption`, `NoReachablePath` | A gate holds the operation. The phase shows Proposed. |
+| `Executed` | `StepsSucceeded` | True. All steps reached their goal. |
+| `Executed` | `StepFailed`, `RolloutRefused`, `HostNotClaimed` | False. The operation failed. |
+| `Executed` | `Aborted` | False. A person stopped it. |
+
+A finished operation with [`spec.ttlSecondsAfterFinished`](kind:HostOperation#spec.ttlSecondsAfterFinished) goes away when the time is over, but only if it succeeded.
+A failed operation stays until a person acts.
+
+## Example
+
+A reboot of a worker, as [](cli:reboot) proposes it:
+
+```yaml
+apiVersion: metal.pk.io/v1alpha1
+kind: HostOperation
+metadata:
+  name: reboot-w-1-7f3c2a
+  namespace: pk-metal
+spec:
+  hostRef: { name: sim-0004 }
+  proposedBy: alice
+  actions:
+    - cordon: { nodeRef: { name: w-1 } }
+    - drain: { nodeRef: { name: w-1 }, timeoutSeconds: 900 }
+    - talosReboot: { nodeRef: { name: w-1 } }
+    - waitNodeReady: { nodeRef: { name: w-1 } }
+    - uncordon: { nodeRef: { name: w-1 } }
+```
+
+```console
+$ kubectl get hostoperations -n pk-metal
+NAME                 HOST       PHASE              REASON   PROPOSED   APPROVED   BLOCKED   AGE
+reboot-w-1-7f3c2a    sim-0004   AwaitingApproval            alice                           1m
+```
+
+## Tasks
+
+- [](howto:approve-hold-retry)
+- [](howto:install-hosts)
+- [](howto:reboot-a-node)
+- [](howto:upgrade-talos)
+- [](rb:operation-failed)
