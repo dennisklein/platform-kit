@@ -37,6 +37,10 @@ type Imager struct {
 	// StoreClaim is the PersistentVolumeClaim of the media store. The Job
 	// mounts it; the manager mounts the same claim at its --media-store.
 	StoreClaim string
+	// HelperImage is the operator's own image. The imager prints the config
+	// it embeds, so the Job runs it through a copy of the manager binary that
+	// keeps the output out of the log (internal/imagerrun).
+	HelperImage string
 }
 
 // DefaultImagerRepository is the upstream imager.
@@ -67,6 +71,10 @@ const (
 	imagerStoreMount  = "/store"
 	imagerConfigMount = "/config"
 	imagerTmp         = "/tmp"
+	// imagerHelperDir holds the copy of the manager binary the imager runs
+	// through, and imagerBinary is the imager in its own image.
+	imagerHelperDir = "/pk-metal"
+	imagerBinary    = "/bin/imager"
 	// imagerUID is the user the build runs as: the manager's, so that the
 	// manager can import and remove what the build wrote.
 	imagerUID = int64(65532)
@@ -117,15 +125,18 @@ func imagerJobName(asset, key string) string {
 	return "build-" + asset + "-" + key[:10]
 }
 
-// imagerArgs is the imager command line. The config is read from a file on
-// a Secret volume and never appears here: Job arguments are visible to
-// anyone who can read the Job.
+// imagerArgs is the build container's command line: the manager binary's
+// imager-run, then the imager's own command line. The config is read from a
+// file on a Secret volume and never appears here: Job arguments are visible
+// to anyone who can read the Job.
 func imagerArgs(job string, in imagerInputs) []string {
+	cfg := path.Join(imagerConfigMount, asset.ConfigFilename)
 	args := []string{
-		"iso",
+		path.Join(imagerHelperDir, "manager"), "imager-run", cfg,
+		imagerBinary, "iso",
 		"--arch", "amd64",
 		"--output", path.Join(imagerStoreMount, asset.BuildDir(job)),
-		"--embedded-config-path", path.Join(imagerConfigMount, asset.ConfigFilename),
+		"--embedded-config-path", cfg,
 	}
 	for _, a := range in.KernelArgs {
 		args = append(args, "--extra-kernel-arg", a)
@@ -149,6 +160,10 @@ func imagerArgs(job string, in imagerInputs) []string {
 // (the extension tree, the initramfs, the boot image) stays in a
 // memory-backed /tmp that ends with the pod. The ISO goes to the media store,
 // where the manager imports it.
+//
+// Logs: the imager prints its whole build profile, the embedded config
+// included. An init container copies the manager binary into the pod, and
+// the imager runs as its child with its output kept from the log.
 //
 // The pod is placed next to the manager: the media store is a
 // ReadWriteOnce volume, mountable from one node at a time.
@@ -187,10 +202,18 @@ func (im *Imager) imagerJob(ba *osv1alpha1.BootAsset, namespace, job, configSecr
 							TopologyKey: corev1.LabelHostname,
 						}},
 					}},
+					InitContainers: []corev1.Container{{
+						Name:            "stage",
+						Image:           im.HelperImage,
+						ImagePullPolicy: corev1.PullIfNotPresent,
+						Command:         []string{"/manager", "imager-stage", path.Join(imagerHelperDir, "manager")},
+						SecurityContext: restrictedContainer(),
+						VolumeMounts:    []corev1.VolumeMount{{Name: "helper", MountPath: imagerHelperDir}},
+					}},
 					Containers: []corev1.Container{{
-						Name:  "imager",
-						Image: in.Image,
-						Args:  imagerArgs(job, in),
+						Name:    "imager",
+						Image:   in.Image,
+						Command: imagerArgs(job, in),
 						Env: []corev1.EnvVar{
 							{Name: "HOME", Value: imagerTmp},
 							{Name: "TMPDIR", Value: imagerTmp},
@@ -203,18 +226,19 @@ func (im *Imager) imagerJob(ba *osv1alpha1.BootAsset, namespace, job, configSecr
 							// The memory-backed /tmp counts against this.
 							Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("3Gi")},
 						},
-						SecurityContext: &corev1.SecurityContext{
-							AllowPrivilegeEscalation: ptr.To(false),
-							ReadOnlyRootFilesystem:   ptr.To(true),
-							Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
-						},
+						SecurityContext: restrictedContainer(),
 						VolumeMounts: []corev1.VolumeMount{
+							{Name: "helper", MountPath: imagerHelperDir, ReadOnly: true},
 							{Name: "config", MountPath: imagerConfigMount, ReadOnly: true},
 							{Name: "store", MountPath: imagerStoreMount},
 							{Name: "tmp", MountPath: imagerTmp},
 						},
 					}},
 					Volumes: []corev1.Volume{
+						{Name: "helper", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{
+							Medium:    corev1.StorageMediumMemory,
+							SizeLimit: ptr.To(resource.MustParse("256Mi")),
+						}}},
 						{Name: "config", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
 							SecretName:  configSecret,
 							Items:       []corev1.KeyToPath{{Key: asset.ConfigFilename, Path: asset.ConfigFilename}},
@@ -231,6 +255,16 @@ func (im *Imager) imagerJob(ba *osv1alpha1.BootAsset, namespace, job, configSecr
 				},
 			},
 		},
+	}
+}
+
+// restrictedContainer is the container half of the restricted Pod Security
+// profile, with a read-only root filesystem on top.
+func restrictedContainer() *corev1.SecurityContext {
+	return &corev1.SecurityContext{
+		AllowPrivilegeEscalation: ptr.To(false),
+		ReadOnlyRootFilesystem:   ptr.To(true),
+		Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
 	}
 }
 

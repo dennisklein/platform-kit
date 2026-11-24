@@ -63,7 +63,8 @@ func newEmbedFixture(t *testing.T, config string) *embedFixture {
 	return &embedFixture{
 		r: &BootAssetReconciler{
 			Client: cl, Scheme: testScheme(t), Namespace: testNS, Store: store,
-			Imager: &Imager{Repository: DefaultImagerRepository, Digests: DefaultImagerDigests(), StoreClaim: "media"},
+			Imager: &Imager{Repository: DefaultImagerRepository, Digests: DefaultImagerDigests(), StoreClaim: "media",
+				HelperImage: "registry.example/pk-metal:test"},
 		},
 		cl: cl, store: store, ba: ba,
 	}
@@ -122,7 +123,13 @@ func TestEmbeddedInstallerBuildsInAJobAndImportsTheResult(t *testing.T) {
 	pod := job.Spec.Template.Spec
 	c := pod.Containers[0]
 	assert.Equal(t, "ghcr.io/siderolabs/imager:v1.14.6@"+DefaultImagerDigests()["v1.14.6"], c.Image, "pinned by digest, version from the asset")
-	all := strings.Join(c.Args, " ")
+	all := strings.Join(c.Command, " ")
+	// The imager runs as a child of the manager binary's imager-run, which
+	// keeps the profile dump (it holds the config) out of the log.
+	require.Len(t, pod.InitContainers, 1)
+	assert.Equal(t, "registry.example/pk-metal:test", pod.InitContainers[0].Image)
+	assert.Equal(t, []string{"/manager", "imager-stage", "/pk-metal/manager"}, pod.InitContainers[0].Command)
+	assert.Equal(t, []string{"/pk-metal/manager", "imager-run", "/config/config.yaml", "/bin/imager", "iso"}, c.Command[:5])
 	assert.NotContains(t, all, "version: v1alpha1", "the config never travels in arguments")
 	for _, e := range c.Env {
 		assert.NotContains(t, e.Value, "v1alpha1", "nor in the environment")
@@ -147,9 +154,11 @@ func TestEmbeddedInstallerBuildsInAJobAndImportsTheResult(t *testing.T) {
 	assert.True(t, *pod.SecurityContext.RunAsNonRoot)
 	assert.Equal(t, corev1.SeccompProfileTypeRuntimeDefault, pod.SecurityContext.SeccompProfile.Type)
 	assert.False(t, *pod.AutomountServiceAccountToken)
-	assert.False(t, *c.SecurityContext.AllowPrivilegeEscalation)
-	assert.Equal(t, []corev1.Capability{"ALL"}, c.SecurityContext.Capabilities.Drop)
-	assert.Nil(t, c.SecurityContext.Privileged)
+	for _, ctr := range append(pod.InitContainers, c) {
+		assert.False(t, *ctr.SecurityContext.AllowPrivilegeEscalation, ctr.Name)
+		assert.Equal(t, []corev1.Capability{"ALL"}, ctr.SecurityContext.Capabilities.Drop, ctr.Name)
+		assert.Nil(t, ctr.SecurityContext.Privileged, ctr.Name)
+	}
 	for _, v := range pod.Volumes {
 		assert.Nil(t, v.HostPath, "no host paths: no loop devices are needed for an ISO")
 		if v.EmptyDir != nil {
@@ -216,6 +225,10 @@ func TestEmbeddedInstallerHolds(t *testing.T) {
 		"no media store": {
 			mutate: func(f *embedFixture) { f.r.Store = nil },
 			reason: osv1alpha1.ReasonBuilderUnavailable, want: "--media-store",
+		},
+		"no helper image": {
+			mutate: func(f *embedFixture) { f.r.Imager.HelperImage = "" },
+			reason: osv1alpha1.ReasonBuilderUnavailable, want: "--imager-helper-image",
 		},
 		"no pinned imager": {
 			mutate: func(f *embedFixture) { f.r.Imager.Digests = map[string]string{} },

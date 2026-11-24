@@ -151,7 +151,8 @@ func TestProvisioning(t *testing.T) {
 		// The suite's cluster runs v1.14.0; the test pins a stand-in imager
 		// for it, as a site would with --imager-digest.
 		Imager: &controller.Imager{Repository: controller.DefaultImagerRepository,
-			Digests: map[string]string{"v1.14.0": "sha256:" + strings.Repeat("0", 64)}, StoreClaim: "pk-metal-media-store"},
+			Digests: map[string]string{"v1.14.0": "sha256:" + strings.Repeat("0", 64)}, StoreClaim: "pk-metal-media-store",
+			HelperImage: "pk-metal:envtest"},
 		WaitInterval: 200 * time.Millisecond,
 		Factory:      imageFactory,
 	}, controller.LaneAsset, controller.LaneEndpoint, controller.LaneHost, controller.LaneHostClaim,

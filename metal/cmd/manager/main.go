@@ -55,8 +55,16 @@ var version = "dev"
 //
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;create;update,namespace=pk-metal
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch,namespace=pk-metal
+//
+// The manager reads its own Pod once, to learn the image it runs from: the
+// imager Jobs run a copy of this binary (see imager.go).
+//
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get,namespace=pk-metal
 
 func main() {
+	if code, ok := runSubcommand(os.Args[1:], os.Stderr); ok {
+		os.Exit(code)
+	}
 	c, err := parseFlags(os.Args[1:], os.Stderr)
 	if errors.Is(err, flag.ErrHelp) {
 		return
@@ -137,12 +145,20 @@ func main() {
 		log.Info("media service", "listen", c.mediaListen, "url", c.mediaURL, "certSecret", c.mediaCert)
 	}
 	var store *asset.Store
+	helper := c.imagerHelper
 	if c.mediaStore != "" {
 		if store, err = asset.NewStore(c.mediaStore); err != nil {
 			log.Error(err, "media store")
 			os.Exit(1)
 		}
-		log.Info("media store", "dir", c.mediaStore, "claim", c.storeClaim, "imager", c.imagerRepo, "pinned", c.imagerPins.String())
+		if helper == "" {
+			if helper, err = ownImage(restCfg, scheme); err != nil {
+				log.Error(err, "find the manager's own image for the imager Jobs; set --imager-helper-image")
+				os.Exit(1)
+			}
+		}
+		log.Info("media store", "dir", c.mediaStore, "claim", c.storeClaim, "imager", c.imagerRepo,
+			"pinned", c.imagerPins.String(), "helper", helper)
 	}
 
 	mgr, err := ctrl.NewManager(restCfg, ctrl.Options{
@@ -180,7 +196,8 @@ func main() {
 		RegistryClient:         registryClient,
 		Media:                  media,
 		MediaStore:             store,
-		Imager:                 &controller.Imager{Repository: c.imagerRepo, Digests: c.imagerPins, StoreClaim: c.storeClaim},
+		Imager: &controller.Imager{Repository: c.imagerRepo, Digests: c.imagerPins, StoreClaim: c.storeClaim,
+			HelperImage: helper},
 		Factory:                factory,
 		TalosDial:              machineapi.Dial,
 		NodeName:               c.nodeName,
@@ -205,6 +222,30 @@ func main() {
 		log.Error(err, "manager exited")
 		os.Exit(1)
 	}
+}
+
+// ownImage reads the manager's own Pod (POD_NAMESPACE and POD_NAME, from the
+// downward API) and returns the image of its manager container. The imager
+// Jobs run beside the manager, so that image is already on their node.
+func ownImage(cfg *rest.Config, scheme *runtime.Scheme) (string, error) {
+	ns, name := os.Getenv("POD_NAMESPACE"), os.Getenv("POD_NAME")
+	if ns == "" || name == "" {
+		return "", errors.New("POD_NAMESPACE and POD_NAME are not set (the media-store component sets them)")
+	}
+	cl, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		return "", err
+	}
+	pod := &corev1.Pod{}
+	if err := cl.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: name}, pod); err != nil {
+		return "", fmt.Errorf("pod %s/%s: %w", ns, name, err)
+	}
+	for _, ctr := range pod.Spec.Containers {
+		if ctr.Name == "manager" {
+			return ctr.Image, nil
+		}
+	}
+	return "", fmt.Errorf("pod %s/%s has no container named manager", ns, name)
 }
 
 // whoAmI asks the apiserver which username this process acts as.
@@ -256,6 +297,7 @@ type config struct {
 	storeClaim   string
 	imagerRepo   string
 	imagerPins   imagerDigests
+	imagerHelper string
 	checkIn      time.Duration
 	shutdown     time.Duration
 	nodeName     string
@@ -298,6 +340,8 @@ func parseFlags(args []string, output io.Writer) (*config, error) {
 	fs.StringVar(&c.imagerRepo, "imager-repository", controller.DefaultImagerRepository,
 		"where the Talos imager image is pulled from; a mirror must carry the same digests")
 	c.imagerPins = imagerDigests(controller.DefaultImagerDigests())
+	fs.StringVar(&c.imagerHelper, "imager-helper-image", "",
+		"image with this manager binary for the imager Jobs, which run the imager through it; empty: the image this manager's own Pod runs")
 	fs.Var(&c.imagerPins, "imager-digest",
 		"pin the imager image of a Talos release as <version>=sha256:<digest> (repeatable); the manager knows the digest of the release it renders for")
 	fs.DurationVar(&c.checkIn, "checkin-timeout", 30*time.Minute,

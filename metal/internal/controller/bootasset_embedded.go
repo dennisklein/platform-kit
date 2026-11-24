@@ -31,6 +31,11 @@ func (r *BootAssetReconciler) embed(ctx context.Context, ba *osv1alpha1.BootAsse
 			"this operator has no media store: start the manager with --media-store and --media-store-claim (the media-store kustomize component sets both)")
 		return nil
 	}
+	if r.Imager.HelperImage == "" {
+		r.hold(ba, osv1alpha1.ReasonBuilderUnavailable,
+			"the manager does not know its own image, which the imager Jobs run: set --imager-helper-image")
+		return nil
+	}
 	if !quirks.New(ba.Spec.TalosVersion).SupportsEmbeddedConfig() {
 		r.hold(ba, osv1alpha1.ReasonBuilderUnavailable,
 			fmt.Sprintf("Talos %s cannot read a config embedded in its image; that needs Talos 1.12 or later", ba.Spec.TalosVersion))
