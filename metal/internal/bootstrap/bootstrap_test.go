@@ -215,21 +215,21 @@ func TestEnsure(t *testing.T) {
 	})
 }
 
-// The container-tier ladder: blank machines, configs over the maintenance
-// service, bootstrap, ready. The fake's stage transitions play the machines.
-func TestRunApplyInsecure(t *testing.T) {
+// The day-0 ladder on machines whose config came on the media: bootstrap,
+// ready. The fake's stage transitions play the machines. Run sends no config.
+func TestRunLadder(t *testing.T) {
 	fleet := fake.NewFleet()
-	cp, w := fake.NewMachine(version), fake.NewMachine(version)
+	cp, w := configured("booting", false), configured("booting", false)
 	fleet.Add("10.77.0.11", "node-1", cp)
 	fleet.Add("10.77.0.12", "node-2", w)
 	o := Options{
 		Dial: fleet.Dialer(),
 		Nodes: []Node{
-			{Name: "node-1", Endpoint: "10.77.0.11", ControlPlane: true, MachineConfig: []byte("cp")},
-			{Name: "node-2", Endpoint: "10.77.0.12", MachineConfig: []byte("w")},
+			{Name: "node-1", Endpoint: "10.77.0.11", ControlPlane: true},
+			{Name: "node-2", Endpoint: "10.77.0.12"},
 		},
-		Talosconfig: []byte("tc"), ApplyInsecure: true,
-		Poll: 5 * time.Millisecond, Logf: t.Logf,
+		Talosconfig: []byte("tc"),
+		Poll:        5 * time.Millisecond, Logf: t.Logf,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -237,15 +237,14 @@ func TestRunApplyInsecure(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- Run(ctx, o) }()
 
-	require.Eventually(t, func() bool { return len(cp.Applied()) == 1 && len(w.Applied()) == 1 }, 5*time.Second, time.Millisecond)
 	cp.SetStage("booting", false, "etcd")
-	w.SetStage("booting", false)
 	require.Eventually(t, cp.Bootstrapped, 5*time.Second, time.Millisecond)
 	cp.SetStage("running", true)
 	w.SetStage("running", true)
 
 	require.NoError(t, <-done)
-	assert.Equal(t, [][]byte{[]byte("cp")}, cp.Applied())
+	assert.Equal(t, [][]byte{[]byte("cfg")}, cp.Applied(), "Run sends no config")
+	assert.Equal(t, [][]byte{[]byte("cfg")}, w.Applied(), "Run sends no config")
 	assert.Equal(t, 1, cp.BootstrapCalls())
 	assert.Zero(t, w.BootstrapCalls(), "workers are never bootstrapped")
 }
@@ -286,19 +285,19 @@ func TestRunIdempotent(t *testing.T) {
 	m := configured("running", true)
 	o := Options{
 		Dial:        m.Dialer(),
-		Nodes:       []Node{{Name: "node-1", Endpoint: "n1", ControlPlane: true, MachineConfig: []byte("other")}},
-		Talosconfig: []byte("tc"), ApplyInsecure: true,
-		Poll: time.Millisecond, Logf: t.Logf,
+		Nodes:       []Node{{Name: "node-1", Endpoint: "n1", ControlPlane: true}},
+		Talosconfig: []byte("tc"),
+		Poll:        time.Millisecond, Logf: t.Logf,
 	}
 	require.NoError(t, Run(context.Background(), o))
 	require.NoError(t, Run(context.Background(), o))
-	assert.Len(t, m.Applied(), 1, "a configured node is not re-applied")
+	assert.Len(t, m.Applied(), 1, "Run sends no config")
 	assert.Equal(t, 1, m.BootstrapCalls())
 }
 
-// Without ApplyInsecure a blank machine never proceeds: the metal flow's
-// config must arrive by media, and the deadline reports that honestly.
-func TestRunBlankMachineWithoutApplyTimesOut(t *testing.T) {
+// A blank machine never proceeds: the config must arrive on the media, Run
+// never sends it in band, and the deadline reports that honestly.
+func TestRunBlankMachineTimesOut(t *testing.T) {
 	m := fake.NewMachine(version)
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
@@ -309,13 +308,4 @@ func TestRunBlankMachineWithoutApplyTimesOut(t *testing.T) {
 	require.Error(t, err)
 	assert.Empty(t, m.Applied())
 	assert.False(t, m.Bootstrapped())
-}
-
-func TestRunApplyInsecureNeedsConfig(t *testing.T) {
-	m := fake.NewMachine(version)
-	err := Run(context.Background(), Options{
-		Dial: m.Dialer(), Nodes: []Node{{Name: "node-1", Endpoint: "n1", ControlPlane: true}},
-		Talosconfig: []byte("tc"), ApplyInsecure: true,
-	})
-	require.Error(t, err)
 }

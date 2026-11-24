@@ -328,7 +328,7 @@ func TestE2EQemu(t *testing.T) {
 	})
 
 	rung("bootstrap verb waits out install and first boot", func(t *testing.T) {
-		// No --apply-insecure: the config travelled on the medium, so the
+		// No in-band config: the config travelled on the medium, so the
 		// machine comes up configured and only answers securely — the metal
 		// flow, end to end. The wait covers install, reboot, and etcd.
 		crDir := t.TempDir()

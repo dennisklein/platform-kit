@@ -36,16 +36,16 @@ The command takes no arguments.
 ## What it does
 
 1. The command reads the manifests and the secrets bundle, as [](cli:render) does.
-2. It renders the machine configuration of each node and a talosconfig with a short life.
-3. With [`--apply-insecure`](cli:bootstrap#--apply-insecure), it sends the configuration to each node that has none.
-4. It bootstraps etcd on the control planes. It tries again until etcd runs.
-5. It waits until each node runs and is ready.
-6. It stops with an error when the time of [`--timeout`](cli:bootstrap#--timeout) ends.
+2. It makes a talosconfig with a short life.
+3. It bootstraps etcd on the control planes. It tries again until etcd runs.
+4. It waits until each node runs and is ready.
+5. It stops with an error when the time of [`--timeout`](cli:bootstrap#--timeout) ends.
 
-You can run the command again. It does not send a configuration to a node that has one, and it does not bootstrap a cluster a second time.
+You can run the command again. It does not bootstrap a cluster a second time.
 
-<Callout type="caution">
-Do not use `--apply-insecure` on real hardware. It sends the configuration, with the keys of the cluster, through the maintenance API, which has no authentication. On real hardware, [](cli:boot) sends the configuration through the BMC.
+<Callout type="note">
+The command does not send a machine configuration. Each node must have its configuration before you start the command. [](cli:boot) sends the configuration through the virtual media of the BMC, out of band. pk-metal never sends a configuration through the maintenance API of Talos, because that API has no authentication.
+A node that has no configuration stays in maintenance mode. The command then waits until the time of [`--timeout`](cli:bootstrap#--timeout) ends.
 </Callout>
 
 ## Examples
@@ -54,9 +54,6 @@ Do not use `--apply-insecure` on real hardware. It sends the configuration, with
 title="pk-metal bootstrap"
 text={`
     $ pk-metal bootstrap --dir manifests/ --secrets secrets.yaml
-    bootstrap: cp-1 is already configured
-    bootstrap: cp-2 is already configured
-    bootstrap: cp-3 is already configured
     bootstrap: cp-1 running and ready
     bootstrap: cp-2 running and ready
     bootstrap: cp-3 running and ready
@@ -73,7 +70,7 @@ pk-metal bootstrap --dir manifests/ --secrets secrets.yaml --node cp-1 --endpoin
 ## Objects
 
 The command reads files, not objects in the cluster: the [](kind:TalosCluster) and [](kind:TalosNode) manifests in [`--dir`](cli:bootstrap#--dir).
-On the nodes, it uses the Talos API to apply the configuration, to bootstrap etcd and to read the state.
+On the nodes, it uses the authenticated Talos API to bootstrap etcd and to read the state.
 
 With the operator, the [](ctrl:taloscluster) bootstraps the cluster.
 

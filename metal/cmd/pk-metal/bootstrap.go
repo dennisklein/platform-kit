@@ -19,20 +19,17 @@ import (
 const bootstrapCertTTL = time.Hour
 
 // bootstrapCmd is day-0 for a cluster without an operator, on the same library
-// the TalosCluster reconciler runs: deliver configs where no media channel
-// exists (--apply-insecure, container/dev tiers only; on metal the config
-// rides the BMC's virtual media), bootstrap etcd exactly once, wait for every
-// node to be Ready.
+// the TalosCluster reconciler runs: bootstrap etcd exactly once, wait for every
+// node to be Ready. It sends no config: the config reaches a machine only out
+// of band, on the BMC's virtual media (see boot), never over the
+// unauthenticated maintenance API.
 func bootstrapCmd(args []string) {
 	fs := newFlags("bootstrap")
 	dir := fs.String("dir", "", "directory with TalosCluster/TalosNode manifests (required)")
 	secretsFile := fs.String("secrets", "", "secrets bundle from `talosctl gen secrets`, or - for stdin (required)")
 	nodeName := fs.String("node", "", "drive only this TalosNode (default: every node in --dir)")
 	endpoint := fs.String("endpoint", "", "address of --node (default: its spec.address or first static address)")
-	factoryHost := fs.String("image-factory", render.PublicFactory, "image factory host the installer image is named on")
-	applyInsecure := fs.Bool("apply-insecure", false,
-		"deliver configs over the UNAUTHENTICATED maintenance API: container/dev tiers only; on metal the config rides the BMC media channel")
-	timeout := fs.Duration("timeout", 15*time.Minute, "overall deadline: apply, bootstrap retries, readiness")
+	timeout := fs.Duration("timeout", 15*time.Minute, "overall deadline: bootstrap retries, readiness")
 	parseFlags(fs, args)
 	if fs.NArg() != 0 || *dir == "" || *secretsFile == "" || (*endpoint != "" && *nodeName == "") {
 		badUsage(fs, "--dir and --secrets are required, --endpoint needs --node, and bootstrap takes no other arguments")
@@ -46,11 +43,6 @@ func bootstrapCmd(args []string) {
 		}
 		m.Nodes = []osv1alpha1.TalosNode{*n}
 	}
-	configs, err := renderAll(context.Background(), m, bundle, render.NewFactory(*factoryHost), false)
-	if err != nil {
-		die(err)
-	}
-
 	var nodes []bootstrap.Node
 	var endpoints []string
 	for _, n := range m.Nodes {
@@ -65,7 +57,7 @@ func bootstrapCmd(args []string) {
 		if cp {
 			endpoints = append(endpoints, addr)
 		}
-		nodes = append(nodes, bootstrap.Node{Name: n.Name, Endpoint: addr, ControlPlane: cp, MachineConfig: configs[n.Name]})
+		nodes = append(nodes, bootstrap.Node{Name: n.Name, Endpoint: addr, ControlPlane: cp})
 	}
 	talosconfig, err := render.Talosconfig(bundle, m.Cluster.Name, endpoints, bootstrapCertTTL)
 	if err != nil {
@@ -78,11 +70,10 @@ func bootstrapCmd(args []string) {
 	defer cancel()
 
 	if err := bootstrap.Run(ctx, bootstrap.Options{
-		Dial:          machineapi.Dial,
-		Nodes:         nodes,
-		Talosconfig:   talosconfig,
-		ApplyInsecure: *applyInsecure,
-		Logf:          log.Printf,
+		Dial:        machineapi.Dial,
+		Nodes:       nodes,
+		Talosconfig: talosconfig,
+		Logf:        log.Printf,
 	}); err != nil {
 		dief("bootstrap failed: %v", err)
 	}

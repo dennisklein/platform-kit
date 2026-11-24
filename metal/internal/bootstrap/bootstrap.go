@@ -1,8 +1,9 @@
 // Package bootstrap brings a Talos cluster's etcd into existence, once. Ensure
 // is one observation and at most one Bootstrap call: the TalosCluster
 // reconciler runs it on every pass, and Run (the CLI's day-0 ladder, for a
-// cluster without an operator) loops it between delivering configs and waiting
-// for the nodes to become Ready.
+// cluster without an operator) loops it and then waits for the nodes to become
+// Ready. Neither sends a machine config: the config reaches a machine only out
+// of band, on the BMC's virtual media.
 //
 // Whether a cluster is bootstrapped is observed, never remembered: a
 // control-plane member that lists etcd members, or a Kubernetes API that
@@ -250,9 +251,6 @@ type Node struct {
 	Name         string
 	Endpoint     string
 	ControlPlane bool
-	// MachineConfig is the node's rendered config; consumed only with
-	// ApplyInsecure (on metal it already rode the media).
-	MachineConfig []byte
 }
 
 // Options configure Run.
@@ -262,9 +260,6 @@ type Options struct {
 	// Talosconfig is the cluster's client credentials for the authenticated
 	// rungs.
 	Talosconfig []byte
-	// ApplyInsecure delivers each node's MachineConfig over the maintenance
-	// service, for tiers without a media channel.
-	ApplyInsecure bool
 	// Poll is the probe cadence between rounds (default 2s). The overall
 	// deadline is the caller's ctx.
 	Poll time.Duration
@@ -273,22 +268,15 @@ type Options struct {
 	Logf  func(format string, args ...any)
 }
 
-// Run climbs: [apply over maintenance] → etcd bootstrapped (Ensure, repeated)
-// → every node running and ready. Re-runs are safe: a configured node is not
-// re-applied, and a bootstrapped cluster is not bootstrapped again.
+// Run climbs: etcd bootstrapped (Ensure, repeated) → every node running and
+// ready. A node still in maintenance mode never answers the authenticated API,
+// so Run waits for it until ctx ends. Re-runs are safe: a bootstrapped cluster
+// is not bootstrapped again.
 func Run(ctx context.Context, o Options) error {
 	poll := cmp.Or(o.Poll, 2*time.Second)
 	logf := o.Logf
 	if logf == nil {
 		logf = func(string, ...any) {}
-	}
-
-	if o.ApplyInsecure {
-		for _, n := range o.Nodes {
-			if err := o.applyInsecure(ctx, n, poll, logf); err != nil {
-				return err
-			}
-		}
 	}
 
 	var members []Member
@@ -338,32 +326,6 @@ func status(ctx context.Context, dial talos.Dialer, talosconfig []byte, endpoint
 		return err
 	})
 	return st, err
-}
-
-// applyInsecure delivers a node's config over the maintenance service, unless
-// the node already answers its authenticated API (it is configured, and the
-// maintenance service is gone).
-func (o *Options) applyInsecure(ctx context.Context, n Node, poll time.Duration, logf func(string, ...any)) error {
-	if _, err := status(ctx, o.Dial, o.Talosconfig, n.Endpoint); err == nil {
-		logf("bootstrap: %s is already configured", n.Name)
-		return nil
-	}
-	if len(n.MachineConfig) == 0 {
-		return fmt.Errorf("bootstrap: apply-insecure without a machine config for %s", n.Name)
-	}
-	if err := wait(ctx, poll, func() error {
-		return talos.With(ctx, o.Dial, talos.Target{Endpoint: n.Endpoint, Insecure: true}, func(c talos.Client) error {
-			if _, err := c.Version(ctx); err != nil {
-				return err
-			}
-			_, err := c.ApplyConfiguration(ctx, n.MachineConfig, talos.ApplyOptions{})
-			return err
-		})
-	}); err != nil {
-		return fmt.Errorf("bootstrap: maintenance service of %s never took the config: %w", n.Name, err)
-	}
-	logf("bootstrap: config applied to %s over the maintenance service", n.Name)
-	return nil
 }
 
 // wait retries fn every poll until it succeeds or ctx ends; the last error

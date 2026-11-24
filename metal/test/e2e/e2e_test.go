@@ -47,6 +47,7 @@ import (
 	"github.com/dennisklein/platform-kit/metal/internal/ledger"
 	dockermachine "github.com/dennisklein/platform-kit/metal/internal/machine/docker"
 	pkscheme "github.com/dennisklein/platform-kit/metal/internal/scheme"
+	"github.com/dennisklein/platform-kit/metal/internal/talos"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/machineapi"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
 )
@@ -302,9 +303,28 @@ func TestE2EKind(t *testing.T) {
 	})
 
 	rung("bootstrap verb provisions the node", func(t *testing.T) {
+		// A container has no media channel, and the shipped CLI has no
+		// in-band config path. The harness stands in for the BMC's virtual
+		// media: it hands the container the config the operator rendered,
+		// on the private docker network of this test only.
+		rendered := &osv1alpha1.TalosNode{}
+		require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: nodeName}, rendered))
+		require.NotNil(t, rendered.Status.ConfigSecretRef, "the operator never rendered the node's config")
+		cfgSecret := &corev1.Secret{}
+		require.NoError(t, cl.Get(ctx, client.ObjectKey{
+			Namespace: rendered.Status.ConfigSecretRef.Namespace, Name: rendered.Status.ConfigSecretRef.Name,
+		}, cfgSecret))
+		machineConfig := cfgSecret.Data["config.yaml"]
+		require.NotEmpty(t, machineConfig, "the config Secret holds no config.yaml")
+		require.Eventually(t, func() bool {
+			return talos.With(ctx, machineapi.Dial, talos.Target{Endpoint: machineIP, Insecure: true}, func(c talos.Client) error {
+				_, err := c.ApplyConfiguration(ctx, machineConfig, talos.ApplyOptions{})
+				return err
+			}) == nil
+		}, waitFor, tick, "the maintenance service never took the config")
+
 		// The REAL CLI, on the same inputs a day-0 operator would hold: the CR
-		// dir and the secrets bundle. --apply-insecure is this tier's config
-		// channel — a container has no media.
+		// dir and the secrets bundle.
 		crDir := t.TempDir()
 		require.NoError(t, render.WriteFiles(crDir, talosCluster, []osv1alpha1.TalosNode{*talosNode}))
 		// The secret lives NEXT TO the CR dir, never in it — LoadDir walks the
@@ -317,7 +337,7 @@ func TestE2EKind(t *testing.T) {
 		// both treat as done, so the race is part of what this rung proves.
 		cmd := exec.CommandContext(ctx, "go", "run", "../../cmd/pk-metal",
 			"bootstrap", "--dir", crDir, "--secrets", secretPath, "--node", nodeName,
-			"--apply-insecure", "--timeout", "8m")
+			"--timeout", "8m")
 		out, err := cmd.CombinedOutput()
 		t.Logf("bootstrap output:\n%s", out)
 		require.NoError(t, err, "the bootstrap verb failed")

@@ -12,13 +12,6 @@
   "exitStatus": [],
   "flags": [
     {
-      "name": "apply-insecure",
-      "type": "bool",
-      "default": "",
-      "usage": "deliver configs over the UNAUTHENTICATED maintenance API: container/dev tiers only; on metal the config rides the BMC media channel",
-      "global": false
-    },
-    {
       "name": "dir",
       "type": "string",
       "default": "",
@@ -30,13 +23,6 @@
       "type": "string",
       "default": "",
       "usage": "address of --node (default: its spec.address or first static address)",
-      "global": false
-    },
-    {
-      "name": "image-factory",
-      "type": "string",
-      "default": "factory.talos.dev",
-      "usage": "image factory host the installer image is named on",
       "global": false
     },
     {
@@ -57,7 +43,7 @@
       "name": "timeout",
       "type": "duration",
       "default": "15m0s",
-      "usage": "overall deadline: apply, bootstrap retries, readiness",
+      "usage": "overall deadline: bootstrap retries, readiness",
       "global": false
     }
   ],
