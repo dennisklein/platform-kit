@@ -61,7 +61,15 @@ func rolloutCmd(args []string) {
 	}
 	sub, rest := args[0], args[1:]
 	fs := newFlags("rollout " + sub)
-	yes := fs.Bool("yes", false, "do not ask (for scripts); the plan is still printed")
+	// Only approve and abort ask, so only they take --yes: on the others it
+	// would be accepted and mean nothing.
+	yes := new(bool)
+	switch sub {
+	case "approve":
+		yes = fs.Bool("yes", false, "do not ask (for scripts); the plan is still printed and still approved only as read")
+	case "abort":
+		yes = fs.Bool("yes", false, "do not ask (for scripts)")
+	}
 	addGlobalFlags(fs)
 	parseFlags(fs, rest)
 	ctx := context.Background()
@@ -329,31 +337,55 @@ func approveRollout(ctx context.Context, cl client.Client, a rolloutApproval) er
 		if s := strings.ToLower(strings.TrimSpace(line)); s != "y" && s != "yes" {
 			return errDeclined
 		}
-		// The answer took a while: approve only the plan that was shown.
-		now, err := getRollout(ctx, cl, a.Name)
-		if err != nil {
-			return err
-		}
-		if now.UID != ro.UID || now.Status.PlanHash != ro.Status.PlanHash {
-			return fmt.Errorf("rollout %s changed since its plan was shown; nothing changed. "+
-				"Look at the plan as it is now and approve again", ro.Name)
-		}
-		ro = now
 	}
-	// The approval names the plan hash that was shown: if the operator
-	// re-plans in between, the rollout refuses to run on it (PlanChanged).
-	// The uid makes the API server refuse it for a rollout made again under
-	// the same name.
-	patch, _ := json.Marshal(map[string]any{
-		"metadata": map[string]any{"uid": ro.UID},
-		"spec":     map[string]any{"approval": map[string]any{"approvedBy": a.User, "planHash": ro.Status.PlanHash}},
-	})
-	if err := cl.Patch(ctx, ro, client.RawPatch(types.MergePatchType, patch)); err != nil {
-		return fmt.Errorf("approve rollout %s: %w", ro.Name, err)
+	// The approval lands on exactly the rollout whose plan was shown, with
+	// or without the question: the uid and resourceVersion make the API
+	// server refuse it (409 Conflict) when the rollout was made again under
+	// the same name or changed in any way since it was read, and the plan
+	// hash in the approval makes the operator refuse to run another plan
+	// (PlanChanged). The operator writes the rollout's status often, so a
+	// conflict reads it again and approves only if it is the same rollout,
+	// still approvable, with the same plan. --yes skips the question only.
+	changed := fmt.Errorf("rollout %s changed since its plan was shown; nothing changed. "+
+		"Look at the plan as it is now and approve again", ro.Name)
+	shownUID, shownPlan := ro.UID, ro.Status.PlanHash
+	reread := !a.Yes // the answer took a while
+	for attempt := 0; ; attempt++ {
+		if reread {
+			now, err := getRollout(ctx, cl, a.Name)
+			if err != nil {
+				return err
+			}
+			if now.UID != shownUID || now.Status.PlanHash != shownPlan || approvableRollout(now, a.User) != nil {
+				return changed
+			}
+			ro = now
+		}
+		err := cl.Patch(ctx, ro, client.RawPatch(types.MergePatchType, rolloutApprovalPatch(ro, a.User)))
+		if err == nil {
+			break
+		}
+		if !apierrors.IsConflict(err) {
+			return fmt.Errorf("approve rollout %s: %w", ro.Name, err)
+		}
+		if attempt+1 >= patchAttempts {
+			return changed
+		}
+		reread = true
 	}
 	fmt.Fprintf(a.Out, "approved rollout %s (plan %s) as %s; the first node starts now and the rollout pauses after it. "+
 		"Follow it with: pk-metal rollout show %s\n", ro.Name, shortDigest(ro.Status.PlanHash), a.User, ro.Name)
 	return nil
+}
+
+// rolloutApprovalPatch stamps the approval, with the plan hash that was
+// shown, on exactly the rollout object that was read.
+func rolloutApprovalPatch(ro *osv1alpha1.TalosRollout, user string) []byte {
+	patch, _ := json.Marshal(map[string]any{
+		"metadata": map[string]any{"uid": ro.UID, "resourceVersion": ro.ResourceVersion},
+		"spec":     map[string]any{"approval": map[string]any{"approvedBy": user, "planHash": ro.Status.PlanHash}},
+	})
+	return patch
 }
 
 // resumeRollout clears spec.paused and lets the rollout past the pause after

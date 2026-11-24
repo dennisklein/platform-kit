@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -104,6 +106,98 @@ func TestApproveRollout(t *testing.T) {
 		cl := fakeClient(planned())
 		err := approveRollout(ctx, cl, rolloutApproval{Name: "lab-talosupgrade-1a2b3c4d", User: "alice", Out: &bytes.Buffer{}})
 		require.ErrorContains(t, err, "--yes")
+	})
+}
+
+// patchRecorder keeps the body of every patch it passes on.
+type patchRecorder struct {
+	client.Client
+	bodies [][]byte
+}
+
+func (p *patchRecorder) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+	body, err := patch.Data(obj)
+	if err != nil {
+		return err
+	}
+	p.bodies = append(p.bodies, body)
+	return p.Client.Patch(ctx, obj, patch, opts...)
+}
+
+// TestApproveRolloutWhatWasShown: --yes skips the question, never the
+// preconditions. The approval lands on the rollout object that was read, with
+// its plan, or on nothing.
+func TestApproveRolloutWhatWasShown(t *testing.T) {
+	ctx := context.Background()
+	name := "lab-talosupgrade-1a2b3c4d"
+	approvedBy := func(t *testing.T, cl client.Client) string {
+		t.Helper()
+		ro := &osv1alpha1.TalosRollout{}
+		require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: name}, ro))
+		return ro.Spec.Approval.ApprovedBy
+	}
+	for _, yes := range []bool{true, false} {
+		t.Run(fmt.Sprintf("the patch carries uid, resourceVersion and plan hash (yes=%v)", yes), func(t *testing.T) {
+			inner := fakeClient(planned())
+			read := &osv1alpha1.TalosRollout{}
+			require.NoError(t, inner.Get(ctx, client.ObjectKey{Name: name}, read))
+			cl := &patchRecorder{Client: inner}
+			require.NoError(t, approveRollout(ctx, cl, rolloutApproval{Name: name, User: "alice", Yes: yes,
+				In: strings.NewReader("y\n"), Interactive: true, Out: &bytes.Buffer{}}))
+			require.Len(t, cl.bodies, 1)
+			var body struct {
+				Metadata struct {
+					UID             string `json:"uid"`
+					ResourceVersion string `json:"resourceVersion"`
+				} `json:"metadata"`
+				Spec struct {
+					Approval osv1alpha1.RolloutApproval `json:"approval"`
+				} `json:"spec"`
+			}
+			require.NoError(t, json.Unmarshal(cl.bodies[0], &body))
+			assert.Equal(t, "u1", body.Metadata.UID)
+			assert.Equal(t, read.ResourceVersion, body.Metadata.ResourceVersion)
+			assert.Equal(t, osv1alpha1.RolloutApproval{ApprovedBy: "alice", PlanHash: planHash}, body.Spec.Approval)
+		})
+	}
+
+	t.Run("a new plan between the read and the patch is refused with --yes", func(t *testing.T) {
+		inner := fakeClient(planned())
+		cl := &conflictOnce{Client: inner, meanwhile: func() {
+			now := &osv1alpha1.TalosRollout{}
+			require.NoError(t, inner.Get(ctx, client.ObjectKey{Name: name}, now))
+			now.Status.PlanHash = "sha256:" + strings.Repeat("b", 64)
+			now.Status.Plan = now.Status.Plan[:1]
+			require.NoError(t, inner.Update(ctx, now))
+		}}
+		err := approveRollout(ctx, cl, rolloutApproval{Name: name, User: "alice", Yes: true, Out: &bytes.Buffer{}})
+		require.ErrorContains(t, err, "changed since its plan was shown")
+		assert.Empty(t, approvedBy(t, inner))
+	})
+
+	t.Run("an abort between the read and the patch is refused with --yes", func(t *testing.T) {
+		inner := fakeClient(planned())
+		cl := &conflictOnce{Client: inner, meanwhile: func() {
+			now := &osv1alpha1.TalosRollout{}
+			require.NoError(t, inner.Get(ctx, client.ObjectKey{Name: name}, now))
+			now.Spec.Abort = true
+			require.NoError(t, inner.Update(ctx, now))
+		}}
+		err := approveRollout(ctx, cl, rolloutApproval{Name: name, User: "alice", Yes: true, Out: &bytes.Buffer{}})
+		require.ErrorContains(t, err, "changed since its plan was shown")
+		assert.Empty(t, approvedBy(t, inner))
+	})
+
+	t.Run("a status write with the same plan is read again and approved", func(t *testing.T) {
+		inner := fakeClient(planned())
+		cl := &conflictOnce{Client: inner, meanwhile: func() {
+			now := &osv1alpha1.TalosRollout{}
+			require.NoError(t, inner.Get(ctx, client.ObjectKey{Name: name}, now))
+			now.Status.Conditions[0].Message = "3 nodes, checked again"
+			require.NoError(t, inner.Update(ctx, now))
+		}}
+		require.NoError(t, approveRollout(ctx, cl, rolloutApproval{Name: name, User: "alice", Yes: true, Out: &bytes.Buffer{}}))
+		assert.Equal(t, "alice", approvedBy(t, inner))
 	})
 }
 

@@ -5,3 +5,5 @@ mise.local.toml
 .lab/
 /metal/manager
 /metal/pk-metal
+/metal/cmd/pk-metal/pk-metal
+/metal/cmd/manager/manager
