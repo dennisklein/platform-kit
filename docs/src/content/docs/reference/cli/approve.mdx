@@ -32,6 +32,8 @@ The operator does not act on a machine before a person approves the plan.
   <dd>The command lists the operations that wait for approval.</dd>
   <dt>`<operation>`</dt>
   <dd>The name of the operation, as [](cli:status) prints it: `pk-metal/<name>`, or the name only with `-n`.</dd>
+  <dt>`<operation> ...`</dt>
+  <dd>Several operations. The command shows the plan of each one and asks about each one. Refer to [Several operations](#several-operations).</dd>
 </dl>
 
 ## Flags
@@ -51,6 +53,8 @@ The operator does not act on a machine before a person approves the plan.
 3. It reads the [](kind:Host), its BMC paths, the boot assets and the TalosNodes that the plan names.
 4. It prints the plan: the machine, the BMC, each [action](act:index) in order, the media and the boot target.
    For an install, the plan also shows the node, its address and the disk that the install overwrites.
+   If an annotation lifts a guard for the operation, the plan shows the annotation, its reason and the rule that it lifts.
+   Refer to [Lifted guards](#lifted-guards).
 5. It asks `Approve as <user>? [y/N]`. The question waits five minutes.
 6. After a yes, it reads the operation again. The operation must be the same object, and the plan must read the same.
 7. It writes your user name into [`spec.approval.approvedBy`](kind:HostOperation#spec.approval.approvedBy).
@@ -62,6 +66,37 @@ If the operation changed after the command showed the plan, nothing changes. Run
 <Callout type="caution">
 Read the full plan before you answer. An approved install overwrites the disk that the plan names.
 </Callout>
+
+### Lifted guards
+
+Two annotations on a [](kind:HostOperation) lift a safety rule for that operation:
+
+| Annotation | Rule that it lifts |
+| --- | --- |
+| `metal.pk.io/override-cluster-guard` | A control plane goes down only while etcd is healthy without it. |
+| `metal.pk.io/ignore-window` | The operation starts only in a [](kind:MaintenanceWindow). |
+
+[](cli:restore) sets both on each operation that it proposes.
+The plan shows each annotation that is set, in the section `guards lifted for this operation`.
+If a person adds an annotation after the command showed the plan, the command does not approve. Run it again and read the new plan.
+
+<Callout type="caution">
+Read the reason of each lifted guard. Do not approve if you do not agree that the rule must not apply.
+</Callout>
+
+### Several operations
+
+Give several names to approve several operations, one after the other:
+
+1. The command shows the plan of the first operation and asks about it.
+2. It approves the operation after a yes. After a different answer, it does not change the operation.
+3. It continues with the next operation.
+
+The command also continues when it cannot approve an operation, for example when the name is wrong.
+It stops when it cannot ask: in a script without [`--yes`](cli:approve#--yes), after five minutes without an answer, or after Ctrl-C.
+It then shows no more plans and approves no more operations.
+
+At the end, the command names each operation that it did not approve.
 
 ### Without a terminal
 
@@ -80,7 +115,8 @@ text={`
     pk-metal/provision-simhw2288v5000397-1a2b3c4d   simhw2288v5000397  Provisioning  6      system:serviceaccount:pk-metal:pk-metal  4m
     pk-metal/reboot-w-1-x7k2p                       simhw2288v5000401  Reboot        5      alice                                    30s
 
-    See the plan of one and approve it: pk-metal approve <namespace>/<operation>
+    Nothing was approved. Name the operations to see their plans and approve them, for example:
+      pk-metal approve pk-metal/provision-simhw2288v5000397-1a2b3c4d
 `}
 />
 
@@ -113,6 +149,12 @@ text={`
 `}
 />
 
+Approve two reboots. The command asks about each one.
+
+```sh
+pk-metal approve pk-metal/reboot-w-1-x7k2p pk-metal/reboot-w-2-q9r4s
+```
+
 Approve in a script. The command prints the plan and does not ask.
 
 ```sh
@@ -127,6 +169,8 @@ pk-metal approve --yes provision-simhw2288v5000397-1a2b3c4d
 | `is already approved by` | A person approved it before. | Follow it with [](cli:status). |
 | `changed since its plan was shown` | The object or its plan changed while you read. | Run the command again and read the new plan. |
 | `no answer within 5m` | The question got no answer in five minutes. | Run the command again. |
+| `interrupted; nothing changed` | You pressed Ctrl-C at the question. | Run the command again when you are ready. |
+| `operations not approved` | You gave several names, and the command did not approve some of them. The message names them. | Read the message of each one above. Run the command again for those that you want to approve. |
 | `stdin is not a terminal` | The command cannot ask in a script. | Read the plan, then give [`--yes`](cli:approve#--yes). |
 | `no operation ... in namespace` | The name or the namespace is wrong. | Use the name that the message or `pk-metal status` shows. |
 
@@ -146,6 +190,7 @@ If you have no permission to read one of the last four kinds, the plan says that
 <CliExit cmd="approve" />
 
 An answer other than `y` or `yes` gives code 1 and the message `not approved; nothing changed`.
+With several names, the code is 1 if the command did not approve one or more of the operations.
 
 ## Related
 

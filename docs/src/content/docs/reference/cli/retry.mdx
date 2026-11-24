@@ -52,9 +52,16 @@ Two cases are different:
 <dl>
   <dt>BIOS or firmware proposal</dt>
   <dd>The command does not delete the operation. It sets the annotation `metal.pk.io/retry`, and the operator replaces the operation. If you delete such a proposal, the operator reads this as a refusal.</dd>
-  <dt>Operation that a person made</dt>
-  <dd>The operator does not propose it again. Make it again, for example with [](cli:reboot).</dd>
+  <dt>Operation that the operator does not propose again</dt>
+  <dd>The command deletes the operation. Then it tells you how to make the operation again. Refer to the table below.</dd>
 </dl>
+
+| Operation | What the command tells you |
+| --- | --- |
+| A reboot from [](cli:reboot) | Run `pk-metal reboot <node>` again. If the drain step failed, it adds [`--drain-timeout 30m`](cli:reboot#--drain-timeout). |
+| A step of a [](kind:TalosRollout) | Read the rollout with [`pk-metal rollout show`](cli:rollout). To make the change again, delete the rollout. |
+| A repair from [](cli:restore) | Run `pk-metal restore plan <cluster> --propose` again. |
+| A different operation that a person made | Make it again if you still need it. |
 
 If the claim is on hold, the operator proposes nothing until you run [](cli:unhold). The command tells you.
 

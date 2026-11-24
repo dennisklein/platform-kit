@@ -42,6 +42,10 @@ Nothing changes without [`--apply`](cli:scale#--apply). With `--apply`, the comm
 4. With [`--apply`](cli:scale#--apply), it makes the new claims first. Then it deletes the claims of the nodes that go.
 5. The operator proposes one operation for each change. Approve each one with [](cli:approve).
 
+<Callout type="caution">
+If you keep the HostClaims in git, make the change in git, not with `--apply`. Your GitOps tool can delete the claims that the command makes, or make again the claims that it deletes.
+</Callout>
+
 ### To add nodes
 
 - Write the [](kind:TalosNode) of each new node before you scale. The network, the disk and the role are your decision.
@@ -103,8 +107,6 @@ text={`
 | [](kind:TalosNode), [](kind:Host) | list | Finds the members, the spare nodes and the free machines. |
 | [](kind:HostClaim) | list, create, delete | The plan. Only with [`--apply`](cli:scale#--apply). |
 | [](kind:HostClaim) | patch | Sets `metal.pk.io/ack-etcd-risk` before it deletes a claim, with [`--ack-etcd-risk`](cli:scale#--ack-etcd-risk). |
-
-The claims that the command writes are not in git. If you keep your claims in git, write the claims of the plan there.
 
 ## Exit status
 
