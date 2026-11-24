@@ -98,7 +98,7 @@ dir = "metal"
 run = "go test -count=1 -run TestPhaseWriteSites ./internal/phase/"
 
 [tasks.generate]
-description = "Regenerate everything derived from the Go sources: deepcopy code, CRDs, RBAC"
+description = "Regenerate everything derived from the Go sources: deepcopy code, CRDs, RBAC, the docs site data"
 dir = "metal"
 run = [
   "go tool controller-gen object paths=./api/...",
@@ -108,21 +108,30 @@ run = [
   # The manager's roles come from the +kubebuilder:rbac markers next to the code that
   # needs each permission: on the reconcilers, and in cmd/manager for leader election.
   "go tool controller-gen rbac:roleName=pk-metal-manager 'paths=./cmd/manager/...;./internal/controller/...' output:rbac:artifacts:config=config/rbac",
+  # The documentation site's reference data (CRD fields, pk-metal commands, RBAC,
+  # actions, phases, conditions, keys), from the files generated above; it also
+  # checks the glossary's shape.
+  "go run ./hack/docgen",
 ]
 
 [tasks."generate:check"]
 description = "Fail when a generated file is out of date with its source"
 depends = ["generate"]
 run = '''
-drift=$(git status --porcelain -- metal/api metal/config)
+drift=$(git status --porcelain -- metal/api metal/config docs/src/data/generated)
 if [ -n "$drift" ]; then
   echo "generate:check: generated files are out of date. Run 'mise run generate' and commit the result:" >&2
   echo "$drift" >&2
-  git --no-pager diff --stat -- metal/api metal/config >&2
+  git --no-pager diff --stat -- metal/api metal/config docs/src/data/generated >&2
   exit 1
 fi
 echo "generate:check: clean"
 '''
+
+[tasks."docs:gen"]
+description = "Write the docs site's reference data (docs/src/data/generated) from the CRDs, RBAC, API and pk-metal help; also run by generate"
+dir = "metal"
+run = "go run ./hack/docgen"
 
 [tasks."docs:lint:glossary"]
 description = "Check the glossary definitions (docs/src/data/glossary.yaml) against the STE Vale style"

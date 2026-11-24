@@ -1,0 +1,57 @@
+{
+  "conditions": [
+    {
+      "name": "ConditionApproved",
+      "value": "Approved",
+      "group": "metal.pk.io",
+      "source": "api/v1alpha1/types.go",
+      "description": "the human gate."
+    },
+    {
+      "name": "ConditionExecuted",
+      "value": "Executed",
+      "group": "metal.pk.io",
+      "source": "api/v1alpha1/types.go",
+      "description": "the outcome."
+    }
+  ],
+  "reasons": [
+    {
+      "name": "ReasonAwaitingApproval",
+      "value": "AwaitingApproval",
+      "group": "metal.pk.io",
+      "source": "api/v1alpha1/types.go",
+      "description": "the gate is required.",
+      "on": [
+        {
+          "condition": "Approved",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the operation's Approved condition."
+    },
+    {
+      "name": "ReasonApproved",
+      "value": "Approved",
+      "group": "metal.pk.io",
+      "source": "api/v1alpha1/types.go",
+      "description": "a human approved it. Also on Executed=Unknown while it waits.",
+      "on": [
+        {
+          "condition": "Executed",
+          "status": "Unknown"
+        }
+      ],
+      "context": "Reasons on the operation's Approved condition."
+    }
+  ],
+  "operationReasons": [
+    {
+      "name": "OperationReasonBios",
+      "value": "Bios",
+      "group": "metal.pk.io",
+      "source": "api/v1alpha1/types.go",
+      "description": "OperationReasonBios is the spec.reason of a BIOS proposal."
+    }
+  ]
+}

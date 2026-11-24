@@ -1,0 +1,37 @@
+{
+  "name": "wipe",
+  "summary": "ask for a wipe of a released machine that may still hold a node's install (the operator proposes it)",
+  "synopsis": "[--talos-version v] <host>",
+  "usage": [
+    "pk-metal wipe [--talos-version v] <host>"
+  ],
+  "changes": true,
+  "needsCluster": true,
+  "description": "A machine released while its node did not answer could not be reset: its\ndisk may still hold the node, with its cluster's credentials. The operator\nmarks such a Host (DiskWiped=False) and installs nothing else on it until it\nis wiped. wipe asks for that: the operator proposes an operation that boots a\nTalos image which erases the system disk, and stops there. Approve it with\npk-metal approve.\n\nThe image's Talos version defaults to the version of the cluster the node\non the disk belonged to.",
+  "examples": [],
+  "exitStatus": [],
+  "flags": [
+    {
+      "name": "context",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig context to use (default: the current context)",
+      "global": true
+    },
+    {
+      "name": "kubeconfig",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig file (default: $KUBECONFIG, then ~/.kube/config, then the in-cluster account)",
+      "global": true
+    },
+    {
+      "name": "talos-version",
+      "type": "string",
+      "default": "",
+      "usage": "Talos version of the wipe image (default: the version of the node's cluster)",
+      "global": false
+    }
+  ],
+  "subcommands": []
+}

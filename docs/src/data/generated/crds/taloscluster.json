@@ -1,0 +1,647 @@
+{
+  "kind": "TalosCluster",
+  "listKind": "TalosClusterList",
+  "group": "os.pk.io",
+  "version": "v1alpha1",
+  "plural": "talosclusters",
+  "singular": "taloscluster",
+  "shortNames": [],
+  "categories": [
+    "metal",
+    "os"
+  ],
+  "scope": "Cluster",
+  "source": "metal/config/crd/os.pk.io_talosclusters.yaml",
+  "description": "TalosCluster is one Talos cluster: what its members share, and the observed state of the cluster they form.",
+  "statusSubresource": true,
+  "printerColumns": [
+    {
+      "name": "Talos",
+      "type": "string",
+      "jsonPath": ".spec.talosVersion",
+      "priority": 0
+    },
+    {
+      "name": "Kubernetes",
+      "type": "string",
+      "jsonPath": ".spec.kubernetesVersion",
+      "priority": 0
+    },
+    {
+      "name": "Endpoint",
+      "type": "string",
+      "jsonPath": ".spec.endpoint",
+      "priority": 0
+    },
+    {
+      "name": "CP",
+      "type": "string",
+      "jsonPath": ".status.readyControlPlanes",
+      "priority": 0
+    },
+    {
+      "name": "Workers",
+      "type": "string",
+      "jsonPath": ".status.readyWorkers",
+      "priority": 0
+    },
+    {
+      "name": "Available",
+      "type": "string",
+      "jsonPath": ".status.conditions[?(@.type==\"Available\")].status",
+      "priority": 0
+    }
+  ],
+  "validations": [],
+  "fields": [
+    {
+      "path": "spec",
+      "name": "spec",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": true,
+      "description": "TalosClusterSpec is what every member of one Talos cluster shares. The cluster name is the object's metadata.name."
+    },
+    {
+      "path": "spec.certSANs",
+      "name": "certSANs",
+      "parent": "spec",
+      "depth": 1,
+      "type": "[]string",
+      "required": false,
+      "listType": "set",
+      "description": "CertSANs are extra names the Kubernetes API server and the Talos API certificates must be valid for, beyond the endpoint, the VIP and the node addresses Talos adds on its own."
+    },
+    {
+      "path": "spec.controlPlane",
+      "name": "controlPlane",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "ControlPlane carries the settings only control-plane members render."
+    },
+    {
+      "path": "spec.controlPlane.allowScheduling",
+      "name": "allowScheduling",
+      "parent": "spec.controlPlane",
+      "depth": 2,
+      "type": "boolean",
+      "required": false,
+      "description": "AllowScheduling lets ordinary workloads run on control-plane nodes (the control-plane NoSchedule taint is not rendered)."
+    },
+    {
+      "path": "spec.controlPlane.vip",
+      "name": "vip",
+      "parent": "spec.controlPlane",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": "VIP is a shared address the control-plane members announce over layer 2 (Talos' Layer2VIPConfig). Each control-plane node carries it on the link whose static address shares a subnet with it."
+    },
+    {
+      "path": "spec.credentials",
+      "name": "credentials",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "Credentials sets the lifetime of the admin credentials the operator publishes, and whether it also publishes a read-only talosconfig."
+    },
+    {
+      "path": "spec.credentials.readerTalosconfig",
+      "name": "readerTalosconfig",
+      "parent": "spec.credentials",
+      "depth": 2,
+      "type": "boolean",
+      "required": false,
+      "description": "ReaderTalosconfig also publishes <cluster>-talosconfig-reader: a talosconfig with the os:reader role, for monitoring, which can read but not change a machine."
+    },
+    {
+      "path": "spec.credentials.ttl",
+      "name": "ttl",
+      "parent": "spec.credentials",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": "TTL is how long a published admin kubeconfig and talosconfig are valid. A credential is minted again once less than a third of it is left. Default 24h."
+    },
+    {
+      "path": "spec.endpoint",
+      "name": "endpoint",
+      "parent": "spec",
+      "depth": 1,
+      "type": "string",
+      "required": true,
+      "pattern": "^https://[^/]+$",
+      "description": "Endpoint is the Kubernetes API URL every member enrolls against and the admin kubeconfig names: the control-plane VIP or a DNS name for it, with the port (https://10.77.0.10:6443)."
+    },
+    {
+      "path": "spec.kubernetesVersion",
+      "name": "kubernetesVersion",
+      "parent": "spec",
+      "depth": 1,
+      "type": "string",
+      "required": true,
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "KubernetesVersion is the Kubernetes release the control plane runs."
+    },
+    {
+      "path": "spec.network",
+      "name": "network",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "Network is the cluster's pod and service networking."
+    },
+    {
+      "path": "spec.network.cni",
+      "name": "cni",
+      "parent": "spec.network",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "CNI selects the pod network plugin. Empty means flannel.",
+      "validations": [
+        {
+          "rule": "(self.name == 'custom') == (has(self.urls) && size(self.urls) > 0)",
+          "message": "urls are required with name custom and refused otherwise"
+        }
+      ]
+    },
+    {
+      "path": "spec.network.cni.name",
+      "name": "name",
+      "parent": "spec.network.cni",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "enum": [
+        "flannel",
+        "none",
+        "custom"
+      ],
+      "description": "CNIName selects the pod network plugin Talos deploys."
+    },
+    {
+      "path": "spec.network.cni.urls",
+      "name": "urls",
+      "parent": "spec.network.cni",
+      "depth": 3,
+      "type": "[]string",
+      "required": false,
+      "description": "URLs are the manifests a custom CNI is installed from."
+    },
+    {
+      "path": "spec.network.podSubnets",
+      "name": "podSubnets",
+      "parent": "spec.network",
+      "depth": 2,
+      "type": "[]string",
+      "required": false,
+      "description": "PodSubnets are the pod CIDRs, primary family first. Empty selects Talos' default for the endpoint's address family."
+    },
+    {
+      "path": "spec.network.serviceSubnets",
+      "name": "serviceSubnets",
+      "parent": "spec.network",
+      "depth": 2,
+      "type": "[]string",
+      "required": false,
+      "description": "ServiceSubnets are the service CIDRs, primary family first. Empty selects Talos' default for the endpoint's address family."
+    },
+    {
+      "path": "spec.patches",
+      "name": "patches",
+      "parent": "spec",
+      "depth": 1,
+      "type": "[]object",
+      "required": false,
+      "description": "Patches apply to every node, in order, after the operator's own rendering and before the node's patches.",
+      "validations": [
+        {
+          "rule": "has(self.inline) != has(self.configMapRef)",
+          "message": "exactly one of inline or configMapRef"
+        }
+      ]
+    },
+    {
+      "path": "spec.patches[].configMapRef",
+      "name": "configMapRef",
+      "parent": "spec.patches",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "ConfigMapRef reads the patch from a ConfigMap key."
+    },
+    {
+      "path": "spec.patches[].configMapRef.key",
+      "name": "key",
+      "parent": "spec.patches[].configMapRef",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.patches[].configMapRef.name",
+      "name": "name",
+      "parent": "spec.patches[].configMapRef",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.patches[].configMapRef.namespace",
+      "name": "namespace",
+      "parent": "spec.patches[].configMapRef",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.patches[].inline",
+      "name": "inline",
+      "parent": "spec.patches",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": "Inline is the patch text."
+    },
+    {
+      "path": "spec.registryMirrors",
+      "name": "registryMirrors",
+      "parent": "spec",
+      "depth": 1,
+      "type": "[]object",
+      "required": false,
+      "listType": "map",
+      "listMapKeys": [
+        "registry"
+      ],
+      "description": "RegistryMirrors redirect image pulls, one entry per upstream registry. A site without internet access needs them before the first node installs, which is why they live here rather than in a patch someone has to remember."
+    },
+    {
+      "path": "spec.registryMirrors[].endpoints",
+      "name": "endpoints",
+      "parent": "spec.registryMirrors",
+      "depth": 2,
+      "type": "[]string",
+      "required": true,
+      "minItems": 1,
+      "description": "Endpoints are the mirror URLs, tried in order."
+    },
+    {
+      "path": "spec.registryMirrors[].registry",
+      "name": "registry",
+      "parent": "spec.registryMirrors",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "minLength": 1,
+      "description": "Registry is the upstream registry host the mirror stands in for (docker.io, ghcr.io, factory.talos.dev), or \"*\" for every registry."
+    },
+    {
+      "path": "spec.schematic",
+      "name": "schematic",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "Schematic is the installer image customization every node uses unless it sets its own (a node's schematic replaces this one, it does not merge with it)."
+    },
+    {
+      "path": "spec.schematic.customization",
+      "name": "customization",
+      "parent": "spec.schematic",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "SchematicCustomization holds the image customization knobs."
+    },
+    {
+      "path": "spec.schematic.customization.extraKernelArgs",
+      "name": "extraKernelArgs",
+      "parent": "spec.schematic.customization",
+      "depth": 3,
+      "type": "[]string",
+      "required": false,
+      "description": "ExtraKernelArgs append to the image's kernel command line, for example where to put the console (console=ttyS0, what the BMC's serial-over-LAN shows). Do not add talos.config=metal-iso: the operator adds it to the boot medium itself, and the installed system must not carry it."
+    },
+    {
+      "path": "spec.schematic.customization.systemExtensions",
+      "name": "systemExtensions",
+      "parent": "spec.schematic.customization",
+      "depth": 3,
+      "type": "object",
+      "required": false,
+      "description": "SystemExtensions bakes extensions into the image."
+    },
+    {
+      "path": "spec.schematic.customization.systemExtensions.officialExtensions",
+      "name": "officialExtensions",
+      "parent": "spec.schematic.customization.systemExtensions",
+      "depth": 4,
+      "type": "[]string",
+      "required": false,
+      "description": "OfficialExtensions are siderolabs/* extension names (siderolabs/drbd)."
+    },
+    {
+      "path": "spec.secretsRef",
+      "name": "secretsRef",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": true,
+      "description": "SecretsRef names the Secret holding the cluster's Talos secrets bundle under key secrets.yaml, as `talosctl gen secrets` writes it. A person generates the bundle once and commits it sealed; the operator only reads it. Every certificate and key in a rendered config, and the kubeconfig and talosconfig the operator publishes, derive from it."
+    },
+    {
+      "path": "spec.secretsRef.name",
+      "name": "name",
+      "parent": "spec.secretsRef",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.secretsRef.namespace",
+      "name": "namespace",
+      "parent": "spec.secretsRef",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.talosVersion",
+      "name": "talosVersion",
+      "parent": "spec",
+      "depth": 1,
+      "type": "string",
+      "required": true,
+      "pattern": "^v1\\.(1[4-9]|[2-9][0-9])\\.[0-9]+$",
+      "description": "TalosVersion is the Talos release the cluster runs. It selects the configuration contract the render targets and the installer image tag, so it must match what the machines boot. Talos v1.14 or later."
+    },
+    {
+      "path": "status",
+      "name": "status",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": false,
+      "description": "TalosClusterStatus is observed: whether etcd was bootstrapped, whether the Kubernetes API answers, how many members are Ready, and where the admin credentials derived from the secrets bundle were published.",
+      "validations": [
+        {
+          "rule": "!has(oldSelf.bootstrappedAt) || (has(self.bootstrappedAt) && self.bootstrappedAt == oldSelf.bootstrappedAt)",
+          "message": "bootstrappedAt is write-once: a cluster that was bootstrapped stays bootstrapped"
+        }
+      ]
+    },
+    {
+      "path": "status.bootstrappedAt",
+      "name": "bootstrappedAt",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "format": "date-time",
+      "required": false,
+      "description": "BootstrappedAt is when the operator first observed this cluster's etcd running (or its Kubernetes API answering). It is the one remembered fact in this status: once set the operator never bootstraps the cluster again, so that a cluster whose control planes all lost their etcd data is restored by a person instead of silently started empty (Bootstrapped=False, reason EtcdDataLost). Write-once; starting over means deleting and re-creating the TalosCluster."
+    },
+    {
+      "path": "status.conditions",
+      "name": "conditions",
+      "parent": "status",
+      "depth": 1,
+      "type": "[]object",
+      "required": false,
+      "listType": "map",
+      "listMapKeys": [
+        "type"
+      ],
+      "description": "Conditions: Bootstrapped and Available; VersionsSupported (the Kubernetes version against the Talos version), VersionsCurrent (what the machines and the API run against the spec) and SecretsBundleHeld (an edited secrets bundle the machines do not run yet)."
+    },
+    {
+      "path": "status.conditions[].lastTransitionTime",
+      "name": "lastTransitionTime",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "format": "date-time",
+      "required": true,
+      "description": "lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable."
+    },
+    {
+      "path": "status.conditions[].message",
+      "name": "message",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "maxLength": 32768,
+      "description": "message is a human readable message indicating details about the transition. This may be an empty string."
+    },
+    {
+      "path": "status.conditions[].observedGeneration",
+      "name": "observedGeneration",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "integer",
+      "format": "int64",
+      "required": false,
+      "minimum": 0,
+      "description": "observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance."
+    },
+    {
+      "path": "status.conditions[].reason",
+      "name": "reason",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "pattern": "^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty."
+    },
+    {
+      "path": "status.conditions[].status",
+      "name": "status",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "enum": [
+        "True",
+        "False",
+        "Unknown"
+      ],
+      "description": "status of the condition, one of True, False, Unknown."
+    },
+    {
+      "path": "status.conditions[].type",
+      "name": "type",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$",
+      "maxLength": 316,
+      "description": "type of condition in CamelCase or in foo.example.com/CamelCase."
+    },
+    {
+      "path": "status.controlPlanes",
+      "name": "controlPlanes",
+      "parent": "status",
+      "depth": 1,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "description": "ControlPlanes and Workers count the TalosNodes that name this cluster and that a machine is handed (a Host's spec.os names them); the Ready counts are the ones whose Ready condition is True. A TalosNode with no machine yet, or one being removed, is counted in UnassignedNodes instead: it is not a member, so it does not hold Available at False."
+    },
+    {
+      "path": "status.credentialsExpireAt",
+      "name": "credentialsExpireAt",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "format": "date-time",
+      "required": false,
+      "description": "CredentialsExpireAt is when the first of the published credentials expires. The operator mints new ones well before; a time in the past means it could not."
+    },
+    {
+      "path": "status.kubeconfigSecretRef",
+      "name": "kubeconfigSecretRef",
+      "parent": "status",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "KubeconfigSecretRef points at the Secret (key kubeconfig) holding an admin kubeconfig minted from the bundle's Kubernetes CA."
+    },
+    {
+      "path": "status.kubeconfigSecretRef.name",
+      "name": "name",
+      "parent": "status.kubeconfigSecretRef",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "status.kubeconfigSecretRef.namespace",
+      "name": "namespace",
+      "parent": "status.kubeconfigSecretRef",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "status.kubernetesVersion",
+      "name": "kubernetesVersion",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": "KubernetesVersion is the version the Kubernetes API reports, empty while it does not answer."
+    },
+    {
+      "path": "status.readerTalosconfigSecretRef",
+      "name": "readerTalosconfigSecretRef",
+      "parent": "status",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "ReaderTalosconfigSecretRef points at the os:reader talosconfig, when spec.credentials.readerTalosconfig asks for one."
+    },
+    {
+      "path": "status.readerTalosconfigSecretRef.name",
+      "name": "name",
+      "parent": "status.readerTalosconfigSecretRef",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "status.readerTalosconfigSecretRef.namespace",
+      "name": "namespace",
+      "parent": "status.readerTalosconfigSecretRef",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "status.readyControlPlanes",
+      "name": "readyControlPlanes",
+      "parent": "status",
+      "depth": 1,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "description": ""
+    },
+    {
+      "path": "status.readyWorkers",
+      "name": "readyWorkers",
+      "parent": "status",
+      "depth": 1,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "description": ""
+    },
+    {
+      "path": "status.talosconfigSecretRef",
+      "name": "talosconfigSecretRef",
+      "parent": "status",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "TalosconfigSecretRef points at the Secret (key talosconfig) holding an admin talosconfig minted from the bundle's Talos CA, with every control-plane address as an endpoint."
+    },
+    {
+      "path": "status.talosconfigSecretRef.name",
+      "name": "name",
+      "parent": "status.talosconfigSecretRef",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "status.talosconfigSecretRef.namespace",
+      "name": "namespace",
+      "parent": "status.talosconfigSecretRef",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "status.unassignedNodes",
+      "name": "unassignedNodes",
+      "parent": "status",
+      "depth": 1,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "description": "UnassignedNodes counts the TalosNodes that name this cluster but run on no machine: not handed to a Host yet, or being removed."
+    },
+    {
+      "path": "status.workers",
+      "name": "workers",
+      "parent": "status",
+      "depth": 1,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "description": ""
+    }
+  ]
+}

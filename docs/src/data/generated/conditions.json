@@ -1,0 +1,2265 @@
+{
+  "conditions": [
+    {
+      "name": "ConditionReachable",
+      "value": "Reachable",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the management endpoint answers Redfish over its address."
+    },
+    {
+      "name": "ConditionInventoried",
+      "value": "Inventoried",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "discovery has populated the endpoint's status facts."
+    },
+    {
+      "name": "ConditionVerified",
+      "value": "Verified",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "org assertion matches discovery (Asset serial vs Redfish — two independent origins). False is alert-and-hold, never destructive."
+    },
+    {
+      "name": "ConditionConfigured",
+      "value": "Configured",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the matched EndpointProfile is applied (creds/TLS/NTP)."
+    },
+    {
+      "name": "ConditionInspected",
+      "value": "Inspected",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the host's hardware inventory is gathered."
+    },
+    {
+      "name": "ConditionFirmwareConverged",
+      "value": "FirmwareConverged",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "firmware matches the matched FirmwareProfile. Firmware converges before BIOS — the BIOS schema depends on firmware."
+    },
+    {
+      "name": "ConditionBiosConverged",
+      "value": "BiosConverged",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "BIOS settings match the materialized BiosSettings."
+    },
+    {
+      "name": "ConditionBooted",
+      "value": "Booted",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the OS payload has been handed off and the machine came up."
+    },
+    {
+      "name": "ConditionOSReady",
+      "value": "OSReady",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the node reports OS-level readiness (Talos machine status)."
+    },
+    {
+      "name": "ConditionDrifted",
+      "value": "Drifted",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the world moved with no active HostOperation (e.g. a LastResetTime advance) — information, not error."
+    },
+    {
+      "name": "ConditionApprovalPending",
+      "value": "ApprovalPending",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "a proposed HostOperation awaits its human gate."
+    },
+    {
+      "name": "ConditionMaintenance",
+      "value": "Maintenance",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "a person put the host in maintenance (annotation metal.pk.io/maintenance); the message is their reason. Absent otherwise."
+    },
+    {
+      "name": "ConditionBound",
+      "value": "Bound",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the HostClaim holds its Host (the authoritative pointer is Host.spec.claimRef; this condition is the claim's view of it)."
+    },
+    {
+      "name": "ConditionProvisioned",
+      "value": "Provisioned",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "on a HostClaim with OS intent — the bound machine runs the named node's config. False carries what the operator waits on or why it holds; True means the hand-off happened."
+    },
+    {
+      "name": "ConditionDeletionHeld",
+      "value": "DeletionHeld",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "on a Host or ManagementEndpoint — deletion was requested but a claim still holds the machine, so the object stays (finalizer metal.pk.io/claim-protection) until the claim is released."
+    },
+    {
+      "name": "ConditionConverged",
+      "value": "Converged",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "on a BiosSettings — the machine's managed attributes match the materialized desired state. The Host's BiosConverged mirrors it."
+    },
+    {
+      "name": "ConditionApproved",
+      "value": "Approved",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the HostOperation's human gate. False is AwaitingApproval; True carries who (or that the disruption policy waived it)."
+    },
+    {
+      "name": "ConditionExecuted",
+      "value": "Executed",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the HostOperation's outcome. Unknown while queued or executing; a False is terminal — disruptive one-shots never auto-retry."
+    },
+    {
+      "name": "ConditionMaterialized",
+      "value": "Materialized",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "on an Asset — the operator found the BMC's address in the ledger and created the ManagementEndpoint for it. False says what is missing; nothing about the machine is known until it is True."
+    },
+    {
+      "name": "ConditionSystemFirmwareConverged",
+      "value": "SystemFirmwareConverged",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions_day2.go",
+      "description": "on a Host, whether the system firmware (BIOS/UEFI, NIC, RAID) its FirmwareProfiles ask for is what the inventory reports. Absent when no profile asks for any."
+    },
+    {
+      "name": "ConditionDiskWiped",
+      "value": "DiskWiped",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/lifecycle_types.go",
+      "description": "whether the machine's disks are known to be free of an installed node. False (reason InstalledNodeRemains) while AnnotationDiskNotWiped is set; absent otherwise."
+    },
+    {
+      "name": "ConditionValid",
+      "value": "Valid",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/maintenancewindow_types.go",
+      "description": "on a MaintenanceWindow, whether the operator can read it."
+    },
+    {
+      "name": "ConditionRendered",
+      "value": "Rendered",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "the TalosNode's machine config is rendered into its config Secret at the current generation."
+    },
+    {
+      "name": "ConditionReady",
+      "value": "Ready",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "the BootAsset's artifact exists and is fetchable (built into its artifact Secret, or, factory, addressed by a computed URL). On a TalosNode it is the check-in verdict instead: the machine's aggregated status reports stage running and ready."
+    },
+    {
+      "name": "ConditionMachineReachable",
+      "value": "MachineReachable",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "the machine behind a hand-off answers its Talos API at the node's address, over the authenticated machine API or, blank, the maintenance service. Only observed while a Host hands this node a machine."
+    },
+    {
+      "name": "ConditionBootstrapped",
+      "value": "Bootstrapped",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "a TalosCluster's etcd exists. Observed: True when a control-plane member reports etcd members or the Kubernetes API answers. The first True is also remembered, as status.bootstrappedAt, so that a cluster whose etcd data is lost is never bootstrapped again."
+    },
+    {
+      "name": "ConditionAvailable",
+      "value": "Available",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "a TalosCluster's Kubernetes API answers and every member TalosNode is Ready. A member is a TalosNode a machine is handed."
+    },
+    {
+      "name": "ConditionRemovalBlocked",
+      "value": "RemovalBlocked",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "on a TalosNode being deleted, what its deletion still waits for: the removal of its machine (drain, etcd leave, reset) or its etcd member. Only present during deletion."
+    },
+    {
+      "name": "ConditionConfigInSync",
+      "value": "ConfigInSync",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "a dry-run apply of the rendered config against the machine reports no change. False with reason ConfigDrift says what differs and whether it needs a reboot."
+    },
+    {
+      "name": "ConditionVersionCurrent",
+      "value": "VersionCurrent",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "the machine runs the Talos version the cluster asks for. False with reason VersionSkew while it runs another one; the config is then rendered for the version it runs."
+    },
+    {
+      "name": "ConditionVersionsSupported",
+      "value": "VersionsSupported",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "Talos supports the Kubernetes version the spec asks for. False with reason UnsupportedVersionPair otherwise, and nothing renders."
+    },
+    {
+      "name": "ConditionVersionsCurrent",
+      "value": "VersionsCurrent",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "every machine runs the Talos version and the Kubernetes API runs the Kubernetes version the spec asks for."
+    },
+    {
+      "name": "ConditionSecretsBundleHeld",
+      "value": "SecretsBundleHeld",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "True while the secrets bundle the spec names differs from the one the machines run, and the operator keeps using the one they run (reason BundleChanged)."
+    },
+    {
+      "name": "ConditionPlanned",
+      "value": "Planned",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "ConditionPlanned, ConditionApproved, ConditionProgressing, ConditionPaused and ConditionComplete (declared with the backup kinds, which use it the same way) are a TalosRollout's."
+    },
+    {
+      "name": "ConditionApproved",
+      "value": "Approved",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": ""
+    },
+    {
+      "name": "ConditionProgressing",
+      "value": "Progressing",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": ""
+    },
+    {
+      "name": "ConditionPaused",
+      "value": "Paused",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": ""
+    },
+    {
+      "name": "ConditionBackedUp",
+      "value": "BackedUp",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/etcdbackup_types.go",
+      "description": "a verified snapshot newer than twice the interval exists."
+    },
+    {
+      "name": "ConditionComplete",
+      "value": "Complete",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/etcdbackup_types.go",
+      "description": "taking it has ended, stored (True) or failed (False). A TalosRollout uses it too: every node done."
+    },
+    {
+      "name": "ConditionVerified",
+      "value": "Verified",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/etcdbackup_types.go",
+      "description": "the snapshot is an intact etcd database and the sink holds what was sent."
+    }
+  ],
+  "reasons": [
+    {
+      "name": "ReasonAwaitingApproval",
+      "value": "AwaitingApproval",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the gate is required and unstamped.",
+      "on": [
+        {
+          "condition": "Approved",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the operation's Approved / Executed conditions."
+    },
+    {
+      "name": "ReasonApproved",
+      "value": "Approved",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "a human stamped approvedBy, and admission confirmed they stamped it as themselves.",
+      "on": [
+        {
+          "condition": "Approved",
+          "status": "True"
+        }
+      ],
+      "context": "Reasons on the operation's Approved / Executed conditions."
+    },
+    {
+      "name": "ReasonApprovalNotRequired",
+      "value": "ApprovalNotRequired",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the disruption policy waived the gate.",
+      "on": [
+        {
+          "condition": "Approved",
+          "status": "True"
+        }
+      ],
+      "context": "Reasons on the operation's Approved / Executed conditions."
+    },
+    {
+      "name": "ReasonOperationQueued",
+      "value": "OperationQueued",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "another operation holds the host — at most one runs per Host.",
+      "on": [
+        {
+          "condition": "Executed",
+          "status": "Unknown"
+        }
+      ],
+      "context": "Reasons on the operation's Approved / Executed conditions."
+    },
+    {
+      "name": "ReasonExecuting",
+      "value": "Executing",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the baseline is persisted and steps are being issued.",
+      "on": [
+        {
+          "condition": "Executed",
+          "status": "Unknown"
+        }
+      ],
+      "context": "Reasons on the operation's Approved / Executed conditions."
+    },
+    {
+      "name": "ReasonStepsSucceeded",
+      "value": "StepsSucceeded",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "every action converged to its goal.",
+      "on": [
+        {
+          "condition": "Executed",
+          "status": "True"
+        }
+      ],
+      "context": "Reasons on the operation's Approved / Executed conditions."
+    },
+    {
+      "name": "ReasonStepFailed",
+      "value": "StepFailed",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "a step failed — terminal, a human decides.",
+      "on": [
+        {
+          "condition": "Executed",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the operation's Approved / Executed conditions."
+    },
+    {
+      "name": "ReasonHostNotFound",
+      "value": "HostNotFound",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "hostRef names no Host (yet).",
+      "on": [
+        {
+          "condition": "Executed",
+          "status": "Unknown"
+        }
+      ],
+      "context": "Reasons on the operation's Approved / Executed conditions."
+    },
+    {
+      "name": "ReasonHostNotClaimed",
+      "value": "HostNotClaimed",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "a boot of a claim was about to start, but the claim is being deleted or no longer holds the host; it never touched the machine.",
+      "on": [
+        {
+          "condition": "Executed",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the operation's Approved / Executed conditions."
+    },
+    {
+      "name": "ReasonNoReachablePath",
+      "value": "NoReachablePath",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "every management path is down.",
+      "on": [
+        {
+          "condition": "Executed",
+          "status": "Unknown"
+        }
+      ],
+      "context": "Reasons on the operation's Approved / Executed conditions."
+    },
+    {
+      "name": "ReasonClusterDisruption",
+      "value": "ClusterDisruption",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the operation would take down a control plane of a Talos cluster while another control plane of that cluster is being taken down, or while its etcd is not fully healthy without this member. It starts once that is over.",
+      "on": [
+        {
+          "condition": "Executed",
+          "status": "Unknown"
+        }
+      ],
+      "context": "Reasons on the operation's Approved / Executed conditions."
+    },
+    {
+      "name": "ReasonAborted",
+      "value": "Aborted",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "a person asked the operation to stop (annotation metal.pk.io/abort, pk-metal abort). It stopped between two steps and undid what it could; the message says what.",
+      "on": [
+        {
+          "condition": "Executed",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the operation's Approved / Executed conditions."
+    },
+    {
+      "name": "ReasonNodeNotFound",
+      "value": "NodeNotFound",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the machine was told to run an OS whose TalosNode does not exist — provisioning is engaged but there is nothing to render. Someone named a node that was never authored.",
+      "on": [
+        {
+          "condition": "OSReady",
+          "status": "Unknown"
+        }
+      ],
+      "context": "Reasons on the host's Booted / OSReady conditions. Both mirror the bound TalosNode's check-in observations (MachineAPI, MaintenanceMode, NodeReady, Converging pass through verbatim); these two originate on the Host side."
+    },
+    {
+      "name": "ReasonAwaitingContact",
+      "value": "AwaitingContact",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "no check-in observation yet.",
+      "on": [
+        {
+          "condition": "OSReady",
+          "status": "Unknown"
+        }
+      ],
+      "context": "Reasons on the host's Booted / OSReady conditions. Both mirror the bound TalosNode's check-in observations (MachineAPI, MaintenanceMode, NodeReady, Converging pass through verbatim); these two originate on the Host side."
+    },
+    {
+      "name": "ReasonInSync",
+      "value": "InSync",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "observed matches desired.",
+      "on": [
+        {
+          "condition": "Converged",
+          "status": "True"
+        }
+      ],
+      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). All the holds are alert-and-hold: the condition blocks, nothing destructive follows, and an unchanged planHash never spawns a second operation — a human unsticks by changing the desired state (a profile edit), which changes the hash."
+    },
+    {
+      "name": "ReasonAwaitingOperation",
+      "value": "AwaitingOperation",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "drift is real and the proposed operation exists but has not finished (it may still await its human gate — the Host's ApprovalPending says so).",
+      "on": [
+        {
+          "condition": "Converged",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). All the holds are alert-and-hold: the condition blocks, nothing destructive follows, and an unchanged planHash never spawns a second operation — a human unsticks by changing the desired state (a profile edit), which changes the hash."
+    },
+    {
+      "name": "ReasonOperationFailed",
+      "value": "OperationFailed",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the proposed operation failed — terminal for this plan, one-shots never auto-retry.",
+      "on": [
+        {
+          "condition": "Converged",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). All the holds are alert-and-hold: the condition blocks, nothing destructive follows, and an unchanged planHash never spawns a second operation — a human unsticks by changing the desired state (a profile edit), which changes the hash."
+    },
+    {
+      "name": "ReasonOperationGone",
+      "value": "OperationGone",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the proposed operation no longer exists while drift persists — a human deleted the proposal (a veto).",
+      "on": [
+        {
+          "condition": "Converged",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). All the holds are alert-and-hold: the condition blocks, nothing destructive follows, and an unchanged planHash never spawns a second operation — a human unsticks by changing the desired state (a profile edit), which changes the hash."
+    },
+    {
+      "name": "ReasonConvergenceFailed",
+      "value": "ConvergenceFailed",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the operation succeeded but the world did not converge — the lying-oracle shape (a flash answered success with no effect, a BIOS apply dropped the value).",
+      "on": [
+        {
+          "condition": "Converged",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). All the holds are alert-and-hold: the condition blocks, nothing destructive follows, and an unchanged planHash never spawns a second operation — a human unsticks by changing the desired state (a profile edit), which changes the hash."
+    },
+    {
+      "name": "ReasonProfileConflict",
+      "value": "ProfileConflict",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "two same-layer profiles set the same key to different values — the materialization holds whole.",
+      "on": [
+        {
+          "condition": "Converged",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). All the holds are alert-and-hold: the condition blocks, nothing destructive follows, and an unchanged planHash never spawns a second operation — a human unsticks by changing the desired state (a profile edit), which changes the hash."
+    },
+    {
+      "name": "ReasonSchemaViolation",
+      "value": "SchemaViolation",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "a desired value is not in the discovered attribute registry (unknown attribute, out-of-enum value) — the machine would reject or silently drop it, so nothing is proposed.",
+      "on": [
+        {
+          "condition": "Converged",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). All the holds are alert-and-hold: the condition blocks, nothing destructive follows, and an unchanged planHash never spawns a second operation — a human unsticks by changing the desired state (a profile edit), which changes the hash."
+    },
+    {
+      "name": "ReasonAwaitingFirmware",
+      "value": "AwaitingFirmware",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "BIOS holds until firmware converges — the BIOS schema depends on firmware.",
+      "on": [
+        {
+          "condition": "Converged",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). All the holds are alert-and-hold: the condition blocks, nothing destructive follows, and an unchanged planHash never spawns a second operation — a human unsticks by changing the desired state (a profile edit), which changes the hash."
+    },
+    {
+      "name": "ReasonNoUpdateTransport",
+      "value": "NoUpdateTransport",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "no fronting endpoint advertises the proven multipart-push dialect — drift is visible but no flash is proposed over an unproven transport.",
+      "on": [
+        {
+          "condition": "FirmwareConverged",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the convergence conditions (BiosSettings' Converged, the Host's FirmwareConverged / BiosConverged). All the holds are alert-and-hold: the condition blocks, nothing destructive follows, and an unchanged planHash never spawns a second operation — a human unsticks by changing the desired state (a profile edit), which changes the hash."
+    },
+    {
+      "name": "ReasonAwaitingVerification",
+      "value": "AwaitingVerification",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "a profile matches but the endpoint is not Verified — nothing is written to an unproven box.",
+      "on": [
+        {
+          "condition": "Configured",
+          "status": "Unknown"
+        }
+      ],
+      "context": "Reasons on the endpoint's Configured condition (the EndpointProfile lanes). InSync and ProfileConflict are shared with the convergence vocabulary above. There is no operation gate here — merging the profile is the approval — so every False is either in-flight work or an alert-and-hold the next pass retries (the factory account stays as break-glass, faults self-heal)."
+    },
+    {
+      "name": "ReasonRotationFailed",
+      "value": "RotationFailed",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the managed account could not be brought to the managed Secret's password, or a new password was not accepted: neither the managed nor the factory session set one that logs in. The working password stays in the Secret.",
+      "on": [
+        {
+          "condition": "Configured",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the endpoint's Configured condition (the EndpointProfile lanes). InSync and ProfileConflict are shared with the convergence vocabulary above. There is no operation gate here — merging the profile is the approval — so every False is either in-flight work or an alert-and-hold the next pass retries (the factory account stays as break-glass, faults self-heal)."
+    },
+    {
+      "name": "ReasonNTPFailed",
+      "value": "NTPFailed",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the manager's time sources could not be converged — the write failed or did not read back.",
+      "on": [
+        {
+          "condition": "Configured",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the endpoint's Configured condition (the EndpointProfile lanes). InSync and ProfileConflict are shared with the convergence vocabulary above. There is no operation gate here — merging the profile is the approval — so every False is either in-flight work or an alert-and-hold the next pass retries (the factory account stays as break-glass, faults self-heal)."
+    },
+    {
+      "name": "ReasonNoIdentityTransport",
+      "value": "NoIdentityTransport",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "an identity is desired but the endpoint advertises no way to replace its certificate.",
+      "on": [
+        {
+          "condition": "Configured",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the endpoint's Configured condition (the EndpointProfile lanes). InSync and ProfileConflict are shared with the convergence vocabulary above. There is no operation gate here — merging the profile is the approval — so every False is either in-flight work or an alert-and-hold the next pass retries (the factory account stays as break-glass, faults self-heal)."
+    },
+    {
+      "name": "ReasonAwaitingIssuance",
+      "value": "AwaitingIssuance",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the CertificateRequest is created and not yet signed.",
+      "on": [
+        {
+          "condition": "Configured",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the endpoint's Configured condition (the EndpointProfile lanes). InSync and ProfileConflict are shared with the convergence vocabulary above. There is no operation gate here — merging the profile is the approval — so every False is either in-flight work or an alert-and-hold the next pass retries (the factory account stays as break-glass, faults self-heal)."
+    },
+    {
+      "name": "ReasonIdentityPushed",
+      "value": "IdentityPushed",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the signed certificate went to the manager and the manager was restarted — the next observation decides whether it is being served.",
+      "on": [
+        {
+          "condition": "Configured",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the endpoint's Configured condition (the EndpointProfile lanes). InSync and ProfileConflict are shared with the convergence vocabulary above. There is no operation gate here — merging the profile is the approval — so every False is either in-flight work or an alert-and-hold the next pass retries (the factory account stays as break-glass, faults self-heal)."
+    },
+    {
+      "name": "ReasonIdentityPushFailed",
+      "value": "IdentityPushFailed",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the push did not land or the pushed certificate is not being served (success answered, nothing changed — the lying-oracle shape). Held per desired state: a profile edit re-arms the push.",
+      "on": [
+        {
+          "condition": "Configured",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the endpoint's Configured condition (the EndpointProfile lanes). InSync and ProfileConflict are shared with the convergence vocabulary above. There is no operation gate here — merging the profile is the approval — so every False is either in-flight work or an alert-and-hold the next pass retries (the factory account stays as break-glass, faults self-heal)."
+    },
+    {
+      "name": "ReasonIdentityPushHeld",
+      "value": "IdentityPushHeld",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the signed certificate is ready, but pushing it restarts the manager, and an operation is running on a machine behind it. A restart drops the virtual media mounts and the session of the step in flight, so the push waits for the operation to finish.",
+      "on": [
+        {
+          "condition": "Configured",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the endpoint's Configured condition (the EndpointProfile lanes). InSync and ProfileConflict are shared with the convergence vocabulary above. There is no operation gate here — merging the profile is the approval — so every False is either in-flight work or an alert-and-hold the next pass retries (the factory account stays as break-glass, faults self-heal)."
+    },
+    {
+      "name": "ReasonUnexpectedReset",
+      "value": "UnexpectedReset",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the reset-time observation advanced with no operation explaining it — someone or something reset the machine.",
+      "on": [
+        {
+          "condition": "Drifted",
+          "status": "True"
+        }
+      ],
+      "context": "Reasons on the host's Drifted condition (information, not error)."
+    },
+    {
+      "name": "ReasonResetExplained",
+      "value": "ResetExplained",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the latest advance is covered by an operation's observation.",
+      "on": [
+        {
+          "condition": "Drifted",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the host's Drifted condition (information, not error)."
+    },
+    {
+      "name": "ReasonHandedOff",
+      "value": "HandedOff",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the machine checked in with the node's config.",
+      "on": [
+        {
+          "condition": "Provisioned",
+          "status": "True"
+        }
+      ],
+      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing) or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
+    },
+    {
+      "name": "ReasonAwaitingRender",
+      "value": "AwaitingRender",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the TalosNode (or its cluster) is missing or has no rendered config yet.",
+      "on": [],
+      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing) or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
+    },
+    {
+      "name": "ReasonAwaitingBootAsset",
+      "value": "AwaitingBootAsset",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the installer image, the config medium or the installer with the config built in is not built (Ready) for the current render yet.",
+      "on": [],
+      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing) or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
+    },
+    {
+      "name": "ReasonSingleMediumUnsupported",
+      "value": "SingleMediumUnsupported",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the endpoint can hold one virtual medium only, the machine has no Talos to boot from disk, and an installer with the config built in cannot help: the cluster's Talos release cannot read one (before 1.12), or the one slot does not boot an ISO.",
+      "on": [],
+      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing) or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
+    },
+    {
+      "name": "ReasonNoBootableMedia",
+      "value": "NoBootableMedia",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the endpoint advertises no insertable media slot or no removable-media boot target.",
+      "on": [],
+      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing) or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
+    },
+    {
+      "name": "ReasonReleasing",
+      "value": "Releasing",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the claim is being deleted; the release operation (power off, eject) runs before the machine is handed back.",
+      "on": [],
+      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing) or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
+    },
+    {
+      "name": "ReasonReleaseFailed",
+      "value": "ReleaseFailed",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the release operation failed — the machine stays bound until a person deletes the failed operation (which retries it).",
+      "on": [],
+      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing) or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
+    },
+    {
+      "name": "ReasonHeldByUser",
+      "value": "HeldByUser",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the claim carries the metal.pk.io/hold annotation — nothing is proposed for it until the annotation is removed.",
+      "on": [],
+      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing) or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
+    },
+    {
+      "name": "ReasonHostInMaintenance",
+      "value": "HostInMaintenance",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the bound host carries the metal.pk.io/maintenance annotation — nothing is proposed for it. Also the reason on Maintenance=True, on the blockedOn of a host in maintenance, and on Executed=Unknown of an operation that waits for the host to come out of maintenance.",
+      "on": [
+        {
+          "condition": "Maintenance",
+          "status": "True"
+        },
+        {
+          "condition": "Executed",
+          "status": "Unknown"
+        }
+      ],
+      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing) or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
+    },
+    {
+      "name": "ReasonSelfDisruption",
+      "value": "SelfDisruption",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the step would reboot or power off a machine that the operator itself depends on: the node its own pod runs on, or a control plane of the cluster it runs in. Nothing is proposed or started for it unless the Host carries the metal.pk.io/allow-self-disruption annotation, and a control plane is taken down only one at a time and only while etcd keeps a majority. The reason on Provisioned=False of a claim, on Executed=Unknown of an operation that waits, and on BiosConverged=False of a host.",
+      "on": [
+        {
+          "condition": "Provisioned",
+          "status": "False"
+        },
+        {
+          "condition": "Executed",
+          "status": "Unknown"
+        },
+        {
+          "condition": "BiosConverged",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the claim's Provisioned condition. All but HandedOff are False: in-flight waits (AwaitingRender, AwaitingBootAsset, AwaitingOperation, Releasing) or alert-and-hold stops (SingleMediumUnsupported, NoBootableMedia, OperationFailed, ReleaseFailed) that a person resolves."
+    },
+    {
+      "name": "ReasonEndpointMaterialized",
+      "value": "EndpointMaterialized",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the endpoint exists.",
+      "on": [
+        {
+          "condition": "Materialized",
+          "status": "True"
+        }
+      ],
+      "context": "Reasons on the Asset's Materialized condition."
+    },
+    {
+      "name": "ReasonNoBMCMac",
+      "value": "NoBMCMac",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the Asset names no bmcMac.",
+      "on": [
+        {
+          "condition": "Materialized",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the Asset's Materialized condition."
+    },
+    {
+      "name": "ReasonNoLedgerEntry",
+      "value": "NoLedgerEntry",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the bmcMac is not in the ledger.",
+      "on": [
+        {
+          "condition": "Materialized",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the Asset's Materialized condition."
+    },
+    {
+      "name": "ReasonLedgerEntryInvalid",
+      "value": "LedgerEntryInvalid",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the ledger lists the bmcMac on a line that could not be used (not an https URL, or the MAC listed twice with two addresses).",
+      "on": [
+        {
+          "condition": "Materialized",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the Asset's Materialized condition."
+    },
+    {
+      "name": "ReasonMaterializeConflict",
+      "value": "MaterializeConflict",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "an endpoint of the same name belongs to another Asset.",
+      "on": [
+        {
+          "condition": "Materialized",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the Asset's Materialized condition."
+    },
+    {
+      "name": "ReasonAssetNotMaterialized",
+      "value": "AssetNotMaterialized",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the Asset has no endpoint, and its Materialized condition says why.",
+      "on": [
+        {
+          "condition": "Bound",
+          "status": "False"
+        }
+      ],
+      "context": ""
+    },
+    {
+      "name": "ReasonHostClaimed",
+      "value": "HostClaimed",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "a claim holds the machine.",
+      "on": [
+        {
+          "condition": "DeletionHeld",
+          "status": "True"
+        }
+      ],
+      "context": ""
+    },
+    {
+      "name": "ReasonHostBound",
+      "value": "HostBound",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the bind pointer is ours.",
+      "on": [
+        {
+          "condition": "Bound",
+          "status": "True"
+        }
+      ],
+      "context": "Reasons on the claim's Bound condition. HostNotDiscovered is in flight (the machine hasn't been discovered yet), the rest are blocked states."
+    },
+    {
+      "name": "ReasonBindRetained",
+      "value": "BindRetained",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the assetRef no longer resolves but a live bind exists — alert-and-hold, a resolution failure never releases a machine.",
+      "on": [
+        {
+          "condition": "Bound",
+          "status": "True"
+        }
+      ],
+      "context": "Reasons on the claim's Bound condition. HostNotDiscovered is in flight (the machine hasn't been discovered yet), the rest are blocked states."
+    },
+    {
+      "name": "ReasonAssetNotFound",
+      "value": "AssetNotFound",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the referenced Asset does not exist.",
+      "on": [],
+      "context": "Reasons on the claim's Bound condition. HostNotDiscovered is in flight (the machine hasn't been discovered yet), the rest are blocked states."
+    },
+    {
+      "name": "ReasonHostNotDiscovered",
+      "value": "HostNotDiscovered",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "no Host has been discovered for the asset yet.",
+      "on": [],
+      "context": "Reasons on the claim's Bound condition. HostNotDiscovered is in flight (the machine hasn't been discovered yet), the rest are blocked states."
+    },
+    {
+      "name": "ReasonAmbiguousSystem",
+      "value": "AmbiguousSystem",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the endpoint fronts several systems and no systemRef says which one is meant — a chassis with more than one node in it.",
+      "on": [],
+      "context": "Reasons on the claim's Bound condition. HostNotDiscovered is in flight (the machine hasn't been discovered yet), the rest are blocked states."
+    },
+    {
+      "name": "ReasonSystemNotFound",
+      "value": "SystemNotFound",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "systemRef names no system the endpoint fronts.",
+      "on": [],
+      "context": "Reasons on the claim's Bound condition. HostNotDiscovered is in flight (the machine hasn't been discovered yet), the rest are blocked states."
+    },
+    {
+      "name": "ReasonHostAlreadyClaimed",
+      "value": "HostAlreadyClaimed",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "another claim holds the host (first writer won).",
+      "on": [],
+      "context": "Reasons on the claim's Bound condition. HostNotDiscovered is in flight (the machine hasn't been discovered yet), the rest are blocked states."
+    },
+    {
+      "name": "ReasonSerialMismatch",
+      "value": "SerialMismatch",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the asserted serial is not the discovered one — the machine behind this endpoint is not the machine the org claims.",
+      "on": [
+        {
+          "condition": "Verified",
+          "status": "False"
+        }
+      ],
+      "context": ""
+    },
+    {
+      "name": "ReasonMACMismatch",
+      "value": "MACMismatch",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the manager at this address reports a NIC MAC other than the asserted bmcMac — the ledger join resolved to the wrong box.",
+      "on": [
+        {
+          "condition": "Verified",
+          "status": "False"
+        }
+      ],
+      "context": ""
+    },
+    {
+      "name": "ReasonIdentityDiverged",
+      "value": "IdentityDiverged",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "two paths to the same serial anchor normalize to different identities — the anchor resolves to different machine facts, so no coherent Host identity exists (alert-and-hold).",
+      "on": [
+        {
+          "condition": "Inspected",
+          "status": "False"
+        }
+      ],
+      "context": ""
+    },
+    {
+      "name": "ReasonNoMatchingComponent",
+      "value": "NoMatchingComponent",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions_day2.go",
+      "description": "a profile names a component that no FirmwareInventory entry of the machine matches. Nothing is proposed for a component that cannot be found.",
+      "on": [
+        {
+          "condition": "SystemFirmwareConverged",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons added for day-2 convergence and scheduling. They live apart from conditions.go so that each concern's reasons are found next to each other."
+    },
+    {
+      "name": "ReasonInstalledNodeMissing",
+      "value": "InstalledNodeMissing",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions_day2.go",
+      "description": "the host's claim says it runs a TalosNode that no longer exists. The node cannot be drained, so no change that reboots the machine is proposed until the record and the node agree.",
+      "on": [
+        {
+          "condition": "BiosConverged",
+          "status": "False"
+        },
+        {
+          "condition": "FirmwareConverged",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons added for day-2 convergence and scheduling. They live apart from conditions.go so that each concern's reasons are found next to each other."
+    },
+    {
+      "name": "ReasonOutsideMaintenanceWindow",
+      "value": "OutsideMaintenanceWindow",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions_day2.go",
+      "description": "a MaintenanceWindow covers its host and none of the windows that cover it is open. The operation starts when one opens; an operation already running is never stopped by a window closing. Also the operation's blockedOn.",
+      "on": [
+        {
+          "condition": "Executed",
+          "status": "Unknown"
+        }
+      ],
+      "context": "Reasons added for day-2 convergence and scheduling. They live apart from conditions.go so that each concern's reasons are found next to each other."
+    },
+    {
+      "name": "ReasonRolloutRefused",
+      "value": "RolloutRefused",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/hostoperation_rollout.go",
+      "description": "the operation names a TalosRollout (spec.rolloutRef) whose approval does not cover it: the rollout is gone, not approved, aborted, approved for another planHash, or its plan gives this node other actions. Nothing was done to the machine.",
+      "on": [
+        {
+          "condition": "Executed",
+          "status": "False"
+        }
+      ],
+      "context": ""
+    },
+    {
+      "name": "ReasonInstalledNodeRemains",
+      "value": "InstalledNodeRemains",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/lifecycle_types.go",
+      "description": "the machine was released without a Talos reset, so its disk may still hold a node of a cluster, credentials included.",
+      "on": [
+        {
+          "condition": "DiskWiped",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons of the node lifecycle."
+    },
+    {
+      "name": "ReasonDiskNotWiped",
+      "value": "DiskNotWiped",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/lifecycle_types.go",
+      "description": "the bound host still holds another node's install, and nothing is installed on it until it is wiped.",
+      "on": [
+        {
+          "condition": "Provisioned",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons of the node lifecycle."
+    },
+    {
+      "name": "ReasonEtcdJoinWaiting",
+      "value": "EtcdJoinWaiting",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/lifecycle_types.go",
+      "description": "the claim's node is a control plane of a running cluster, and its install waits until every etcd member is healthy and voting and no other control plane is joining. Control planes join one at a time.",
+      "on": [
+        {
+          "condition": "Provisioned",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons of the node lifecycle."
+    },
+    {
+      "name": "ReasonEtcdRiskRefused",
+      "value": "EtcdRiskRefused",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/lifecycle_types.go",
+      "description": "removing or reinstalling the claim's control plane would leave etcd with an even member count, without a healthy majority or empty, and nobody acknowledged that (AnnotationAckEtcdRisk).",
+      "on": [
+        {
+          "condition": "Provisioned",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons of the node lifecycle."
+    },
+    {
+      "name": "ReasonRemovalWaiting",
+      "value": "RemovalWaiting",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/lifecycle_types.go",
+      "description": "the removal of a control plane waits for its turn: another control plane is being removed, a member is still a learner, or this one is the etcd leader and others are leaving too (the leader goes last).",
+      "on": [
+        {
+          "condition": "Provisioned",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons of the node lifecycle."
+    },
+    {
+      "name": "ReasonRemovingNode",
+      "value": "RemovingNode",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/lifecycle_types.go",
+      "description": "the claim's TalosNode is being deleted; the removal operation (drain, etcd leave, reset, Node deletion, power off) runs first.",
+      "on": [
+        {
+          "condition": "Provisioned",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons of the node lifecycle."
+    },
+    {
+      "name": "ReasonNodeRemoved",
+      "value": "NodeRemoved",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/lifecycle_types.go",
+      "description": "the claim's TalosNode was removed from its cluster and the machine wiped; the claim keeps the machine for whatever node it names next.",
+      "on": [
+        {
+          "condition": "Provisioned",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons of the node lifecycle."
+    },
+    {
+      "name": "ReasonReinstalling",
+      "value": "Reinstalling",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/lifecycle_types.go",
+      "description": "a reinstall the claim asked for (AnnotationReinstall) is proposed or running.",
+      "on": [
+        {
+          "condition": "Provisioned",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons of the node lifecycle."
+    },
+    {
+      "name": "ReasonReplacing",
+      "value": "Replacing",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/lifecycle_types.go",
+      "description": "the claim was pointed at another machine, and the one it ran on is being removed first.",
+      "on": [
+        {
+          "condition": "Bound",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons of the node lifecycle."
+    },
+    {
+      "name": "ReasonWipeRequested",
+      "value": "WipeRequested",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/lifecycle_types.go",
+      "description": "a wipe was asked for and its operation is proposed or running.",
+      "on": [
+        {
+          "condition": "DiskWiped",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons of the node lifecycle."
+    },
+    {
+      "name": "ReasonWindowValid",
+      "value": "WindowValid",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/maintenancewindow_types.go",
+      "description": "ReasonWindowValid on Valid=True.",
+      "on": [
+        {
+          "condition": "Valid",
+          "status": "True"
+        }
+      ],
+      "context": "Reasons on the window's Valid condition."
+    },
+    {
+      "name": "ReasonWindowInvalid",
+      "value": "WindowInvalid",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/maintenancewindow_types.go",
+      "description": "the message says what is wrong.",
+      "on": [
+        {
+          "condition": "Valid",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the window's Valid condition."
+    },
+    {
+      "name": "ReasonMachineAssigned",
+      "value": "MachineAssigned",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "a machine still runs or ran the node, and its removal operation has not finished.",
+      "on": [
+        {
+          "condition": "RemovalBlocked",
+          "status": "True"
+        }
+      ],
+      "context": "Reasons on a TalosNode's RemovalBlocked condition."
+    },
+    {
+      "name": "ReasonEtcdMemberRemains",
+      "value": "EtcdMemberRemains",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "etcd still lists a member with the node's hostname.",
+      "on": [
+        {
+          "condition": "RemovalBlocked",
+          "status": "True"
+        }
+      ],
+      "context": "Reasons on a TalosNode's RemovalBlocked condition."
+    },
+    {
+      "name": "ReasonEtcdUnreadable",
+      "value": "EtcdUnreadable",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "no control plane of the cluster answered, so nothing says the node's etcd member is gone.",
+      "on": [
+        {
+          "condition": "RemovalBlocked",
+          "status": "True"
+        }
+      ],
+      "context": "Reasons on a TalosNode's RemovalBlocked condition."
+    },
+    {
+      "name": "ReasonConfigRendered",
+      "value": "ConfigRendered",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "the config Secret holds the render.",
+      "on": [
+        {
+          "condition": "Rendered",
+          "status": "True"
+        }
+      ],
+      "context": "Reasons on the node's Rendered condition."
+    },
+    {
+      "name": "ReasonClusterNotFound",
+      "value": "ClusterNotFound",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "clusterRef names no TalosCluster.",
+      "on": [
+        {
+          "condition": "Rendered",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the node's Rendered condition."
+    },
+    {
+      "name": "ReasonSecretsUnavailable",
+      "value": "SecretsUnavailable",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "the secrets bundle Secret is missing, unreadable or invalid. Nothing renders without it.",
+      "on": [
+        {
+          "condition": "Rendered",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the node's Rendered condition."
+    },
+    {
+      "name": "ReasonPatchesUnresolvable",
+      "value": "PatchesUnresolvable",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "a patch names a ConfigMap or key that does not exist.",
+      "on": [
+        {
+          "condition": "Rendered",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the node's Rendered condition."
+    },
+    {
+      "name": "ReasonRenderFailed",
+      "value": "RenderFailed",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "the inputs do not form a valid Talos configuration (the message carries the render or validation error).",
+      "on": [
+        {
+          "condition": "Rendered",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the node's Rendered condition."
+    },
+    {
+      "name": "ReasonSchematicUnavailable",
+      "value": "SchematicUnavailable",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "the image factory could not be told about the schematic, so the image it addresses may not exist. Rendering a config that names an installer nothing serves would move the failure onto the machine, where the only witness is a serial console.",
+      "on": [
+        {
+          "condition": "Rendered",
+          "status": "False"
+        },
+        {
+          "condition": "Ready",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the node's Rendered condition."
+    },
+    {
+      "name": "ReasonArtifactBuilt",
+      "value": "ArtifactBuilt",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "the artifact Secret holds the built bytes; digest and size are stamped.",
+      "on": [
+        {
+          "condition": "Ready",
+          "status": "True"
+        }
+      ],
+      "context": "Reasons on the asset's Ready condition."
+    },
+    {
+      "name": "ReasonURLComputed",
+      "value": "URLComputed",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "the image factory knows the schematic, and the content-addressed URL of its image is stamped. The bytes behind that URL are not fetched (the machine does that) but they are known to exist, which a computed URL alone never established.",
+      "on": [
+        {
+          "condition": "Ready",
+          "status": "True"
+        }
+      ],
+      "context": "Reasons on the asset's Ready condition."
+    },
+    {
+      "name": "ReasonNodeNotFound",
+      "value": "NodeNotFound",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "nodeRef names no TalosNode.",
+      "on": [
+        {
+          "condition": "Ready",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the asset's Ready condition."
+    },
+    {
+      "name": "ReasonConfigNotRendered",
+      "value": "ConfigNotRendered",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "the node exists but has no rendered config Secret yet; the build waits for the render.",
+      "on": [
+        {
+          "condition": "Ready",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the asset's Ready condition."
+    },
+    {
+      "name": "ReasonBuildFailed",
+      "value": "BuildFailed",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "packing the artifact failed (the message carries the builder's error).",
+      "on": [
+        {
+          "condition": "Ready",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the asset's Ready condition."
+    },
+    {
+      "name": "ReasonBuilding",
+      "value": "Building",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "the imager Job is building the artifact for the current inputs. A stored artifact of earlier inputs stays in status until the new one replaces it.",
+      "on": [
+        {
+          "condition": "Ready",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the asset's Ready condition."
+    },
+    {
+      "name": "ReasonBuilderUnavailable",
+      "value": "BuilderUnavailable",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "this operator cannot build the artifact: no media store, no imager image pinned for the Talos version, or a Talos version without embedded config support. The message names the flag or field to set.",
+      "on": [
+        {
+          "condition": "Ready",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the asset's Ready condition."
+    },
+    {
+      "name": "ReasonMachineAPI",
+      "value": "MachineAPI",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "the authenticated machine API answered, so the node runs a config from our PKI.",
+      "on": [
+        {
+          "condition": "MachineReachable",
+          "status": "True"
+        }
+      ],
+      "context": "Reasons on the node's MachineReachable / Ready check-in conditions."
+    },
+    {
+      "name": "ReasonMaintenanceMode",
+      "value": "MaintenanceMode",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "only the unauthenticated maintenance service answers; the machine is up and blank, awaiting its config.",
+      "on": [
+        {
+          "condition": "MachineReachable",
+          "status": "True"
+        },
+        {
+          "condition": "Ready",
+          "status": "Unknown"
+        }
+      ],
+      "context": "Reasons on the node's MachineReachable / Ready check-in conditions."
+    },
+    {
+      "name": "ReasonDialFailed",
+      "value": "DialFailed",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "neither service answered.",
+      "on": [
+        {
+          "condition": "MachineReachable",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the node's MachineReachable / Ready check-in conditions."
+    },
+    {
+      "name": "ReasonNoAddress",
+      "value": "NoAddress",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "the node has neither spec.address nor a static link address, so there is nothing to dial.",
+      "on": [
+        {
+          "condition": "MachineReachable",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the node's MachineReachable / Ready check-in conditions."
+    },
+    {
+      "name": "ReasonAwaitingContact",
+      "value": "AwaitingContact",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "no observation yet; the machine has never answered since the hand-off.",
+      "on": [
+        {
+          "condition": "Ready",
+          "status": "Unknown"
+        }
+      ],
+      "context": "Reasons on the node's MachineReachable / Ready check-in conditions."
+    },
+    {
+      "name": "ReasonConverging",
+      "value": "Converging",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "the machine answers but has not reached stage running + ready (the message carries stage and unmet conditions).",
+      "on": [
+        {
+          "condition": "Ready",
+          "status": "Unknown"
+        }
+      ],
+      "context": "Reasons on the node's MachineReachable / Ready check-in conditions."
+    },
+    {
+      "name": "ReasonNodeReady",
+      "value": "NodeReady",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "stage running, all conditions met; the check-in signal that revokes grants and advances the Host to Provisioned.",
+      "on": [
+        {
+          "condition": "Ready",
+          "status": "True"
+        }
+      ],
+      "context": "Reasons on the node's MachineReachable / Ready check-in conditions."
+    },
+    {
+      "name": "ReasonEtcdRunning",
+      "value": "EtcdRunning",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "a control-plane member reports etcd members.",
+      "on": [
+        {
+          "condition": "Bootstrapped",
+          "status": "True"
+        }
+      ],
+      "context": "Reasons on the cluster's Bootstrapped / Available conditions."
+    },
+    {
+      "name": "ReasonKubernetesAnswers",
+      "value": "KubernetesAnswers",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "no member could be asked about etcd, but the Kubernetes API answers, which it cannot without etcd.",
+      "on": [
+        {
+          "condition": "Bootstrapped",
+          "status": "True"
+        }
+      ],
+      "context": "Reasons on the cluster's Bootstrapped / Available conditions."
+    },
+    {
+      "name": "ReasonBootstrapRequested",
+      "value": "BootstrapRequested",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "the operator asked a control-plane member to bootstrap etcd and waits to observe it running.",
+      "on": [
+        {
+          "condition": "Bootstrapped",
+          "status": "Unknown"
+        }
+      ],
+      "context": "Reasons on the cluster's Bootstrapped / Available conditions."
+    },
+    {
+      "name": "ReasonAwaitingControlPlane",
+      "value": "AwaitingControlPlane",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "not every control-plane member answers its authenticated API yet. Bootstrap waits for all of them, so that a member that was already bootstrapped but is down cannot be mistaken for a cluster that never was.",
+      "on": [
+        {
+          "condition": "Bootstrapped",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the cluster's Bootstrapped / Available conditions."
+    },
+    {
+      "name": "ReasonNoControlPlane",
+      "value": "NoControlPlane",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "no TalosNode with role controlplane names this cluster.",
+      "on": [
+        {
+          "condition": "Bootstrapped",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the cluster's Bootstrapped / Available conditions."
+    },
+    {
+      "name": "ReasonBootstrapRefused",
+      "value": "BootstrapRefused",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "the member refused the bootstrap call (the message carries why; it is retried).",
+      "on": [
+        {
+          "condition": "Bootstrapped",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the cluster's Bootstrapped / Available conditions."
+    },
+    {
+      "name": "ReasonEtcdDataLost",
+      "value": "EtcdDataLost",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "the cluster was bootstrapped before (status.bootstrappedAt), and now every control plane answers and none runs etcd. The operator never bootstraps such a cluster again; a person restores etcd or starts over.",
+      "on": [
+        {
+          "condition": "Bootstrapped",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the cluster's Bootstrapped / Available conditions."
+    },
+    {
+      "name": "ReasonRestorePending",
+      "value": "RestorePending",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "the cluster carries os.pk.io/restore-pending, so its etcd is restored from a snapshot by an approved etcdRecover operation and never bootstrapped empty.",
+      "on": [
+        {
+          "condition": "Bootstrapped",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the cluster's Bootstrapped / Available conditions."
+    },
+    {
+      "name": "ReasonEtcdUnavailable",
+      "value": "EtcdUnavailable",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "the cluster was bootstrapped before, and no member lists etcd members now, while some do not answer or run etcd without a quorum. It may come back.",
+      "on": [
+        {
+          "condition": "Bootstrapped",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the cluster's Bootstrapped / Available conditions."
+    },
+    {
+      "name": "ReasonEtcdDataPresent",
+      "value": "EtcdDataPresent",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "a cluster not yet bootstrapped has a member whose etcd runs but lists no members, data from an etcd that lost its quorum. Bootstrap is refused until a person restores or resets it.",
+      "on": [
+        {
+          "condition": "Bootstrapped",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the cluster's Bootstrapped / Available conditions."
+    },
+    {
+      "name": "ReasonClusterAvailable",
+      "value": "ClusterAvailable",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "ReasonClusterAvailable on Available=True.",
+      "on": [
+        {
+          "condition": "Available",
+          "status": "True"
+        }
+      ],
+      "context": "Reasons on the cluster's Bootstrapped / Available conditions."
+    },
+    {
+      "name": "ReasonKubernetesUnreachable",
+      "value": "KubernetesUnreachable",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "the Kubernetes API does not answer at the endpoint.",
+      "on": [
+        {
+          "condition": "Available",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the cluster's Bootstrapped / Available conditions."
+    },
+    {
+      "name": "ReasonNodesNotReady",
+      "value": "NodesNotReady",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "the API answers, but some member TalosNode is not Ready.",
+      "on": [
+        {
+          "condition": "Available",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the cluster's Bootstrapped / Available conditions."
+    },
+    {
+      "name": "ReasonNotBootstrapped",
+      "value": "NotBootstrapped",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions.go",
+      "description": "etcd does not exist yet.",
+      "on": [
+        {
+          "condition": "Available",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the cluster's Bootstrapped / Available conditions."
+    },
+    {
+      "name": "ReasonInSync",
+      "value": "InSync",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "",
+      "on": [],
+      "context": "Reasons on ConfigInSync and VersionCurrent."
+    },
+    {
+      "name": "ReasonConfigDrift",
+      "value": "ConfigDrift",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "",
+      "on": [],
+      "context": "Reasons on ConfigInSync and VersionCurrent."
+    },
+    {
+      "name": "ReasonDriftUnknown",
+      "value": "DriftUnknown",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "",
+      "on": [],
+      "context": "Reasons on ConfigInSync and VersionCurrent."
+    },
+    {
+      "name": "ReasonVersionCurrent",
+      "value": "VersionCurrent",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "",
+      "on": [],
+      "context": "Reasons on ConfigInSync and VersionCurrent."
+    },
+    {
+      "name": "ReasonVersionSkew",
+      "value": "VersionSkew",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "",
+      "on": [],
+      "context": "Reasons on ConfigInSync and VersionCurrent."
+    },
+    {
+      "name": "ReasonUnsupportedVersion",
+      "value": "UnsupportedVersionPair",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "",
+      "on": [],
+      "context": "Reasons on ConfigInSync and VersionCurrent."
+    },
+    {
+      "name": "ReasonVersionsSupported",
+      "value": "VersionsSupported",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "",
+      "on": [],
+      "context": "Reasons on ConfigInSync and VersionCurrent."
+    },
+    {
+      "name": "ReasonVersionsBehind",
+      "value": "VersionsBehind",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "",
+      "on": [],
+      "context": "Reasons on ConfigInSync and VersionCurrent."
+    },
+    {
+      "name": "ReasonBundleChanged",
+      "value": "BundleChanged",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "",
+      "on": [],
+      "context": "Reasons on ConfigInSync and VersionCurrent."
+    },
+    {
+      "name": "ReasonBundleApplied",
+      "value": "BundleApplied",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "",
+      "on": [],
+      "context": "Reasons on ConfigInSync and VersionCurrent."
+    },
+    {
+      "name": "ReasonCredentialsPublished",
+      "value": "CredentialsPublished",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "",
+      "on": [],
+      "context": "Reasons on ConfigInSync and VersionCurrent."
+    },
+    {
+      "name": "ReasonPlanReady",
+      "value": "PlanReady",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "ReasonPlanReady on Planned=True; ReasonPlanBlocked on Planned=False when a step cannot be planned yet (the message says which and why).",
+      "on": [
+        {
+          "condition": "Planned",
+          "status": "True"
+        },
+        {
+          "condition": "Planned",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on a TalosRollout's conditions."
+    },
+    {
+      "name": "ReasonPlanBlocked",
+      "value": "PlanBlocked",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "",
+      "on": [],
+      "context": "Reasons on a TalosRollout's conditions."
+    },
+    {
+      "name": "ReasonNothingToDo",
+      "value": "NothingToDo",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "no node needs the change.",
+      "on": [
+        {
+          "condition": "Complete",
+          "status": "True"
+        }
+      ],
+      "context": "Reasons on a TalosRollout's conditions."
+    },
+    {
+      "name": "ReasonAwaitingApproval",
+      "value": "AwaitingApproval",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "nobody approved the plan.",
+      "on": [
+        {
+          "condition": "Approved",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on a TalosRollout's conditions."
+    },
+    {
+      "name": "ReasonPlanApproved",
+      "value": "PlanApproved",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "ReasonPlanApproved on Approved=True.",
+      "on": [
+        {
+          "condition": "Approved",
+          "status": "True"
+        }
+      ],
+      "context": "Reasons on a TalosRollout's conditions."
+    },
+    {
+      "name": "ReasonPlanChanged",
+      "value": "PlanChanged",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "the approval names a planHash the plan no longer has. Nothing runs; approve a new rollout.",
+      "on": [
+        {
+          "condition": "Approved",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on a TalosRollout's conditions."
+    },
+    {
+      "name": "ReasonNodeRunning",
+      "value": "NodeRunning",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "Progressing reasons.",
+      "on": [],
+      "context": "Reasons on a TalosRollout's conditions."
+    },
+    {
+      "name": "ReasonWaitingForHealth",
+      "value": "WaitingForHealth",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "",
+      "on": [],
+      "context": "Reasons on a TalosRollout's conditions."
+    },
+    {
+      "name": "ReasonRolloutFailed",
+      "value": "RolloutFailed",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "",
+      "on": [],
+      "context": "Reasons on a TalosRollout's conditions."
+    },
+    {
+      "name": "ReasonRolloutAborted",
+      "value": "Aborted",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "",
+      "on": [],
+      "context": "Reasons on a TalosRollout's conditions."
+    },
+    {
+      "name": "ReasonRolloutSucceeded",
+      "value": "Succeeded",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "",
+      "on": [],
+      "context": "Reasons on a TalosRollout's conditions."
+    },
+    {
+      "name": "ReasonCanaryPause",
+      "value": "PausedAfterFirstNode",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "",
+      "on": [],
+      "context": "Reasons on a TalosRollout's conditions."
+    },
+    {
+      "name": "ReasonPausedByPerson",
+      "value": "PausedByPerson",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "",
+      "on": [],
+      "context": "Reasons on a TalosRollout's conditions."
+    },
+    {
+      "name": "ReasonNotPaused",
+      "value": "NotPaused",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "",
+      "on": [],
+      "context": "Reasons on a TalosRollout's conditions."
+    },
+    {
+      "name": "ReasonRolloutNotStarted",
+      "value": "NotStarted",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/conditions_rollout.go",
+      "description": "",
+      "on": [],
+      "context": "Reasons on a TalosRollout's conditions."
+    },
+    {
+      "name": "ReasonSinkReady",
+      "value": "SinkReady",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/etcdbackup_types.go",
+      "description": "",
+      "on": [],
+      "context": "Reasons of the backup kinds' conditions. Ready uses ReasonSinkReady and the refusals below; BackedUp uses ReasonSnapshotRecent and the gaps below."
+    },
+    {
+      "name": "ReasonSinkRefused",
+      "value": "SinkRefused",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/etcdbackup_types.go",
+      "description": "a pvc sink for the cluster the operator runs on.",
+      "on": [],
+      "context": "Reasons of the backup kinds' conditions. Ready uses ReasonSinkReady and the refusals below; BackedUp uses ReasonSnapshotRecent and the gaps below."
+    },
+    {
+      "name": "ReasonSinkUnavailable",
+      "value": "SinkUnavailable",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/etcdbackup_types.go",
+      "description": "the sink cannot be used (no backup volume mounted, a credentials Secret missing or incomplete).",
+      "on": [],
+      "context": "Reasons of the backup kinds' conditions. Ready uses ReasonSinkReady and the refusals below; BackedUp uses ReasonSnapshotRecent and the gaps below."
+    },
+    {
+      "name": "ReasonRecipientsInvalid",
+      "value": "RecipientsInvalid",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/etcdbackup_types.go",
+      "description": "an age recipient does not parse.",
+      "on": [],
+      "context": "Reasons of the backup kinds' conditions. Ready uses ReasonSinkReady and the refusals below; BackedUp uses ReasonSnapshotRecent and the gaps below."
+    },
+    {
+      "name": "ReasonSnapshotRecent",
+      "value": "SnapshotRecent",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/etcdbackup_types.go",
+      "description": "",
+      "on": [],
+      "context": "Reasons of the backup kinds' conditions. Ready uses ReasonSinkReady and the refusals below; BackedUp uses ReasonSnapshotRecent and the gaps below."
+    },
+    {
+      "name": "ReasonNoSnapshot",
+      "value": "NoSnapshot",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/etcdbackup_types.go",
+      "description": "no verified snapshot yet.",
+      "on": [],
+      "context": "Reasons of the backup kinds' conditions. Ready uses ReasonSinkReady and the refusals below; BackedUp uses ReasonSnapshotRecent and the gaps below."
+    },
+    {
+      "name": "ReasonBackupTooOld",
+      "value": "BackupTooOld",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/etcdbackup_types.go",
+      "description": "the newest verified snapshot is older than twice the interval.",
+      "on": [],
+      "context": "Reasons of the backup kinds' conditions. Ready uses ReasonSinkReady and the refusals below; BackedUp uses ReasonSnapshotRecent and the gaps below."
+    },
+    {
+      "name": "ReasonStored",
+      "value": "Stored",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/etcdbackup_types.go",
+      "description": "ReasonStored on Complete=True; ReasonSnapshotFailed on Complete=False (the message says what failed).",
+      "on": [
+        {
+          "condition": "Complete",
+          "status": "True"
+        },
+        {
+          "condition": "Complete",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons of the backup kinds' conditions. Ready uses ReasonSinkReady and the refusals below; BackedUp uses ReasonSnapshotRecent and the gaps below."
+    },
+    {
+      "name": "ReasonSnapshotFailed",
+      "value": "SnapshotFailed",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/etcdbackup_types.go",
+      "description": "",
+      "on": [],
+      "context": "Reasons of the backup kinds' conditions. Ready uses ReasonSinkReady and the refusals below; BackedUp uses ReasonSnapshotRecent and the gaps below."
+    },
+    {
+      "name": "ReasonTaking",
+      "value": "Taking",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/etcdbackup_types.go",
+      "description": "the snapshot is being taken, or waits for an etcd member to take it from.",
+      "on": [
+        {
+          "condition": "Complete",
+          "status": "Unknown"
+        }
+      ],
+      "context": "Reasons of the backup kinds' conditions. Ready uses ReasonSinkReady and the refusals below; BackedUp uses ReasonSnapshotRecent and the gaps below."
+    },
+    {
+      "name": "ReasonIntact",
+      "value": "Intact",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/etcdbackup_types.go",
+      "description": "ReasonIntact on Verified=True; ReasonDamaged and ReasonReadBackFailed on Verified=False.",
+      "on": [
+        {
+          "condition": "Verified",
+          "status": "True"
+        },
+        {
+          "condition": "Verified",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons of the backup kinds' conditions. Ready uses ReasonSinkReady and the refusals below; BackedUp uses ReasonSnapshotRecent and the gaps below."
+    },
+    {
+      "name": "ReasonDamaged",
+      "value": "Damaged",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/etcdbackup_types.go",
+      "description": "",
+      "on": [],
+      "context": "Reasons of the backup kinds' conditions. Ready uses ReasonSinkReady and the refusals below; BackedUp uses ReasonSnapshotRecent and the gaps below."
+    },
+    {
+      "name": "ReasonReadBackFailed",
+      "value": "ReadBackFailed",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/etcdbackup_types.go",
+      "description": "",
+      "on": [],
+      "context": "Reasons of the backup kinds' conditions. Ready uses ReasonSinkReady and the refusals below; BackedUp uses ReasonSnapshotRecent and the gaps below."
+    }
+  ],
+  "operationReasons": [
+    {
+      "name": "OperationReasonSystemFirmwareConvergence",
+      "value": "SystemFirmwareConvergence",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions_day2.go",
+      "description": "OperationReasonSystemFirmwareConvergence is the spec.reason of a proposal that stages system firmware."
+    },
+    {
+      "name": "OperationReasonBiosConvergence",
+      "value": "BiosConvergence",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/hostoperation_types.go",
+      "description": ""
+    },
+    {
+      "name": "OperationReasonFirmwareConvergence",
+      "value": "FirmwareConvergence",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/hostoperation_types.go",
+      "description": ""
+    },
+    {
+      "name": "OperationReasonWipe",
+      "value": "Wipe",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/lifecycle_types.go",
+      "description": "OperationReasonWipe is the spec reason of a wipe operation."
+    }
+  ]
+}

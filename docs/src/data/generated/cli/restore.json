@@ -1,0 +1,117 @@
+{
+  "name": "restore",
+  "summary": "say what is wrong with a cluster's etcd and propose the operations that restore it; upload an approved snapshot",
+  "synopsis": "plan <cluster> [--snapshot name] [--propose] | upload <operation> --identity <file>",
+  "usage": [
+    "pk-metal restore plan <cluster> [--snapshot name] [--propose] | upload <operation> --identity <file>"
+  ],
+  "changes": true,
+  "needsCluster": true,
+  "description": "restore looks at a cluster's etcd on every control plane and says what is\nwrong and what would fix it. It changes nothing on a machine itself: with\n--propose it creates the operations of the plan, and each waits for another\nperson's approval like any other.\n\nsubcommands:\n  plan <cluster> [--snapshot name] [--node name] [--propose]\n      One member lost (its etcd does not run or reports errors while the\n      others keep their majority): remove that member, wipe the node's etcd\n      data (EPHEMERAL) and let it join again.\n      Majority or everything lost (no control plane lists etcd members):\n      wipe the etcd data of the members that still run a stuck etcd, then\n      restore one control plane from a snapshot (etcdRecover); the others\n      join it. The newest verified snapshot is used unless --snapshot names\n      one.\n  upload <operation> --identity <file> [--from-file <file.age>]\n      For an approved etcdRecover operation: decrypt the snapshot on this\n      machine with your age identity, check it against the snapshot record,\n      and stream it to the node over the Talos API with your talosconfig.\n      The operator then starts etcd from it.\n\nThe talosconfig is read from the cluster's published Secret\n(<cluster>-talosconfig in pk-metal) unless --talosconfig names a file.\n\n\nhttps://dennisklein.github.io/platform-kit/operate/day-2/restore-etcd/ walks through each case.",
+  "examples": [
+    "pk-metal restore plan lab",
+    "pk-metal restore plan lab --snapshot lab-daily-20261124-060000 --propose",
+    "pk-metal approve pk-metal/lab-etcd-recover-node-1          (another person)",
+    "pk-metal restore upload pk-metal/lab-etcd-recover-node-1 --identity ~/.config/age/keys.txt"
+  ],
+  "exitStatus": [],
+  "flags": [],
+  "subcommands": [
+    {
+      "name": "plan",
+      "synopsis": "plan <cluster> [--snapshot name] [--propose]",
+      "flags": [
+        {
+          "name": "context",
+          "type": "string",
+          "default": "",
+          "usage": "kubeconfig context to use (default: the current context)",
+          "global": true
+        },
+        {
+          "name": "kubeconfig",
+          "type": "string",
+          "default": "",
+          "usage": "kubeconfig file (default: $KUBECONFIG, then ~/.kube/config, then the in-cluster account)",
+          "global": true
+        },
+        {
+          "name": "node",
+          "type": "string",
+          "default": "",
+          "usage": "control plane to restore on (default: the first by name that answers)",
+          "global": false
+        },
+        {
+          "name": "propose",
+          "type": "bool",
+          "default": "",
+          "usage": "create the plan's operations (each waits for approval)",
+          "global": false
+        },
+        {
+          "name": "snapshot",
+          "type": "string",
+          "default": "",
+          "usage": "EtcdSnapshot to restore (default: the cluster's newest verified one)",
+          "global": false
+        },
+        {
+          "name": "talosconfig",
+          "type": "string",
+          "default": "",
+          "usage": "talosconfig file (default: the cluster's published Secret)",
+          "global": false
+        }
+      ]
+    },
+    {
+      "name": "upload",
+      "synopsis": "upload <operation> --identity <file>",
+      "flags": [
+        {
+          "name": "context",
+          "type": "string",
+          "default": "",
+          "usage": "kubeconfig context to use (default: the current context)",
+          "global": true
+        },
+        {
+          "name": "from-file",
+          "type": "string",
+          "default": "",
+          "usage": "the encrypted snapshot as a file (needed for a pvc sink)",
+          "global": false
+        },
+        {
+          "name": "identity",
+          "type": "string",
+          "default": "",
+          "usage": "age identity file (required)",
+          "global": false
+        },
+        {
+          "name": "kubeconfig",
+          "type": "string",
+          "default": "",
+          "usage": "kubeconfig file (default: $KUBECONFIG, then ~/.kube/config, then the in-cluster account)",
+          "global": true
+        },
+        {
+          "name": "n",
+          "type": "string",
+          "default": "pk-metal",
+          "usage": "namespace of the operation",
+          "global": false
+        },
+        {
+          "name": "talosconfig",
+          "type": "string",
+          "default": "",
+          "usage": "talosconfig file (default: the cluster's published Secret)",
+          "global": false
+        }
+      ]
+    }
+  ]
+}

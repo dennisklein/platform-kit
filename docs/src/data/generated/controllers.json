@@ -1,0 +1,77 @@
+{
+  "source": "metal/internal/controller",
+  "controllers": [
+    {
+      "name": "asset",
+      "source": "metal/internal/controller/asset_controller.go"
+    },
+    {
+      "name": "bootasset",
+      "source": "metal/internal/controller/bootasset_controller.go"
+    },
+    {
+      "name": "convergence",
+      "source": "metal/internal/controller/convergence_controller.go"
+    },
+    {
+      "name": "endpointconvergence",
+      "source": "metal/internal/controller/endpointprofile_controller.go"
+    },
+    {
+      "name": "etcdbackuppolicy",
+      "source": "metal/internal/controller/etcdbackup_controller.go"
+    },
+    {
+      "name": "etcdsnapshot",
+      "source": "metal/internal/controller/etcdbackup_controller.go"
+    },
+    {
+      "name": "host",
+      "source": "metal/internal/controller/host_controller.go"
+    },
+    {
+      "name": "host-wipe",
+      "source": "metal/internal/controller/host_wipe.go"
+    },
+    {
+      "name": "hostclaim",
+      "source": "metal/internal/controller/hostclaim_controller.go"
+    },
+    {
+      "name": "hostoperation",
+      "source": "metal/internal/controller/hostoperation_controller.go"
+    },
+    {
+      "name": "maintenancewindow",
+      "source": "metal/internal/controller/window.go"
+    },
+    {
+      "name": "managementendpoint",
+      "source": "metal/internal/controller/managementendpoint_controller.go"
+    },
+    {
+      "name": "protection",
+      "source": "metal/internal/controller/protection_controller.go"
+    },
+    {
+      "name": "rolloutproposer",
+      "source": "metal/internal/controller/talosrollout_proposer.go"
+    },
+    {
+      "name": "taloscluster",
+      "source": "metal/internal/controller/taloscluster_controller.go"
+    },
+    {
+      "name": "talosnode",
+      "source": "metal/internal/controller/talosnode_controller.go"
+    },
+    {
+      "name": "talosnode-member",
+      "source": "metal/internal/controller/talosnode_finalizer.go"
+    },
+    {
+      "name": "talosrollout",
+      "source": "metal/internal/controller/talosrollout_controller.go"
+    }
+  ]
+}

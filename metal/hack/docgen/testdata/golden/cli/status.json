@@ -1,0 +1,63 @@
+{
+  "name": "status",
+  "summary": "show machines (reads only)",
+  "synopsis": "[-o table|json]",
+  "usage": [
+    "pk-metal status [-o table|json]"
+  ],
+  "changes": false,
+  "needsCluster": true,
+  "description": "Tables:\n  HOST       one row per machine",
+  "examples": [
+    "pk-metal status",
+    "pk-metal status -o json"
+  ],
+  "exitStatus": [
+    {
+      "code": 0,
+      "meaning": "nothing needs a person"
+    },
+    {
+      "code": 2,
+      "meaning": "something is blocked or failed, including operations that wait for approval"
+    }
+  ],
+  "flags": [
+    {
+      "name": "context",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig context to use (default: the current context)",
+      "global": true
+    },
+    {
+      "name": "kubeconfig",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig file",
+      "global": true
+    },
+    {
+      "name": "o",
+      "type": "string",
+      "default": "table",
+      "usage": "output format: table or json",
+      "global": false
+    },
+    {
+      "name": "secrets",
+      "type": "talosctl gen secrets",
+      "default": "",
+      "usage": "secrets bundle from talosctl gen secrets, or - for stdin",
+      "global": false
+    },
+    {
+      "name": "wait",
+      "type": "bool",
+      "default": "true",
+      "usage": "wait until done",
+      "global": false
+    }
+  ],
+  "subcommands": []
+}

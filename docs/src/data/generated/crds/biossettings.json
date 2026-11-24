@@ -1,0 +1,201 @@
+{
+  "kind": "BiosSettings",
+  "listKind": "BiosSettingsList",
+  "group": "metal.pk.io",
+  "version": "v1alpha1",
+  "plural": "biossettings",
+  "singular": "biossettings",
+  "shortNames": [],
+  "categories": [
+    "metal"
+  ],
+  "scope": "Cluster",
+  "source": "metal/config/crd/metal.pk.io_biossettings.yaml",
+  "description": "BiosSettings is one machine's BIOS state: what is wanted, what is actually set, and where each wanted value came from. It is the rendered result of the BiosProfiles that match the Host — read it to see what will change and why, before anything is applied.\n\nCluster-scoped like its Host, named after it, and owned by it: deleting the machine takes its settings with it.",
+  "statusSubresource": true,
+  "printerColumns": [
+    {
+      "name": "Converged",
+      "type": "string",
+      "jsonPath": ".status.conditions[?(@.type==\"Converged\")].status",
+      "priority": 0
+    },
+    {
+      "name": "Reason",
+      "type": "string",
+      "jsonPath": ".status.conditions[?(@.type==\"Converged\")].reason",
+      "priority": 0
+    },
+    {
+      "name": "Age",
+      "type": "date",
+      "jsonPath": ".metadata.creationTimestamp",
+      "priority": 0
+    }
+  ],
+  "validations": [],
+  "fields": [
+    {
+      "path": "spec",
+      "name": "spec",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": false,
+      "description": "BiosSettingsSpec is the rendered desired BIOS state for ONE host — the merge of every matched BiosProfile, written by the convergence reconciler (its sole author). Named after its Host and owned by it."
+    },
+    {
+      "path": "spec.attributes",
+      "name": "attributes",
+      "parent": "spec",
+      "depth": 1,
+      "type": "map[string]any",
+      "required": false,
+      "description": "Attributes is the merged desired attribute map. Under a profile conflict the previous merge is retained unchanged (alert-and-hold — a conflicted desired state is never partially applied); which profile won each key is status.provenance."
+    },
+    {
+      "path": "status",
+      "name": "status",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": false,
+      "description": "BiosSettingsStatus carries the observation side: the managed keys as the machine last served them, and the plan memory."
+    },
+    {
+      "path": "status.conditions",
+      "name": "conditions",
+      "parent": "status",
+      "depth": 1,
+      "type": "[]object",
+      "required": false,
+      "listType": "map",
+      "listMapKeys": [
+        "type"
+      ],
+      "description": "Conditions are the truth — the only thing reconcilers branch on."
+    },
+    {
+      "path": "status.conditions[].lastTransitionTime",
+      "name": "lastTransitionTime",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "format": "date-time",
+      "required": true,
+      "description": "lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable."
+    },
+    {
+      "path": "status.conditions[].message",
+      "name": "message",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "maxLength": 32768,
+      "description": "message is a human readable message indicating details about the transition. This may be an empty string."
+    },
+    {
+      "path": "status.conditions[].observedGeneration",
+      "name": "observedGeneration",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "integer",
+      "format": "int64",
+      "required": false,
+      "minimum": 0,
+      "description": "observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance."
+    },
+    {
+      "path": "status.conditions[].reason",
+      "name": "reason",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "pattern": "^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty."
+    },
+    {
+      "path": "status.conditions[].status",
+      "name": "status",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "enum": [
+        "True",
+        "False",
+        "Unknown"
+      ],
+      "description": "status of the condition, one of True, False, Unknown."
+    },
+    {
+      "path": "status.conditions[].type",
+      "name": "type",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$",
+      "maxLength": 316,
+      "description": "type of condition in CamelCase or in foo.example.com/CamelCase."
+    },
+    {
+      "path": "status.observed",
+      "name": "observed",
+      "parent": "status",
+      "depth": 1,
+      "type": "map[string]any",
+      "required": false,
+      "description": "Observed caches the managed attributes as last read from the machine — status-as-cache: an unreachable pass keeps the last view."
+    },
+    {
+      "path": "status.pending",
+      "name": "pending",
+      "parent": "status",
+      "depth": 1,
+      "type": "map[string]any",
+      "required": false,
+      "description": "Pending caches the managed attributes staged in the @Redfish.Settings object — applied at the next system reset."
+    },
+    {
+      "path": "status.proposed",
+      "name": "proposed",
+      "parent": "status",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "Proposed is the plan memory for the BIOS domain."
+    },
+    {
+      "path": "status.proposed.operation",
+      "name": "operation",
+      "parent": "status.proposed",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": "Operation is the proposed HostOperation as namespace/name."
+    },
+    {
+      "path": "status.proposed.planHash",
+      "name": "planHash",
+      "parent": "status.proposed",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": "PlanHash is the sha256 of the desired state the operation serves."
+    },
+    {
+      "path": "status.provenance",
+      "name": "provenance",
+      "parent": "status",
+      "depth": 1,
+      "type": "map[string]string",
+      "required": false,
+      "description": "Provenance names the profile that won each attribute — the rendered merge's derivation, so the object answers \"what does this host get and why\" without re-running the layering in your head."
+    }
+  ]
+}

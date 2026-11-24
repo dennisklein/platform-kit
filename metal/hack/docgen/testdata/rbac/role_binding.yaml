@@ -1,0 +1,13 @@
+# Binds the generated role to the manager.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pk-metal-manager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: pk-metal-manager
+subjects:
+  - kind: ServiceAccount
+    name: pk-metal-manager
+    namespace: pk-metal

@@ -1,0 +1,44 @@
+{
+  "name": "reinstall",
+  "summary": "ask for the node a claim runs to be wiped and installed again on the same machine (the operator proposes it)",
+  "synopsis": "[-n namespace] [--ack-etcd-risk reason] <claim> | <node>",
+  "usage": [
+    "pk-metal reinstall [-n namespace] [--ack-etcd-risk reason] <claim> | <node>"
+  ],
+  "changes": true,
+  "needsCluster": true,
+  "description": "reinstall wipes and installs the same node on the same machine again: for a\ncorrupted install, or after a disk was replaced (edit the TalosNode's\ninstallDiskSelector first). The operation drains the node, takes a control\nplane out of etcd, resets the system disk, boots the installer and waits for\nthe node to check in again. Approve it with pk-metal approve.\n\nA control plane of a three-member cluster is down to two members while it\nreinstalls, an even count the operator refuses without --ack-etcd-risk.",
+  "examples": [],
+  "exitStatus": [],
+  "flags": [
+    {
+      "name": "ack-etcd-risk",
+      "type": "string",
+      "default": "",
+      "usage": "reason to accept an even or short etcd membership while a control plane reinstalls",
+      "global": false
+    },
+    {
+      "name": "context",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig context to use (default: the current context)",
+      "global": true
+    },
+    {
+      "name": "kubeconfig",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig file (default: $KUBECONFIG, then ~/.kube/config, then the in-cluster account)",
+      "global": true
+    },
+    {
+      "name": "n",
+      "type": "string",
+      "default": "default",
+      "usage": "namespace of the claim",
+      "global": false
+    }
+  ],
+  "subcommands": []
+}

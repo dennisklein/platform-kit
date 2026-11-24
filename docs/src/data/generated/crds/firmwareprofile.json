@@ -1,0 +1,195 @@
+{
+  "kind": "FirmwareProfile",
+  "listKind": "FirmwareProfileList",
+  "group": "metal.pk.io",
+  "version": "v1alpha1",
+  "plural": "firmwareprofiles",
+  "singular": "firmwareprofile",
+  "shortNames": [],
+  "categories": [
+    "metal"
+  ],
+  "scope": "Cluster",
+  "source": "metal/config/crd/metal.pk.io_firmwareprofiles.yaml",
+  "description": "FirmwareProfile is the firmware some group of machines should be running — authored in git, applying to whichever Hosts match its selector. Like BiosProfile it states intent and is never reconciled directly: a machine that drifts from it gets a HostOperation proposed against it, and flashing firmware is disruptive enough that the operation waits for approval.",
+  "statusSubresource": false,
+  "printerColumns": [
+    {
+      "name": "Layer",
+      "type": "integer",
+      "jsonPath": ".spec.layer",
+      "priority": 0
+    },
+    {
+      "name": "Version",
+      "type": "string",
+      "jsonPath": ".spec.manager.version",
+      "priority": 0
+    },
+    {
+      "name": "Age",
+      "type": "date",
+      "jsonPath": ".metadata.creationTimestamp",
+      "priority": 0
+    }
+  ],
+  "validations": [],
+  "fields": [
+    {
+      "path": "spec",
+      "name": "spec",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": true,
+      "description": "FirmwareProfileSpec is one layer of desired firmware for the Hosts it matches. Like BiosProfile it is controller-less data; the convergence reconciler compares the desired version against what the fronting endpoints serve and proposes a flash operation on drift. Firmware converges before BIOS — the BIOS schema depends on firmware.",
+      "validations": [
+        {
+          "rule": "has(self.manager) || (has(self.system) && size(self.system) > 0)",
+          "message": "give manager, system, or both"
+        }
+      ]
+    },
+    {
+      "path": "spec.layer",
+      "name": "layer",
+      "parent": "spec",
+      "depth": 1,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "default": 0,
+      "description": "Layer orders overlapping profiles exactly as on BiosProfile: (layer, name) merge order, later overrides, same-layer disagreement is a conflict."
+    },
+    {
+      "path": "spec.manager",
+      "name": "manager",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "Manager is the desired management-controller firmware. It is flashed over the multipart push the endpoint advertises; endpoints that advertise only SimpleUpdate hold at NoUpdateTransport rather than flashing over an unproven path. Flashing the manager does not stop the machine it manages."
+    },
+    {
+      "path": "spec.manager.image",
+      "name": "image",
+      "parent": "spec.manager",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "pattern": "@sha256:[a-f0-9]{64}$",
+      "description": "Image is a digest-pinned OCI reference to the firmware image (a single- layer artifact in the internal registry, e.g. registry.pk.internal:5000/firmware/x12-bmc@sha256:…). The digest is required: the executor refuses to flash bytes it cannot verify."
+    },
+    {
+      "path": "spec.manager.version",
+      "name": "version",
+      "parent": "spec.manager",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "minLength": 1,
+      "description": "Version is the desired firmware version, compared verbatim against the version the endpoint serves — the convergence observable."
+    },
+    {
+      "path": "spec.match",
+      "name": "match",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": true,
+      "mapType": "atomic",
+      "description": "Match selects Hosts by label (same two axes as BiosProfile.spec.match)."
+    },
+    {
+      "path": "spec.match.matchExpressions",
+      "name": "matchExpressions",
+      "parent": "spec.match",
+      "depth": 2,
+      "type": "[]object",
+      "required": false,
+      "listType": "atomic",
+      "description": "matchExpressions is a list of label selector requirements. The requirements are ANDed."
+    },
+    {
+      "path": "spec.match.matchExpressions[].key",
+      "name": "key",
+      "parent": "spec.match.matchExpressions",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "description": "key is the label key that the selector applies to."
+    },
+    {
+      "path": "spec.match.matchExpressions[].operator",
+      "name": "operator",
+      "parent": "spec.match.matchExpressions",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "description": "operator represents a key's relationship to a set of values. Valid operators are In, NotIn, Exists and DoesNotExist."
+    },
+    {
+      "path": "spec.match.matchExpressions[].values",
+      "name": "values",
+      "parent": "spec.match.matchExpressions",
+      "depth": 3,
+      "type": "[]string",
+      "required": false,
+      "listType": "atomic",
+      "description": "values is an array of string values. If the operator is In or NotIn, the values array must be non-empty. If the operator is Exists or DoesNotExist, the values array must be empty. This array is replaced during a strategic merge patch."
+    },
+    {
+      "path": "spec.match.matchLabels",
+      "name": "matchLabels",
+      "parent": "spec.match",
+      "depth": 2,
+      "type": "map[string]string",
+      "required": false,
+      "description": "matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels map is equivalent to an element of matchExpressions, whose key field is \"key\", the operator is \"In\", and the values array contains only \"value\". The requirements are ANDed."
+    },
+    {
+      "path": "spec.system",
+      "name": "system",
+      "parent": "spec",
+      "depth": 1,
+      "type": "[]object",
+      "required": false,
+      "maxItems": 16,
+      "listType": "map",
+      "listMapKeys": [
+        "component"
+      ],
+      "description": "System is the desired system firmware: BIOS/UEFI, network cards, RAID controllers, whatever the machine's UpdateService lists in its FirmwareInventory. Each image is staged to apply at the next reset of the machine, so on a machine that runs a node the change is proposed with a drain before and a wait for the node after. System firmware converges after the manager's and before BIOS settings (a BIOS update can change the settings it offers)."
+    },
+    {
+      "path": "spec.system[].component",
+      "name": "component",
+      "parent": "spec.system",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "minLength": 1,
+      "description": "Component matches FirmwareInventory member ids, as a regular expression over the whole id: BIOS, NIC\\.Slot\\.[0-9]+, RAID.*. Ids are vendor shaped; kubectl describe managementendpoint lists the ones a machine serves. Every matching entry is brought to the version; a pattern that matches nothing holds the profile at NoMatchingComponent."
+    },
+    {
+      "path": "spec.system[].image",
+      "name": "image",
+      "parent": "spec.system",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "pattern": "@sha256:[a-f0-9]{64}$",
+      "description": "Image is the digest-pinned OCI reference of the vendor's update package for this component."
+    },
+    {
+      "path": "spec.system[].version",
+      "name": "version",
+      "parent": "spec.system",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "minLength": 1,
+      "description": "Version is the desired version, compared verbatim against the version the inventory entry reports."
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+pk-metal rollout: see the rollouts, approve one, or abort it
+
+usage: pk-metal rollout list | approve [--yes] <rollout> | abort [--yes] <rollout>
+
+A rollout changes the nodes of one Talos cluster one at a time.
+
+  list                    every rollout
+
+flags:

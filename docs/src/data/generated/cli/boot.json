@@ -1,0 +1,114 @@
+{
+  "name": "boot",
+  "summary": "mount a machine config ISO through a BMC and REBOOT the machine into it, without the operator",
+  "synopsis": "--config <rendered.yaml> --node <name> (--listen addr | --relay addr) [flags] <bmc-url>",
+  "usage": [
+    "pk-metal boot --config <rendered.yaml> --node <name> (--listen addr | --relay addr) [flags] <bmc-url>"
+  ],
+  "changes": true,
+  "needsCluster": false,
+  "description": "boot works without the operator, for the first machines of a site (day 0).\nIt packs a rendered machine config (from pk-metal render) into an ISO, serves\nit over HTTPS under a one-time user and password, mounts it as virtual media\nthrough the BMC, sets the next boot to that medium, and powers the machine on.\n\nIf the machine is already on, boot REBOOTS it with a hard reset: whatever runs\nthere is killed without a clean shutdown. boot prints its steps first and then\nrefuses unless you give --yes. With --no-power it only mounts the medium and\nsets the next boot; you restart the machine yourself (for example from the\nBMC web console) and boot waits until the image has been read.\n\nThe BMC must reach the address boot serves on: give --listen with an address\non the BMC network, or --relay to serve through pk-metal relay on a host that\nthe BMCs can reach. With --relay, boot needs the relay's secret, from\n$PK_METAL_RELAY_SECRET or --relay-secret-file. The BMC password comes from\n$PK_METAL_BMC_PASSWORD only.\n\nexample:\n  PK_METAL_BMC_PASSWORD=... pk-metal boot --config clusterconfig/node-1.yaml \\\n      --node node-1 --listen 10.0.0.2:8443 https://10.0.0.11",
+  "examples": [],
+  "exitStatus": [],
+  "flags": [
+    {
+      "name": "config",
+      "type": "string",
+      "default": "",
+      "usage": "rendered machine config file (required)",
+      "global": false
+    },
+    {
+      "name": "force-restart",
+      "type": "bool",
+      "default": "",
+      "usage": "same as --yes",
+      "global": false
+    },
+    {
+      "name": "hold",
+      "type": "bool",
+      "default": "",
+      "usage": "keep serving and keep the medium mounted until interrupted (Ctrl-C)",
+      "global": false
+    },
+    {
+      "name": "insecure",
+      "type": "bool",
+      "default": "",
+      "usage": "skip TLS verification",
+      "global": false
+    },
+    {
+      "name": "listen",
+      "type": "string",
+      "default": "",
+      "usage": "address to serve the image on; the BMC must reach it (not with --relay)",
+      "global": false
+    },
+    {
+      "name": "media",
+      "type": "string",
+      "default": "",
+      "usage": "virtual media slot id (default: the first one that can mount an image, CD first)",
+      "global": false
+    },
+    {
+      "name": "no-power",
+      "type": "bool",
+      "default": "",
+      "usage": "mount the medium and set the next boot only; you restart the machine",
+      "global": false
+    },
+    {
+      "name": "node",
+      "type": "string",
+      "default": "",
+      "usage": "node name; names the served .iso (required)",
+      "global": false
+    },
+    {
+      "name": "relay",
+      "type": "string",
+      "default": "",
+      "usage": "address of a pk-metal relay to serve the image through (not with --listen)",
+      "global": false
+    },
+    {
+      "name": "relay-secret-file",
+      "type": "string",
+      "default": "",
+      "usage": "file with the relay's shared secret (or set $PK_METAL_RELAY_SECRET)",
+      "global": false
+    },
+    {
+      "name": "system",
+      "type": "string",
+      "default": "",
+      "usage": "system id (default: the BMC's only system)",
+      "global": false
+    },
+    {
+      "name": "ttl",
+      "type": "duration",
+      "default": "10m0s",
+      "usage": "how long the image is served, and so how long boot waits for the machine to read it",
+      "global": false
+    },
+    {
+      "name": "user",
+      "type": "string",
+      "default": "admin",
+      "usage": "BMC username (password via PK_METAL_BMC_PASSWORD)",
+      "global": false
+    },
+    {
+      "name": "yes",
+      "type": "bool",
+      "default": "",
+      "usage": "allow a hard reset of a machine that is on",
+      "global": false
+    }
+  ],
+  "subcommands": []
+}

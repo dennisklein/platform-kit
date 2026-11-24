@@ -1,0 +1,317 @@
+{
+  "kind": "BootAsset",
+  "listKind": "BootAssetList",
+  "group": "os.pk.io",
+  "version": "v1alpha1",
+  "plural": "bootassets",
+  "singular": "bootasset",
+  "shortNames": [],
+  "categories": [
+    "metal",
+    "os"
+  ],
+  "scope": "Cluster",
+  "source": "metal/config/crd/os.pk.io_bootassets.yaml",
+  "description": "BootAsset is a built boot artifact and how to fetch it: the controller produces the artifact and reports readiness, digest, and — for grant-free strategies — a URL.\n\nOne-slot BMCs: a BMC with one virtual media slot cannot mount the installer and a config ISO side by side. For a blank machine behind one, the operator creates an embeddedInstaller BootAsset named `<node>-embedded`: an installer built for that node with its machine config inside, mounted in the one slot. The config is not sent to a machine in maintenance mode, which would take it from anybody who reaches it; the installer reaches the BMC only through the grant-protected media service, like a config ISO.\n\nSecrets at rest: the embedded installer holds the node's machine config in plain text, keys and tokens included. It rests on the media store volume (the manager's --media-store), readable by the operator's user only, and is deleted with its BootAsset or when a newer build replaces it. It is not encrypted: use an encrypted StorageClass for the media store where Secrets are encrypted at rest.",
+  "statusSubresource": true,
+  "printerColumns": [
+    {
+      "name": "Strategy",
+      "type": "string",
+      "jsonPath": ".spec.strategy",
+      "priority": 0
+    },
+    {
+      "name": "Node",
+      "type": "string",
+      "jsonPath": ".spec.nodeRef.name",
+      "priority": 0
+    },
+    {
+      "name": "Size",
+      "type": "integer",
+      "jsonPath": ".status.size",
+      "priority": 0
+    }
+  ],
+  "validations": [
+    {
+      "rule": "self.spec.strategy != 'configISO' || (has(self.spec.nodeRef) && !has(self.spec.talosVersion) && !has(self.spec.schematic))",
+      "message": "configISO takes nodeRef and nothing else"
+    },
+    {
+      "rule": "self.spec.strategy != 'factory' || (!has(self.spec.nodeRef) && has(self.spec.talosVersion))",
+      "message": "factory takes talosVersion (and optionally schematic), never nodeRef"
+    },
+    {
+      "rule": "self.spec.strategy != 'embeddedInstaller' || (has(self.spec.nodeRef) && has(self.spec.talosVersion))",
+      "message": "embeddedInstaller takes nodeRef and talosVersion (and optionally schematic)"
+    }
+  ],
+  "fields": [
+    {
+      "path": "spec",
+      "name": "spec",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": true,
+      "description": "BootAssetSpec declares one boot artifact. The strategy decides which of the remaining fields apply; the CEL rules on the kind enforce the pairing."
+    },
+    {
+      "path": "spec.nodeRef",
+      "name": "nodeRef",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "NodeRef names the TalosNode whose rendered config the artifact carries. configISO and embeddedInstaller."
+    },
+    {
+      "path": "spec.nodeRef.name",
+      "name": "name",
+      "parent": "spec.nodeRef",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.schematic",
+      "name": "schematic",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "Schematic customizes the install image (system extensions, kernel arguments). factory and embeddedInstaller; omitted means the vanilla image."
+    },
+    {
+      "path": "spec.schematic.customization",
+      "name": "customization",
+      "parent": "spec.schematic",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "SchematicCustomization holds the image customization knobs."
+    },
+    {
+      "path": "spec.schematic.customization.extraKernelArgs",
+      "name": "extraKernelArgs",
+      "parent": "spec.schematic.customization",
+      "depth": 3,
+      "type": "[]string",
+      "required": false,
+      "description": "ExtraKernelArgs append to the image's kernel command line, for example where to put the console (console=ttyS0, what the BMC's serial-over-LAN shows). Do not add talos.config=metal-iso: the operator adds it to the boot medium itself, and the installed system must not carry it."
+    },
+    {
+      "path": "spec.schematic.customization.systemExtensions",
+      "name": "systemExtensions",
+      "parent": "spec.schematic.customization",
+      "depth": 3,
+      "type": "object",
+      "required": false,
+      "description": "SystemExtensions bakes extensions into the image."
+    },
+    {
+      "path": "spec.schematic.customization.systemExtensions.officialExtensions",
+      "name": "officialExtensions",
+      "parent": "spec.schematic.customization.systemExtensions",
+      "depth": 4,
+      "type": "[]string",
+      "required": false,
+      "description": "OfficialExtensions are siderolabs/* extension names (siderolabs/drbd)."
+    },
+    {
+      "path": "spec.strategy",
+      "name": "strategy",
+      "parent": "spec",
+      "depth": 1,
+      "type": "string",
+      "required": true,
+      "enum": [
+        "configISO",
+        "factory",
+        "embeddedInstaller"
+      ],
+      "description": "Strategy selects how the artifact is produced."
+    },
+    {
+      "path": "spec.talosVersion",
+      "name": "talosVersion",
+      "parent": "spec",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "TalosVersion pins the release of the install image. factory and embeddedInstaller."
+    },
+    {
+      "path": "status",
+      "name": "status",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": false,
+      "description": "BootAssetStatus reports the built artifact. Secret-bearing artifacts never get a stable URL — their fetch URLs are minted per mount as grants and revoked on node check-in, eject, or expiry."
+    },
+    {
+      "path": "status.artifactSecretRef",
+      "name": "artifactSecretRef",
+      "parent": "status",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "ArtifactSecretRef is where the built artifact rests (key asset.iso), owned by this BootAsset and GC'd with it. configISO only."
+    },
+    {
+      "path": "status.artifactSecretRef.name",
+      "name": "name",
+      "parent": "status.artifactSecretRef",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "status.artifactSecretRef.namespace",
+      "name": "namespace",
+      "parent": "status.artifactSecretRef",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "status.buildJob",
+      "name": "buildJob",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": "BuildJob is the imager Job of the latest build, in the operator's namespace. A failed Job is kept so its log can be read. embeddedInstaller only."
+    },
+    {
+      "path": "status.buildKey",
+      "name": "buildKey",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": "BuildKey names the inputs of the stored artifact: config, Talos version, schematic and imager image. A change of any input is a new key and a new build. embeddedInstaller only."
+    },
+    {
+      "path": "status.conditions",
+      "name": "conditions",
+      "parent": "status",
+      "depth": 1,
+      "type": "[]object",
+      "required": false,
+      "description": "Conditions: Ready."
+    },
+    {
+      "path": "status.conditions[].lastTransitionTime",
+      "name": "lastTransitionTime",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "format": "date-time",
+      "required": true,
+      "description": "lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable."
+    },
+    {
+      "path": "status.conditions[].message",
+      "name": "message",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "maxLength": 32768,
+      "description": "message is a human readable message indicating details about the transition. This may be an empty string."
+    },
+    {
+      "path": "status.conditions[].observedGeneration",
+      "name": "observedGeneration",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "integer",
+      "format": "int64",
+      "required": false,
+      "minimum": 0,
+      "description": "observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance."
+    },
+    {
+      "path": "status.conditions[].reason",
+      "name": "reason",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "pattern": "^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty."
+    },
+    {
+      "path": "status.conditions[].status",
+      "name": "status",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "enum": [
+        "True",
+        "False",
+        "Unknown"
+      ],
+      "description": "status of the condition, one of True, False, Unknown."
+    },
+    {
+      "path": "status.conditions[].type",
+      "name": "type",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$",
+      "maxLength": 316,
+      "description": "type of condition in CamelCase or in foo.example.com/CamelCase."
+    },
+    {
+      "path": "status.configDigest",
+      "name": "configDigest",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": "ConfigDigest is the rendered config (the TalosNode's status.configDigest) the stored artifact carries. embeddedInstaller only."
+    },
+    {
+      "path": "status.digest",
+      "name": "digest",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": "Digest is sha256:<hex> of the artifact bytes. configISO and embeddedInstaller."
+    },
+    {
+      "path": "status.size",
+      "name": "size",
+      "parent": "status",
+      "depth": 1,
+      "type": "integer",
+      "format": "int64",
+      "required": false,
+      "description": "Size is the artifact size in bytes. configISO and embeddedInstaller."
+    },
+    {
+      "path": "status.url",
+      "name": "url",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": "URL is where the artifact is fetched without a grant. factory only."
+    }
+  ]
+}

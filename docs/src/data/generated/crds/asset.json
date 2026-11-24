@@ -1,0 +1,223 @@
+{
+  "kind": "Asset",
+  "listKind": "AssetList",
+  "group": "metal.pk.io",
+  "version": "v1alpha1",
+  "plural": "assets",
+  "singular": "asset",
+  "shortNames": [],
+  "categories": [
+    "metal"
+  ],
+  "scope": "Cluster",
+  "source": "metal/config/crd/metal.pk.io_assets.yaml",
+  "description": "Asset is one physical machine as your records know it: its serial number and the MAC address of its BMC. You create one per machine, by hand or from your CMDB or inventory export. It is the entry point: the operator does nothing with a machine until an Asset names it.\n\nFrom the bmcMac the operator finds the BMC's address in the ledger and creates a ManagementEndpoint; through that BMC it finds the machine and creates a Host. It checks that the serial and MAC it finds are the ones written here, so a cabling or ledger mistake stops work instead of touching the wrong machine.\n\nIts status says one thing only: whether the operator could turn it into a ManagementEndpoint (condition Materialized), and if not, why — most often a bmcMac that is not in the ledger. Everything the cluster learns by looking at the machine lands on the ManagementEndpoint and Host. Those kinds keep a copy of the Asset spec they last resolved, so an outage of whatever authors Assets degrades to the last known values instead of stopping work.",
+  "statusSubresource": true,
+  "printerColumns": [
+    {
+      "name": "CID",
+      "type": "string",
+      "jsonPath": ".spec.cid",
+      "priority": 0
+    },
+    {
+      "name": "Serial",
+      "type": "string",
+      "jsonPath": ".spec.serial",
+      "priority": 0
+    },
+    {
+      "name": "BMC MAC",
+      "type": "string",
+      "jsonPath": ".spec.bmcMac",
+      "priority": 0
+    },
+    {
+      "name": "Endpoint",
+      "type": "string",
+      "jsonPath": ".status.conditions[?(@.type==\"Materialized\")].reason",
+      "priority": 0
+    },
+    {
+      "name": "VLAN",
+      "type": "integer",
+      "jsonPath": ".spec.vlan",
+      "priority": 1
+    },
+    {
+      "name": "Age",
+      "type": "date",
+      "jsonPath": ".metadata.creationTimestamp",
+      "priority": 0
+    }
+  ],
+  "validations": [],
+  "fields": [
+    {
+      "path": "spec",
+      "name": "spec",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": true,
+      "description": "AssetSpec is what your records say about the machine — never what the operator found by looking. Keeping the two apart is what lets the operator catch a mistake: it compares what you wrote here with what the BMC reports."
+    },
+    {
+      "path": "spec.bmcMac",
+      "name": "bmcMac",
+      "parent": "spec",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "maxLength": 17,
+      "description": "BMCMac is the MAC address of the BMC's own network port, as printed on the label or shown by `ipmitool lan print`. Either case, with ':' or '-' between the bytes. The operator looks it up in the ledger to find the BMC's address, and checks that the BMC at that address reports it.",
+      "validations": [
+        {
+          "rule": "self.matches('^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$') || self.matches('^[0-9A-Fa-f]{2}(-[0-9A-Fa-f]{2}){5}$')",
+          "message": "bmcMac must be a MAC address such as 0c:c4:7a:12:34:56 (upper case and '-' separators are fine)"
+        }
+      ]
+    },
+    {
+      "path": "spec.cid",
+      "name": "cid",
+      "parent": "spec",
+      "depth": 1,
+      "type": "string",
+      "required": true,
+      "minLength": 1,
+      "description": "CID is your asset tag or CMDB id for the machine; any unique string."
+    },
+    {
+      "path": "spec.credentialsRef",
+      "name": "credentialsRef",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": true,
+      "mapType": "atomic",
+      "description": "CredentialsRef names a Secret in the operator's namespace with the BMC's login (keys username and password), usually the factory default. An EndpointProfile can later move the BMC to a managed account; this login then stays as the way back in."
+    },
+    {
+      "path": "spec.credentialsRef.name",
+      "name": "name",
+      "parent": "spec.credentialsRef",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "default": "",
+      "description": "Name of the referent. This field is effectively required, but due to backwards compatibility is allowed to be empty. Instances of this type with an empty value here are almost certainly wrong. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names"
+    },
+    {
+      "path": "spec.serial",
+      "name": "serial",
+      "parent": "spec",
+      "depth": 1,
+      "type": "string",
+      "required": true,
+      "minLength": 1,
+      "description": "Serial is the machine's serial number as your records have it: the chassis or board serial on the label. The operator compares it with the serial the BMC reports, and does nothing to the machine if they differ."
+    },
+    {
+      "path": "spec.vlan",
+      "name": "vlan",
+      "parent": "spec",
+      "depth": 1,
+      "type": "integer",
+      "required": false,
+      "minimum": 1,
+      "maximum": 4094,
+      "description": "VLAN is the management network the BMC is on. It is used only to pick matching EndpointProfiles; the operator does not configure any network."
+    },
+    {
+      "path": "status",
+      "name": "status",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": false,
+      "description": "AssetStatus says whether the Asset became a ManagementEndpoint."
+    },
+    {
+      "path": "status.conditions",
+      "name": "conditions",
+      "parent": "status",
+      "depth": 1,
+      "type": "[]object",
+      "required": false,
+      "listType": "map",
+      "listMapKeys": [
+        "type"
+      ],
+      "description": "Conditions: Materialized. True names the endpoint; False says what is missing (NoBMCMac, NoLedgerEntry, LedgerEntryInvalid, MaterializeConflict) and how to fix it."
+    },
+    {
+      "path": "status.conditions[].lastTransitionTime",
+      "name": "lastTransitionTime",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "format": "date-time",
+      "required": true,
+      "description": "lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable."
+    },
+    {
+      "path": "status.conditions[].message",
+      "name": "message",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "maxLength": 32768,
+      "description": "message is a human readable message indicating details about the transition. This may be an empty string."
+    },
+    {
+      "path": "status.conditions[].observedGeneration",
+      "name": "observedGeneration",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "integer",
+      "format": "int64",
+      "required": false,
+      "minimum": 0,
+      "description": "observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance."
+    },
+    {
+      "path": "status.conditions[].reason",
+      "name": "reason",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "pattern": "^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty."
+    },
+    {
+      "path": "status.conditions[].status",
+      "name": "status",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "enum": [
+        "True",
+        "False",
+        "Unknown"
+      ],
+      "description": "status of the condition, one of True, False, Unknown."
+    },
+    {
+      "path": "status.conditions[].type",
+      "name": "type",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$",
+      "maxLength": 316,
+      "description": "type of condition in CamelCase or in foo.example.com/CamelCase."
+    }
+  ]
+}

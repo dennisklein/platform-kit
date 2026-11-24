@@ -1,0 +1,47 @@
+{
+  "name": "hold",
+  "summary": "stop the operator from proposing new operations for a claim; nothing on the machine changes",
+  "synopsis": "[-n namespace] [--reason text] <claim> | <namespace>/<claim>",
+  "usage": [
+    "pk-metal hold [-n namespace] [--reason text] <claim> | <namespace>/<claim>"
+  ],
+  "changes": true,
+  "needsCluster": true,
+  "description": "A hold tells the operator to propose no new operation for the claim (no\ninstall, no reinstall, no BIOS or firmware change). It changes nothing on the\nmachine, and operations that already exist are not changed: approve or delete\nthose yourself. The reason is stored on the claim, so that others can see why.\n\nClaims usually live in namespace default, so that is the default here.",
+  "examples": [
+    "pk-metal hold --reason \"disk swap, ticket 123\" default/node-1",
+    "pk-metal unhold default/node-1"
+  ],
+  "exitStatus": [],
+  "flags": [
+    {
+      "name": "context",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig context to use (default: the current context)",
+      "global": true
+    },
+    {
+      "name": "kubeconfig",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig file (default: $KUBECONFIG, then ~/.kube/config, then the in-cluster account)",
+      "global": true
+    },
+    {
+      "name": "n",
+      "type": "string",
+      "default": "default",
+      "usage": "namespace of the claim",
+      "global": false
+    },
+    {
+      "name": "reason",
+      "type": "string",
+      "default": "",
+      "usage": "why, for the people who see the hold (stored on the claim)",
+      "global": false
+    }
+  ],
+  "subcommands": []
+}

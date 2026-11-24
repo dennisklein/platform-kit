@@ -1,0 +1,50 @@
+{
+  "kind": "HostOperation",
+  "source": "api/v1alpha1/types.go",
+  "actions": [
+    {
+      "key": "powerOff",
+      "goName": "PowerOff",
+      "type": "PowerOffAction",
+      "path": "spec.actions[].powerOff",
+      "description": "PowerOff turns the system off.",
+      "typeDescription": "PowerOffAction turns the machine off. Already off is success.",
+      "nodeRef": false,
+      "fields": [
+        {
+          "name": "gracefulTimeoutSeconds",
+          "goName": "GracefulTimeoutSeconds",
+          "type": "integer",
+          "goType": "int32",
+          "required": false,
+          "description": "GracefulTimeoutSeconds asks the OS first.",
+          "markers": [
+            "Minimum=0",
+            "Maximum=3600",
+            "optional"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "wait",
+      "goName": "Wait",
+      "type": "WaitAction",
+      "path": "spec.actions[].wait",
+      "description": "Wait waits for the node.",
+      "typeDescription": "WaitAction waits, changing nothing.",
+      "nodeRef": true,
+      "fields": [
+        {
+          "name": "nodeRef",
+          "goName": "NodeRef",
+          "type": "object",
+          "goType": "Reference",
+          "required": true,
+          "description": "NodeRef names the node.",
+          "markers": []
+        }
+      ]
+    }
+  ]
+}

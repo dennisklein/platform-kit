@@ -1,0 +1,121 @@
+{
+  "roles": [
+    {
+      "kind": "ClusterRole",
+      "name": "pk-metal-approver",
+      "namespace": "",
+      "source": "rbac/approver_role.yaml",
+      "generated": false,
+      "description": "The human side of the approval gate. Bind this to the people who may let an operation run.",
+      "rules": [
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hostoperations"
+          ],
+          "verbs": [
+            "get",
+            "patch"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "pk-metal-manager",
+      "namespace": "",
+      "source": "rbac/role.yaml",
+      "generated": true,
+      "description": "",
+      "rules": [
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hostoperations"
+          ],
+          "verbs": [
+            "get",
+            "list"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "Role",
+      "name": "pk-metal-manager",
+      "namespace": "pk-metal",
+      "source": "rbac/role.yaml",
+      "generated": true,
+      "description": "",
+      "rules": [
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "secrets"
+          ],
+          "verbs": [
+            "get"
+          ]
+        }
+      ]
+    }
+  ],
+  "bindings": [
+    {
+      "kind": "ClusterRoleBinding",
+      "name": "pk-metal-manager",
+      "namespace": "",
+      "source": "rbac/role_binding.yaml",
+      "description": "Binds the generated role to the manager.",
+      "roleRef": {
+        "apiGroup": "rbac.authorization.k8s.io",
+        "kind": "ClusterRole",
+        "name": "pk-metal-manager"
+      },
+      "subjects": [
+        {
+          "kind": "ServiceAccount",
+          "name": "pk-metal-manager",
+          "namespace": "pk-metal"
+        }
+      ]
+    }
+  ],
+  "markers": [
+    {
+      "source": "api/v1alpha1/controller.go",
+      "rules": [
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hostoperations"
+          ],
+          "verbs": [
+            "get",
+            "list"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "secrets"
+          ],
+          "verbs": [
+            "get"
+          ],
+          "namespace": "pk-metal"
+        }
+      ]
+    }
+  ]
+}

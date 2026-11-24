@@ -1,0 +1,531 @@
+{
+  "kind": "TalosRollout",
+  "listKind": "TalosRolloutList",
+  "group": "os.pk.io",
+  "version": "v1alpha1",
+  "plural": "talosrollouts",
+  "singular": "talosrollout",
+  "shortNames": [],
+  "categories": [
+    "metal",
+    "os"
+  ],
+  "scope": "Cluster",
+  "source": "metal/config/crd/os.pk.io_talosrollouts.yaml",
+  "description": "TalosRollout is one change rolled through the nodes of a cluster in a safe order — a Talos upgrade, a Kubernetes upgrade, a config change or a reboot — under one approval of a frozen plan, with a mandatory pause after the first node and health gates between nodes.",
+  "statusSubresource": true,
+  "printerColumns": [
+    {
+      "name": "Cluster",
+      "type": "string",
+      "jsonPath": ".spec.clusterRef.name",
+      "priority": 0
+    },
+    {
+      "name": "Kind",
+      "type": "string",
+      "jsonPath": ".spec.kind",
+      "priority": 0
+    },
+    {
+      "name": "Approved",
+      "type": "string",
+      "jsonPath": ".spec.approval.approvedBy",
+      "priority": 0
+    },
+    {
+      "name": "Progress",
+      "type": "string",
+      "jsonPath": ".status.conditions[?(@.type==\"Progressing\")].reason",
+      "priority": 0
+    },
+    {
+      "name": "Complete",
+      "type": "string",
+      "jsonPath": ".status.conditions[?(@.type==\"Complete\")].status",
+      "priority": 0
+    },
+    {
+      "name": "Age",
+      "type": "date",
+      "jsonPath": ".metadata.creationTimestamp",
+      "priority": 0
+    }
+  ],
+  "validations": [],
+  "fields": [
+    {
+      "path": "spec",
+      "name": "spec",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": true,
+      "description": "TalosRolloutSpec says what to change on which nodes of one cluster, and carries the one approval that covers every node of it.\n\nA rollout is proposed by the operator (or created by a person), then planned: the operator writes the ordered node list, each node's actions and the exact target (config digest, installer image digest) into status.plan, and its hash into status.planHash. A person approves that plan by stamping spec.approval with their name and the planHash they saw. From then on the plan is frozen: the operator runs exactly it, or nothing.",
+      "validations": [
+        {
+          "rule": "self.clusterRef == oldSelf.clusterRef && self.kind == oldSelf.kind",
+          "message": "clusterRef and kind are frozen after creation"
+        },
+        {
+          "rule": "(!has(self.target) && !has(oldSelf.target)) || (has(self.target) && has(oldSelf.target) && self.target == oldSelf.target)",
+          "message": "target is frozen after creation"
+        },
+        {
+          "rule": "(!has(self.nodes) && !has(oldSelf.nodes)) || (has(self.nodes) && has(oldSelf.nodes) && self.nodes == oldSelf.nodes)",
+          "message": "nodes are frozen after creation"
+        },
+        {
+          "rule": "!has(oldSelf.proposedBy) || (has(self.proposedBy) && self.proposedBy == oldSelf.proposedBy)",
+          "message": "proposedBy is frozen after creation"
+        },
+        {
+          "rule": "!has(oldSelf.abort) || !oldSelf.abort || (has(self.abort) && self.abort)",
+          "message": "an abort cannot be taken back"
+        },
+        {
+          "rule": "(has(self.maxUnavailableWorkers) ? self.maxUnavailableWorkers : 1) == (has(oldSelf.maxUnavailableWorkers) ? oldSelf.maxUnavailableWorkers : 1)",
+          "message": "maxUnavailableWorkers is frozen after creation"
+        }
+      ]
+    },
+    {
+      "path": "spec.abort",
+      "name": "abort",
+      "parent": "spec",
+      "depth": 1,
+      "type": "boolean",
+      "required": false,
+      "description": "Abort stops the rollout for good: no further node starts, a node in the middle of its change finishes it, and nodes already changed stay as they are. It cannot be taken back; a new rollout is how to go on."
+    },
+    {
+      "path": "spec.approval",
+      "name": "approval",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "Approval is the one human gate of the whole rollout.",
+      "validations": [
+        {
+          "rule": "has(self.approvedBy) == has(self.planHash)",
+          "message": "approvedBy and planHash are set together: an approval names the plan it approves"
+        }
+      ]
+    },
+    {
+      "path": "spec.approval.approvedBy",
+      "name": "approvedBy",
+      "parent": "spec.approval",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": "ApprovedBy is the person who approved. Admission enforces that it equals the requesting username, is empty at creation, is write-once, and is not the proposer."
+    },
+    {
+      "path": "spec.approval.planHash",
+      "name": "planHash",
+      "parent": "spec.approval",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "description": "PlanHash is the status.planHash the approver saw. The rollout runs only while it equals status.planHash: a plan that changed after it was shown is not the plan that was approved."
+    },
+    {
+      "path": "spec.clusterRef",
+      "name": "clusterRef",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": true,
+      "description": "ClusterRef names the TalosCluster whose nodes this rollout changes."
+    },
+    {
+      "path": "spec.clusterRef.name",
+      "name": "name",
+      "parent": "spec.clusterRef",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.drainTimeoutSeconds",
+      "name": "drainTimeoutSeconds",
+      "parent": "spec",
+      "depth": 1,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "default": 900,
+      "minimum": 30,
+      "maximum": 86400,
+      "description": "DrainTimeoutSeconds bounds the drain of each node that is drained (an upgrade, a reboot, a config that needs a reboot)."
+    },
+    {
+      "path": "spec.kind",
+      "name": "kind",
+      "parent": "spec",
+      "depth": 1,
+      "type": "string",
+      "required": true,
+      "enum": [
+        "Config",
+        "TalosUpgrade",
+        "KubernetesUpgrade",
+        "Reboot"
+      ],
+      "description": "Kind is what changes on each node."
+    },
+    {
+      "path": "spec.maxUnavailableWorkers",
+      "name": "maxUnavailableWorkers",
+      "parent": "spec",
+      "depth": 1,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "default": 1,
+      "minimum": 1,
+      "maximum": 100,
+      "description": "MaxUnavailableWorkers is how many workers may be in the middle of the change at once. Control planes always go one at a time, and only while etcd keeps every member healthy."
+    },
+    {
+      "path": "spec.nodes",
+      "name": "nodes",
+      "parent": "spec",
+      "depth": 1,
+      "type": "[]string",
+      "required": false,
+      "listType": "set",
+      "description": "Nodes limits the rollout to these TalosNodes. Empty means every node of the cluster that needs the change."
+    },
+    {
+      "path": "spec.paused",
+      "name": "paused",
+      "parent": "spec",
+      "depth": 1,
+      "type": "boolean",
+      "required": false,
+      "description": "Paused stops the rollout from starting another node. A node already in the middle of its change finishes it. Set and clear it at will."
+    },
+    {
+      "path": "spec.proposedBy",
+      "name": "proposedBy",
+      "parent": "spec",
+      "depth": 1,
+      "type": "string",
+      "required": true,
+      "minLength": 1,
+      "description": "ProposedBy is the username that created the rollout. Admission checks it against the creating request, and refuses an approval by the same person."
+    },
+    {
+      "path": "spec.target",
+      "name": "target",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "Target is where the rollout takes the nodes: the Talos version of a TalosUpgrade, the Kubernetes version of a KubernetesUpgrade. A Config or Reboot rollout takes none; its target is each node's current rendered config, frozen into the plan."
+    },
+    {
+      "path": "spec.target.kubernetesVersion",
+      "name": "kubernetesVersion",
+      "parent": "spec.target",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "KubernetesVersion is the Kubernetes release of a KubernetesUpgrade."
+    },
+    {
+      "path": "spec.target.talosVersion",
+      "name": "talosVersion",
+      "parent": "spec.target",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "pattern": "^v1\\.(1[4-9]|[2-9][0-9])\\.[0-9]+$",
+      "description": "TalosVersion is the Talos release of a TalosUpgrade."
+    },
+    {
+      "path": "status",
+      "name": "status",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": false,
+      "description": "TalosRolloutStatus is the plan and how far it got."
+    },
+    {
+      "path": "status.conditions",
+      "name": "conditions",
+      "parent": "status",
+      "depth": 1,
+      "type": "[]object",
+      "required": false,
+      "listType": "map",
+      "listMapKeys": [
+        "type"
+      ],
+      "description": "Conditions: Planned, Approved, Progressing, Paused, Complete."
+    },
+    {
+      "path": "status.conditions[].lastTransitionTime",
+      "name": "lastTransitionTime",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "format": "date-time",
+      "required": true,
+      "description": "lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable."
+    },
+    {
+      "path": "status.conditions[].message",
+      "name": "message",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "maxLength": 32768,
+      "description": "message is a human readable message indicating details about the transition. This may be an empty string."
+    },
+    {
+      "path": "status.conditions[].observedGeneration",
+      "name": "observedGeneration",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "integer",
+      "format": "int64",
+      "required": false,
+      "minimum": 0,
+      "description": "observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance."
+    },
+    {
+      "path": "status.conditions[].reason",
+      "name": "reason",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "pattern": "^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty."
+    },
+    {
+      "path": "status.conditions[].status",
+      "name": "status",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "enum": [
+        "True",
+        "False",
+        "Unknown"
+      ],
+      "description": "status of the condition, one of True, False, Unknown."
+    },
+    {
+      "path": "status.conditions[].type",
+      "name": "type",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$",
+      "maxLength": 316,
+      "description": "type of condition in CamelCase or in foo.example.com/CamelCase."
+    },
+    {
+      "path": "status.plan",
+      "name": "plan",
+      "parent": "status",
+      "depth": 1,
+      "type": "[]object",
+      "required": false,
+      "description": "Plan is the ordered list of steps: control planes first, one at a time, then a KubeProxy step for a Kubernetes upgrade, then the workers. Rewritten on every pass until approved, frozen afterwards."
+    },
+    {
+      "path": "status.plan[].actions",
+      "name": "actions",
+      "parent": "status.plan",
+      "depth": 2,
+      "type": "[]string",
+      "required": false,
+      "description": "Actions are the HostOperation action keys this step runs, in order, for the approver to read."
+    },
+    {
+      "path": "status.plan[].configDigest",
+      "name": "configDigest",
+      "parent": "status.plan",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": ""
+    },
+    {
+      "path": "status.plan[].configSecret",
+      "name": "configSecret",
+      "parent": "status.plan",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": "ConfigSecret and ConfigDigest pin the rendered config a Config or KubernetesUpgrade step applies. The Secret is content-addressed and never rewritten, so the bytes approved are the bytes applied."
+    },
+    {
+      "path": "status.plan[].from",
+      "name": "from",
+      "parent": "status.plan",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": "From is what the node runs now, as far as the operator knows (a version, or the digest of the config it last confirmed); To is what it runs afterwards."
+    },
+    {
+      "path": "status.plan[].host",
+      "name": "host",
+      "parent": "status.plan",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": ""
+    },
+    {
+      "path": "status.plan[].image",
+      "name": "image",
+      "parent": "status.plan",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": "Image is the installer image of a TalosUpgrade, pinned by digest, or the kube-proxy image of a KubeProxy step."
+    },
+    {
+      "path": "status.plan[].kind",
+      "name": "kind",
+      "parent": "status.plan",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "enum": [
+        "Node",
+        "KubeProxy"
+      ],
+      "description": "Kind is Node (one node through a HostOperation) or KubeProxy."
+    },
+    {
+      "path": "status.plan[].node",
+      "name": "node",
+      "parent": "status.plan",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": "Node is the TalosNode; Host the Host that runs it. Empty for a KubeProxy step."
+    },
+    {
+      "path": "status.plan[].rebootRequired",
+      "name": "rebootRequired",
+      "parent": "status.plan",
+      "depth": 2,
+      "type": "boolean",
+      "required": false,
+      "description": "RebootRequired: the node said, in a dry run, that it cannot take this config without a reboot. The node is then drained, the config applied with a reboot, and the node uncordoned once it is back."
+    },
+    {
+      "path": "status.plan[].role",
+      "name": "role",
+      "parent": "status.plan",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "enum": [
+        "controlplane",
+        "worker"
+      ],
+      "description": "Role is the node's role; control planes go one at a time."
+    },
+    {
+      "path": "status.plan[].to",
+      "name": "to",
+      "parent": "status.plan",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": ""
+    },
+    {
+      "path": "status.planHash",
+      "name": "planHash",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": "PlanHash is sha256 over the kind, cluster, target and plan: what an approval names, and what every HostOperation of the rollout carries."
+    },
+    {
+      "path": "status.steps",
+      "name": "steps",
+      "parent": "status",
+      "depth": 1,
+      "type": "[]object",
+      "required": false,
+      "description": "Steps is the progress of each plan entry, by index."
+    },
+    {
+      "path": "status.steps[].finishedAt",
+      "name": "finishedAt",
+      "parent": "status.steps",
+      "depth": 2,
+      "type": "string",
+      "format": "date-time",
+      "required": false,
+      "description": ""
+    },
+    {
+      "path": "status.steps[].message",
+      "name": "message",
+      "parent": "status.steps",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": "Message says why a step failed or what it waits for."
+    },
+    {
+      "path": "status.steps[].operation",
+      "name": "operation",
+      "parent": "status.steps",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": "Operation is the HostOperation (namespace/name) running a Node step."
+    },
+    {
+      "path": "status.steps[].startedAt",
+      "name": "startedAt",
+      "parent": "status.steps",
+      "depth": 2,
+      "type": "string",
+      "format": "date-time",
+      "required": false,
+      "description": ""
+    },
+    {
+      "path": "status.steps[].state",
+      "name": "state",
+      "parent": "status.steps",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "enum": [
+        "Pending",
+        "Running",
+        "Succeeded",
+        "Failed",
+        "Skipped"
+      ],
+      "description": "State is Pending, Running, Succeeded, Failed or Skipped."
+    }
+  ]
+}

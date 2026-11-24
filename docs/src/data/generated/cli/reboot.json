@@ -1,0 +1,62 @@
+{
+  "name": "reboot",
+  "summary": "propose a clean reboot of a Talos node: cordon, drain, reboot, wait until ready, uncordon (waits for approval)",
+  "synopsis": "[--mode default|powercycle] [--drain-timeout d] [--grace-period s] [--delete-emptydir-data] <node>",
+  "usage": [
+    "pk-metal reboot [--mode default|powercycle] [--drain-timeout d] [--grace-period s] [--delete-emptydir-data] <node>"
+  ],
+  "changes": true,
+  "needsCluster": true,
+  "description": "reboot proposes a clean reboot of one Talos node: it cordons the node, drains\nit (pods are evicted so that every PodDisruptionBudget holds; DaemonSet and\nstatic pods stay), reboots it through Talos, waits until it runs ready again\nin Talos and in Kubernetes, and uncordons it. For a control plane it also\nwaits until etcd is healthy again before it uncordons.\n\nNothing happens until another person approves the operation:\n  pk-metal approve pk-metal/<operation>\n\nA control plane is rebooted only while every other etcd member is healthy and\nno other control plane of its cluster is being taken down; until then the\napproved operation waits (pk-metal status shows ClusterDisruption).\n\nA drain that a disruption budget holds up waits up to --drain-timeout, then\nfails and leaves the node cordoned. To stop a reboot: pk-metal abort.",
+  "examples": [
+    "pk-metal reboot w-1",
+    "pk-metal reboot --drain-timeout 30m --grace-period 60 cp-2",
+    "pk-metal reboot --mode powercycle --delete-emptydir-data w-1"
+  ],
+  "exitStatus": [],
+  "flags": [
+    {
+      "name": "context",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig context to use (default: the current context)",
+      "global": true
+    },
+    {
+      "name": "delete-emptydir-data",
+      "type": "bool",
+      "default": "",
+      "usage": "also evict pods with emptyDir volumes, whose data is lost",
+      "global": false
+    },
+    {
+      "name": "drain-timeout",
+      "type": "duration",
+      "default": "15m0s",
+      "usage": "how long the drain may wait for pods to leave (30s..24h)",
+      "global": false
+    },
+    {
+      "name": "grace-period",
+      "type": "int",
+      "default": "-1",
+      "usage": "seconds each evicted pod gets to stop; -1 keeps each pod's own",
+      "global": false
+    },
+    {
+      "name": "kubeconfig",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig file (default: $KUBECONFIG, then ~/.kube/config, then the in-cluster account)",
+      "global": true
+    },
+    {
+      "name": "mode",
+      "type": "string",
+      "default": "default",
+      "usage": "how the reboot ends: default (kexec or warm reboot) or powercycle (cold start, for firmware)",
+      "global": false
+    }
+  ],
+  "subcommands": []
+}

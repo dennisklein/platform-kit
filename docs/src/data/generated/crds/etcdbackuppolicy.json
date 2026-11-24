@@ -1,0 +1,434 @@
+{
+  "kind": "EtcdBackupPolicy",
+  "listKind": "EtcdBackupPolicyList",
+  "group": "os.pk.io",
+  "version": "v1alpha1",
+  "plural": "etcdbackuppolicies",
+  "singular": "etcdbackuppolicy",
+  "shortNames": [],
+  "categories": [
+    "metal",
+    "os"
+  ],
+  "scope": "Cluster",
+  "source": "metal/config/crd/os.pk.io_etcdbackuppolicies.yaml",
+  "description": "EtcdBackupPolicy takes encrypted etcd snapshots of one TalosCluster on a schedule and keeps a bounded number of them. Each snapshot is recorded as an EtcdSnapshot. Taking a snapshot reads etcd and changes no machine, so it needs no approval; restoring one does (docs site: operate/day-2/restore-etcd).",
+  "statusSubresource": true,
+  "printerColumns": [
+    {
+      "name": "Cluster",
+      "type": "string",
+      "jsonPath": ".spec.clusterRef.name",
+      "priority": 0
+    },
+    {
+      "name": "Interval",
+      "type": "string",
+      "jsonPath": ".spec.interval",
+      "priority": 0
+    },
+    {
+      "name": "Last",
+      "type": "date",
+      "jsonPath": ".status.lastSuccessfulSnapshot.takenAt",
+      "priority": 0
+    },
+    {
+      "name": "Failures",
+      "type": "integer",
+      "jsonPath": ".status.consecutiveFailures",
+      "priority": 0
+    },
+    {
+      "name": "BackedUp",
+      "type": "string",
+      "jsonPath": ".status.conditions[?(@.type==\"BackedUp\")].status",
+      "priority": 0
+    }
+  ],
+  "validations": [],
+  "fields": [
+    {
+      "path": "spec",
+      "name": "spec",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": true,
+      "description": "EtcdBackupPolicySpec says how often to snapshot one cluster's etcd, how long to keep the snapshots, where to keep them and whom to encrypt them for."
+    },
+    {
+      "path": "spec.clusterRef",
+      "name": "clusterRef",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": true,
+      "description": "ClusterRef names the TalosCluster whose etcd is backed up.",
+      "validations": [
+        {
+          "rule": "self == oldSelf",
+          "message": "clusterRef is frozen: create another policy for another cluster"
+        }
+      ]
+    },
+    {
+      "path": "spec.clusterRef.name",
+      "name": "name",
+      "parent": "spec.clusterRef",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.encryption",
+      "name": "encryption",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": true,
+      "description": "Encryption names who can read the snapshots."
+    },
+    {
+      "path": "spec.encryption.ageRecipients",
+      "name": "ageRecipients",
+      "parent": "spec.encryption",
+      "depth": 2,
+      "type": "[]string",
+      "required": true,
+      "pattern": "^age1[0-9a-z]+$",
+      "minItems": 1,
+      "maxItems": 16,
+      "listType": "set",
+      "description": "AgeRecipients are age public keys (age1..., from age-keygen -y). Any one of their identities decrypts a snapshot; the operator holds none, so it cannot. Name at least two people or a person and a key kept offline, so that a restore does not hang on one key. Post-quantum keys (age1pq1...) cannot be mixed with classic ones."
+    },
+    {
+      "path": "spec.interval",
+      "name": "interval",
+      "parent": "spec",
+      "depth": 1,
+      "type": "string",
+      "required": true,
+      "description": "Interval is the time between scheduled snapshots (6h, 30m). At least 5m: a snapshot reads the whole database from one member.",
+      "validations": [
+        {
+          "rule": "duration(self) >= duration('5m')",
+          "message": "interval must be at least 5m"
+        }
+      ]
+    },
+    {
+      "path": "spec.retention",
+      "name": "retention",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "Retention bounds how many snapshots are kept, and for how long."
+    },
+    {
+      "path": "spec.retention.count",
+      "name": "count",
+      "parent": "spec.retention",
+      "depth": 2,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "default": 14,
+      "minimum": 1,
+      "maximum": 1000,
+      "description": "Count is how many verified snapshots to keep, the newest."
+    },
+    {
+      "path": "spec.retention.maxAge",
+      "name": "maxAge",
+      "parent": "spec.retention",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": "MaxAge deletes verified snapshots older than this (168h for a week). Unset keeps any age, up to Count.",
+      "validations": [
+        {
+          "rule": "duration(self) >= duration('1h')",
+          "message": "maxAge must be at least 1h"
+        }
+      ]
+    },
+    {
+      "path": "spec.sink",
+      "name": "sink",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": true,
+      "description": "Sink is where the encrypted snapshots are stored.",
+      "validations": [
+        {
+          "rule": "has(self.s3) != has(self.pvc)",
+          "message": "set exactly one of s3 or pvc"
+        }
+      ]
+    },
+    {
+      "path": "spec.sink.pvc",
+      "name": "pvc",
+      "parent": "spec.sink",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "PVC stores snapshots on the operator's backup volume (the config/etcd-backup component mounts a PersistentVolumeClaim into the manager). Refused for the cluster the operator itself runs on: that volume lives on the etcd it would back up, and is lost with it."
+    },
+    {
+      "path": "spec.sink.s3",
+      "name": "s3",
+      "parent": "spec.sink",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "S3 stores snapshots in a bucket of an S3-compatible object store, off the cluster: the sink for production."
+    },
+    {
+      "path": "spec.sink.s3.bucket",
+      "name": "bucket",
+      "parent": "spec.sink.s3",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "minLength": 3,
+      "maxLength": 63,
+      "description": "Bucket must exist; the operator does not create it."
+    },
+    {
+      "path": "spec.sink.s3.caSecretRef",
+      "name": "caSecretRef",
+      "parent": "spec.sink.s3",
+      "depth": 3,
+      "type": "object",
+      "required": false,
+      "description": "CASecretRef names a Secret in the operator's namespace whose key ca.crt (PEM) replaces the system roots for the endpoint."
+    },
+    {
+      "path": "spec.sink.s3.caSecretRef.name",
+      "name": "name",
+      "parent": "spec.sink.s3.caSecretRef",
+      "depth": 4,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.sink.s3.credentialsSecretRef",
+      "name": "credentialsSecretRef",
+      "parent": "spec.sink.s3",
+      "depth": 3,
+      "type": "object",
+      "required": true,
+      "description": "CredentialsSecretRef names a Secret in the operator's namespace with keys accessKeyID and secretAccessKey. Give the key write, read, list and delete on the bucket (or the prefix) and nothing else."
+    },
+    {
+      "path": "spec.sink.s3.credentialsSecretRef.name",
+      "name": "name",
+      "parent": "spec.sink.s3.credentialsSecretRef",
+      "depth": 4,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.sink.s3.endpoint",
+      "name": "endpoint",
+      "parent": "spec.sink.s3",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "pattern": "^https?://[^/]+/?$",
+      "description": "Endpoint is the store's URL, https://host[:port] (https://s3.eu-central-1.amazonaws.com, https://minio.example:9000). http:// works for a store on a trusted network; the snapshots are encrypted either way, the store's credentials are not."
+    },
+    {
+      "path": "spec.sink.s3.pathStyle",
+      "name": "pathStyle",
+      "parent": "spec.sink.s3",
+      "depth": 3,
+      "type": "boolean",
+      "required": false,
+      "description": "PathStyle sends requests as https://host/bucket/key, which most stores other than AWS need."
+    },
+    {
+      "path": "spec.sink.s3.prefix",
+      "name": "prefix",
+      "parent": "spec.sink.s3",
+      "depth": 3,
+      "type": "string",
+      "required": false,
+      "pattern": "^([^/].*/)?$",
+      "description": "Prefix goes in front of every key; the key is <prefix><cluster>/<snapshot>.db.age."
+    },
+    {
+      "path": "spec.sink.s3.region",
+      "name": "region",
+      "parent": "spec.sink.s3",
+      "depth": 3,
+      "type": "string",
+      "required": false,
+      "description": "Region of the bucket; empty lets the client ask the store."
+    },
+    {
+      "path": "spec.suspend",
+      "name": "suspend",
+      "parent": "spec",
+      "depth": 1,
+      "type": "boolean",
+      "required": false,
+      "description": "Suspend stops scheduled snapshots; pk-metal backup now still takes one, and retention still prunes."
+    },
+    {
+      "path": "status",
+      "name": "status",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": false,
+      "description": "EtcdBackupPolicyStatus is the backup state of the cluster."
+    },
+    {
+      "path": "status.conditions",
+      "name": "conditions",
+      "parent": "status",
+      "depth": 1,
+      "type": "[]object",
+      "required": false,
+      "listType": "map",
+      "listMapKeys": [
+        "type"
+      ],
+      "description": "Conditions: Ready (the sink and recipients can be used) and BackedUp (a verified snapshot newer than twice the interval exists)."
+    },
+    {
+      "path": "status.conditions[].lastTransitionTime",
+      "name": "lastTransitionTime",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "format": "date-time",
+      "required": true,
+      "description": "lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable."
+    },
+    {
+      "path": "status.conditions[].message",
+      "name": "message",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "maxLength": 32768,
+      "description": "message is a human readable message indicating details about the transition. This may be an empty string."
+    },
+    {
+      "path": "status.conditions[].observedGeneration",
+      "name": "observedGeneration",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "integer",
+      "format": "int64",
+      "required": false,
+      "minimum": 0,
+      "description": "observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance."
+    },
+    {
+      "path": "status.conditions[].reason",
+      "name": "reason",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "pattern": "^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty."
+    },
+    {
+      "path": "status.conditions[].status",
+      "name": "status",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "enum": [
+        "True",
+        "False",
+        "Unknown"
+      ],
+      "description": "status of the condition, one of True, False, Unknown."
+    },
+    {
+      "path": "status.conditions[].type",
+      "name": "type",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$",
+      "maxLength": 316,
+      "description": "type of condition in CamelCase or in foo.example.com/CamelCase."
+    },
+    {
+      "path": "status.consecutiveFailures",
+      "name": "consecutiveFailures",
+      "parent": "status",
+      "depth": 1,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "description": "ConsecutiveFailures counts the snapshots that failed since the newest verified one."
+    },
+    {
+      "path": "status.lastScheduleTime",
+      "name": "lastScheduleTime",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "format": "date-time",
+      "required": false,
+      "description": "LastScheduleTime is when the last scheduled snapshot was started."
+    },
+    {
+      "path": "status.lastSuccessfulSnapshot",
+      "name": "lastSuccessfulSnapshot",
+      "parent": "status",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "LastSuccessfulSnapshot is the newest verified snapshot."
+    },
+    {
+      "path": "status.lastSuccessfulSnapshot.name",
+      "name": "name",
+      "parent": "status.lastSuccessfulSnapshot",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "status.lastSuccessfulSnapshot.takenAt",
+      "name": "takenAt",
+      "parent": "status.lastSuccessfulSnapshot",
+      "depth": 2,
+      "type": "string",
+      "format": "date-time",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "status.verifiedSnapshots",
+      "name": "verifiedSnapshots",
+      "parent": "status",
+      "depth": 1,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "description": "VerifiedSnapshots counts the verified snapshots kept."
+    }
+  ]
+}

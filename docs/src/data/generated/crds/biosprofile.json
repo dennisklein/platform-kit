@@ -1,0 +1,120 @@
+{
+  "kind": "BiosProfile",
+  "listKind": "BiosProfileList",
+  "group": "metal.pk.io",
+  "version": "v1alpha1",
+  "plural": "biosprofiles",
+  "singular": "biosprofile",
+  "shortNames": [],
+  "categories": [
+    "metal"
+  ],
+  "scope": "Cluster",
+  "source": "metal/config/crd/metal.pk.io_biosprofiles.yaml",
+  "description": "BiosProfile is a set of BIOS settings that some group of machines should share — authored in git, applying to whichever Hosts match its selector. Several may match one machine; they are layered, and the result of that layering is the machine's BiosSettings, which records which profile each value came from.\n\nNothing reconciles a BiosProfile directly. It states intent; the settings it produces are what a machine is held against.",
+  "statusSubresource": false,
+  "printerColumns": [
+    {
+      "name": "Layer",
+      "type": "integer",
+      "jsonPath": ".spec.layer",
+      "priority": 0
+    },
+    {
+      "name": "Age",
+      "type": "date",
+      "jsonPath": ".metadata.creationTimestamp",
+      "priority": 0
+    }
+  ],
+  "validations": [],
+  "fields": [
+    {
+      "path": "spec",
+      "name": "spec",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": true,
+      "description": "BiosProfileSpec is one layer of desired BIOS configuration for the Hosts it matches. Profiles are git-authored data — no controller reconciles a profile; the convergence reconciler materializes the merged result per host into a BiosSettings object."
+    },
+    {
+      "path": "spec.attributes",
+      "name": "attributes",
+      "parent": "spec",
+      "depth": 1,
+      "type": "map[string]any",
+      "required": true,
+      "minProperties": 1,
+      "description": "Attributes are the BIOS attributes this profile manages, values as the vendor's attribute registry types them (enum string, boolean, integer). An attribute omitted here is unmanaged — a higher layer can override a value but not retract management."
+    },
+    {
+      "path": "spec.layer",
+      "name": "layer",
+      "parent": "spec",
+      "depth": 1,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "default": 0,
+      "description": "Layer orders overlapping profiles: materialization merges matched profiles by (layer, name) and a later layer deliberately overrides an earlier one — a role profile (layer 10) over a hardware baseline (layer 0). Two profiles on the SAME layer setting the same attribute to different values are a conflict, and conflict holds the whole materialization."
+    },
+    {
+      "path": "spec.match",
+      "name": "match",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": true,
+      "mapType": "atomic",
+      "description": "Match selects Hosts by label. Two label axes exist by construction: intent labels stamped from the bound claim (role: worker — absent on unclaimed machines) and discovered facts (metal.pk.io/vendor, …/model — present regardless of claim state, the axis for hardware baselines)."
+    },
+    {
+      "path": "spec.match.matchExpressions",
+      "name": "matchExpressions",
+      "parent": "spec.match",
+      "depth": 2,
+      "type": "[]object",
+      "required": false,
+      "listType": "atomic",
+      "description": "matchExpressions is a list of label selector requirements. The requirements are ANDed."
+    },
+    {
+      "path": "spec.match.matchExpressions[].key",
+      "name": "key",
+      "parent": "spec.match.matchExpressions",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "description": "key is the label key that the selector applies to."
+    },
+    {
+      "path": "spec.match.matchExpressions[].operator",
+      "name": "operator",
+      "parent": "spec.match.matchExpressions",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "description": "operator represents a key's relationship to a set of values. Valid operators are In, NotIn, Exists and DoesNotExist."
+    },
+    {
+      "path": "spec.match.matchExpressions[].values",
+      "name": "values",
+      "parent": "spec.match.matchExpressions",
+      "depth": 3,
+      "type": "[]string",
+      "required": false,
+      "listType": "atomic",
+      "description": "values is an array of string values. If the operator is In or NotIn, the values array must be non-empty. If the operator is Exists or DoesNotExist, the values array must be empty. This array is replaced during a strategic merge patch."
+    },
+    {
+      "path": "spec.match.matchLabels",
+      "name": "matchLabels",
+      "parent": "spec.match",
+      "depth": 2,
+      "type": "map[string]string",
+      "required": false,
+      "description": "matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels map is equivalent to an element of matchExpressions, whose key field is \"key\", the operator is \"In\", and the values array contains only \"value\". The requirements are ANDed."
+    }
+  ]
+}

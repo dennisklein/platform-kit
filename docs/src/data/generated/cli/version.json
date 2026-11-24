@@ -1,0 +1,15 @@
+{
+  "name": "version",
+  "summary": "print the version of this program",
+  "synopsis": "",
+  "usage": [
+    "pk-metal version"
+  ],
+  "changes": false,
+  "needsCluster": false,
+  "description": "",
+  "examples": [],
+  "exitStatus": [],
+  "flags": [],
+  "subcommands": []
+}

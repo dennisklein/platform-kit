@@ -1,0 +1,162 @@
+{
+  "program": "pk-metal",
+  "description": "manage bare-metal machines through their BMCs (Redfish) and the pk-metal operator that runs in a Kubernetes cluster.",
+  "usage": "pk-metal [--kubeconfig file] [--context name] <command> [flags] [arguments]",
+  "commands": [
+    {
+      "name": "status",
+      "summary": "show machines, BMCs, claims and operations, with the reason when something is stuck (reads only)",
+      "changes": false
+    },
+    {
+      "name": "check",
+      "summary": "test that a BMC answers and list its virtual media and systems (reads only)",
+      "changes": false
+    },
+    {
+      "name": "inventory",
+      "summary": "read the hardware inventory from a BMC and print it as YAML (reads only)",
+      "changes": false
+    },
+    {
+      "name": "render",
+      "summary": "write Talos machine configs, talosconfig and kubeconfig from TalosCluster and TalosNode files (touches no machine)",
+      "changes": false
+    },
+    {
+      "name": "relay",
+      "summary": "run on a host that can reach the BMCs: BMCs download boot media from it, and it forwards that traffic to pk-metal boot",
+      "changes": false
+    },
+    {
+      "name": "sim",
+      "summary": "run simulated BMCs for tests: serve one, or a fleet with a virtual machine behind each",
+      "changes": false
+    },
+    {
+      "name": "version",
+      "summary": "print the version of this program",
+      "changes": false
+    },
+    {
+      "name": "top",
+      "summary": "live view of every machine: BMC, phase, operation, node; keys approve, hold and retry like the commands below",
+      "changes": true
+    },
+    {
+      "name": "approve",
+      "summary": "show what a proposed operation will do to a machine, then let it run; without a name, list the operations that wait for approval",
+      "changes": true
+    },
+    {
+      "name": "retry",
+      "summary": "delete a failed or aborted operation, so that the operator proposes it again (it then waits for approval again); a BIOS or firmware proposal is marked for retry instead",
+      "changes": true
+    },
+    {
+      "name": "abort",
+      "summary": "stop an operation before its next step and undo what it left behind (media, boot override, cordon)",
+      "changes": true
+    },
+    {
+      "name": "reboot",
+      "summary": "propose a clean reboot of a Talos node: cordon, drain, reboot, wait until ready, uncordon (waits for approval)",
+      "changes": true
+    },
+    {
+      "name": "hold",
+      "summary": "stop the operator from proposing new operations for a claim; nothing on the machine changes",
+      "changes": true
+    },
+    {
+      "name": "unhold",
+      "summary": "remove a hold, so that the operator proposes operations for the claim again",
+      "changes": true
+    },
+    {
+      "name": "backup",
+      "summary": "take an etcd snapshot now, list the snapshots, download one, or decrypt one on this machine",
+      "changes": true
+    },
+    {
+      "name": "restore",
+      "summary": "say what is wrong with a cluster's etcd and propose the operations that restore it; upload an approved snapshot",
+      "changes": true
+    },
+    {
+      "name": "wipe",
+      "summary": "ask for a wipe of a released machine that may still hold a node's install (the operator proposes it)",
+      "changes": true
+    },
+    {
+      "name": "reinstall",
+      "summary": "ask for the node a claim runs to be wiped and installed again on the same machine (the operator proposes it)",
+      "changes": true
+    },
+    {
+      "name": "replace",
+      "summary": "move a node to another machine, for failed hardware: the old machine is released first (the operator proposes it)",
+      "changes": true
+    },
+    {
+      "name": "scale",
+      "summary": "show which machines a cluster gains or gives back to reach a size, and in which order; --apply makes the claims say so",
+      "changes": true
+    },
+    {
+      "name": "rollout",
+      "summary": "see the rollouts that change a Talos cluster node by node (config, upgrade, reboot), approve one, resume it after its pause, or abort it",
+      "changes": true
+    },
+    {
+      "name": "upgrade",
+      "summary": "set the Talos or Kubernetes version a cluster asks for and show the rollout the operator proposes; nothing runs before it is approved",
+      "changes": true
+    },
+    {
+      "name": "pivot",
+      "summary": "move the operator and its objects from this cluster to another one, for example from kind onto the Talos cluster it built",
+      "changes": true
+    },
+    {
+      "name": "boot",
+      "summary": "mount a machine config ISO through a BMC and REBOOT the machine into it, without the operator",
+      "changes": true
+    },
+    {
+      "name": "bootstrap",
+      "summary": "start a new Talos cluster on booted machines and wait until every node is ready, without the operator",
+      "changes": true
+    }
+  ],
+  "globalFlags": [
+    {
+      "name": "kubeconfig",
+      "type": "file",
+      "default": "",
+      "usage": "kubeconfig file (default: $KUBECONFIG, then ~/.kube/config)",
+      "global": true
+    },
+    {
+      "name": "context",
+      "type": "name",
+      "default": "",
+      "usage": "kubeconfig context (default: the current context)",
+      "global": true
+    }
+  ],
+  "exitStatus": [
+    {
+      "code": 0,
+      "meaning": "success"
+    },
+    {
+      "code": 1,
+      "meaning": "error; the message is on stderr, as \"pk-metal: <message>\""
+    },
+    {
+      "code": 2,
+      "meaning": "pk-metal status only: something is blocked or failed and needs a person"
+    }
+  ]
+}

@@ -1,0 +1,285 @@
+{
+  "kind": "EndpointProfile",
+  "listKind": "EndpointProfileList",
+  "group": "metal.pk.io",
+  "version": "v1alpha1",
+  "plural": "endpointprofiles",
+  "singular": "endpointprofile",
+  "shortNames": [],
+  "categories": [
+    "metal"
+  ],
+  "scope": "Cluster",
+  "source": "metal/config/crd/metal.pk.io_endpointprofiles.yaml",
+  "description": "EndpointProfile is how management controllers themselves should be configured — their users, network settings, time sources — authored in git and applied to whichever endpoints match its selector.\n\nUnlike BIOS and firmware there is no approval step: nothing here disturbs the machine the controller is attached to, so merging the profile is the approval. When something cannot be applied the endpoint holds and says so on its Configured condition rather than retrying into a broken state.",
+  "statusSubresource": false,
+  "printerColumns": [
+    {
+      "name": "Layer",
+      "type": "integer",
+      "jsonPath": ".spec.layer",
+      "priority": 0
+    },
+    {
+      "name": "Age",
+      "type": "date",
+      "jsonPath": ".metadata.creationTimestamp",
+      "priority": 0
+    }
+  ],
+  "validations": [],
+  "fields": [
+    {
+      "path": "spec",
+      "name": "spec",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": true,
+      "description": "EndpointProfileSpec is a shared endpoint-configuration class: it selects ManagementEndpoints by label and declares how the manager itself is run — the operator's own account, the manager's time sources. Overlap follows the profile merge rules: profiles order by (layer, name), a later layer overrides a whole stanza, same-layer disagreement on a stanza holds the endpoint."
+    },
+    {
+      "path": "spec.credentials",
+      "name": "credentials",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "Credentials makes the operator run its own account on the manager: created through the asset's factory credentials, password kept in a managed Secret, rotated on cadence. A new password is kept beside the working one (keys next-username, next-password) and replaces it only after a login with it succeeds, so a manager that refuses it leaves the working password in place. The factory account is left untouched: it is the way back in after the managed password was changed behind the operator's back, and the way in at adoption."
+    },
+    {
+      "path": "spec.credentials.maxAge",
+      "name": "maxAge",
+      "parent": "spec.credentials",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": "MaxAge rotates the managed password when the Secret grows older than this. Unset rotates only when the Secret is missing or names another account. A rotation sets the new password through the managed account's own session first, so it works when the factory login no longer does."
+    },
+    {
+      "path": "spec.credentials.username",
+      "name": "username",
+      "parent": "spec.credentials",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "pattern": "^[a-z][a-z0-9-]{0,15}$",
+      "description": "Username of the operator's managed account (role Administrator — the executor flashes firmware and resets the manager over it)."
+    },
+    {
+      "path": "spec.layer",
+      "name": "layer",
+      "parent": "spec",
+      "depth": 1,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "default": 0,
+      "description": "Layer orders overlapping profiles: higher layers override lower ones, stanza by stanza. Profiles on the same layer must agree."
+    },
+    {
+      "path": "spec.match",
+      "name": "match",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": true,
+      "mapType": "atomic",
+      "description": "Match selects ManagementEndpoints by label. Endpoints carry only discovered facts (vendor, model, vlan) — there is no claim, hence no intent axis. An empty selector matches every endpoint."
+    },
+    {
+      "path": "spec.match.matchExpressions",
+      "name": "matchExpressions",
+      "parent": "spec.match",
+      "depth": 2,
+      "type": "[]object",
+      "required": false,
+      "listType": "atomic",
+      "description": "matchExpressions is a list of label selector requirements. The requirements are ANDed."
+    },
+    {
+      "path": "spec.match.matchExpressions[].key",
+      "name": "key",
+      "parent": "spec.match.matchExpressions",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "description": "key is the label key that the selector applies to."
+    },
+    {
+      "path": "spec.match.matchExpressions[].operator",
+      "name": "operator",
+      "parent": "spec.match.matchExpressions",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "description": "operator represents a key's relationship to a set of values. Valid operators are In, NotIn, Exists and DoesNotExist."
+    },
+    {
+      "path": "spec.match.matchExpressions[].values",
+      "name": "values",
+      "parent": "spec.match.matchExpressions",
+      "depth": 3,
+      "type": "[]string",
+      "required": false,
+      "listType": "atomic",
+      "description": "values is an array of string values. If the operator is In or NotIn, the values array must be non-empty. If the operator is Exists or DoesNotExist, the values array must be empty. This array is replaced during a strategic merge patch."
+    },
+    {
+      "path": "spec.match.matchLabels",
+      "name": "matchLabels",
+      "parent": "spec.match",
+      "depth": 2,
+      "type": "map[string]string",
+      "required": false,
+      "description": "matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels map is equivalent to an element of matchExpressions, whose key field is \"key\", the operator is \"In\", and the values array contains only \"value\". The requirements are ANDed."
+    },
+    {
+      "path": "spec.ntp",
+      "name": "ntp",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "NTP converges the manager's own clock sources. A skewed BMC clock is not cosmetic: it rejects freshly-issued certificates (NotBefore in its future) and mistimes every log line."
+    },
+    {
+      "path": "spec.ntp.servers",
+      "name": "servers",
+      "parent": "spec.ntp",
+      "depth": 2,
+      "type": "[]string",
+      "required": true,
+      "minItems": 1,
+      "maxItems": 3,
+      "description": "Servers, in preference order. At most three — the iBMC carries exactly three server slots."
+    },
+    {
+      "path": "spec.tls",
+      "name": "tls",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "TLS runs the manager's HTTPS identity: a cert-manager-signed certificate for bmc-<endpoint>.<domain>, pushed over the vendor's dialect and renewed on cadence. The factory certificate is replaced and cannot be restored — a CA-signed identity is strictly better and the intended end state. A push restarts the manager, which drops its virtual media, so it waits while an approved operation on a machine behind the endpoint has not finished (reason IdentityPushHeld)."
+    },
+    {
+      "path": "spec.tls.domain",
+      "name": "domain",
+      "parent": "spec.tls",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "default": "metal.internal",
+      "minLength": 1,
+      "description": "Domain completes the identity: CN and DNS SAN are bmc-<endpoint>.<domain>; the endpoint address, when an IP literal, is added as an IP SAN (clients often reach BMCs by IP address)."
+    },
+    {
+      "path": "spec.tls.duration",
+      "name": "duration",
+      "parent": "spec.tls",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "default": "2160h",
+      "description": "Duration of issued certificates."
+    },
+    {
+      "path": "spec.tls.issuerRef",
+      "name": "issuerRef",
+      "parent": "spec.tls",
+      "depth": 2,
+      "type": "object",
+      "required": true,
+      "description": "IssuerRef names the cert-manager issuer (group cert-manager.io) that signs the identity."
+    },
+    {
+      "path": "spec.tls.issuerRef.kind",
+      "name": "kind",
+      "parent": "spec.tls.issuerRef",
+      "depth": 3,
+      "type": "string",
+      "required": false,
+      "default": "ClusterIssuer",
+      "enum": [
+        "Issuer",
+        "ClusterIssuer"
+      ],
+      "description": ""
+    },
+    {
+      "path": "spec.tls.issuerRef.name",
+      "name": "name",
+      "parent": "spec.tls.issuerRef",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "minLength": 1,
+      "description": ""
+    },
+    {
+      "path": "spec.tls.renewBefore",
+      "name": "renewBefore",
+      "parent": "spec.tls",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "default": "720h",
+      "description": "RenewBefore re-issues when less than this remains on the served certificate. Must stay below duration."
+    },
+    {
+      "path": "spec.tls.subject",
+      "name": "subject",
+      "parent": "spec.tls",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "Subject carries the organizational attributes of the identity. The iBMC's on-manager CSR generation requires country; everything else is cosmetic."
+    },
+    {
+      "path": "spec.tls.subject.country",
+      "name": "country",
+      "parent": "spec.tls.subject",
+      "depth": 3,
+      "type": "string",
+      "required": false,
+      "description": ""
+    },
+    {
+      "path": "spec.tls.subject.locality",
+      "name": "locality",
+      "parent": "spec.tls.subject",
+      "depth": 3,
+      "type": "string",
+      "required": false,
+      "description": ""
+    },
+    {
+      "path": "spec.tls.subject.organization",
+      "name": "organization",
+      "parent": "spec.tls.subject",
+      "depth": 3,
+      "type": "string",
+      "required": false,
+      "description": ""
+    },
+    {
+      "path": "spec.tls.subject.organizationalUnit",
+      "name": "organizationalUnit",
+      "parent": "spec.tls.subject",
+      "depth": 3,
+      "type": "string",
+      "required": false,
+      "description": ""
+    },
+    {
+      "path": "spec.tls.subject.state",
+      "name": "state",
+      "parent": "spec.tls.subject",
+      "depth": 3,
+      "type": "string",
+      "required": false,
+      "description": ""
+    }
+  ]
+}

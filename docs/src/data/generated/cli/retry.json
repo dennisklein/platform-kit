@@ -1,0 +1,37 @@
+{
+  "name": "retry",
+  "summary": "delete a failed or aborted operation, so that the operator proposes it again (it then waits for approval again); a BIOS or firmware proposal is marked for retry instead",
+  "synopsis": "[-n namespace] <operation> | <namespace>/<operation>",
+  "usage": [
+    "pk-metal retry [-n namespace] <operation> | <namespace>/<operation>"
+  ],
+  "changes": true,
+  "needsCluster": true,
+  "description": "A failed operation stays in the cluster, so that you can read why it failed\n(pk-metal status shows the reason). The operator does not try again while it\nis there. retry deletes it; the operator then proposes the same plan again,\nand the new operation waits for approval like the first one. A BIOS or\nfirmware proposal is not deleted by retry but marked for retry: the operator\nitself replaces it, because deleting a proposal is how it is refused.\n\nTo stop the operator from proposing it again instead, hold the claim:\n  pk-metal hold default/<claim>",
+  "examples": [],
+  "exitStatus": [],
+  "flags": [
+    {
+      "name": "context",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig context to use (default: the current context)",
+      "global": true
+    },
+    {
+      "name": "kubeconfig",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig file (default: $KUBECONFIG, then ~/.kube/config, then the in-cluster account)",
+      "global": true
+    },
+    {
+      "name": "n",
+      "type": "string",
+      "default": "pk-metal",
+      "usage": "namespace of the operation",
+      "global": false
+    }
+  ],
+  "subcommands": []
+}

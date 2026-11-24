@@ -1,0 +1,97 @@
+{
+  "name": "rollout",
+  "summary": "see the rollouts, approve one, or abort it",
+  "synopsis": "list | approve [--yes] <rollout> | abort [--yes] <rollout>",
+  "usage": [
+    "pk-metal rollout list | approve [--yes] <rollout> | abort [--yes] <rollout>"
+  ],
+  "changes": true,
+  "needsCluster": true,
+  "description": "A rollout changes the nodes of one Talos cluster one at a time.\n\n  list                    every rollout",
+  "examples": [],
+  "exitStatus": [],
+  "flags": [],
+  "subcommands": [
+    {
+      "name": "list",
+      "synopsis": "list",
+      "flags": [
+        {
+          "name": "context",
+          "type": "string",
+          "default": "",
+          "usage": "kubeconfig context to use (default: the current context)",
+          "global": true
+        },
+        {
+          "name": "kubeconfig",
+          "type": "string",
+          "default": "",
+          "usage": "kubeconfig file",
+          "global": true
+        },
+        {
+          "name": "yes",
+          "type": "bool",
+          "default": "",
+          "usage": "do not ask (for scripts)",
+          "global": false
+        }
+      ]
+    },
+    {
+      "name": "approve",
+      "synopsis": "approve [--yes] <rollout>",
+      "flags": [
+        {
+          "name": "context",
+          "type": "string",
+          "default": "",
+          "usage": "kubeconfig context to use (default: the current context)",
+          "global": true
+        },
+        {
+          "name": "kubeconfig",
+          "type": "string",
+          "default": "",
+          "usage": "kubeconfig file",
+          "global": true
+        },
+        {
+          "name": "yes",
+          "type": "bool",
+          "default": "",
+          "usage": "do not ask (for scripts)",
+          "global": false
+        }
+      ]
+    },
+    {
+      "name": "abort",
+      "synopsis": "abort [--yes] <rollout>",
+      "flags": [
+        {
+          "name": "context",
+          "type": "string",
+          "default": "",
+          "usage": "kubeconfig context to use (default: the current context)",
+          "global": true
+        },
+        {
+          "name": "kubeconfig",
+          "type": "string",
+          "default": "",
+          "usage": "kubeconfig file",
+          "global": true
+        },
+        {
+          "name": "yes",
+          "type": "bool",
+          "default": "",
+          "usage": "do not ask (for scripts)",
+          "global": false
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "name": "render",
+  "summary": "write Talos machine configs, talosconfig and kubeconfig from TalosCluster and TalosNode files (touches no machine)",
+  "synopsis": "--dir <manifests> --secrets <secrets.yaml|-> [flags]",
+  "usage": [
+    "pk-metal render --dir <manifests> --secrets <secrets.yaml|-> [flags]"
+  ],
+  "changes": false,
+  "needsCluster": false,
+  "description": "",
+  "examples": [],
+  "exitStatus": [],
+  "flags": [
+    {
+      "name": "dir",
+      "type": "string",
+      "default": "",
+      "usage": "directory with TalosCluster/TalosNode (and patch ConfigMap) manifests (required)",
+      "global": false
+    },
+    {
+      "name": "image-factory",
+      "type": "string",
+      "default": "factory.talos.dev",
+      "usage": "image factory host the installer image is named on",
+      "global": false
+    },
+    {
+      "name": "out",
+      "type": "string",
+      "default": "clusterconfig",
+      "usage": "output directory: <node>.yaml per node, talosconfig, kubeconfig",
+      "global": false
+    },
+    {
+      "name": "register",
+      "type": "bool",
+      "default": "",
+      "usage": "tell the image factory about each schematic (needs network); off computes ids offline",
+      "global": false
+    },
+    {
+      "name": "secrets",
+      "type": "talosctl gen secrets",
+      "default": "",
+      "usage": "secrets bundle from talosctl gen secrets, or - for stdin (required)",
+      "global": false
+    }
+  ],
+  "subcommands": []
+}

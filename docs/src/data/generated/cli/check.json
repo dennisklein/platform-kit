@@ -1,0 +1,30 @@
+{
+  "name": "check",
+  "summary": "test that a BMC answers and list its virtual media and systems (reads only)",
+  "synopsis": "[flags] <bmc-url>",
+  "usage": [
+    "pk-metal check [flags] <bmc-url>"
+  ],
+  "changes": false,
+  "needsCluster": false,
+  "description": "",
+  "examples": [],
+  "exitStatus": [],
+  "flags": [
+    {
+      "name": "insecure",
+      "type": "bool",
+      "default": "",
+      "usage": "skip TLS verification",
+      "global": false
+    },
+    {
+      "name": "user",
+      "type": "string",
+      "default": "admin",
+      "usage": "BMC username (password via PK_METAL_BMC_PASSWORD)",
+      "global": false
+    }
+  ],
+  "subcommands": []
+}

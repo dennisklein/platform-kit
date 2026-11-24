@@ -1,0 +1,51 @@
+{
+  "name": "replace",
+  "summary": "move a node to another machine, for failed hardware: the old machine is released first (the operator proposes it)",
+  "synopsis": "[-n namespace] --host <host> [--ack-etcd-risk reason] <claim> | <node>",
+  "usage": [
+    "pk-metal replace [-n namespace] --host <host> [--ack-etcd-risk reason] <claim> | <node>"
+  ],
+  "changes": true,
+  "needsCluster": true,
+  "description": "replace moves a node to another machine, for hardware that failed: the\nclaim is pointed at the new machine, the old one is released first (its node\nleaves the cluster and its etcd member is removed; a machine that does not\nanswer is powered off and marked for a wipe), and then the node is\ninstalled on the new machine. The node keeps its name, so its etcd member\nmust go before it joins again: a control plane of a three-member cluster is\nat two members in between, which needs --ack-etcd-risk.\n\nA TalosNode that names its install disk by serial or its network link by\nMAC address fits one machine only: edit those to the new machine's values\nbefore replace, or the install finds no disk and the node no link.\n\nFor hardware that still works, add the new node first and remove the old\none after (see https://dennisklein.github.io/platform-kit/workflows/add-and-remove-nodes/):\netcd then never runs short.",
+  "examples": [],
+  "exitStatus": [],
+  "flags": [
+    {
+      "name": "ack-etcd-risk",
+      "type": "string",
+      "default": "",
+      "usage": "reason to accept an even or short etcd membership while a control plane moves",
+      "global": false
+    },
+    {
+      "name": "context",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig context to use (default: the current context)",
+      "global": true
+    },
+    {
+      "name": "host",
+      "type": "string",
+      "default": "",
+      "usage": "the machine (Host) to move the node to; it must be Available",
+      "global": false
+    },
+    {
+      "name": "kubeconfig",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig file (default: $KUBECONFIG, then ~/.kube/config, then the in-cluster account)",
+      "global": true
+    },
+    {
+      "name": "n",
+      "type": "string",
+      "default": "default",
+      "usage": "namespace of the claim",
+      "global": false
+    }
+  ],
+  "subcommands": []
+}

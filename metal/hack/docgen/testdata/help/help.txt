@@ -1,0 +1,22 @@
+pk-metal: manage bare-metal machines through their BMCs (Redfish) and the
+pk-metal operator that runs in a Kubernetes cluster.
+
+usage: pk-metal [--kubeconfig file] [--context name] <command> [flags] [arguments]
+
+commands that change no machine:
+  status     show machines (reads only)
+
+commands that change a machine, or what the operator does:
+  rollout    see the rollouts, approve one, or abort it
+
+help:
+  pk-metal help <command>     flags and details of one command (or: pk-metal <command> -h)
+
+global flags (for the commands that talk to the cluster):
+  --kubeconfig file           kubeconfig file (default: $KUBECONFIG, then ~/.kube/config)
+  --context name              kubeconfig context (default: the current context)
+
+exit status:
+  0  success
+  1  error; the message is on stderr, as "pk-metal: <message>"
+  2  pk-metal status only: something is blocked or failed and needs a person

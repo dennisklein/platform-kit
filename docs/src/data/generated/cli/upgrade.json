@@ -1,0 +1,40 @@
+{
+  "name": "upgrade",
+  "summary": "set the Talos or Kubernetes version a cluster asks for and show the rollout the operator proposes; nothing runs before it is approved",
+  "synopsis": "[--wait 2m] talos|kubernetes <cluster> <version>",
+  "usage": [
+    "pk-metal upgrade [--wait 2m] talos|kubernetes <cluster> <version>"
+  ],
+  "changes": true,
+  "needsCluster": true,
+  "description": "upgrade changes the version a TalosCluster asks for, then waits for the\nrollout the operator proposes for it and prints its plan. Nothing on a machine\nchanges until a person approves that plan with pk-metal rollout approve.\n\n  talos <cluster> <version>        for example v1.14.7: each node is drained,\n                                   upgraded with the installer for that version\n                                   and rebooted, control planes first\n  kubernetes <cluster> <version>   for example v1.36.3: each node gets the new\n                                   kubelet and control-plane images, then\n                                   kube-proxy follows\n\nTalos says which Kubernetes versions each Talos release supports and from\nwhich releases it can be upgraded; upgrade refuses a step Talos does not\nsupport, before it changes anything.",
+  "examples": [
+    "pk-metal upgrade talos lab v1.14.7",
+    "pk-metal upgrade kubernetes lab v1.36.3"
+  ],
+  "exitStatus": [],
+  "flags": [
+    {
+      "name": "context",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig context to use (default: the current context)",
+      "global": true
+    },
+    {
+      "name": "kubeconfig",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig file (default: $KUBECONFIG, then ~/.kube/config, then the in-cluster account)",
+      "global": true
+    },
+    {
+      "name": "wait",
+      "type": "duration",
+      "default": "2m0s",
+      "usage": "how long to wait for the proposed rollout (0: do not wait)",
+      "global": false
+    }
+  ],
+  "subcommands": []
+}

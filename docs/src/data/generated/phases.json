@@ -1,0 +1,190 @@
+{
+  "phases": [
+    {
+      "type": "HostPhase",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/host_types.go",
+      "description": "HostPhase summarizes a machine's conditions together with whether it is claimed. Enrolling and Inspecting mean the cluster is still finding out what the machine is; Available means it is understood and free; Assigned means something claimed it; Provisioning means work is happening to it right now and Provisioned that the work finished; Releasing means it is being handed back. Failed and Maintenance are the two stops: Failed when an install did not work, Maintenance while a person has set the metal.pk.io/maintenance annotation.\n\nAssigned and Provisioning are deliberately separate. A machine can be spoken for without anything disruptive happening to it, and conflating the two leaves no way to say so.",
+      "kinds": [
+        "Host"
+      ],
+      "usedBy": [
+        "HostStatus.phase"
+      ],
+      "values": [
+        {
+          "name": "HostEnrolling",
+          "value": "Enrolling",
+          "description": ""
+        },
+        {
+          "name": "HostInspecting",
+          "value": "Inspecting",
+          "description": ""
+        },
+        {
+          "name": "HostAvailable",
+          "value": "Available",
+          "description": ""
+        },
+        {
+          "name": "HostAssigned",
+          "value": "Assigned",
+          "description": ""
+        },
+        {
+          "name": "HostProvisioning",
+          "value": "Provisioning",
+          "description": ""
+        },
+        {
+          "name": "HostProvisioned",
+          "value": "Provisioned",
+          "description": ""
+        },
+        {
+          "name": "HostReleasing",
+          "value": "Releasing",
+          "description": ""
+        },
+        {
+          "name": "HostFailed",
+          "value": "Failed",
+          "description": ""
+        },
+        {
+          "name": "HostMaintenance",
+          "value": "Maintenance",
+          "description": ""
+        }
+      ]
+    },
+    {
+      "type": "ClaimPhase",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/hostclaim_types.go",
+      "description": "ClaimPhase says how many machines the claim's selection resolved to: none yet (Pending), exactly one (Bound), or more than one with nothing to choose between them (Ambiguous). Ambiguous is a stop — the cluster will not guess.",
+      "kinds": [
+        "HostClaim"
+      ],
+      "usedBy": [
+        "HostClaimStatus.phase"
+      ],
+      "values": [
+        {
+          "name": "ClaimPending",
+          "value": "Pending",
+          "description": ""
+        },
+        {
+          "name": "ClaimBound",
+          "value": "Bound",
+          "description": ""
+        },
+        {
+          "name": "ClaimAmbiguous",
+          "value": "Ambiguous",
+          "description": ""
+        }
+      ]
+    },
+    {
+      "type": "OperationPhase",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/hostoperation_types.go",
+      "description": "OperationPhase summarizes an operation's conditions. Proposed means it exists but has not been approved; AwaitingApproval that it is waiting on a human; Running that steps are executing; Succeeded, Failed and Aborted are terminal. A failed operation stays for inspection — nothing disruptive is retried automatically. Aborted means a person stopped it (metal.pk.io/abort).",
+      "kinds": [
+        "HostOperation"
+      ],
+      "usedBy": [
+        "HostOperationStatus.phase"
+      ],
+      "values": [
+        {
+          "name": "OperationProposed",
+          "value": "Proposed",
+          "description": ""
+        },
+        {
+          "name": "OperationAwaitingApproval",
+          "value": "AwaitingApproval",
+          "description": ""
+        },
+        {
+          "name": "OperationRunning",
+          "value": "Running",
+          "description": ""
+        },
+        {
+          "name": "OperationSucceeded",
+          "value": "Succeeded",
+          "description": ""
+        },
+        {
+          "name": "OperationFailed",
+          "value": "Failed",
+          "description": ""
+        },
+        {
+          "name": "OperationAborted",
+          "value": "Aborted",
+          "description": ""
+        }
+      ]
+    },
+    {
+      "type": "EndpointPhase",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/managementendpoint_types.go",
+      "description": "EndpointPhase summarizes an endpoint's conditions, in the order an endpoint normally moves through them: Pending until it is reachable, then Connecting, Inventorying and Verifying as the cluster learns what is there, Configuring while settings are applied, and Ready. Unreachable and Mismatch are the two stops — the first means nobody answered, the second that what answered was not the machine the Asset described.",
+      "kinds": [
+        "ManagementEndpoint"
+      ],
+      "usedBy": [
+        "ManagementEndpointStatus.phase"
+      ],
+      "values": [
+        {
+          "name": "EndpointPending",
+          "value": "Pending",
+          "description": ""
+        },
+        {
+          "name": "EndpointConnecting",
+          "value": "Connecting",
+          "description": ""
+        },
+        {
+          "name": "EndpointInventorying",
+          "value": "Inventorying",
+          "description": ""
+        },
+        {
+          "name": "EndpointVerifying",
+          "value": "Verifying",
+          "description": ""
+        },
+        {
+          "name": "EndpointConfiguring",
+          "value": "Configuring",
+          "description": ""
+        },
+        {
+          "name": "EndpointReady",
+          "value": "Ready",
+          "description": ""
+        },
+        {
+          "name": "EndpointUnreachable",
+          "value": "Unreachable",
+          "description": ""
+        },
+        {
+          "name": "EndpointMismatch",
+          "value": "Mismatch",
+          "description": ""
+        }
+      ]
+    }
+  ]
+}

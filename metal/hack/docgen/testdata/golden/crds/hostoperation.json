@@ -1,0 +1,171 @@
+{
+  "kind": "HostOperation",
+  "listKind": "HostOperationList",
+  "group": "metal.pk.io",
+  "version": "v1alpha1",
+  "plural": "hostoperations",
+  "singular": "hostoperation",
+  "shortNames": [
+    "hop"
+  ],
+  "categories": [
+    "metal"
+  ],
+  "scope": "Namespaced",
+  "source": "crd/metal.pk.io_hostoperations.yaml",
+  "description": "HostOperation is one change to one machine.",
+  "statusSubresource": true,
+  "printerColumns": [
+    {
+      "name": "Phase",
+      "type": "string",
+      "jsonPath": ".status.phase",
+      "priority": 0
+    },
+    {
+      "name": "Host",
+      "type": "string",
+      "jsonPath": ".spec.hostRef.name",
+      "priority": 1
+    }
+  ],
+  "validations": [],
+  "fields": [
+    {
+      "path": "spec",
+      "name": "spec",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": false,
+      "description": "HostOperationSpec is what to do.",
+      "validations": [
+        {
+          "rule": "self.mode == oldSelf.mode",
+          "message": "mode is frozen"
+        }
+      ]
+    },
+    {
+      "path": "spec.actions",
+      "name": "actions",
+      "parent": "spec",
+      "depth": 1,
+      "type": "[]object",
+      "required": true,
+      "minItems": 1,
+      "maxItems": 8,
+      "description": "Actions run in order.",
+      "validations": [
+        {
+          "rule": "size(self) == 1",
+          "message": "set exactly one action"
+        }
+      ]
+    },
+    {
+      "path": "spec.actions[].powerOff",
+      "name": "powerOff",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "PowerOff turns the system off."
+    },
+    {
+      "path": "spec.actions[].powerOff.gracefulTimeoutSeconds",
+      "name": "gracefulTimeoutSeconds",
+      "parent": "spec.actions[].powerOff",
+      "depth": 3,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "minimum": 0,
+      "maximum": 3600,
+      "description": "GracefulTimeoutSeconds asks the OS first."
+    },
+    {
+      "path": "spec.actions[].wait",
+      "name": "wait",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "Wait waits for the node."
+    },
+    {
+      "path": "spec.actions[].wait.nodeRef",
+      "name": "nodeRef",
+      "parent": "spec.actions[].wait",
+      "depth": 3,
+      "type": "object",
+      "required": true,
+      "description": "NodeRef names the node."
+    },
+    {
+      "path": "spec.actions[].wait.nodeRef.name",
+      "name": "name",
+      "parent": "spec.actions[].wait.nodeRef",
+      "depth": 4,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.labels",
+      "name": "labels",
+      "parent": "spec",
+      "depth": 1,
+      "type": "map[string]string",
+      "required": false,
+      "description": "Labels to set."
+    },
+    {
+      "path": "spec.mode",
+      "name": "mode",
+      "parent": "spec",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "default": "soft",
+      "enum": [
+        "soft",
+        "hard"
+      ],
+      "description": "Mode picks how."
+    },
+    {
+      "path": "spec.targets",
+      "name": "targets",
+      "parent": "spec",
+      "depth": 1,
+      "type": "[]string",
+      "required": false,
+      "pattern": "^[a-z]+$",
+      "listType": "set",
+      "description": ""
+    },
+    {
+      "path": "status",
+      "name": "status",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": false,
+      "description": ""
+    },
+    {
+      "path": "status.phase",
+      "name": "phase",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "enum": [
+        "Proposed",
+        "Running"
+      ],
+      "description": "Phase summarizes the conditions."
+    }
+  ]
+}

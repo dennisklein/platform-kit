@@ -1,0 +1,28 @@
+pk-metal status: show machines (reads only)
+
+usage: pk-metal status [-o table|json]
+
+Tables:
+  HOST       one row per machine
+
+exit status:
+  0  nothing needs a person
+  2  something is blocked or failed, including
+     operations that wait for approval
+
+examples:
+  pk-metal status
+  pk-metal status -o json
+
+flags:
+  -context string
+    	kubeconfig context to use (default: the current context)
+  -kubeconfig string
+    	kubeconfig file
+  -o string
+    	output format: table or json (default "table")
+  -secrets talosctl gen secrets
+    	secrets bundle from talosctl gen secrets,
+    	or - for stdin
+  -wait
+    	wait until done (default true)

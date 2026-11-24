@@ -1,0 +1,11 @@
+pk-metal rollout: see the rollouts, approve one, or abort it
+
+usage: pk-metal rollout list | approve [--yes] <rollout> | abort [--yes] <rollout>
+
+flags:
+  -context string
+    	kubeconfig context to use (default: the current context)
+  -kubeconfig string
+    	kubeconfig file
+  -yes
+    	do not ask (for scripts)

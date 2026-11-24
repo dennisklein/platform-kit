@@ -1,0 +1,484 @@
+{
+  "keys": [
+    {
+      "key": "metal.pk.io/abort",
+      "kind": "annotation",
+      "exported": true,
+      "description": "AnnotationAbort on a HostOperation asks the executor to stop it. The value says who asked and why (pk-metal abort writes \"<user>: <reason>\"). An operation that has not started ends at once. A running one stops before its next step: a step that already acted on the machine (a reboot asked for, a power cycle half done) is finished first, then the executor undoes what the operation left behind (it ejects the media it mounted, clears the boot override it set, and makes schedulable again the node it cordoned) and the operation ends as Aborted. Deleting the operation also stops it, but undoes nothing.",
+      "constants": [
+        {
+          "name": "AnnotationAbort",
+          "source": "metal/api/v1alpha1/hostoperation_types.go"
+        }
+      ]
+    },
+    {
+      "key": "metal.pk.io/ack-etcd-risk",
+      "kind": "annotation",
+      "exported": true,
+      "description": "AnnotationAckEtcdRisk on a HostClaim or a TalosNode lets the removal or reinstall of a control plane go ahead although it leaves etcd with an even number of voting members, without a healthy majority, or with no member at all. Without it the operator refuses such a removal and says why. The value is the person's reason. pk-metal scale sets it on the removals of a plan that passes through an even count.",
+      "constants": [
+        {
+          "name": "AnnotationAckEtcdRisk",
+          "source": "metal/api/v1alpha1/lifecycle_types.go"
+        }
+      ]
+    },
+    {
+      "key": "metal.pk.io/allow-self-disruption",
+      "kind": "annotation",
+      "exported": true,
+      "description": "AnnotationAllowSelfDisruption on a Host lets the operator reboot or power off the machine even though the operator runs on it, or the machine runs a control plane of the cluster the operator runs in. Without it the operator proposes no install, release or BIOS change for such a machine and starts no power action on it: the operator would take itself down halfway. With it, a control plane is still taken down only one at a time, and only while the other control planes keep etcd's majority. Any value counts; remove the annotation when the work is done:\n\n\tkubectl annotate host <host> metal.pk.io/allow-self-disruption=true\n\tkubectl annotate host <host> metal.pk.io/allow-self-disruption-\n\nThe safer way is to move the operator to another cluster first (pk-metal pivot); the machine is then an ordinary one.",
+      "constants": [
+        {
+          "name": "AnnotationAllowSelfDisruption",
+          "source": "metal/api/v1alpha1/host_types.go"
+        }
+      ]
+    },
+    {
+      "key": "metal.pk.io/claim-name",
+      "kind": "label",
+      "exported": false,
+      "description": "",
+      "constants": [
+        {
+          "name": "labelClaimName",
+          "source": "metal/internal/controller/provisioning.go"
+        },
+        {
+          "name": "labelClaimName",
+          "source": "metal/cmd/pk-metal/cluster.go"
+        }
+      ]
+    },
+    {
+      "key": "metal.pk.io/claim-namespace",
+      "kind": "label",
+      "exported": false,
+      "description": "Labels joining the operator's operations back to the claim they serve — operations live in the operator's namespace, claims wherever they are.",
+      "constants": [
+        {
+          "name": "labelClaimNamespace",
+          "source": "metal/internal/controller/provisioning.go"
+        },
+        {
+          "name": "labelClaimNamespace",
+          "source": "metal/cmd/pk-metal/cluster.go"
+        }
+      ]
+    },
+    {
+      "key": "metal.pk.io/claim-protection",
+      "kind": "finalizer",
+      "exported": false,
+      "description": "claimProtection keeps a claimed machine's Host and every endpoint fronting it alive until the claim lets go — the pvc-protection pattern.",
+      "constants": [
+        {
+          "name": "claimProtection",
+          "source": "metal/internal/controller/protection_controller.go"
+        }
+      ]
+    },
+    {
+      "key": "metal.pk.io/claim-uid",
+      "kind": "label",
+      "exported": false,
+      "description": "",
+      "constants": [
+        {
+          "name": "labelClaimUID",
+          "source": "metal/internal/controller/provisioning.go"
+        },
+        {
+          "name": "labelClaimUID",
+          "source": "metal/internal/pivot/copy.go"
+        }
+      ]
+    },
+    {
+      "key": "metal.pk.io/config-digest",
+      "kind": "annotation",
+      "exported": false,
+      "description": "annotationConfigDigest on a boot operation names the rendered config it boots, so its success can be recorded with the digest.",
+      "constants": [
+        {
+          "name": "annotationConfigDigest",
+          "source": "metal/internal/controller/provisioning.go"
+        }
+      ]
+    },
+    {
+      "key": "metal.pk.io/disk-not-wiped",
+      "kind": "annotation",
+      "exported": true,
+      "description": "AnnotationDiskNotWiped on a Host says that the machine may still hold an installed Talos node, with that cluster's credentials and, on a control plane, its etcd data. The operator writes it when it releases a machine it could not reset through Talos (the node did not answer, or the operator's executor could not run a reset), and only an approved wipe clears it. While it is set the operator proposes no install of another node on the machine and no BIOS or firmware change that would power it on. The value is <cluster>/<node>, the node that may still be on the disk.\n\n\tpk-metal wipe <host>",
+      "constants": [
+        {
+          "name": "AnnotationDiskNotWiped",
+          "source": "metal/api/v1alpha1/lifecycle_types.go"
+        }
+      ]
+    },
+    {
+      "key": "metal.pk.io/etcd-snapshot-uploaded",
+      "kind": "annotation",
+      "exported": true,
+      "description": "AnnotationEtcdSnapshotUploaded on a HostOperation with an etcdRecover step records that a person uploaded the snapshot to the node: its value is the sha256:<hex> of the plaintext that pk-metal restore upload sent, after it checked those bytes against the EtcdSnapshot's record. The step waits for it, and only then asks Talos to start etcd from the upload. It is the uploader's statement, not proof; Talos checks etcd's own integrity hash of the upload when it recovers.",
+      "constants": [
+        {
+          "name": "AnnotationEtcdSnapshotUploaded",
+          "source": "metal/api/v1alpha1/hostoperation_etcd_recover.go"
+        }
+      ]
+    },
+    {
+      "key": "metal.pk.io/hold",
+      "kind": "annotation",
+      "exported": true,
+      "description": "AnnotationHold on a HostClaim stops the operator from proposing anything for it: no install, no release. Proposals still waiting for approval are withdrawn. The value is an optional reason, shown in the claim's Provisioned condition. An operation already approved and running is not stopped by it. Remove the annotation to go on.",
+      "constants": [
+        {
+          "name": "AnnotationHold",
+          "source": "metal/api/v1alpha1/hostclaim_types.go"
+        }
+      ]
+    },
+    {
+      "key": "metal.pk.io/ignore-window",
+      "kind": "annotation",
+      "exported": true,
+      "description": "AnnotationIgnoreWindow on a HostOperation lets it start outside every maintenance window. It is for the urgent case a person decides on (a security fix, a machine that is down anyway); the value is free text, the reason, and shows in the operation's record.",
+      "constants": [
+        {
+          "name": "AnnotationIgnoreWindow",
+          "source": "metal/api/v1alpha1/maintenancewindow_types.go"
+        }
+      ]
+    },
+    {
+      "key": "metal.pk.io/maintenance",
+      "kind": "annotation",
+      "exported": true,
+      "description": "AnnotationMaintenance on a Host takes the machine out of the operator's hands, like setting a node offline in a cluster manager: the operator proposes nothing for it (no install, no release, no BIOS or firmware change) and starts no operation on it that has not started yet. An operation already running finishes. The value is the reason, shown in the Host's Maintenance condition and in the messages of claims on it. Remove the annotation to give the machine back:\n\n\tkubectl annotate host <host> metal.pk.io/maintenance=\"replacing DIMM B2\"\n\tkubectl annotate host <host> metal.pk.io/maintenance-",
+      "constants": [
+        {
+          "name": "AnnotationMaintenance",
+          "source": "metal/api/v1alpha1/host_types.go"
+        }
+      ]
+    },
+    {
+      "key": "metal.pk.io/override-cluster-guard",
+      "kind": "annotation",
+      "exported": true,
+      "description": "AnnotationOverrideClusterGuard on a HostOperation lets it take a control plane down although etcd is not fully healthy without it: the way out when etcd is already broken and the reboot is the repair, or for a cluster with a single control plane. The value says why. It does not lift the one-control-plane-at-a-time rule, and it does not lift self-protection.",
+      "constants": [
+        {
+          "name": "AnnotationOverrideClusterGuard",
+          "source": "metal/api/v1alpha1/hostoperation_types.go"
+        }
+      ]
+    },
+    {
+      "key": "metal.pk.io/pivot-replicas",
+      "kind": "annotation",
+      "exported": true,
+      "description": "AnnotationReplicas on the source's operator namespace keeps the manager's replica count from before the pause.",
+      "constants": [
+        {
+          "name": "AnnotationReplicas",
+          "source": "metal/internal/pivot/pivot.go"
+        }
+      ]
+    },
+    {
+      "key": "metal.pk.io/pivot-source",
+      "kind": "annotation",
+      "exported": true,
+      "description": "AnnotationSource on the target's operator namespace names the cluster (its kube-system UID) the operator was moved from.",
+      "constants": [
+        {
+          "name": "AnnotationSource",
+          "source": "metal/internal/pivot/pivot.go"
+        }
+      ]
+    },
+    {
+      "key": "metal.pk.io/pivoted-to",
+      "kind": "annotation",
+      "exported": true,
+      "description": "AnnotationMovedTo on the source's operator namespace names the cluster the operator was moved to. A source carrying it is paused on purpose.",
+      "constants": [
+        {
+          "name": "AnnotationMovedTo",
+          "source": "metal/internal/pivot/pivot.go"
+        }
+      ]
+    },
+    {
+      "key": "metal.pk.io/provisioning",
+      "kind": "label",
+      "exported": false,
+      "description": "labelProvisioning marks BootAssets the lane created for itself.",
+      "constants": [
+        {
+          "name": "labelProvisioning",
+          "source": "metal/internal/controller/provisioning.go"
+        }
+      ]
+    },
+    {
+      "key": "metal.pk.io/purpose",
+      "kind": "label",
+      "exported": false,
+      "description": "",
+      "constants": [
+        {
+          "name": "labelPurpose",
+          "source": "metal/internal/controller/provisioning.go"
+        }
+      ]
+    },
+    {
+      "key": "metal.pk.io/reinstall",
+      "kind": "annotation",
+      "exported": true,
+      "description": "AnnotationReinstall on a HostClaim asks the operator to wipe and reinstall the node the claim runs, on the same machine: for a corrupted install or a replaced disk. The value is the claim's status.handOff.at (RFC 3339), so that it means the install that was there when a person asked, and once: the reinstall writes a new hand-off record, and the annotation, now naming an install that is gone, asks for nothing. pk-metal reinstall sets it.",
+      "constants": [
+        {
+          "name": "AnnotationReinstall",
+          "source": "metal/api/v1alpha1/lifecycle_types.go"
+        }
+      ]
+    },
+    {
+      "key": "metal.pk.io/reinstall-of",
+      "kind": "annotation",
+      "exported": false,
+      "description": "annotationReinstallOf on a reinstall operation is the hand-off time of the install it replaces (AnnotationReinstall's value).",
+      "constants": [
+        {
+          "name": "annotationReinstallOf",
+          "source": "metal/internal/controller/removal.go"
+        }
+      ]
+    },
+    {
+      "key": "metal.pk.io/release",
+      "kind": "finalizer",
+      "exported": false,
+      "description": "releaseFinalizer holds a deleted claim until its machine is handed back.",
+      "constants": [
+        {
+          "name": "releaseFinalizer",
+          "source": "metal/internal/controller/provisioning.go"
+        }
+      ]
+    },
+    {
+      "key": "metal.pk.io/release-power-off",
+      "kind": "annotation",
+      "exported": false,
+      "description": "annotationReleasePowerOff on a Host names the UID of the claim whose release powers the machine off. The executor writes it when a boot of the claim starts, before its first BMC write; the release writes it when it decides. It keeps that decision after the records it was read from are gone: the boot operations are deleted to stop the boot or by pk-metal retry, and the release operation itself can be deleted by pk-metal retry or by its TTL. Without it, the next pass would find no boot and hand back a machine that is still mid-boot. releaseAll removes it when the host is unbound.",
+      "constants": [
+        {
+          "name": "annotationReleasePowerOff",
+          "source": "metal/internal/controller/provisioning.go"
+        },
+        {
+          "name": "annotationReleasePowerOff",
+          "source": "metal/internal/pivot/copy.go"
+        }
+      ]
+    },
+    {
+      "key": "metal.pk.io/retry",
+      "kind": "annotation",
+      "exported": true,
+      "description": "AnnotationRetry on a failed convergence proposal (spec.reason BiosConvergence or FirmwareConvergence) asks the operator for the same plan again: it deletes the failed operation and proposes a new one, which waits for approval like the first. pk-metal retry sets it. Deleting such an operation instead is not a retry: deletion is how a proposal is refused.",
+      "constants": [
+        {
+          "name": "AnnotationRetry",
+          "source": "metal/api/v1alpha1/hostoperation_types.go"
+        }
+      ]
+    },
+    {
+      "key": "metal.pk.io/wipe",
+      "kind": "annotation",
+      "exported": true,
+      "description": "AnnotationWipe on a Host asks the operator to propose a wipe of a machine that carries AnnotationDiskNotWiped: boot an image that erases the system disk, and stop there. The value is the Talos version of the image to boot (the version the node on the disk ran is fine). pk-metal wipe sets it; the operator removes it, together with AnnotationDiskNotWiped, when the wipe succeeded.",
+      "constants": [
+        {
+          "name": "AnnotationWipe",
+          "source": "metal/api/v1alpha1/lifecycle_types.go"
+        }
+      ]
+    },
+    {
+      "key": "metal.pk.io/wipe-host",
+      "kind": "label",
+      "exported": false,
+      "description": "labelWipeHost on a wipe operation names its host, so the host's wipes are listed without the claim labels a wipe does not have.",
+      "constants": [
+        {
+          "name": "labelWipeHost",
+          "source": "metal/internal/controller/host_wipe.go"
+        }
+      ]
+    },
+    {
+      "key": "os.pk.io/boot-asset-uid",
+      "kind": "label",
+      "exported": false,
+      "description": "labelBootAssetUID marks the build Jobs of one BootAsset. The UID, not the name: a name may be longer than a label value can be.",
+      "constants": [
+        {
+          "name": "labelBootAssetUID",
+          "source": "metal/internal/controller/imager.go"
+        }
+      ]
+    },
+    {
+      "key": "os.pk.io/cluster",
+      "kind": "label",
+      "exported": true,
+      "description": "",
+      "constants": [
+        {
+          "name": "LabelSnapshotCluster",
+          "source": "metal/api/os/v1alpha1/etcdbackup_types.go"
+        }
+      ]
+    },
+    {
+      "key": "os.pk.io/config-digest",
+      "kind": "annotation",
+      "exported": false,
+      "description": "configDigestAnnotation records which config digest an artifact Secret was built from. ISO recording metadata would make artifact bytes per-build, so rebuilds key on this — never on the artifact digest.",
+      "constants": [
+        {
+          "name": "configDigestAnnotation",
+          "source": "metal/internal/controller/bootasset_controller.go"
+        },
+        {
+          "name": "annotationConfigSecretDigest",
+          "source": "metal/internal/controller/talosnode_day2.go"
+        }
+      ]
+    },
+    {
+      "key": "os.pk.io/etcd-backup-policy",
+      "kind": "label",
+      "exported": true,
+      "description": "",
+      "constants": [
+        {
+          "name": "LabelSnapshotPolicy",
+          "source": "metal/api/os/v1alpha1/etcdbackup_types.go"
+        }
+      ]
+    },
+    {
+      "key": "os.pk.io/etcd-restore",
+      "kind": "label",
+      "exported": false,
+      "description": "labelRestoreCluster marks the operations restore proposes for a cluster.",
+      "constants": [
+        {
+          "name": "labelRestoreCluster",
+          "source": "metal/cmd/pk-metal/restore.go"
+        }
+      ]
+    },
+    {
+      "key": "os.pk.io/member",
+      "kind": "finalizer",
+      "exported": false,
+      "description": "talosNodeMemberFinalizer holds a deleted TalosNode until its node is out of its cluster. Without it a TalosNode could vanish while its machine still runs, with nothing left to say which cluster that machine is a member of, and the steps that take it out (drain, etcd leave, reset) would have no node to act on.",
+      "constants": [
+        {
+          "name": "talosNodeMemberFinalizer",
+          "source": "metal/internal/controller/talosnode_finalizer.go"
+        }
+      ]
+    },
+    {
+      "key": "os.pk.io/node",
+      "kind": "label",
+      "exported": false,
+      "description": "labelNode on a lifecycle operation names the TalosNode it acts for.",
+      "constants": [
+        {
+          "name": "labelNode",
+          "source": "metal/internal/controller/removal.go"
+        },
+        {
+          "name": "labelConfigNode",
+          "source": "metal/internal/controller/talosnode_day2.go"
+        }
+      ]
+    },
+    {
+      "key": "os.pk.io/observe",
+      "kind": "annotation",
+      "exported": false,
+      "description": "annotationObserve on a TalosNode asks its reconciler to look at the machine now. The value only has to change; it names the operation and the time that asked.",
+      "constants": [
+        {
+          "name": "annotationObserve",
+          "source": "metal/internal/controller/hostoperation_reinstall.go"
+        }
+      ]
+    },
+    {
+      "key": "os.pk.io/proposal",
+      "kind": "label",
+      "exported": false,
+      "description": "labelProposal marks a rollout the operator proposed with the hash of what it proposes.",
+      "constants": [
+        {
+          "name": "labelProposal",
+          "source": "metal/internal/controller/talosrollout_proposer.go"
+        }
+      ]
+    },
+    {
+      "key": "os.pk.io/restore-pending",
+      "kind": "annotation",
+      "exported": true,
+      "description": "AnnotationRestorePending on a TalosCluster says that its etcd is to be restored from a snapshot, not started empty: the operator does not bootstrap the cluster while it is set, even though it was never seen bootstrapped. Set it on a TalosCluster re-created to restore a lost cluster (docs site: operate/day-2/restore-etcd, \"Majority lost\"). Once the restored etcd is observed, status.bootstrappedAt takes over and the annotation has no further effect.",
+      "constants": [
+        {
+          "name": "AnnotationRestorePending",
+          "source": "metal/api/os/v1alpha1/etcdbackup_types.go"
+        }
+      ]
+    },
+    {
+      "key": "os.pk.io/resume",
+      "kind": "annotation",
+      "exported": true,
+      "description": "AnnotationRolloutResume on a TalosRollout lets it go on past the pause after its first node. Its value must be the rollout's planHash: a resume given for one plan does not carry over to another. `pk-metal rollout resume` sets it.",
+      "constants": [
+        {
+          "name": "AnnotationRolloutResume",
+          "source": "metal/api/os/v1alpha1/talosrollout_types.go"
+        }
+      ]
+    },
+    {
+      "key": "os.pk.io/rollout",
+      "kind": "label",
+      "exported": true,
+      "description": "LabelRollout on a HostOperation names the TalosRollout it is one node's part of.",
+      "constants": [
+        {
+          "name": "LabelRollout",
+          "source": "metal/api/os/v1alpha1/talosrollout_types.go"
+        }
+      ]
+    }
+  ]
+}

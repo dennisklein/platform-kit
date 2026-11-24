@@ -1,0 +1,37 @@
+{
+  "name": "unhold",
+  "summary": "remove a hold, so that the operator proposes operations for the claim again",
+  "synopsis": "[-n namespace] <claim> | <namespace>/<claim>",
+  "usage": [
+    "pk-metal unhold [-n namespace] <claim> | <namespace>/<claim>"
+  ],
+  "changes": true,
+  "needsCluster": true,
+  "description": "",
+  "examples": [],
+  "exitStatus": [],
+  "flags": [
+    {
+      "name": "context",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig context to use (default: the current context)",
+      "global": true
+    },
+    {
+      "name": "kubeconfig",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig file (default: $KUBECONFIG, then ~/.kube/config, then the in-cluster account)",
+      "global": true
+    },
+    {
+      "name": "n",
+      "type": "string",
+      "default": "default",
+      "usage": "namespace of the claim",
+      "global": false
+    }
+  ],
+  "subcommands": []
+}

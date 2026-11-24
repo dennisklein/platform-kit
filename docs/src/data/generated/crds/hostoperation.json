@@ -1,0 +1,1563 @@
+{
+  "kind": "HostOperation",
+  "listKind": "HostOperationList",
+  "group": "metal.pk.io",
+  "version": "v1alpha1",
+  "plural": "hostoperations",
+  "singular": "hostoperation",
+  "shortNames": [],
+  "categories": [
+    "metal"
+  ],
+  "scope": "Namespaced",
+  "source": "metal/config/crd/metal.pk.io_hostoperations.yaml",
+  "description": "HostOperation is one step that changes a machine — an install, a shutdown, a BIOS change, a firmware flash — and the record of what happened. The operator proposes it; spec.actions lists exactly what will be done, in order, so read it before you approve.\n\n- Approve:   pk-metal approve <namespace>/<operation> (someone other than the proposer must approve).\n- Refuse:    delete the operation, or set metal.pk.io/hold on the HostClaim so the operator stops proposing.\n- Retry:     pk-metal retry <namespace>/<operation> once you have fixed the cause. A failed operation is never retried on its own.\n\nkubectl get hostoperations shows what waits (Phase AwaitingApproval) and what failed; kubectl describe shows each step's message.",
+  "statusSubresource": true,
+  "printerColumns": [
+    {
+      "name": "Host",
+      "type": "string",
+      "jsonPath": ".spec.hostRef.name",
+      "priority": 0
+    },
+    {
+      "name": "Phase",
+      "type": "string",
+      "jsonPath": ".status.phase",
+      "priority": 0
+    },
+    {
+      "name": "Reason",
+      "type": "string",
+      "jsonPath": ".spec.reason",
+      "priority": 0
+    },
+    {
+      "name": "Proposed",
+      "type": "string",
+      "jsonPath": ".spec.proposedBy",
+      "priority": 1
+    },
+    {
+      "name": "Approved",
+      "type": "string",
+      "jsonPath": ".spec.approval.approvedBy",
+      "priority": 0
+    },
+    {
+      "name": "Blocked",
+      "type": "string",
+      "jsonPath": ".status.blockedOn",
+      "priority": 1
+    },
+    {
+      "name": "Age",
+      "type": "date",
+      "jsonPath": ".metadata.creationTimestamp",
+      "priority": 0
+    }
+  ],
+  "validations": [],
+  "fields": [
+    {
+      "path": "spec",
+      "name": "spec",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": true,
+      "description": "HostOperationSpec is what to do to a machine, and the approval that lets it happen.\n\nThe operator proposes an operation by creating it; a person approves it by setting spec.approval. The machine and the actions cannot be changed after creation, so the right to edit an operation is only the right to approve it. The cluster checks who may approve, and refuses an approval by the person who proposed the operation.",
+      "validations": [
+        {
+          "rule": "!has(oldSelf.proposedBy) || (has(self.proposedBy) && self.proposedBy == oldSelf.proposedBy)",
+          "message": "proposedBy is frozen after creation"
+        },
+        {
+          "rule": "has(self.rolloutRef) == has(oldSelf.rolloutRef) && (!has(self.rolloutRef) || self.rolloutRef == oldSelf.rolloutRef)",
+          "message": "rolloutRef is frozen after creation"
+        }
+      ]
+    },
+    {
+      "path": "spec.actions",
+      "name": "actions",
+      "parent": "spec",
+      "depth": 1,
+      "type": "[]object",
+      "required": true,
+      "minItems": 1,
+      "maxItems": 32,
+      "listType": "atomic",
+      "description": "Actions run in order; each entry is exactly one action. A failed step fails the operation — disruptive one-shots never auto-retry. At most one power action per operation: the power-cycle proof lives in status once.",
+      "validations": [
+        {
+          "rule": "self.filter(a, has(a.powerCycle) || has(a.powerOff)).size() <= 1",
+          "message": "at most one power action per operation"
+        },
+        {
+          "rule": "self == oldSelf",
+          "message": "actions are frozen after creation"
+        }
+      ]
+    },
+    {
+      "path": "spec.actions[].applyBios",
+      "name": "applyBios",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "ApplyBios stages a BiosSettings object's desired attributes into the machine's pending (@Redfish.Settings) object. Staging changes nothing — the world moves at the next system reset, so a convergence operation pairs this with a powerCycle."
+    },
+    {
+      "path": "spec.actions[].applyBios.attributes",
+      "name": "attributes",
+      "parent": "spec.actions[].applyBios",
+      "depth": 3,
+      "type": "map[string]any",
+      "required": true,
+      "minProperties": 1,
+      "description": "Attributes are the values to stage, copied in at proposal time — what the approver saw is exactly what is applied. Keys already current are left out; keys already staged with the wanted value are PATCHed again with the rest, so the staging carries the apply time this client asks for, and a refusal to stage only such keys again counts as staged."
+    },
+    {
+      "path": "spec.actions[].applyBios.settingsRef",
+      "name": "settingsRef",
+      "parent": "spec.actions[].applyBios",
+      "depth": 3,
+      "type": "object",
+      "required": false,
+      "description": "SettingsRef names the BiosSettings the attributes came from — provenance only: the executor never reads it, so an edit after approval cannot change what runs."
+    },
+    {
+      "path": "spec.actions[].applyBios.settingsRef.name",
+      "name": "name",
+      "parent": "spec.actions[].applyBios.settingsRef",
+      "depth": 4,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.actions[].awaitCheckIn",
+      "name": "awaitCheckIn",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "AwaitCheckIn waits, without touching the machine, until the named TalosNode reports that the machine runs its config — the point after which the boot media are no longer needed. It changes nothing; it keeps the operation (and the grants it issued) alive until the hand-off."
+    },
+    {
+      "path": "spec.actions[].awaitCheckIn.nodeRef",
+      "name": "nodeRef",
+      "parent": "spec.actions[].awaitCheckIn",
+      "depth": 3,
+      "type": "object",
+      "required": true,
+      "description": "NodeRef names the TalosNode (os.pk.io) whose check-in ends the wait: MachineReachable=True over the authenticated machine API, or Ready=True."
+    },
+    {
+      "path": "spec.actions[].awaitCheckIn.nodeRef.name",
+      "name": "name",
+      "parent": "spec.actions[].awaitCheckIn.nodeRef",
+      "depth": 4,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.actions[].awaitCheckIn.timeoutSeconds",
+      "name": "timeoutSeconds",
+      "parent": "spec.actions[].awaitCheckIn",
+      "depth": 3,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "default": 1800,
+      "minimum": 60,
+      "maximum": 86400,
+      "description": "TimeoutSeconds bounds the wait, counted from the previous step's end. Running out fails the step — the media are ejected and the grants revoked either way."
+    },
+    {
+      "path": "spec.actions[].cordon",
+      "name": "cordon",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "Cordon marks the node's Kubernetes Node unschedulable. Already cordoned is success."
+    },
+    {
+      "path": "spec.actions[].cordon.nodeRef",
+      "name": "nodeRef",
+      "parent": "spec.actions[].cordon",
+      "depth": 3,
+      "type": "object",
+      "required": true,
+      "description": "NodeRef names the TalosNode (os.pk.io); its hostname is the Kubernetes Node's name."
+    },
+    {
+      "path": "spec.actions[].cordon.nodeRef.name",
+      "name": "name",
+      "parent": "spec.actions[].cordon.nodeRef",
+      "depth": 4,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.actions[].deleteKubernetesNode",
+      "name": "deleteKubernetesNode",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "DeleteKubernetesNode deletes the node's Node object from its cluster's Kubernetes API, the last trace of a removed node there. Already gone is success."
+    },
+    {
+      "path": "spec.actions[].deleteKubernetesNode.nodeRef",
+      "name": "nodeRef",
+      "parent": "spec.actions[].deleteKubernetesNode",
+      "depth": 3,
+      "type": "object",
+      "required": true,
+      "description": "NodeRef names the TalosNode (os.pk.io); its name is the Kubernetes Node's name, and its cluster says which Kubernetes API to ask."
+    },
+    {
+      "path": "spec.actions[].deleteKubernetesNode.nodeRef.name",
+      "name": "name",
+      "parent": "spec.actions[].deleteKubernetesNode.nodeRef",
+      "depth": 4,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.actions[].drain",
+      "name": "drain",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "Drain evicts the pods on the node through the Eviction API, so that PodDisruptionBudgets hold: an eviction a budget refuses is waited out, not forced, until the timeout fails the step. The node stays cordoned either way. A node not yet cordoned is cordoned first."
+    },
+    {
+      "path": "spec.actions[].drain.deleteEmptyDirData",
+      "name": "deleteEmptyDirData",
+      "parent": "spec.actions[].drain",
+      "depth": 3,
+      "type": "boolean",
+      "required": false,
+      "description": "DeleteEmptyDirData lets the drain evict pods with emptyDir volumes, whose data is lost. Without it such a pod fails the step."
+    },
+    {
+      "path": "spec.actions[].drain.gracePeriodSeconds",
+      "name": "gracePeriodSeconds",
+      "parent": "spec.actions[].drain",
+      "depth": 3,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "minimum": 0,
+      "maximum": 3600,
+      "description": "GracePeriodSeconds overrides each pod's termination grace period; unset keeps the pod's own."
+    },
+    {
+      "path": "spec.actions[].drain.nodeRef",
+      "name": "nodeRef",
+      "parent": "spec.actions[].drain",
+      "depth": 3,
+      "type": "object",
+      "required": true,
+      "description": "NodeRef names the TalosNode (os.pk.io) to drain."
+    },
+    {
+      "path": "spec.actions[].drain.nodeRef.name",
+      "name": "name",
+      "parent": "spec.actions[].drain.nodeRef",
+      "depth": 4,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.actions[].drain.timeoutSeconds",
+      "name": "timeoutSeconds",
+      "parent": "spec.actions[].drain",
+      "depth": 3,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "default": 900,
+      "minimum": 30,
+      "maximum": 86400,
+      "description": "TimeoutSeconds bounds the whole drain, budget waits included. Running out fails the step and leaves the node cordoned."
+    },
+    {
+      "path": "spec.actions[].ejectMedia",
+      "name": "ejectMedia",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "EjectMedia unmounts a virtual-media slot."
+    },
+    {
+      "path": "spec.actions[].ejectMedia.mediaId",
+      "name": "mediaId",
+      "parent": "spec.actions[].ejectMedia",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "description": "MediaID is the virtual-media slot to empty."
+    },
+    {
+      "path": "spec.actions[].etcdForfeitLeadership",
+      "name": "etcdForfeitLeadership",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "EtcdForfeitLeadership hands etcd leadership to another member when the node's member leads, asked on the node itself; a follower is left as it is. A control plane that is about to leave or go down does it first, so that its departure does not cost an election under load."
+    },
+    {
+      "path": "spec.actions[].etcdForfeitLeadership.nodeRef",
+      "name": "nodeRef",
+      "parent": "spec.actions[].etcdForfeitLeadership",
+      "depth": 3,
+      "type": "object",
+      "required": true,
+      "description": "NodeRef names the control-plane TalosNode (os.pk.io) whose member gives up leadership."
+    },
+    {
+      "path": "spec.actions[].etcdForfeitLeadership.nodeRef.name",
+      "name": "name",
+      "parent": "spec.actions[].etcdForfeitLeadership.nodeRef",
+      "depth": 4,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.actions[].etcdLeave",
+      "name": "etcdLeave",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "EtcdLeave makes the node's etcd member leave the cluster, asked on the node itself: the orderly removal of a control plane that still answers."
+    },
+    {
+      "path": "spec.actions[].etcdLeave.nodeRef",
+      "name": "nodeRef",
+      "parent": "spec.actions[].etcdLeave",
+      "depth": 3,
+      "type": "object",
+      "required": true,
+      "description": "NodeRef names the control-plane TalosNode (os.pk.io) that leaves."
+    },
+    {
+      "path": "spec.actions[].etcdLeave.nodeRef.name",
+      "name": "name",
+      "parent": "spec.actions[].etcdLeave.nodeRef",
+      "depth": 4,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.actions[].etcdRecover",
+      "name": "etcdRecover",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "EtcdRecover restores the etcd of a cluster that lost all of it from an EtcdSnapshot, on one control plane: a person uploads the decrypted snapshot (pk-metal restore upload), then Talos starts etcd from it. See EtcdRecoverAction and the docs site: operate/day-2/restore-etcd."
+    },
+    {
+      "path": "spec.actions[].etcdRecover.nodeRef",
+      "name": "nodeRef",
+      "parent": "spec.actions[].etcdRecover",
+      "depth": 3,
+      "type": "object",
+      "required": true,
+      "description": "NodeRef names the control-plane TalosNode (os.pk.io) etcd is restored on."
+    },
+    {
+      "path": "spec.actions[].etcdRecover.nodeRef.name",
+      "name": "name",
+      "parent": "spec.actions[].etcdRecover.nodeRef",
+      "depth": 4,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.actions[].etcdRecover.sha256",
+      "name": "sha256",
+      "parent": "spec.actions[].etcdRecover",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "description": "SHA256 pins the plaintext snapshot (sha256:<hex>) the approver approved: the EtcdSnapshot's record must still say so, and the upload must name it."
+    },
+    {
+      "path": "spec.actions[].etcdRecover.snapshotRef",
+      "name": "snapshotRef",
+      "parent": "spec.actions[].etcdRecover",
+      "depth": 3,
+      "type": "object",
+      "required": true,
+      "description": "SnapshotRef names the EtcdSnapshot (os.pk.io) to restore."
+    },
+    {
+      "path": "spec.actions[].etcdRecover.snapshotRef.name",
+      "name": "name",
+      "parent": "spec.actions[].etcdRecover.snapshotRef",
+      "depth": 4,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.actions[].etcdRecover.timeoutSeconds",
+      "name": "timeoutSeconds",
+      "parent": "spec.actions[].etcdRecover",
+      "depth": 3,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "default": 7200,
+      "minimum": 300,
+      "maximum": 86400,
+      "description": "TimeoutSeconds bounds the step, the wait for the upload included, counted from the previous step's end (or the approval)."
+    },
+    {
+      "path": "spec.actions[].etcdRemoveMember",
+      "name": "etcdRemoveMember",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "EtcdRemoveMember removes one etcd member by its ID, asked through a healthy control-plane peer: the path for a member whose node can no longer leave by itself (wiped, dead, unreachable)."
+    },
+    {
+      "path": "spec.actions[].etcdRemoveMember.hostname",
+      "name": "hostname",
+      "parent": "spec.actions[].etcdRemoveMember",
+      "depth": 3,
+      "type": "string",
+      "required": false,
+      "description": "Hostname is the member's hostname as etcd listed it at proposal, for the approver."
+    },
+    {
+      "path": "spec.actions[].etcdRemoveMember.memberId",
+      "name": "memberId",
+      "parent": "spec.actions[].etcdRemoveMember",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "pattern": "^[0-9a-f]{1,16}$",
+      "description": "MemberID is the etcd member ID in hex, as etcd lists it, fixed at proposal: the executor removes exactly this member, never \"whatever carries that hostname now\", which after a rejoin is the new member."
+    },
+    {
+      "path": "spec.actions[].etcdRemoveMember.nodeRef",
+      "name": "nodeRef",
+      "parent": "spec.actions[].etcdRemoveMember",
+      "depth": 3,
+      "type": "object",
+      "required": true,
+      "description": "NodeRef names the TalosNode (os.pk.io) whose member is removed: provenance for the approver, and how the executor finds the cluster and a peer to ask."
+    },
+    {
+      "path": "spec.actions[].etcdRemoveMember.nodeRef.name",
+      "name": "name",
+      "parent": "spec.actions[].etcdRemoveMember.nodeRef",
+      "depth": 4,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.actions[].flashFirmware",
+      "name": "flashFirmware",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "FlashFirmware pushes a firmware image to the management controller and waits for proof that it took: the controller rebooting, and the expected version reading back afterwards. A reported success is not believed on its own."
+    },
+    {
+      "path": "spec.actions[].flashFirmware.image",
+      "name": "image",
+      "parent": "spec.actions[].flashFirmware",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "pattern": "@sha256:[a-f0-9]{64}$",
+      "description": "Image is the digest-pinned OCI reference to fetch and push (the same shape as FirmwareProfile.spec.manager.image)."
+    },
+    {
+      "path": "spec.actions[].flashFirmware.version",
+      "name": "version",
+      "parent": "spec.actions[].flashFirmware",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "minLength": 1,
+      "description": "Version is the version expected to read back after the flash — the convergence goal: a manager already serving it makes this step a no-op."
+    },
+    {
+      "path": "spec.actions[].insertMedia",
+      "name": "insertMedia",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "InsertMedia mounts an image URL on a virtual-media slot, dispatching the dialect the endpoint advertises (standard InsertMedia vs OEM VmmControl).",
+      "validations": [
+        {
+          "rule": "has(self.imageUrl) != has(self.bootAssetRef)",
+          "message": "exactly one of imageUrl and bootAssetRef"
+        },
+        {
+          "rule": "!has(self.digest) || has(self.bootAssetRef)",
+          "message": "digest pins a bootAssetRef"
+        }
+      ]
+    },
+    {
+      "path": "spec.actions[].insertMedia.bootAssetRef",
+      "name": "bootAssetRef",
+      "parent": "spec.actions[].insertMedia",
+      "depth": 3,
+      "type": "object",
+      "required": false,
+      "description": "BootAssetRef names the BootAsset (os.pk.io) to mount."
+    },
+    {
+      "path": "spec.actions[].insertMedia.bootAssetRef.name",
+      "name": "name",
+      "parent": "spec.actions[].insertMedia.bootAssetRef",
+      "depth": 4,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.actions[].insertMedia.digest",
+      "name": "digest",
+      "parent": "spec.actions[].insertMedia",
+      "depth": 3,
+      "type": "string",
+      "required": false,
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "description": "Digest pins the artifact bytes (sha256:<hex>) the approver saw: an artifact rebuilt since the proposal fails the step instead of mounting content nobody approved. With a digest the asset need not be Ready: the artifact approved is mounted while a newer build runs, and an asset that names no artifact yet makes the step wait. Secret-bearing assets (configISO, embeddedInstaller) only."
+    },
+    {
+      "path": "spec.actions[].insertMedia.imageUrl",
+      "name": "imageUrl",
+      "parent": "spec.actions[].insertMedia",
+      "depth": 3,
+      "type": "string",
+      "required": false,
+      "description": "ImageURL is what to mount. Already-mounted with the same URL is success — steps converge to their goal, so a resumed operation never double-issues."
+    },
+    {
+      "path": "spec.actions[].insertMedia.mediaId",
+      "name": "mediaId",
+      "parent": "spec.actions[].insertMedia",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "description": "MediaID is the virtual-media slot (\"CD\", \"USBStick\", …)."
+    },
+    {
+      "path": "spec.actions[].powerCycle",
+      "name": "powerCycle",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "PowerCycle restarts the system: off, observed off, on, observed on — or just on when it was off at the baseline. Each half converges on the reported power state, which every vendor serves, so a resumed operation never cycles a machine twice (the iBMC serves no reset time to tell)."
+    },
+    {
+      "path": "spec.actions[].powerOff",
+      "name": "powerOff",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "PowerOff turns the system off and waits until it reports off. With gracefulTimeoutSeconds it first asks the OS to shut down, and forces the machine off only if it is still on when that time has passed."
+    },
+    {
+      "path": "spec.actions[].powerOff.gracefulTimeoutSeconds",
+      "name": "gracefulTimeoutSeconds",
+      "parent": "spec.actions[].powerOff",
+      "depth": 3,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "minimum": 0,
+      "maximum": 3600,
+      "description": "GracefulTimeoutSeconds, when set, makes the step ask the OS to shut down first (Redfish GracefulShutdown, the same as a short press of the power button or `ipmitool chassis power soft`), wait this long for the machine to report off, and only then force it off. Unset or 0 forces the machine off at once. A BMC that refuses a graceful shutdown is forced at once too."
+    },
+    {
+      "path": "spec.actions[].setBootOverride",
+      "name": "setBootOverride",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "SetBootOverride sets the source the machine boots from next. The target must be one the endpoint actually offers — machines disagree about what they call a virtual CD, so the value is checked against what was discovered rather than assumed."
+    },
+    {
+      "path": "spec.actions[].setBootOverride.mode",
+      "name": "mode",
+      "parent": "spec.actions[].setBootOverride",
+      "depth": 3,
+      "type": "string",
+      "required": false,
+      "enum": [
+        "UEFI",
+        "Legacy"
+      ],
+      "description": "Mode is the firmware boot mode for the override. Omitted leaves the machine's own setting alone (some firmware rejects the property)."
+    },
+    {
+      "path": "spec.actions[].setBootOverride.once",
+      "name": "once",
+      "parent": "spec.actions[].setBootOverride",
+      "depth": 3,
+      "type": "boolean",
+      "required": false,
+      "default": true,
+      "description": "Once limits the override to the next boot (the default); false is Continuous."
+    },
+    {
+      "path": "spec.actions[].setBootOverride.target",
+      "name": "target",
+      "parent": "spec.actions[].setBootOverride",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "description": "Target is the boot source (UsbCd, Cd, Pxe, …) — validated against the endpoint's discovered AllowableValues at execution, not at admission."
+    },
+    {
+      "path": "spec.actions[].stageFirmware",
+      "name": "stageFirmware",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "StageFirmware pushes a system firmware image (BIOS/UEFI, NIC, RAID) to the BMC to apply at the machine's next reset. Staging changes nothing that runs; a reboot later in the operation applies it, and the version the inventory reports afterwards is the proof."
+    },
+    {
+      "path": "spec.actions[].stageFirmware.image",
+      "name": "image",
+      "parent": "spec.actions[].stageFirmware",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "pattern": "@sha256:[a-f0-9]{64}$",
+      "description": "Image is the digest-pinned OCI reference of the update package."
+    },
+    {
+      "path": "spec.actions[].stageFirmware.targets",
+      "name": "targets",
+      "parent": "spec.actions[].stageFirmware",
+      "depth": 3,
+      "type": "[]string",
+      "required": true,
+      "minItems": 1,
+      "maxItems": 16,
+      "listType": "set",
+      "description": "Targets are the FirmwareInventory member ids to update, fixed at proposal: the approver sees which components change."
+    },
+    {
+      "path": "spec.actions[].stageFirmware.version",
+      "name": "version",
+      "parent": "spec.actions[].stageFirmware",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "minLength": 1,
+      "description": "Version is the version the entries report once the package applied: an entry that already reports it is not staged again."
+    },
+    {
+      "path": "spec.actions[].talosApplyConfig",
+      "name": "talosApplyConfig",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "TalosApplyConfig applies a rendered machine config, the bytes pinned by digest at proposal."
+    },
+    {
+      "path": "spec.actions[].talosApplyConfig.configSecretRef",
+      "name": "configSecretRef",
+      "parent": "spec.actions[].talosApplyConfig",
+      "depth": 3,
+      "type": "object",
+      "required": true,
+      "description": "ConfigSecretRef names the Secret, in the operator's namespace, that holds the rendered config."
+    },
+    {
+      "path": "spec.actions[].talosApplyConfig.configSecretRef.name",
+      "name": "name",
+      "parent": "spec.actions[].talosApplyConfig.configSecretRef",
+      "depth": 4,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.actions[].talosApplyConfig.digest",
+      "name": "digest",
+      "parent": "spec.actions[].talosApplyConfig",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "description": "Digest pins the config bytes (sha256:<hex>) the approver saw: a Secret whose content no longer hashes to it fails the step instead of applying a config nobody approved."
+    },
+    {
+      "path": "spec.actions[].talosApplyConfig.mode",
+      "name": "mode",
+      "parent": "spec.actions[].talosApplyConfig",
+      "depth": 3,
+      "type": "string",
+      "required": false,
+      "default": "NoReboot",
+      "enum": [
+        "Auto",
+        "NoReboot",
+        "Reboot",
+        "Staged",
+        "Try"
+      ],
+      "description": "Mode is how the node takes the config: NoReboot fails when a change needs a reboot, Reboot always reboots, Staged applies at the next boot, Try rolls back after tryTimeoutSeconds unless confirmed, Auto lets the node choose."
+    },
+    {
+      "path": "spec.actions[].talosApplyConfig.nodeRef",
+      "name": "nodeRef",
+      "parent": "spec.actions[].talosApplyConfig",
+      "depth": 3,
+      "type": "object",
+      "required": true,
+      "description": "NodeRef names the TalosNode (os.pk.io) whose config this is."
+    },
+    {
+      "path": "spec.actions[].talosApplyConfig.nodeRef.name",
+      "name": "name",
+      "parent": "spec.actions[].talosApplyConfig.nodeRef",
+      "depth": 4,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.actions[].talosApplyConfig.tryTimeoutSeconds",
+      "name": "tryTimeoutSeconds",
+      "parent": "spec.actions[].talosApplyConfig",
+      "depth": 3,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "minimum": 10,
+      "maximum": 3600,
+      "description": "TryTimeoutSeconds bounds Try mode; unset is the node's default."
+    },
+    {
+      "path": "spec.actions[].talosReboot",
+      "name": "talosReboot",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "TalosReboot asks Talos to reboot the node: services stop and filesystems unmount before the kernel restarts, unlike a BMC powerCycle, which cuts the power."
+    },
+    {
+      "path": "spec.actions[].talosReboot.mode",
+      "name": "mode",
+      "parent": "spec.actions[].talosReboot",
+      "depth": 3,
+      "type": "string",
+      "required": false,
+      "default": "Default",
+      "enum": [
+        "Default",
+        "PowerCycle"
+      ],
+      "description": "Mode is Default (kexec or a warm reboot) or PowerCycle (a cold start at the end, for firmware that applies only then)."
+    },
+    {
+      "path": "spec.actions[].talosReboot.nodeRef",
+      "name": "nodeRef",
+      "parent": "spec.actions[].talosReboot",
+      "depth": 3,
+      "type": "object",
+      "required": true,
+      "description": "NodeRef names the TalosNode (os.pk.io) to reboot."
+    },
+    {
+      "path": "spec.actions[].talosReboot.nodeRef.name",
+      "name": "name",
+      "parent": "spec.actions[].talosReboot.nodeRef",
+      "depth": 4,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.actions[].talosReset",
+      "name": "talosReset",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "TalosReset wipes the node through Talos, back towards maintenance mode.",
+      "validations": [
+        {
+          "rule": "!has(self.systemPartitions) || !has(self.mode) || self.mode != 'UserDisks'",
+          "message": "systemPartitions do not apply to mode UserDisks"
+        }
+      ]
+    },
+    {
+      "path": "spec.actions[].talosReset.graceful",
+      "name": "graceful",
+      "parent": "spec.actions[].talosReset",
+      "depth": 3,
+      "type": "boolean",
+      "required": false,
+      "default": true,
+      "description": "Graceful leaves etcd (on a control plane) and cordons and drains the node before wiping. A node that cannot reach its peers needs false, and its member is then removed by an etcdRemoveMember step."
+    },
+    {
+      "path": "spec.actions[].talosReset.mode",
+      "name": "mode",
+      "parent": "spec.actions[].talosReset",
+      "depth": 3,
+      "type": "string",
+      "required": false,
+      "default": "All",
+      "enum": [
+        "All",
+        "SystemDisk",
+        "UserDisks"
+      ],
+      "description": "Mode picks the disks: All (system and user disks), SystemDisk or UserDisks."
+    },
+    {
+      "path": "spec.actions[].talosReset.nodeRef",
+      "name": "nodeRef",
+      "parent": "spec.actions[].talosReset",
+      "depth": 3,
+      "type": "object",
+      "required": true,
+      "description": "NodeRef names the TalosNode (os.pk.io) to reset."
+    },
+    {
+      "path": "spec.actions[].talosReset.nodeRef.name",
+      "name": "name",
+      "parent": "spec.actions[].talosReset.nodeRef",
+      "depth": 4,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.actions[].talosReset.reboot",
+      "name": "reboot",
+      "parent": "spec.actions[].talosReset",
+      "depth": 3,
+      "type": "boolean",
+      "required": false,
+      "description": "Reboot boots the node into maintenance mode afterwards; false leaves it powered off."
+    },
+    {
+      "path": "spec.actions[].talosReset.systemPartitions",
+      "name": "systemPartitions",
+      "parent": "spec.actions[].talosReset",
+      "depth": 3,
+      "type": "[]string",
+      "required": false,
+      "enum": [
+        "STATE",
+        "EPHEMERAL",
+        "META"
+      ],
+      "maxItems": 3,
+      "listType": "set",
+      "description": "SystemPartitions limits the wipe to these system partitions; empty wipes what mode names. STATE holds the machine config and its credentials, EPHEMERAL the pod data and etcd."
+    },
+    {
+      "path": "spec.actions[].talosShutdown",
+      "name": "talosShutdown",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "TalosShutdown asks Talos to shut the node down cleanly."
+    },
+    {
+      "path": "spec.actions[].talosShutdown.force",
+      "name": "force",
+      "parent": "spec.actions[].talosShutdown",
+      "depth": 3,
+      "type": "boolean",
+      "required": false,
+      "description": "Force shuts down even when the node cannot cordon and drain itself first (its Kubernetes API is down)."
+    },
+    {
+      "path": "spec.actions[].talosShutdown.nodeRef",
+      "name": "nodeRef",
+      "parent": "spec.actions[].talosShutdown",
+      "depth": 3,
+      "type": "object",
+      "required": true,
+      "description": "NodeRef names the TalosNode (os.pk.io) to shut down."
+    },
+    {
+      "path": "spec.actions[].talosShutdown.nodeRef.name",
+      "name": "name",
+      "parent": "spec.actions[].talosShutdown.nodeRef",
+      "depth": 4,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.actions[].talosUpgrade",
+      "name": "talosUpgrade",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "TalosUpgrade installs another Talos version from an installer image and reboots into it."
+    },
+    {
+      "path": "spec.actions[].talosUpgrade.force",
+      "name": "force",
+      "parent": "spec.actions[].talosUpgrade",
+      "depth": 3,
+      "type": "boolean",
+      "required": false,
+      "description": "Force skips the etcd health check Talos runs before upgrading a control plane."
+    },
+    {
+      "path": "spec.actions[].talosUpgrade.image",
+      "name": "image",
+      "parent": "spec.actions[].talosUpgrade",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "pattern": "@sha256:[a-f0-9]{64}$",
+      "description": "Image is the installer image, pinned by digest: what the approver saw is what is installed."
+    },
+    {
+      "path": "spec.actions[].talosUpgrade.nodeRef",
+      "name": "nodeRef",
+      "parent": "spec.actions[].talosUpgrade",
+      "depth": 3,
+      "type": "object",
+      "required": true,
+      "description": "NodeRef names the TalosNode (os.pk.io) to upgrade."
+    },
+    {
+      "path": "spec.actions[].talosUpgrade.nodeRef.name",
+      "name": "name",
+      "parent": "spec.actions[].talosUpgrade.nodeRef",
+      "depth": 4,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.actions[].talosUpgrade.preserve",
+      "name": "preserve",
+      "parent": "spec.actions[].talosUpgrade",
+      "depth": 3,
+      "type": "boolean",
+      "required": false,
+      "default": true,
+      "description": "Preserve keeps the EPHEMERAL partition (pod data, etcd). Talos 1.8 and later always preserve it; the field is passed through for older nodes."
+    },
+    {
+      "path": "spec.actions[].talosUpgrade.rebootMode",
+      "name": "rebootMode",
+      "parent": "spec.actions[].talosUpgrade",
+      "depth": 3,
+      "type": "string",
+      "required": false,
+      "default": "Default",
+      "enum": [
+        "Default",
+        "PowerCycle"
+      ],
+      "description": "RebootMode is how the reboot into the new image ends."
+    },
+    {
+      "path": "spec.actions[].talosUpgrade.stage",
+      "name": "stage",
+      "parent": "spec.actions[].talosUpgrade",
+      "depth": 3,
+      "type": "boolean",
+      "required": false,
+      "description": "Stage writes the new image and upgrades at the next reboot, for a node whose open files would block an upgrade in place."
+    },
+    {
+      "path": "spec.actions[].talosUpgrade.version",
+      "name": "version",
+      "parent": "spec.actions[].talosUpgrade",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$",
+      "description": "Version is the Talos version expected to read back afterwards, the step's goal: a node that already reports it is not upgraded again."
+    },
+    {
+      "path": "spec.actions[].uncordon",
+      "name": "uncordon",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "Uncordon marks the node schedulable again. Already schedulable is success."
+    },
+    {
+      "path": "spec.actions[].uncordon.nodeRef",
+      "name": "nodeRef",
+      "parent": "spec.actions[].uncordon",
+      "depth": 3,
+      "type": "object",
+      "required": true,
+      "description": "NodeRef names the TalosNode (os.pk.io)."
+    },
+    {
+      "path": "spec.actions[].uncordon.nodeRef.name",
+      "name": "name",
+      "parent": "spec.actions[].uncordon.nodeRef",
+      "depth": 4,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.actions[].waitEtcdHealthy",
+      "name": "waitEtcdHealthy",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "WaitEtcdHealthy waits, changing nothing, until the etcd cluster of the node's TalosCluster is healthy: every member answers, none reports an error or alarm, and none is a learner."
+    },
+    {
+      "path": "spec.actions[].waitEtcdHealthy.nodeRef",
+      "name": "nodeRef",
+      "parent": "spec.actions[].waitEtcdHealthy",
+      "depth": 3,
+      "type": "object",
+      "required": true,
+      "description": "NodeRef names a control-plane TalosNode (os.pk.io) of the cluster. Its own member must be listed too, as a voting member: after a join or a reboot, that is the member the wait is for."
+    },
+    {
+      "path": "spec.actions[].waitEtcdHealthy.nodeRef.name",
+      "name": "name",
+      "parent": "spec.actions[].waitEtcdHealthy.nodeRef",
+      "depth": 4,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.actions[].waitEtcdHealthy.timeoutSeconds",
+      "name": "timeoutSeconds",
+      "parent": "spec.actions[].waitEtcdHealthy",
+      "depth": 3,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "default": 900,
+      "minimum": 60,
+      "maximum": 86400,
+      "description": "TimeoutSeconds bounds the wait, counted from the previous step's end."
+    },
+    {
+      "path": "spec.actions[].waitNodeReady",
+      "name": "waitNodeReady",
+      "parent": "spec.actions",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "WaitNodeReady waits, changing nothing, until the node runs and is ready: Talos stage running with every readiness condition met, and its Kubernetes Node Ready."
+    },
+    {
+      "path": "spec.actions[].waitNodeReady.nodeRef",
+      "name": "nodeRef",
+      "parent": "spec.actions[].waitNodeReady",
+      "depth": 3,
+      "type": "object",
+      "required": true,
+      "description": "NodeRef names the TalosNode (os.pk.io) to wait for."
+    },
+    {
+      "path": "spec.actions[].waitNodeReady.nodeRef.name",
+      "name": "name",
+      "parent": "spec.actions[].waitNodeReady.nodeRef",
+      "depth": 4,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.actions[].waitNodeReady.timeoutSeconds",
+      "name": "timeoutSeconds",
+      "parent": "spec.actions[].waitNodeReady",
+      "depth": 3,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "default": 1800,
+      "minimum": 60,
+      "maximum": 86400,
+      "description": "TimeoutSeconds bounds the wait, counted from the previous step's end."
+    },
+    {
+      "path": "spec.actions[].waitNodeReady.version",
+      "name": "version",
+      "parent": "spec.actions[].waitNodeReady",
+      "depth": 3,
+      "type": "string",
+      "required": false,
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$",
+      "description": "Version, when set, is also waited for: the Talos version the node must report, the proof an upgrade took."
+    },
+    {
+      "path": "spec.approval",
+      "name": "approval",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "default": {
+        "required": true
+      },
+      "description": "Approval is the human gate. Omitted means required — the safe default is a closed gate."
+    },
+    {
+      "path": "spec.approval.approvedBy",
+      "name": "approvedBy",
+      "parent": "spec.approval",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": "ApprovedBy is stamped by the approver — the ValidatingAdmissionPolicy enforces that it equals the requesting username, is empty at creation, and is write-once."
+    },
+    {
+      "path": "spec.approval.required",
+      "name": "required",
+      "parent": "spec.approval",
+      "depth": 2,
+      "type": "boolean",
+      "required": false,
+      "default": true,
+      "description": "Required: this operation must be approved before it runs (from the disruption policy; explicit false only where the policy waives the gate, and admission lets only the operator or an admin create such an operation). A pointer so that EVERY client that says nothing — YAML omitting the key, a Go zero value — gets the safe default: a closed gate. Frozen: flipping it would be an approval without a name on it.",
+      "validations": [
+        {
+          "rule": "self == oldSelf",
+          "message": "approval.required is frozen after creation"
+        }
+      ]
+    },
+    {
+      "path": "spec.hostRef",
+      "name": "hostRef",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": true,
+      "description": "HostRef names the Host this operation acts on.",
+      "validations": [
+        {
+          "rule": "self == oldSelf",
+          "message": "hostRef is frozen after creation"
+        }
+      ]
+    },
+    {
+      "path": "spec.hostRef.name",
+      "name": "name",
+      "parent": "spec.hostRef",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.planHash",
+      "name": "planHash",
+      "parent": "spec",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": "PlanHash binds a proposed operation to the desired state it serves — an unchanged hash never spawns a second op (the convergence reconcilers' guard)."
+    },
+    {
+      "path": "spec.proposedBy",
+      "name": "proposedBy",
+      "parent": "spec",
+      "depth": 1,
+      "type": "string",
+      "required": true,
+      "minLength": 1,
+      "description": "ProposedBy is the username that created the operation. Admission checks it against the creating request, so it cannot name someone else, and refuses an approval stamped by the same person: nobody approves their own proposal."
+    },
+    {
+      "path": "spec.reason",
+      "name": "reason",
+      "parent": "spec",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "pattern": "^[A-Za-z][A-Za-z0-9]*$",
+      "maxLength": 128,
+      "description": "Reason names the desired-state gate this operation serves (BiosConvergence, FirmwareConvergence, …); empty for a human-requested op. It becomes the Approval(<reason>) domain on the Host's blockedOn — hence the condition-reason shape."
+    },
+    {
+      "path": "spec.rolloutRef",
+      "name": "rolloutRef",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "RolloutRef names the rollout (os.pk.io TalosRollout) this operation is one node's part of, and the plan it was created for. The executor refuses an operation whose rollout is gone, not approved, or approved for another planHash: an operation the rollout's approval covers carries no approval of its own, so the binding is what makes that approval mean this operation. Empty for an operation approved on its own."
+    },
+    {
+      "path": "spec.rolloutRef.name",
+      "name": "name",
+      "parent": "spec.rolloutRef",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "minLength": 1,
+      "description": "Name is the TalosRollout's name."
+    },
+    {
+      "path": "spec.rolloutRef.planHash",
+      "name": "planHash",
+      "parent": "spec.rolloutRef",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "minLength": 1,
+      "description": "PlanHash is the rollout's planHash when this operation was created."
+    },
+    {
+      "path": "spec.ttlSecondsAfterFinished",
+      "name": "ttlSecondsAfterFinished",
+      "parent": "spec",
+      "depth": 1,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "minimum": 0,
+      "description": "TTLSecondsAfterFinished garbage-collects a succeeded operation Job-style. A failed one stays until a person retries or deletes it: it is the record they decide on. Unset keeps it forever (human-requested ops stay as their own record); convergence proposals set it — the plan memory on the proposing object, not the operation's existence, is what keeps an unchanged planHash from spawning again."
+    },
+    {
+      "path": "status",
+      "name": "status",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": false,
+      "description": "HostOperationStatus is what happened: which steps ran and how they ended, plus the observations that prove the machine really did what was asked."
+    },
+    {
+      "path": "status.baseline",
+      "name": "baseline",
+      "parent": "status",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "Baseline is captured (and persisted) before the first mutating call."
+    },
+    {
+      "path": "status.baseline.capturedAt",
+      "name": "capturedAt",
+      "parent": "status.baseline",
+      "depth": 2,
+      "type": "string",
+      "format": "date-time",
+      "required": false,
+      "description": "CapturedAt is when the baseline was taken — the start of execution, which bounds how long a power transition may take to show."
+    },
+    {
+      "path": "status.baseline.lastResetTime",
+      "name": "lastResetTime",
+      "parent": "status.baseline",
+      "depth": 2,
+      "type": "string",
+      "format": "date-time",
+      "required": false,
+      "description": "LastResetTime as observed before any action ran. Micro precision: the sim resets faster than a second, and second-precision would blind the advance predicate."
+    },
+    {
+      "path": "status.baseline.powerState",
+      "name": "powerState",
+      "parent": "status.baseline",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": ""
+    },
+    {
+      "path": "status.blockedOn",
+      "name": "blockedOn",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": "BlockedOn is derived — why the operation isn't advancing (AwaitingApproval, OperationQueued)."
+    },
+    {
+      "path": "status.conditions",
+      "name": "conditions",
+      "parent": "status",
+      "depth": 1,
+      "type": "[]object",
+      "required": false,
+      "listType": "map",
+      "listMapKeys": [
+        "type"
+      ],
+      "description": "Conditions are the truth — the only thing reconcilers branch on."
+    },
+    {
+      "path": "status.conditions[].lastTransitionTime",
+      "name": "lastTransitionTime",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "format": "date-time",
+      "required": true,
+      "description": "lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable."
+    },
+    {
+      "path": "status.conditions[].message",
+      "name": "message",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "maxLength": 32768,
+      "description": "message is a human readable message indicating details about the transition. This may be an empty string."
+    },
+    {
+      "path": "status.conditions[].observedGeneration",
+      "name": "observedGeneration",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "integer",
+      "format": "int64",
+      "required": false,
+      "minimum": 0,
+      "description": "observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance."
+    },
+    {
+      "path": "status.conditions[].reason",
+      "name": "reason",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "pattern": "^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty."
+    },
+    {
+      "path": "status.conditions[].status",
+      "name": "status",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "enum": [
+        "True",
+        "False",
+        "Unknown"
+      ],
+      "description": "status of the condition, one of True, False, Unknown."
+    },
+    {
+      "path": "status.conditions[].type",
+      "name": "type",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$",
+      "maxLength": 316,
+      "description": "type of condition in CamelCase or in foo.example.com/CamelCase."
+    },
+    {
+      "path": "status.cordonedNode",
+      "name": "cordonedNode",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": "CordonedNode is the Kubernetes Node this operation made unschedulable (a cordon or drain step that found it schedulable). An abort makes it schedulable again; a node a person had cordoned before is left as it was."
+    },
+    {
+      "path": "status.observedResetTime",
+      "name": "observedResetTime",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "format": "date-time",
+      "required": false,
+      "description": "ObservedResetTime is the reset-time observation after the last step — the proof the reset happened, and what marks a Host reset-time advance as explained rather than Drifted."
+    },
+    {
+      "path": "status.offObserved",
+      "name": "offObserved",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "format": "date-time",
+      "required": false,
+      "description": "OffObserved is when the executor saw the machine report off during a power cycle — the first half of the cycle, recorded so that a resumed operation finishes the cycle instead of starting a second one."
+    },
+    {
+      "path": "status.phase",
+      "name": "phase",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "enum": [
+        "Proposed",
+        "AwaitingApproval",
+        "Running",
+        "Succeeded",
+        "Failed",
+        "Aborted"
+      ],
+      "description": "Phase summarizes the conditions below for people and for kubectl columns. It is a summary, not the contract: automation should read conditions."
+    },
+    {
+      "path": "status.shutdownRequested",
+      "name": "shutdownRequested",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "format": "date-time",
+      "required": false,
+      "description": "ShutdownRequested is when the executor asked the OS to shut down for a graceful powerOff. The step forces the machine off once the graceful window, counted from here, has passed; recording it means a resumed operation neither asks again nor restarts the window."
+    },
+    {
+      "path": "status.steps",
+      "name": "steps",
+      "parent": "status",
+      "depth": 1,
+      "type": "[]object",
+      "required": false,
+      "listType": "atomic",
+      "description": "Steps records each action's outcome in execution order, written as each step reaches its goal. A resumed operation continues after the last recorded step: a goal that a later step consumed (a Once boot override used up by the boot that followed) is never re-armed."
+    },
+    {
+      "path": "status.steps[].action",
+      "name": "action",
+      "parent": "status.steps",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": "Action is the union key that ran (powerCycle, insertMedia, …), or \"abort\" for the record of an abort and what it undid."
+    },
+    {
+      "path": "status.steps[].finishedAt",
+      "name": "finishedAt",
+      "parent": "status.steps",
+      "depth": 2,
+      "type": "string",
+      "format": "date-time",
+      "required": false,
+      "description": "FinishedAt is when the step reached its goal (or failed)."
+    },
+    {
+      "path": "status.steps[].message",
+      "name": "message",
+      "parent": "status.steps",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": ""
+    },
+    {
+      "path": "status.steps[].phase",
+      "name": "phase",
+      "parent": "status.steps",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "enum": [
+        "Succeeded",
+        "Failed",
+        "Aborted"
+      ],
+      "description": ""
+    },
+    {
+      "path": "status.talosStep",
+      "name": "talosStep",
+      "parent": "status",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "TalosStep is the progress of the Talos step in flight that restarts or wipes the node (talosReboot, talosUpgrade, talosApplyConfig, talosReset, talosShutdown): the node's boot time before it acted, and when the request was accepted. A resumed operation waits for the boot time to move on instead of asking a second time."
+    },
+    {
+      "path": "status.talosStep.bootTime",
+      "name": "bootTime",
+      "parent": "status.talosStep",
+      "depth": 2,
+      "type": "string",
+      "format": "date-time",
+      "required": false,
+      "description": "BootTime is the node's boot time before the step acted. The step's restart shows as a later boot time."
+    },
+    {
+      "path": "status.talosStep.mode",
+      "name": "mode",
+      "parent": "status.talosStep",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": "Mode is how the node said it applies a config (talosApplyConfig): reboot, no-reboot, staged or try."
+    },
+    {
+      "path": "status.talosStep.requestedAt",
+      "name": "requestedAt",
+      "parent": "status.talosStep",
+      "depth": 2,
+      "type": "string",
+      "format": "date-time",
+      "required": false,
+      "description": "RequestedAt is when the node accepted the request."
+    },
+    {
+      "path": "status.talosStep.step",
+      "name": "step",
+      "parent": "status.talosStep",
+      "depth": 2,
+      "type": "integer",
+      "format": "int32",
+      "required": true,
+      "minimum": 0,
+      "description": "Step is the index in spec.actions this progress belongs to."
+    }
+  ]
+}

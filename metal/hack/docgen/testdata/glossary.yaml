@@ -1,0 +1,21 @@
+domains:
+  hw: { name: Hardware and BMC, icon: chip }
+terms:
+  - id: bmc
+    term: BMC
+    abbr: Baseboard Management Controller
+    kind: abbr
+    domain: hw
+    forms: [BMC, BMCs]
+    see: concept:architecture
+    related: [virtual-media]
+    def: A small computer on the main board of a server.
+  - id: virtual-media
+    term: virtual media
+    kind: noun
+    domain: hw
+    forms: [virtual media]
+    guards: { not_before: '^-' }
+    see: concept:virtual-media-boot
+    related: [bmc]
+    def: A disk image that the BMC shows to the server as a CD.

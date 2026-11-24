@@ -1,0 +1,10 @@
+# The human side of the approval gate. Bind this to the people who may let
+# an operation run.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pk-metal-approver
+rules:
+  - apiGroups: ["metal.pk.io"]
+    resources: ["hostoperations"]
+    verbs: ["get", "patch"]

@@ -1,0 +1,380 @@
+{
+  "enums": [
+    {
+      "type": "HostPhase",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/host_types.go",
+      "description": "HostPhase summarizes a machine's conditions together with whether it is claimed. Enrolling and Inspecting mean the cluster is still finding out what the machine is; Available means it is understood and free; Assigned means something claimed it; Provisioning means work is happening to it right now and Provisioned that the work finished; Releasing means it is being handed back. Failed and Maintenance are the two stops: Failed when an install did not work, Maintenance while a person has set the metal.pk.io/maintenance annotation.\n\nAssigned and Provisioning are deliberately separate. A machine can be spoken for without anything disruptive happening to it, and conflating the two leaves no way to say so.",
+      "kinds": [
+        "Host"
+      ],
+      "usedBy": [
+        "HostStatus.phase"
+      ],
+      "values": [
+        {
+          "name": "HostEnrolling",
+          "value": "Enrolling",
+          "description": ""
+        },
+        {
+          "name": "HostInspecting",
+          "value": "Inspecting",
+          "description": ""
+        },
+        {
+          "name": "HostAvailable",
+          "value": "Available",
+          "description": ""
+        },
+        {
+          "name": "HostAssigned",
+          "value": "Assigned",
+          "description": ""
+        },
+        {
+          "name": "HostProvisioning",
+          "value": "Provisioning",
+          "description": ""
+        },
+        {
+          "name": "HostProvisioned",
+          "value": "Provisioned",
+          "description": ""
+        },
+        {
+          "name": "HostReleasing",
+          "value": "Releasing",
+          "description": ""
+        },
+        {
+          "name": "HostFailed",
+          "value": "Failed",
+          "description": ""
+        },
+        {
+          "name": "HostMaintenance",
+          "value": "Maintenance",
+          "description": ""
+        }
+      ]
+    },
+    {
+      "type": "ClaimPhase",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/hostclaim_types.go",
+      "description": "ClaimPhase says how many machines the claim's selection resolved to: none yet (Pending), exactly one (Bound), or more than one with nothing to choose between them (Ambiguous). Ambiguous is a stop — the cluster will not guess.",
+      "kinds": [
+        "HostClaim"
+      ],
+      "usedBy": [
+        "HostClaimStatus.phase"
+      ],
+      "values": [
+        {
+          "name": "ClaimPending",
+          "value": "Pending",
+          "description": ""
+        },
+        {
+          "name": "ClaimBound",
+          "value": "Bound",
+          "description": ""
+        },
+        {
+          "name": "ClaimAmbiguous",
+          "value": "Ambiguous",
+          "description": ""
+        }
+      ]
+    },
+    {
+      "type": "ProvisioningApproval",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/hostclaim_types.go",
+      "description": "ProvisioningApproval says whether the operations the operator proposes for this claim (install, and shutting down a running node on release) wait for a person.",
+      "kinds": [],
+      "usedBy": [
+        "ClaimProvisioning.approval"
+      ],
+      "values": [
+        {
+          "name": "ProvisioningApprovalRequired",
+          "value": "Required",
+          "description": "ProvisioningApprovalRequired: each operation waits for a person to approve it (pk-metal approve). The default, because these operations erase disks and power machines off."
+        },
+        {
+          "name": "ProvisioningApprovalAutomatic",
+          "value": "Automatic",
+          "description": "ProvisioningApprovalAutomatic: the operations run without approval. Use it for machines you can reinstall at any time, where merging the claim is the decision."
+        }
+      ]
+    },
+    {
+      "type": "OperationPhase",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/hostoperation_types.go",
+      "description": "OperationPhase summarizes an operation's conditions. Proposed means it exists but has not been approved; AwaitingApproval that it is waiting on a human; Running that steps are executing; Succeeded, Failed and Aborted are terminal. A failed operation stays for inspection — nothing disruptive is retried automatically. Aborted means a person stopped it (metal.pk.io/abort).",
+      "kinds": [
+        "HostOperation"
+      ],
+      "usedBy": [
+        "HostOperationStatus.phase"
+      ],
+      "values": [
+        {
+          "name": "OperationProposed",
+          "value": "Proposed",
+          "description": ""
+        },
+        {
+          "name": "OperationAwaitingApproval",
+          "value": "AwaitingApproval",
+          "description": ""
+        },
+        {
+          "name": "OperationRunning",
+          "value": "Running",
+          "description": ""
+        },
+        {
+          "name": "OperationSucceeded",
+          "value": "Succeeded",
+          "description": ""
+        },
+        {
+          "name": "OperationFailed",
+          "value": "Failed",
+          "description": ""
+        },
+        {
+          "name": "OperationAborted",
+          "value": "Aborted",
+          "description": ""
+        }
+      ]
+    },
+    {
+      "type": "EndpointPhase",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/managementendpoint_types.go",
+      "description": "EndpointPhase summarizes an endpoint's conditions, in the order an endpoint normally moves through them: Pending until it is reachable, then Connecting, Inventorying and Verifying as the cluster learns what is there, Configuring while settings are applied, and Ready. Unreachable and Mismatch are the two stops — the first means nobody answered, the second that what answered was not the machine the Asset described.",
+      "kinds": [
+        "ManagementEndpoint"
+      ],
+      "usedBy": [
+        "ManagementEndpointStatus.phase"
+      ],
+      "values": [
+        {
+          "name": "EndpointPending",
+          "value": "Pending",
+          "description": ""
+        },
+        {
+          "name": "EndpointConnecting",
+          "value": "Connecting",
+          "description": ""
+        },
+        {
+          "name": "EndpointInventorying",
+          "value": "Inventorying",
+          "description": ""
+        },
+        {
+          "name": "EndpointVerifying",
+          "value": "Verifying",
+          "description": ""
+        },
+        {
+          "name": "EndpointConfiguring",
+          "value": "Configuring",
+          "description": ""
+        },
+        {
+          "name": "EndpointReady",
+          "value": "Ready",
+          "description": ""
+        },
+        {
+          "name": "EndpointUnreachable",
+          "value": "Unreachable",
+          "description": ""
+        },
+        {
+          "name": "EndpointMismatch",
+          "value": "Mismatch",
+          "description": ""
+        }
+      ]
+    },
+    {
+      "type": "BootAssetStrategy",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/bootasset_types.go",
+      "description": "BootAssetStrategy selects how the artifact is produced.",
+      "kinds": [],
+      "usedBy": [
+        "BootAssetSpec.strategy"
+      ],
+      "values": [
+        {
+          "name": "StrategyConfigISO",
+          "value": "configISO",
+          "description": "StrategyConfigISO builds the ~10 KB per-node config medium Talos reads when booted with talos.config=metal-iso: an ISO9660 volume labeled metal-iso holding one config.yaml. Mounted as the second virtual medium beside a generic install image — the `secondary` delivery path. Secret-bearing: served only under a grant."
+        },
+        {
+          "name": "StrategyFactory",
+          "value": "factory",
+          "description": "StrategyFactory points at the generic secret-free install ISO on the image factory — content-addressed by schematic, shared across nodes, fetched without a grant."
+        },
+        {
+          "name": "StrategyEmbeddedInstaller",
+          "value": "embeddedInstaller",
+          "description": "StrategyEmbeddedInstaller builds a per-node install ISO with the node's rendered config built in (Talos reads it from the image, no kernel argument and no second medium needed). It is how a machine whose BMC holds one virtual medium gets its config out of band. The Talos imager builds it in a Job in the operator's namespace; the ISO rests in the operator's media store. Secret-bearing: served only under a grant."
+        }
+      ]
+    },
+    {
+      "type": "CNIName",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/taloscluster_types.go",
+      "description": "CNIName selects the pod network plugin Talos deploys.",
+      "kinds": [],
+      "usedBy": [
+        "CNI.name"
+      ],
+      "values": [
+        {
+          "name": "CNIFlannel",
+          "value": "flannel",
+          "description": "CNIFlannel deploys Talos' built-in Flannel."
+        },
+        {
+          "name": "CNINone",
+          "value": "none",
+          "description": "CNINone deploys nothing: the cluster's own tooling installs a CNI after bootstrap, and nodes stay NotReady until it does."
+        },
+        {
+          "name": "CNICustom",
+          "value": "custom",
+          "description": "CNICustom applies the manifests at CNI.URLs instead of Flannel."
+        }
+      ]
+    },
+    {
+      "type": "NodeRole",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/talosnode_types.go",
+      "description": "NodeRole is the part a machine plays in its cluster.",
+      "kinds": [],
+      "usedBy": [
+        "RolloutStep.role",
+        "TalosNodeSpec.role"
+      ],
+      "values": [
+        {
+          "name": "RoleControlPlane",
+          "value": "controlplane",
+          "description": ""
+        },
+        {
+          "name": "RoleWorker",
+          "value": "worker",
+          "description": ""
+        }
+      ]
+    },
+    {
+      "type": "RolloutKind",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/talosrollout_types.go",
+      "description": "RolloutKind is what a rollout changes on each node.",
+      "kinds": [],
+      "usedBy": [
+        "TalosRolloutSpec.kind"
+      ],
+      "values": [
+        {
+          "name": "RolloutConfig",
+          "value": "Config",
+          "description": "RolloutConfig applies each node's current rendered config: without a reboot where the node says it can take it live, with a drain and a reboot where it says it cannot."
+        },
+        {
+          "name": "RolloutTalosUpgrade",
+          "value": "TalosUpgrade",
+          "description": "RolloutTalosUpgrade installs another Talos release on each node, one node at a time, each drained first."
+        },
+        {
+          "name": "RolloutKubernetesUpgrade",
+          "value": "KubernetesUpgrade",
+          "description": "RolloutKubernetesUpgrade applies the configs rendered for a new Kubernetes version without a reboot (control planes first: their static pods and kubelet), moves the kube-proxy DaemonSet to the new image, then does the workers' kubelets."
+        },
+        {
+          "name": "RolloutReboot",
+          "value": "Reboot",
+          "description": "RolloutReboot reboots each node through Talos, drained first."
+        }
+      ]
+    },
+    {
+      "type": "RolloutNodeState",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/talosrollout_types.go",
+      "description": "RolloutNodeState is where one node of a plan stands.",
+      "kinds": [],
+      "usedBy": [
+        "RolloutStepStatus.state"
+      ],
+      "values": [
+        {
+          "name": "RolloutNodePending",
+          "value": "Pending",
+          "description": ""
+        },
+        {
+          "name": "RolloutNodeRunning",
+          "value": "Running",
+          "description": ""
+        },
+        {
+          "name": "RolloutNodeSucceeded",
+          "value": "Succeeded",
+          "description": ""
+        },
+        {
+          "name": "RolloutNodeFailed",
+          "value": "Failed",
+          "description": ""
+        },
+        {
+          "name": "RolloutNodeSkipped",
+          "value": "Skipped",
+          "description": "RolloutNodeSkipped: the rollout was aborted or failed before this node started."
+        }
+      ]
+    },
+    {
+      "type": "RolloutStepKind",
+      "group": "os.pk.io",
+      "source": "metal/api/os/v1alpha1/talosrollout_types.go",
+      "description": "RolloutStepKind tells a node's change from a cluster-wide step of the plan.",
+      "kinds": [],
+      "usedBy": [
+        "RolloutStep.kind"
+      ],
+      "values": [
+        {
+          "name": "RolloutStepNode",
+          "value": "Node",
+          "description": "RolloutStepNode changes one node through a HostOperation."
+        },
+        {
+          "name": "RolloutStepKubeProxy",
+          "value": "KubeProxy",
+          "description": "RolloutStepKubeProxy moves the kube-proxy DaemonSet to a new image through the cluster's Kubernetes API, between the control planes and the workers of a KubernetesUpgrade."
+        }
+      ]
+    }
+  ]
+}

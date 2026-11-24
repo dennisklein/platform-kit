@@ -1,0 +1,89 @@
+{
+  "kind": "BiosSchema",
+  "listKind": "BiosSchemaList",
+  "group": "metal.pk.io",
+  "version": "v1alpha1",
+  "plural": "biosschemas",
+  "singular": "biosschema",
+  "shortNames": [],
+  "categories": [
+    "metal"
+  ],
+  "scope": "Cluster",
+  "source": "metal/config/crd/metal.pk.io_biosschemas.yaml",
+  "description": "BiosSchema is the BIOS attribute registry discovered on one machine: which settings that machine's firmware actually has, what each one accepts, and which are read-only. It is written by the cluster, not by hand — it is how you find out what a BiosProfile is allowed to ask for.\n\nCluster-scoped, named after its Host and owned by it.",
+  "statusSubresource": false,
+  "printerColumns": [
+    {
+      "name": "Registry",
+      "type": "string",
+      "jsonPath": ".spec.registry",
+      "priority": 0
+    },
+    {
+      "name": "Age",
+      "type": "date",
+      "jsonPath": ".metadata.creationTimestamp",
+      "priority": 0
+    }
+  ],
+  "validations": [],
+  "fields": [
+    {
+      "path": "spec",
+      "name": "spec",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": true,
+      "description": "BiosSchemaSpec is the discovered attribute registry of one host's BIOS. Like Asset it is spec-only — the object IS the data; nothing about it is derived further. Written by the convergence reconciler from the registry the Bios resource advertises (registry names are normalized on the client: the spelled identity differs between the Bios resource, the Registries member, and the file on both vendors)."
+    },
+    {
+      "path": "spec.attributes",
+      "name": "attributes",
+      "parent": "spec",
+      "depth": 1,
+      "type": "[]object",
+      "required": true,
+      "listType": "atomic",
+      "description": "Attributes lists the registry's entries, sorted by name. Desired values in a materialized BiosSettings are validated against this before any operation is proposed — the machine would otherwise reject an unknown attribute at PATCH and silently drop an out-of-range value at apply."
+    },
+    {
+      "path": "spec.attributes[].allowedValues",
+      "name": "allowedValues",
+      "parent": "spec.attributes",
+      "depth": 2,
+      "type": "[]string",
+      "required": false,
+      "listType": "atomic",
+      "description": "AllowedValues enumerates the legal values; empty for non-enumerations."
+    },
+    {
+      "path": "spec.attributes[].name",
+      "name": "name",
+      "parent": "spec.attributes",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.attributes[].type",
+      "name": "type",
+      "parent": "spec.attributes",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": "Type is the registry's attribute type: Enumeration, Boolean, Integer or String — kept as served."
+    },
+    {
+      "path": "spec.registry",
+      "name": "registry",
+      "parent": "spec",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": "Registry is the registry identity as the Bios resource advertises it, kept verbatim (e.g. BiosAttributeRegistry.v1_0_0)."
+    }
+  ]
+}

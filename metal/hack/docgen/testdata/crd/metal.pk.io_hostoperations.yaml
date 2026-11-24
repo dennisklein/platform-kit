@@ -1,0 +1,113 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: hostoperations.metal.pk.io
+spec:
+  group: metal.pk.io
+  names:
+    categories:
+      - metal
+    kind: HostOperation
+    listKind: HostOperationList
+    plural: hostoperations
+    shortNames:
+      - hop
+    singular: hostoperation
+  scope: Namespaced
+  versions:
+    - additionalPrinterColumns:
+        - jsonPath: .status.phase
+          name: Phase
+          type: string
+        - jsonPath: .spec.hostRef.name
+          name: Host
+          priority: 1
+          type: string
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: HostOperation is one change to one machine.
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: HostOperationSpec is what to do.
+              properties:
+                actions:
+                  description: Actions run in order.
+                  items:
+                    properties:
+                      powerOff:
+                        description: PowerOff turns the system off.
+                        properties:
+                          gracefulTimeoutSeconds:
+                            description: GracefulTimeoutSeconds asks the OS first.
+                            format: int32
+                            maximum: 3600
+                            minimum: 0
+                            type: integer
+                        type: object
+                      wait:
+                        description: Wait waits for the node.
+                        properties:
+                          nodeRef:
+                            description: NodeRef names the node.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                        required:
+                          - nodeRef
+                        type: object
+                    type: object
+                    x-kubernetes-validations:
+                      - message: set exactly one action
+                        rule: size(self) == 1
+                  maxItems: 8
+                  minItems: 1
+                  type: array
+                labels:
+                  additionalProperties:
+                    type: string
+                  description: Labels to set.
+                  type: object
+                mode:
+                  default: soft
+                  description: Mode picks how.
+                  enum:
+                    - soft
+                    - hard
+                  type: string
+                targets:
+                  items:
+                    pattern: ^[a-z]+$
+                    type: string
+                  type: array
+                  x-kubernetes-list-type: set
+              required:
+                - actions
+              type: object
+              x-kubernetes-validations:
+                - message: mode is frozen
+                  rule: self.mode == oldSelf.mode
+            status:
+              properties:
+                phase:
+                  description: Phase summarizes the conditions.
+                  enum:
+                    - Proposed
+                    - Running
+                  type: string
+              type: object
+          type: object
+      served: true
+      storage: true
+      subresources:
+        status: {}

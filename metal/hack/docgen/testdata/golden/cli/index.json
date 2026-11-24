@@ -1,0 +1,47 @@
+{
+  "program": "pk-metal",
+  "description": "manage bare-metal machines through their BMCs (Redfish) and the pk-metal operator that runs in a Kubernetes cluster.",
+  "usage": "pk-metal [--kubeconfig file] [--context name] <command> [flags] [arguments]",
+  "commands": [
+    {
+      "name": "status",
+      "summary": "show machines (reads only)",
+      "changes": false
+    },
+    {
+      "name": "rollout",
+      "summary": "see the rollouts, approve one, or abort it",
+      "changes": true
+    }
+  ],
+  "globalFlags": [
+    {
+      "name": "kubeconfig",
+      "type": "file",
+      "default": "",
+      "usage": "kubeconfig file (default: $KUBECONFIG, then ~/.kube/config)",
+      "global": true
+    },
+    {
+      "name": "context",
+      "type": "name",
+      "default": "",
+      "usage": "kubeconfig context (default: the current context)",
+      "global": true
+    }
+  ],
+  "exitStatus": [
+    {
+      "code": 0,
+      "meaning": "success"
+    },
+    {
+      "code": 1,
+      "meaning": "error; the message is on stderr, as \"pk-metal: <message>\""
+    },
+    {
+      "code": 2,
+      "meaning": "pk-metal status only: something is blocked or failed and needs a person"
+    }
+  ]
+}

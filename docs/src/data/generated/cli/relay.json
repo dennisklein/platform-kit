@@ -1,0 +1,44 @@
+{
+  "name": "relay",
+  "summary": "run on a host that can reach the BMCs: BMCs download boot media from it, and it forwards that traffic to pk-metal boot",
+  "synopsis": "[--front addr] [--tunnel addr] [--advertise host:port] [--secret-file file]",
+  "usage": [
+    "pk-metal relay [--front addr] [--tunnel addr] [--advertise host:port] [--secret-file file]"
+  ],
+  "changes": false,
+  "needsCluster": false,
+  "description": "relay runs on a host that can reach the BMCs. BMCs download boot media from\nits front address, and it hands that traffic to pk-metal boot through its\ntunnel address; boot's Redfish calls to the BMCs go out the same way.\n\nEvery connection to the tunnel must prove it holds the relay's secret, so\nnobody else on the host or its network can take the media traffic over or\nreach the BMCs through it. Give the secret in $PK_METAL_RELAY_SECRET, or name\na file with --secret-file: when the file does not exist, relay writes a new\nsecret there (readable by you only) and uses it; an existing file is never\nreplaced. Hand the same secret to pk-metal boot.\n\nThe secret proves who connects; it does not encrypt the tunnel. Keep the\ntunnel on loopback (the default) and reach it over ssh -L.\n\nexample:\n  pk-metal relay --front 10.0.0.2:8443 --secret-file ~/.config/pk-metal/relay.secret",
+  "examples": [],
+  "exitStatus": [],
+  "flags": [
+    {
+      "name": "advertise",
+      "type": "string",
+      "default": "",
+      "usage": "front address as BMCs reach it (default: the bound address)",
+      "global": false
+    },
+    {
+      "name": "front",
+      "type": "string",
+      "default": "127.0.0.1:8443",
+      "usage": "BMC-facing listen address (media fetches arrive here)",
+      "global": false
+    },
+    {
+      "name": "secret-file",
+      "type": "string",
+      "default": "",
+      "usage": "file with the shared secret; written with a new one when missing (or set $PK_METAL_RELAY_SECRET)",
+      "global": false
+    },
+    {
+      "name": "tunnel",
+      "type": "string",
+      "default": "127.0.0.1:9443",
+      "usage": "operator-facing listen address (keep on loopback, reach over ssh -L)",
+      "global": false
+    }
+  ],
+  "subcommands": []
+}

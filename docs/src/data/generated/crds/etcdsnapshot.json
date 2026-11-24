@@ -1,0 +1,314 @@
+{
+  "kind": "EtcdSnapshot",
+  "listKind": "EtcdSnapshotList",
+  "group": "os.pk.io",
+  "version": "v1alpha1",
+  "plural": "etcdsnapshots",
+  "singular": "etcdsnapshot",
+  "shortNames": [],
+  "categories": [
+    "metal",
+    "os"
+  ],
+  "scope": "Cluster",
+  "source": "metal/config/crd/os.pk.io_etcdsnapshots.yaml",
+  "description": "EtcdSnapshot is one encrypted etcd snapshot of a TalosCluster. The backup policy creates one per schedule; pk-metal backup now creates one at once. Deleting the object does not delete the stored bytes; retention deletes both.",
+  "statusSubresource": true,
+  "printerColumns": [
+    {
+      "name": "Cluster",
+      "type": "string",
+      "jsonPath": ".status.clusterName",
+      "priority": 0
+    },
+    {
+      "name": "From",
+      "type": "string",
+      "jsonPath": ".status.takenFrom",
+      "priority": 0
+    },
+    {
+      "name": "Size",
+      "type": "integer",
+      "jsonPath": ".status.size",
+      "priority": 0
+    },
+    {
+      "name": "Complete",
+      "type": "string",
+      "jsonPath": ".status.conditions[?(@.type==\"Complete\")].status",
+      "priority": 0
+    },
+    {
+      "name": "Verified",
+      "type": "string",
+      "jsonPath": ".status.conditions[?(@.type==\"Verified\")].status",
+      "priority": 0
+    },
+    {
+      "name": "Taken",
+      "type": "date",
+      "jsonPath": ".status.takenAt",
+      "priority": 0
+    }
+  ],
+  "validations": [],
+  "fields": [
+    {
+      "path": "spec",
+      "name": "spec",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": true,
+      "description": "EtcdSnapshotSpec names the policy a snapshot is taken under: its sink and recipients."
+    },
+    {
+      "path": "spec.policyRef",
+      "name": "policyRef",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": true,
+      "description": "PolicyRef names the EtcdBackupPolicy.",
+      "validations": [
+        {
+          "rule": "self == oldSelf",
+          "message": "policyRef is frozen"
+        }
+      ]
+    },
+    {
+      "path": "spec.policyRef.name",
+      "name": "name",
+      "parent": "spec.policyRef",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "status",
+      "name": "status",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": false,
+      "description": "EtcdSnapshotStatus records one snapshot. The object is the catalogue entry; the bytes live in the sink, at Location."
+    },
+    {
+      "path": "status.clusterName",
+      "name": "clusterName",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": "ClusterName is the TalosCluster, copied from the policy when taken."
+    },
+    {
+      "path": "status.conditions",
+      "name": "conditions",
+      "parent": "status",
+      "depth": 1,
+      "type": "[]object",
+      "required": false,
+      "listType": "map",
+      "listMapKeys": [
+        "type"
+      ],
+      "description": "Conditions: Complete (True once stored; False when taking it failed, which is final: the next schedule takes a new one) and Verified (the plaintext is an intact etcd snapshot and the sink holds exactly the ciphertext sent)."
+    },
+    {
+      "path": "status.conditions[].lastTransitionTime",
+      "name": "lastTransitionTime",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "format": "date-time",
+      "required": true,
+      "description": "lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable."
+    },
+    {
+      "path": "status.conditions[].message",
+      "name": "message",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "maxLength": 32768,
+      "description": "message is a human readable message indicating details about the transition. This may be an empty string."
+    },
+    {
+      "path": "status.conditions[].observedGeneration",
+      "name": "observedGeneration",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "integer",
+      "format": "int64",
+      "required": false,
+      "minimum": 0,
+      "description": "observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance."
+    },
+    {
+      "path": "status.conditions[].reason",
+      "name": "reason",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "pattern": "^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty."
+    },
+    {
+      "path": "status.conditions[].status",
+      "name": "status",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "enum": [
+        "True",
+        "False",
+        "Unknown"
+      ],
+      "description": "status of the condition, one of True, False, Unknown."
+    },
+    {
+      "path": "status.conditions[].type",
+      "name": "type",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$",
+      "maxLength": 316,
+      "description": "type of condition in CamelCase or in foo.example.com/CamelCase."
+    },
+    {
+      "path": "status.databaseTxID",
+      "name": "databaseTxID",
+      "parent": "status",
+      "depth": 1,
+      "type": "integer",
+      "format": "int64",
+      "required": false,
+      "description": "DatabaseTxID is the bbolt transaction id of the database's newest meta page, and PageSize its page size: read off the snapshot as it passed, as evidence that it is a bbolt database."
+    },
+    {
+      "path": "status.encryptedSHA256",
+      "name": "encryptedSHA256",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": ""
+    },
+    {
+      "path": "status.encryptedSize",
+      "name": "encryptedSize",
+      "parent": "status",
+      "depth": 1,
+      "type": "integer",
+      "format": "int64",
+      "required": false,
+      "description": "EncryptedSize and EncryptedSHA256 describe the object in the sink."
+    },
+    {
+      "path": "status.key",
+      "name": "key",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": ""
+    },
+    {
+      "path": "status.location",
+      "name": "location",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": "Location is where the ciphertext is (s3://bucket/key, pvc://claim/key), and Key its key in the sink."
+    },
+    {
+      "path": "status.memberID",
+      "name": "memberID",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": ""
+    },
+    {
+      "path": "status.pageSize",
+      "name": "pageSize",
+      "parent": "status",
+      "depth": 1,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "description": ""
+    },
+    {
+      "path": "status.raftIndex",
+      "name": "raftIndex",
+      "parent": "status",
+      "depth": 1,
+      "type": "integer",
+      "format": "int64",
+      "required": false,
+      "description": "RaftIndex is the member's raft index just before the snapshot: the snapshot holds at least everything up to it."
+    },
+    {
+      "path": "status.recipients",
+      "name": "recipients",
+      "parent": "status",
+      "depth": 1,
+      "type": "[]string",
+      "required": false,
+      "listType": "atomic",
+      "description": "Recipients are the age public keys it was encrypted to."
+    },
+    {
+      "path": "status.sha256",
+      "name": "sha256",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": ""
+    },
+    {
+      "path": "status.size",
+      "name": "size",
+      "parent": "status",
+      "depth": 1,
+      "type": "integer",
+      "format": "int64",
+      "required": false,
+      "description": "Size and SHA256 describe the plaintext snapshot (the bbolt database and etcd's 32-byte integrity hash after it): what a restore uploads. pk-metal restore checks the decrypted bytes against SHA256."
+    },
+    {
+      "path": "status.takenAt",
+      "name": "takenAt",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "format": "date-time",
+      "required": false,
+      "description": "TakenAt is when the snapshot was started."
+    },
+    {
+      "path": "status.takenFrom",
+      "name": "takenFrom",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": "TakenFrom is the control-plane TalosNode whose etcd member streamed it, and MemberID that member's ID (hex)."
+    }
+  ]
+}

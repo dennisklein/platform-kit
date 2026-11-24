@@ -1,0 +1,16 @@
+{
+  "name": "sim",
+  "summary": "run simulated BMCs for tests: serve one, or a fleet with a virtual machine behind each",
+  "synopsis": "serve [--fixture <name|path>] [--listen addr] [--tls] [--verbose]",
+  "usage": [
+    "pk-metal sim serve [--fixture <name|path>] [--listen addr] [--tls] [--verbose]",
+    "pk-metal sim fleet --config <file> [--verbose] [--state-listen addr]"
+  ],
+  "changes": false,
+  "needsCluster": false,
+  "description": "run: pk-metal sim serve -h, or pk-metal sim fleet -h, for the flags",
+  "examples": [],
+  "exitStatus": [],
+  "flags": [],
+  "subcommands": []
+}

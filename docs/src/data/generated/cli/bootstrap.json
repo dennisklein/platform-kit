@@ -1,0 +1,65 @@
+{
+  "name": "bootstrap",
+  "summary": "start a new Talos cluster on booted machines and wait until every node is ready, without the operator",
+  "synopsis": "--dir <manifests> --secrets <secrets.yaml|-> [flags]",
+  "usage": [
+    "pk-metal bootstrap --dir <manifests> --secrets <secrets.yaml|-> [flags]"
+  ],
+  "changes": true,
+  "needsCluster": false,
+  "description": "",
+  "examples": [],
+  "exitStatus": [],
+  "flags": [
+    {
+      "name": "apply-insecure",
+      "type": "bool",
+      "default": "",
+      "usage": "deliver configs over the UNAUTHENTICATED maintenance API: container/dev tiers only; on metal the config rides the BMC media channel",
+      "global": false
+    },
+    {
+      "name": "dir",
+      "type": "string",
+      "default": "",
+      "usage": "directory with TalosCluster/TalosNode manifests (required)",
+      "global": false
+    },
+    {
+      "name": "endpoint",
+      "type": "string",
+      "default": "",
+      "usage": "address of --node (default: its spec.address or first static address)",
+      "global": false
+    },
+    {
+      "name": "image-factory",
+      "type": "string",
+      "default": "factory.talos.dev",
+      "usage": "image factory host the installer image is named on",
+      "global": false
+    },
+    {
+      "name": "node",
+      "type": "string",
+      "default": "",
+      "usage": "drive only this TalosNode (default: every node in --dir)",
+      "global": false
+    },
+    {
+      "name": "secrets",
+      "type": "talosctl gen secrets",
+      "default": "",
+      "usage": "secrets bundle from talosctl gen secrets, or - for stdin (required)",
+      "global": false
+    },
+    {
+      "name": "timeout",
+      "type": "duration",
+      "default": "15m0s",
+      "usage": "overall deadline: apply, bootstrap retries, readiness",
+      "global": false
+    }
+  ],
+  "subcommands": []
+}

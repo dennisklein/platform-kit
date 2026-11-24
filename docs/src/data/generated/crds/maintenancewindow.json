@@ -1,0 +1,339 @@
+{
+  "kind": "MaintenanceWindow",
+  "listKind": "MaintenanceWindowList",
+  "group": "metal.pk.io",
+  "version": "v1alpha1",
+  "plural": "maintenancewindows",
+  "singular": "maintenancewindow",
+  "shortNames": [],
+  "categories": [
+    "metal"
+  ],
+  "scope": "Cluster",
+  "source": "metal/config/crd/metal.pk.io_maintenancewindows.yaml",
+  "description": "MaintenanceWindow says when disruptive work may start on a set of machines. An approved HostOperation on a covered machine waits, with blockedOn OutsideMaintenanceWindow, until one of the windows that cover it opens; then it starts. A machine covered by no window is not held. Work already running is never stopped by a window closing: stopping a machine half-way through a change leaves it worse off than finishing.\n\nNew installs (operations with reason Provisioning) are not held: they disturb no running workload. To let one operation start now anyway:\n\nkubectl annotate hostoperation -n pk-metal <name> metal.pk.io/ignore-window=\"<why>\"",
+  "statusSubresource": true,
+  "printerColumns": [
+    {
+      "name": "Open",
+      "type": "boolean",
+      "jsonPath": ".status.open",
+      "priority": 0
+    },
+    {
+      "name": "Next change",
+      "type": "date",
+      "jsonPath": ".status.nextChange",
+      "priority": 0
+    },
+    {
+      "name": "Zone",
+      "type": "string",
+      "jsonPath": ".spec.timeZone",
+      "priority": 0
+    },
+    {
+      "name": "Age",
+      "type": "date",
+      "jsonPath": ".metadata.creationTimestamp",
+      "priority": 0
+    }
+  ],
+  "validations": [],
+  "fields": [
+    {
+      "path": "spec",
+      "name": "spec",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": true,
+      "description": "MaintenanceWindowSpec says which machines the window covers and when it is open.",
+      "validations": [
+        {
+          "rule": "has(self.hostSelector) || (has(self.clusters) && size(self.clusters) > 0)",
+          "message": "name the machines: hostSelector, clusters, or both"
+        },
+        {
+          "rule": "(has(self.weekly) && size(self.weekly) > 0) || (has(self.once) && size(self.once) > 0)",
+          "message": "give at least one weekly or once window"
+        }
+      ]
+    },
+    {
+      "path": "spec.clusters",
+      "name": "clusters",
+      "parent": "spec",
+      "depth": 1,
+      "type": "[]string",
+      "required": false,
+      "maxItems": 64,
+      "listType": "set",
+      "description": "Clusters names TalosClusters (os.pk.io): a Host whose node belongs to one of them is covered. A Host is covered when it matches the selector or runs a node of a named cluster."
+    },
+    {
+      "path": "spec.hostSelector",
+      "name": "hostSelector",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "mapType": "atomic",
+      "description": "HostSelector selects Hosts by label, the same labels profiles match (metal.pk.io/vendor, metal.pk.io/model, and the claim's own labels). An empty selector ({}) selects every Host."
+    },
+    {
+      "path": "spec.hostSelector.matchExpressions",
+      "name": "matchExpressions",
+      "parent": "spec.hostSelector",
+      "depth": 2,
+      "type": "[]object",
+      "required": false,
+      "listType": "atomic",
+      "description": "matchExpressions is a list of label selector requirements. The requirements are ANDed."
+    },
+    {
+      "path": "spec.hostSelector.matchExpressions[].key",
+      "name": "key",
+      "parent": "spec.hostSelector.matchExpressions",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "description": "key is the label key that the selector applies to."
+    },
+    {
+      "path": "spec.hostSelector.matchExpressions[].operator",
+      "name": "operator",
+      "parent": "spec.hostSelector.matchExpressions",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "description": "operator represents a key's relationship to a set of values. Valid operators are In, NotIn, Exists and DoesNotExist."
+    },
+    {
+      "path": "spec.hostSelector.matchExpressions[].values",
+      "name": "values",
+      "parent": "spec.hostSelector.matchExpressions",
+      "depth": 3,
+      "type": "[]string",
+      "required": false,
+      "listType": "atomic",
+      "description": "values is an array of string values. If the operator is In or NotIn, the values array must be non-empty. If the operator is Exists or DoesNotExist, the values array must be empty. This array is replaced during a strategic merge patch."
+    },
+    {
+      "path": "spec.hostSelector.matchLabels",
+      "name": "matchLabels",
+      "parent": "spec.hostSelector",
+      "depth": 2,
+      "type": "map[string]string",
+      "required": false,
+      "description": "matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels map is equivalent to an element of matchExpressions, whose key field is \"key\", the operator is \"In\", and the values array contains only \"value\". The requirements are ANDed."
+    },
+    {
+      "path": "spec.once",
+      "name": "once",
+      "parent": "spec",
+      "depth": 1,
+      "type": "[]object",
+      "required": false,
+      "maxItems": 32,
+      "listType": "atomic",
+      "description": "Once are single windows, for a planned intervention outside the usual schedule.",
+      "validations": [
+        {
+          "rule": "self.end > self.start",
+          "message": "end must be after start"
+        }
+      ]
+    },
+    {
+      "path": "spec.once[].end",
+      "name": "end",
+      "parent": "spec.once",
+      "depth": 2,
+      "type": "string",
+      "format": "date-time",
+      "required": true,
+      "description": "End is when it closes."
+    },
+    {
+      "path": "spec.once[].start",
+      "name": "start",
+      "parent": "spec.once",
+      "depth": 2,
+      "type": "string",
+      "format": "date-time",
+      "required": true,
+      "description": "Start is when the window opens (RFC 3339, with its offset)."
+    },
+    {
+      "path": "spec.timeZone",
+      "name": "timeZone",
+      "parent": "spec",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "default": "UTC",
+      "description": "TimeZone is the IANA time zone the weekly windows are read in, such as Europe/Berlin; daylight saving time is followed. Default UTC."
+    },
+    {
+      "path": "spec.weekly",
+      "name": "weekly",
+      "parent": "spec",
+      "depth": 1,
+      "type": "[]object",
+      "required": false,
+      "maxItems": 32,
+      "listType": "atomic",
+      "description": "Weekly are windows that recur every week."
+    },
+    {
+      "path": "spec.weekly[].days",
+      "name": "days",
+      "parent": "spec.weekly",
+      "depth": 2,
+      "type": "[]string",
+      "required": true,
+      "enum": [
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri",
+        "Sat",
+        "Sun"
+      ],
+      "minItems": 1,
+      "maxItems": 7,
+      "listType": "set",
+      "description": "Days are the days the window opens on, in the window's time zone."
+    },
+    {
+      "path": "spec.weekly[].duration",
+      "name": "duration",
+      "parent": "spec.weekly",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": "Duration is how long the window stays open, such as 4h or 90m: at least a minute, at most a week. A window may run past midnight."
+    },
+    {
+      "path": "spec.weekly[].start",
+      "name": "start",
+      "parent": "spec.weekly",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+      "description": "Start is the local time the window opens, as HH:MM (24-hour clock)."
+    },
+    {
+      "path": "status",
+      "name": "status",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": false,
+      "description": "MaintenanceWindowStatus is what the operator reads from the spec: whether the window is open now and when that changes."
+    },
+    {
+      "path": "status.conditions",
+      "name": "conditions",
+      "parent": "status",
+      "depth": 1,
+      "type": "[]object",
+      "required": false,
+      "listType": "map",
+      "listMapKeys": [
+        "type"
+      ],
+      "description": "Conditions: Valid is False when the time zone or the selector cannot be read. An invalid window still covers what it can name and is never open, so a mistake in it holds work back instead of letting it run."
+    },
+    {
+      "path": "status.conditions[].lastTransitionTime",
+      "name": "lastTransitionTime",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "format": "date-time",
+      "required": true,
+      "description": "lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable."
+    },
+    {
+      "path": "status.conditions[].message",
+      "name": "message",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "maxLength": 32768,
+      "description": "message is a human readable message indicating details about the transition. This may be an empty string."
+    },
+    {
+      "path": "status.conditions[].observedGeneration",
+      "name": "observedGeneration",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "integer",
+      "format": "int64",
+      "required": false,
+      "minimum": 0,
+      "description": "observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance."
+    },
+    {
+      "path": "status.conditions[].reason",
+      "name": "reason",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "pattern": "^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty."
+    },
+    {
+      "path": "status.conditions[].status",
+      "name": "status",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "enum": [
+        "True",
+        "False",
+        "Unknown"
+      ],
+      "description": "status of the condition, one of True, False, Unknown."
+    },
+    {
+      "path": "status.conditions[].type",
+      "name": "type",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$",
+      "maxLength": 316,
+      "description": "type of condition in CamelCase or in foo.example.com/CamelCase."
+    },
+    {
+      "path": "status.nextChange",
+      "name": "nextChange",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "format": "date-time",
+      "required": false,
+      "description": "NextChange is when Open flips next: the close of the window that is open, or the start of the next one. Empty when no window comes again."
+    },
+    {
+      "path": "status.open",
+      "name": "open",
+      "parent": "status",
+      "depth": 1,
+      "type": "boolean",
+      "required": false,
+      "description": "Open is true while one of the windows is open."
+    }
+  ]
+}

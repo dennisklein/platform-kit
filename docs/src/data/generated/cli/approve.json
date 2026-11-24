@@ -1,0 +1,48 @@
+{
+  "name": "approve",
+  "summary": "show what a proposed operation will do to a machine, then let it run; without a name, list the operations that wait for approval",
+  "synopsis": "[-n namespace] [--yes] [<operation> | <namespace>/<operation>]",
+  "usage": [
+    "pk-metal approve [-n namespace] [--yes] [<operation> | <namespace>/<operation>]"
+  ],
+  "changes": true,
+  "needsCluster": true,
+  "description": "The operator never acts on a machine before a person approves the plan.\napprove prints the plan first: the machine, its BMC, each step in order, the\nmedia it mounts, the boot target, and for an OS install the node, its address\nand the disk that will be overwritten. Then it asks \"Approve? [y/N]\".\nThe question waits five minutes. After a yes, approve reads the operation\nagain and approves it only if it is the same object and its plan reads the\nsame; otherwise nothing changes and you look at the new plan.\n\nThe approval is recorded as your cluster user. You cannot approve an operation\nthat you proposed yourself, and an approval cannot be changed afterwards.\n\nOperations live in the operator's namespace, pk-metal. You can give the name\nas it appears in pk-metal status (pk-metal/<name>) or use -n.\n\nWithout a terminal (in a script or a pipe), approve does not ask: it refuses\nunless you give --yes.",
+  "examples": [
+    "pk-metal approve                                  list what waits for approval",
+    "pk-metal approve pk-metal/provision-node1-1a2b3c4d",
+    "pk-metal approve --yes provision-node1-1a2b3c4d   approve in a script"
+  ],
+  "exitStatus": [],
+  "flags": [
+    {
+      "name": "context",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig context to use (default: the current context)",
+      "global": true
+    },
+    {
+      "name": "kubeconfig",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig file (default: $KUBECONFIG, then ~/.kube/config, then the in-cluster account)",
+      "global": true
+    },
+    {
+      "name": "n",
+      "type": "string",
+      "default": "pk-metal",
+      "usage": "namespace of the operation",
+      "global": false
+    },
+    {
+      "name": "yes",
+      "type": "bool",
+      "default": "",
+      "usage": "approve without asking (for scripts); the plan is still printed",
+      "global": false
+    }
+  ],
+  "subcommands": []
+}

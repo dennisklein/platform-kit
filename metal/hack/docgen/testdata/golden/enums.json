@@ -1,0 +1,28 @@
+{
+  "enums": [
+    {
+      "type": "OperationPhase",
+      "group": "metal.pk.io",
+      "source": "api/v1alpha1/types.go",
+      "description": "OperationPhase summarizes an operation's conditions.",
+      "kinds": [
+        "HostOperation"
+      ],
+      "usedBy": [
+        "HostOperationStatus.phase"
+      ],
+      "values": [
+        {
+          "name": "OperationProposed",
+          "value": "Proposed",
+          "description": "OperationProposed: it exists."
+        },
+        {
+          "name": "OperationRunning",
+          "value": "Running",
+          "description": ""
+        }
+      ]
+    }
+  ]
+}

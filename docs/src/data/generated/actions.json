@@ -1,0 +1,926 @@
+{
+  "kind": "HostOperation",
+  "source": "metal/api/v1alpha1/hostoperation_types.go",
+  "actions": [
+    {
+      "key": "powerCycle",
+      "goName": "PowerCycle",
+      "type": "PowerCycleAction",
+      "path": "spec.actions[].powerCycle",
+      "description": "PowerCycle restarts the system: off, observed off, on, observed on — or just on when it was off at the baseline. Each half converges on the reported power state, which every vendor serves, so a resumed operation never cycles a machine twice (the iBMC serves no reset time to tell).",
+      "typeDescription": "PowerCycleAction restarts the machine. It takes no fields: there is only one way to do it, forcibly, and a machine that is already off is turned on instead.",
+      "nodeRef": false,
+      "fields": []
+    },
+    {
+      "key": "powerOff",
+      "goName": "PowerOff",
+      "type": "PowerOffAction",
+      "path": "spec.actions[].powerOff",
+      "description": "PowerOff turns the system off and waits until it reports off. With gracefulTimeoutSeconds it first asks the OS to shut down, and forces the machine off only if it is still on when that time has passed.",
+      "typeDescription": "PowerOffAction turns the machine off. Already off is success.",
+      "nodeRef": false,
+      "fields": [
+        {
+          "name": "gracefulTimeoutSeconds",
+          "goName": "GracefulTimeoutSeconds",
+          "type": "integer",
+          "goType": "int32",
+          "required": false,
+          "description": "GracefulTimeoutSeconds, when set, makes the step ask the OS to shut down first (Redfish GracefulShutdown, the same as a short press of the power button or `ipmitool chassis power soft`), wait this long for the machine to report off, and only then force it off. Unset or 0 forces the machine off at once. A BMC that refuses a graceful shutdown is forced at once too.",
+          "markers": [
+            "Minimum=0",
+            "Maximum=3600",
+            "optional"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "setBootOverride",
+      "goName": "SetBootOverride",
+      "type": "SetBootOverrideAction",
+      "path": "spec.actions[].setBootOverride",
+      "description": "SetBootOverride sets the source the machine boots from next. The target must be one the endpoint actually offers — machines disagree about what they call a virtual CD, so the value is checked against what was discovered rather than assumed.",
+      "typeDescription": "SetBootOverrideAction points the next boot at a particular source.",
+      "nodeRef": false,
+      "fields": [
+        {
+          "name": "target",
+          "goName": "Target",
+          "type": "string",
+          "goType": "string",
+          "required": true,
+          "description": "Target is the boot source (UsbCd, Cd, Pxe, …) — validated against the endpoint's discovered AllowableValues at execution, not at admission.",
+          "markers": []
+        },
+        {
+          "name": "once",
+          "goName": "Once",
+          "type": "boolean",
+          "goType": "*bool",
+          "required": false,
+          "description": "Once limits the override to the next boot (the default); false is Continuous.",
+          "markers": [
+            "kubebuilder:default=true",
+            "optional"
+          ]
+        },
+        {
+          "name": "mode",
+          "goName": "Mode",
+          "type": "string",
+          "goType": "string",
+          "required": false,
+          "description": "Mode is the firmware boot mode for the override. Omitted leaves the machine's own setting alone (some firmware rejects the property).",
+          "markers": [
+            "Enum=UEFI;Legacy",
+            "optional"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "insertMedia",
+      "goName": "InsertMedia",
+      "type": "InsertMediaAction",
+      "path": "spec.actions[].insertMedia",
+      "description": "InsertMedia mounts an image URL on a virtual-media slot, dispatching the dialect the endpoint advertises (standard InsertMedia vs OEM VmmControl).",
+      "typeDescription": "InsertMediaAction mounts an image on one of the machine's virtual-media slots, the way you would put a disc in a drive attached to it. The image is either a plain URL or a BootAsset: a secret-free asset mounts from its stable URL, a secret-bearing one (configISO) is served by the operator's media service under a grant issued at execution time and revoked when the operation ends.",
+      "nodeRef": false,
+      "fields": [
+        {
+          "name": "mediaId",
+          "goName": "MediaID",
+          "type": "string",
+          "goType": "string",
+          "required": true,
+          "description": "MediaID is the virtual-media slot (\"CD\", \"USBStick\", …).",
+          "markers": []
+        },
+        {
+          "name": "imageUrl",
+          "goName": "ImageURL",
+          "type": "string",
+          "goType": "string",
+          "required": false,
+          "description": "ImageURL is what to mount. Already-mounted with the same URL is success — steps converge to their goal, so a resumed operation never double-issues.",
+          "markers": [
+            "optional"
+          ]
+        },
+        {
+          "name": "bootAssetRef",
+          "goName": "BootAssetRef",
+          "type": "object",
+          "goType": "*Reference",
+          "required": false,
+          "description": "BootAssetRef names the BootAsset (os.pk.io) to mount.",
+          "markers": [
+            "optional"
+          ]
+        },
+        {
+          "name": "digest",
+          "goName": "Digest",
+          "type": "string",
+          "goType": "string",
+          "required": false,
+          "description": "Digest pins the artifact bytes (sha256:<hex>) the approver saw: an artifact rebuilt since the proposal fails the step instead of mounting content nobody approved. With a digest the asset need not be Ready: the artifact approved is mounted while a newer build runs, and an asset that names no artifact yet makes the step wait. Secret-bearing assets (configISO, embeddedInstaller) only.",
+          "markers": [
+            "Pattern=`^sha256:[a-f0-9]{64}$`",
+            "optional"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "ejectMedia",
+      "goName": "EjectMedia",
+      "type": "EjectMediaAction",
+      "path": "spec.actions[].ejectMedia",
+      "description": "EjectMedia unmounts a virtual-media slot.",
+      "typeDescription": "EjectMediaAction unmounts a virtual-media slot. Ejecting an empty slot is success — the goal is an empty slot, not the act of emptying it.",
+      "nodeRef": false,
+      "fields": [
+        {
+          "name": "mediaId",
+          "goName": "MediaID",
+          "type": "string",
+          "goType": "string",
+          "required": true,
+          "description": "MediaID is the virtual-media slot to empty.",
+          "markers": []
+        }
+      ]
+    },
+    {
+      "key": "applyBios",
+      "goName": "ApplyBios",
+      "type": "ApplyBiosAction",
+      "path": "spec.actions[].applyBios",
+      "description": "ApplyBios stages a BiosSettings object's desired attributes into the machine's pending (@Redfish.Settings) object. Staging changes nothing — the world moves at the next system reset, so a convergence operation pairs this with a powerCycle.",
+      "typeDescription": "ApplyBiosAction stages a machine's wanted BIOS attributes onto the firmware's pending object. Staging on its own changes nothing that is running: BIOS settings take effect at the next reset, which is why a converging operation pairs this with a powerCycle. Where the BMC lists OnReset among the supported apply times (@Redfish.Settings.SupportedApplyTimes), the PATCH asks for it (@Redfish.SettingsApplyTime): iDRAC 9 applies staged values only then, through the BIOS configuration job that request creates.",
+      "nodeRef": false,
+      "fields": [
+        {
+          "name": "settingsRef",
+          "goName": "SettingsRef",
+          "type": "object",
+          "goType": "*Reference",
+          "required": false,
+          "description": "SettingsRef names the BiosSettings the attributes came from — provenance only: the executor never reads it, so an edit after approval cannot change what runs.",
+          "markers": [
+            "optional"
+          ]
+        },
+        {
+          "name": "attributes",
+          "goName": "Attributes",
+          "type": "map[string]any",
+          "goType": "map[string]apiextensionsv1.JSON",
+          "required": true,
+          "description": "Attributes are the values to stage, copied in at proposal time — what the approver saw is exactly what is applied. Keys already current are left out; keys already staged with the wanted value are PATCHed again with the rest, so the staging carries the apply time this client asks for, and a refusal to stage only such keys again counts as staged.",
+          "markers": [
+            "MinProperties=1"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "flashFirmware",
+      "goName": "FlashFirmware",
+      "type": "FlashFirmwareAction",
+      "path": "spec.actions[].flashFirmware",
+      "description": "FlashFirmware pushes a firmware image to the management controller and waits for proof that it took: the controller rebooting, and the expected version reading back afterwards. A reported success is not believed on its own.",
+      "typeDescription": "FlashFirmwareAction replaces the firmware on a machine's management controller. The controller reboots as part of it; the machine it manages keeps running.",
+      "nodeRef": false,
+      "fields": [
+        {
+          "name": "image",
+          "goName": "Image",
+          "type": "string",
+          "goType": "string",
+          "required": true,
+          "description": "Image is the digest-pinned OCI reference to fetch and push (the same shape as FirmwareProfile.spec.manager.image).",
+          "markers": [
+            "Pattern=`@sha256:[a-f0-9]{64}$`"
+          ]
+        },
+        {
+          "name": "version",
+          "goName": "Version",
+          "type": "string",
+          "goType": "string",
+          "required": true,
+          "description": "Version is the version expected to read back after the flash — the convergence goal: a manager already serving it makes this step a no-op.",
+          "markers": [
+            "MinLength=1"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "awaitCheckIn",
+      "goName": "AwaitCheckIn",
+      "type": "AwaitCheckInAction",
+      "path": "spec.actions[].awaitCheckIn",
+      "description": "AwaitCheckIn waits, without touching the machine, until the named TalosNode reports that the machine runs its config — the point after which the boot media are no longer needed. It changes nothing; it keeps the operation (and the grants it issued) alive until the hand-off.",
+      "typeDescription": "AwaitCheckInAction holds the operation until a TalosNode checks in.",
+      "nodeRef": true,
+      "fields": [
+        {
+          "name": "nodeRef",
+          "goName": "NodeRef",
+          "type": "object",
+          "goType": "Reference",
+          "required": true,
+          "description": "NodeRef names the TalosNode (os.pk.io) whose check-in ends the wait: MachineReachable=True over the authenticated machine API, or Ready=True.",
+          "markers": []
+        },
+        {
+          "name": "timeoutSeconds",
+          "goName": "TimeoutSeconds",
+          "type": "integer",
+          "goType": "int32",
+          "required": false,
+          "description": "TimeoutSeconds bounds the wait, counted from the previous step's end. Running out fails the step — the media are ejected and the grants revoked either way.",
+          "markers": [
+            "Minimum=60",
+            "Maximum=86400",
+            "kubebuilder:default=1800",
+            "optional"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "cordon",
+      "goName": "Cordon",
+      "type": "CordonAction",
+      "path": "spec.actions[].cordon",
+      "description": "Cordon marks the node's Kubernetes Node unschedulable. Already cordoned is success.",
+      "typeDescription": "CordonAction marks a node unschedulable.",
+      "nodeRef": true,
+      "fields": [
+        {
+          "name": "nodeRef",
+          "goName": "NodeRef",
+          "type": "object",
+          "goType": "Reference",
+          "required": true,
+          "description": "NodeRef names the TalosNode (os.pk.io); its hostname is the Kubernetes Node's name.",
+          "markers": []
+        }
+      ]
+    },
+    {
+      "key": "drain",
+      "goName": "Drain",
+      "type": "DrainAction",
+      "path": "spec.actions[].drain",
+      "description": "Drain evicts the pods on the node through the Eviction API, so that PodDisruptionBudgets hold: an eviction a budget refuses is waited out, not forced, until the timeout fails the step. The node stays cordoned either way. A node not yet cordoned is cordoned first.",
+      "typeDescription": "DrainAction evicts a node's pods, respecting PodDisruptionBudgets.",
+      "nodeRef": true,
+      "fields": [
+        {
+          "name": "nodeRef",
+          "goName": "NodeRef",
+          "type": "object",
+          "goType": "Reference",
+          "required": true,
+          "description": "NodeRef names the TalosNode (os.pk.io) to drain.",
+          "markers": []
+        },
+        {
+          "name": "timeoutSeconds",
+          "goName": "TimeoutSeconds",
+          "type": "integer",
+          "goType": "int32",
+          "required": false,
+          "description": "TimeoutSeconds bounds the whole drain, budget waits included. Running out fails the step and leaves the node cordoned.",
+          "markers": [
+            "Minimum=30",
+            "Maximum=86400",
+            "kubebuilder:default=900",
+            "optional"
+          ]
+        },
+        {
+          "name": "gracePeriodSeconds",
+          "goName": "GracePeriodSeconds",
+          "type": "integer",
+          "goType": "*int32",
+          "required": false,
+          "description": "GracePeriodSeconds overrides each pod's termination grace period; unset keeps the pod's own.",
+          "markers": [
+            "Minimum=0",
+            "Maximum=3600",
+            "optional"
+          ]
+        },
+        {
+          "name": "deleteEmptyDirData",
+          "goName": "DeleteEmptyDirData",
+          "type": "boolean",
+          "goType": "bool",
+          "required": false,
+          "description": "DeleteEmptyDirData lets the drain evict pods with emptyDir volumes, whose data is lost. Without it such a pod fails the step.",
+          "markers": [
+            "optional"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "uncordon",
+      "goName": "Uncordon",
+      "type": "UncordonAction",
+      "path": "spec.actions[].uncordon",
+      "description": "Uncordon marks the node schedulable again. Already schedulable is success.",
+      "typeDescription": "UncordonAction marks a node schedulable.",
+      "nodeRef": true,
+      "fields": [
+        {
+          "name": "nodeRef",
+          "goName": "NodeRef",
+          "type": "object",
+          "goType": "Reference",
+          "required": true,
+          "description": "NodeRef names the TalosNode (os.pk.io).",
+          "markers": []
+        }
+      ]
+    },
+    {
+      "key": "talosReboot",
+      "goName": "TalosReboot",
+      "type": "TalosRebootAction",
+      "path": "spec.actions[].talosReboot",
+      "description": "TalosReboot asks Talos to reboot the node: services stop and filesystems unmount before the kernel restarts, unlike a BMC powerCycle, which cuts the power.",
+      "typeDescription": "TalosRebootAction reboots a node through Talos.",
+      "nodeRef": true,
+      "fields": [
+        {
+          "name": "nodeRef",
+          "goName": "NodeRef",
+          "type": "object",
+          "goType": "Reference",
+          "required": true,
+          "description": "NodeRef names the TalosNode (os.pk.io) to reboot.",
+          "markers": []
+        },
+        {
+          "name": "mode",
+          "goName": "Mode",
+          "type": "string",
+          "goType": "string",
+          "required": false,
+          "description": "Mode is Default (kexec or a warm reboot) or PowerCycle (a cold start at the end, for firmware that applies only then).",
+          "markers": [
+            "Enum=Default;PowerCycle",
+            "kubebuilder:default=Default",
+            "optional"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "talosShutdown",
+      "goName": "TalosShutdown",
+      "type": "TalosShutdownAction",
+      "path": "spec.actions[].talosShutdown",
+      "description": "TalosShutdown asks Talos to shut the node down cleanly.",
+      "typeDescription": "TalosShutdownAction shuts a node down through Talos.",
+      "nodeRef": true,
+      "fields": [
+        {
+          "name": "nodeRef",
+          "goName": "NodeRef",
+          "type": "object",
+          "goType": "Reference",
+          "required": true,
+          "description": "NodeRef names the TalosNode (os.pk.io) to shut down.",
+          "markers": []
+        },
+        {
+          "name": "force",
+          "goName": "Force",
+          "type": "boolean",
+          "goType": "bool",
+          "required": false,
+          "description": "Force shuts down even when the node cannot cordon and drain itself first (its Kubernetes API is down).",
+          "markers": [
+            "optional"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "talosUpgrade",
+      "goName": "TalosUpgrade",
+      "type": "TalosUpgradeAction",
+      "path": "spec.actions[].talosUpgrade",
+      "description": "TalosUpgrade installs another Talos version from an installer image and reboots into it.",
+      "typeDescription": "TalosUpgradeAction upgrades a node's Talos.",
+      "nodeRef": true,
+      "fields": [
+        {
+          "name": "nodeRef",
+          "goName": "NodeRef",
+          "type": "object",
+          "goType": "Reference",
+          "required": true,
+          "description": "NodeRef names the TalosNode (os.pk.io) to upgrade.",
+          "markers": []
+        },
+        {
+          "name": "image",
+          "goName": "Image",
+          "type": "string",
+          "goType": "string",
+          "required": true,
+          "description": "Image is the installer image, pinned by digest: what the approver saw is what is installed.",
+          "markers": [
+            "Pattern=`@sha256:[a-f0-9]{64}$`"
+          ]
+        },
+        {
+          "name": "version",
+          "goName": "Version",
+          "type": "string",
+          "goType": "string",
+          "required": true,
+          "description": "Version is the Talos version expected to read back afterwards, the step's goal: a node that already reports it is not upgraded again.",
+          "markers": [
+            "Pattern=`^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$`"
+          ]
+        },
+        {
+          "name": "stage",
+          "goName": "Stage",
+          "type": "boolean",
+          "goType": "bool",
+          "required": false,
+          "description": "Stage writes the new image and upgrades at the next reboot, for a node whose open files would block an upgrade in place.",
+          "markers": [
+            "optional"
+          ]
+        },
+        {
+          "name": "preserve",
+          "goName": "Preserve",
+          "type": "boolean",
+          "goType": "*bool",
+          "required": false,
+          "description": "Preserve keeps the EPHEMERAL partition (pod data, etcd). Talos 1.8 and later always preserve it; the field is passed through for older nodes.",
+          "markers": [
+            "kubebuilder:default=true",
+            "optional"
+          ]
+        },
+        {
+          "name": "force",
+          "goName": "Force",
+          "type": "boolean",
+          "goType": "bool",
+          "required": false,
+          "description": "Force skips the etcd health check Talos runs before upgrading a control plane.",
+          "markers": [
+            "optional"
+          ]
+        },
+        {
+          "name": "rebootMode",
+          "goName": "RebootMode",
+          "type": "string",
+          "goType": "string",
+          "required": false,
+          "description": "RebootMode is how the reboot into the new image ends.",
+          "markers": [
+            "Enum=Default;PowerCycle",
+            "kubebuilder:default=Default",
+            "optional"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "talosApplyConfig",
+      "goName": "TalosApplyConfig",
+      "type": "TalosApplyConfigAction",
+      "path": "spec.actions[].talosApplyConfig",
+      "description": "TalosApplyConfig applies a rendered machine config, the bytes pinned by digest at proposal.",
+      "typeDescription": "TalosApplyConfigAction applies a pinned machine config.",
+      "nodeRef": true,
+      "fields": [
+        {
+          "name": "nodeRef",
+          "goName": "NodeRef",
+          "type": "object",
+          "goType": "Reference",
+          "required": true,
+          "description": "NodeRef names the TalosNode (os.pk.io) whose config this is.",
+          "markers": []
+        },
+        {
+          "name": "configSecretRef",
+          "goName": "ConfigSecretRef",
+          "type": "object",
+          "goType": "Reference",
+          "required": true,
+          "description": "ConfigSecretRef names the Secret, in the operator's namespace, that holds the rendered config.",
+          "markers": []
+        },
+        {
+          "name": "digest",
+          "goName": "Digest",
+          "type": "string",
+          "goType": "string",
+          "required": true,
+          "description": "Digest pins the config bytes (sha256:<hex>) the approver saw: a Secret whose content no longer hashes to it fails the step instead of applying a config nobody approved.",
+          "markers": [
+            "Pattern=`^sha256:[a-f0-9]{64}$`"
+          ]
+        },
+        {
+          "name": "mode",
+          "goName": "Mode",
+          "type": "string",
+          "goType": "string",
+          "required": false,
+          "description": "Mode is how the node takes the config: NoReboot fails when a change needs a reboot, Reboot always reboots, Staged applies at the next boot, Try rolls back after tryTimeoutSeconds unless confirmed, Auto lets the node choose.",
+          "markers": [
+            "Enum=Auto;NoReboot;Reboot;Staged;Try",
+            "kubebuilder:default=NoReboot",
+            "optional"
+          ]
+        },
+        {
+          "name": "tryTimeoutSeconds",
+          "goName": "TryTimeoutSeconds",
+          "type": "integer",
+          "goType": "int32",
+          "required": false,
+          "description": "TryTimeoutSeconds bounds Try mode; unset is the node's default.",
+          "markers": [
+            "Minimum=10",
+            "Maximum=3600",
+            "optional"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "etcdLeave",
+      "goName": "EtcdLeave",
+      "type": "EtcdLeaveAction",
+      "path": "spec.actions[].etcdLeave",
+      "description": "EtcdLeave makes the node's etcd member leave the cluster, asked on the node itself: the orderly removal of a control plane that still answers.",
+      "typeDescription": "EtcdLeaveAction makes a control plane's etcd member leave the cluster.",
+      "nodeRef": true,
+      "fields": [
+        {
+          "name": "nodeRef",
+          "goName": "NodeRef",
+          "type": "object",
+          "goType": "Reference",
+          "required": true,
+          "description": "NodeRef names the control-plane TalosNode (os.pk.io) that leaves.",
+          "markers": []
+        }
+      ]
+    },
+    {
+      "key": "etcdRemoveMember",
+      "goName": "EtcdRemoveMember",
+      "type": "EtcdRemoveMemberAction",
+      "path": "spec.actions[].etcdRemoveMember",
+      "description": "EtcdRemoveMember removes one etcd member by its ID, asked through a healthy control-plane peer: the path for a member whose node can no longer leave by itself (wiped, dead, unreachable).",
+      "typeDescription": "EtcdRemoveMemberAction removes one etcd member through a peer.",
+      "nodeRef": true,
+      "fields": [
+        {
+          "name": "nodeRef",
+          "goName": "NodeRef",
+          "type": "object",
+          "goType": "Reference",
+          "required": true,
+          "description": "NodeRef names the TalosNode (os.pk.io) whose member is removed: provenance for the approver, and how the executor finds the cluster and a peer to ask.",
+          "markers": []
+        },
+        {
+          "name": "memberId",
+          "goName": "MemberID",
+          "type": "string",
+          "goType": "string",
+          "required": true,
+          "description": "MemberID is the etcd member ID in hex, as etcd lists it, fixed at proposal: the executor removes exactly this member, never \"whatever carries that hostname now\", which after a rejoin is the new member.",
+          "markers": [
+            "Pattern=`^[0-9a-f]{1,16}$`"
+          ]
+        },
+        {
+          "name": "hostname",
+          "goName": "Hostname",
+          "type": "string",
+          "goType": "string",
+          "required": false,
+          "description": "Hostname is the member's hostname as etcd listed it at proposal, for the approver.",
+          "markers": [
+            "optional"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "talosReset",
+      "goName": "TalosReset",
+      "type": "TalosResetAction",
+      "path": "spec.actions[].talosReset",
+      "description": "TalosReset wipes the node through Talos, back towards maintenance mode.",
+      "typeDescription": "TalosResetAction wipes a node through Talos.",
+      "nodeRef": true,
+      "fields": [
+        {
+          "name": "nodeRef",
+          "goName": "NodeRef",
+          "type": "object",
+          "goType": "Reference",
+          "required": true,
+          "description": "NodeRef names the TalosNode (os.pk.io) to reset.",
+          "markers": []
+        },
+        {
+          "name": "graceful",
+          "goName": "Graceful",
+          "type": "boolean",
+          "goType": "*bool",
+          "required": false,
+          "description": "Graceful leaves etcd (on a control plane) and cordons and drains the node before wiping. A node that cannot reach its peers needs false, and its member is then removed by an etcdRemoveMember step.",
+          "markers": [
+            "kubebuilder:default=true",
+            "optional"
+          ]
+        },
+        {
+          "name": "reboot",
+          "goName": "Reboot",
+          "type": "boolean",
+          "goType": "bool",
+          "required": false,
+          "description": "Reboot boots the node into maintenance mode afterwards; false leaves it powered off.",
+          "markers": [
+            "optional"
+          ]
+        },
+        {
+          "name": "mode",
+          "goName": "Mode",
+          "type": "string",
+          "goType": "string",
+          "required": false,
+          "description": "Mode picks the disks: All (system and user disks), SystemDisk or UserDisks.",
+          "markers": [
+            "Enum=All;SystemDisk;UserDisks",
+            "kubebuilder:default=All",
+            "optional"
+          ]
+        },
+        {
+          "name": "systemPartitions",
+          "goName": "SystemPartitions",
+          "type": "[]string",
+          "goType": "[]SystemPartition",
+          "required": false,
+          "description": "SystemPartitions limits the wipe to these system partitions; empty wipes what mode names. STATE holds the machine config and its credentials, EPHEMERAL the pod data and etcd.",
+          "markers": [
+            "MaxItems=3",
+            "listType=set",
+            "optional"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "waitNodeReady",
+      "goName": "WaitNodeReady",
+      "type": "WaitNodeReadyAction",
+      "path": "spec.actions[].waitNodeReady",
+      "description": "WaitNodeReady waits, changing nothing, until the node runs and is ready: Talos stage running with every readiness condition met, and its Kubernetes Node Ready.",
+      "typeDescription": "WaitNodeReadyAction waits for a node to run and be ready.",
+      "nodeRef": true,
+      "fields": [
+        {
+          "name": "nodeRef",
+          "goName": "NodeRef",
+          "type": "object",
+          "goType": "Reference",
+          "required": true,
+          "description": "NodeRef names the TalosNode (os.pk.io) to wait for.",
+          "markers": []
+        },
+        {
+          "name": "version",
+          "goName": "Version",
+          "type": "string",
+          "goType": "string",
+          "required": false,
+          "description": "Version, when set, is also waited for: the Talos version the node must report, the proof an upgrade took.",
+          "markers": [
+            "Pattern=`^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$`",
+            "optional"
+          ]
+        },
+        {
+          "name": "timeoutSeconds",
+          "goName": "TimeoutSeconds",
+          "type": "integer",
+          "goType": "int32",
+          "required": false,
+          "description": "TimeoutSeconds bounds the wait, counted from the previous step's end.",
+          "markers": [
+            "Minimum=60",
+            "Maximum=86400",
+            "kubebuilder:default=1800",
+            "optional"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "waitEtcdHealthy",
+      "goName": "WaitEtcdHealthy",
+      "type": "WaitEtcdHealthyAction",
+      "path": "spec.actions[].waitEtcdHealthy",
+      "description": "WaitEtcdHealthy waits, changing nothing, until the etcd cluster of the node's TalosCluster is healthy: every member answers, none reports an error or alarm, and none is a learner.",
+      "typeDescription": "WaitEtcdHealthyAction waits for a cluster's etcd to be healthy.",
+      "nodeRef": true,
+      "fields": [
+        {
+          "name": "nodeRef",
+          "goName": "NodeRef",
+          "type": "object",
+          "goType": "Reference",
+          "required": true,
+          "description": "NodeRef names a control-plane TalosNode (os.pk.io) of the cluster. Its own member must be listed too, as a voting member: after a join or a reboot, that is the member the wait is for.",
+          "markers": []
+        },
+        {
+          "name": "timeoutSeconds",
+          "goName": "TimeoutSeconds",
+          "type": "integer",
+          "goType": "int32",
+          "required": false,
+          "description": "TimeoutSeconds bounds the wait, counted from the previous step's end.",
+          "markers": [
+            "Minimum=60",
+            "Maximum=86400",
+            "kubebuilder:default=900",
+            "optional"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "etcdRecover",
+      "goName": "EtcdRecover",
+      "type": "EtcdRecoverAction",
+      "path": "spec.actions[].etcdRecover",
+      "description": "EtcdRecover restores the etcd of a cluster that lost all of it from an EtcdSnapshot, on one control plane: a person uploads the decrypted snapshot (pk-metal restore upload), then Talos starts etcd from it. See EtcdRecoverAction and the docs site: operate/day-2/restore-etcd.",
+      "typeDescription": "EtcdRecoverAction restores a cluster's etcd from a snapshot onto one control plane, after the cluster lost all of it.\n\nThe snapshot is encrypted to people, not to the operator, so the operator cannot upload it: after approval a person runs pk-metal restore upload, which decrypts it on their machine and streams it to the node with their own talosconfig. The step:\n\n 1. refuses unless the cluster is known to have lost its etcd: it was\n    bootstrapped before (status.bootstrappedAt) or is marked\n    os.pk.io/restore-pending, and no control plane runs etcd now;\n 2. waits for the upload (annotation metal.pk.io/etcd-snapshot-uploaded\n    naming the approved sha256);\n 3. asks Talos to bootstrap etcd from the upload (Bootstrap with\n    RecoverEtcd) and waits until the node lists etcd members.\n\nThe other control planes then join the restored etcd by themselves, once their own etcd data is wiped (a talosReset of EPHEMERAL each).",
+      "nodeRef": true,
+      "fields": [
+        {
+          "name": "nodeRef",
+          "goName": "NodeRef",
+          "type": "object",
+          "goType": "Reference",
+          "required": true,
+          "description": "NodeRef names the control-plane TalosNode (os.pk.io) etcd is restored on.",
+          "markers": []
+        },
+        {
+          "name": "snapshotRef",
+          "goName": "SnapshotRef",
+          "type": "object",
+          "goType": "Reference",
+          "required": true,
+          "description": "SnapshotRef names the EtcdSnapshot (os.pk.io) to restore.",
+          "markers": []
+        },
+        {
+          "name": "sha256",
+          "goName": "SHA256",
+          "type": "string",
+          "goType": "string",
+          "required": true,
+          "description": "SHA256 pins the plaintext snapshot (sha256:<hex>) the approver approved: the EtcdSnapshot's record must still say so, and the upload must name it.",
+          "markers": [
+            "Pattern=`^sha256:[a-f0-9]{64}$`"
+          ]
+        },
+        {
+          "name": "timeoutSeconds",
+          "goName": "TimeoutSeconds",
+          "type": "integer",
+          "goType": "int32",
+          "required": false,
+          "description": "TimeoutSeconds bounds the step, the wait for the upload included, counted from the previous step's end (or the approval).",
+          "markers": [
+            "Minimum=300",
+            "Maximum=86400",
+            "kubebuilder:default=7200",
+            "optional"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "etcdForfeitLeadership",
+      "goName": "EtcdForfeitLeadership",
+      "type": "EtcdForfeitLeadershipAction",
+      "path": "spec.actions[].etcdForfeitLeadership",
+      "description": "EtcdForfeitLeadership hands etcd leadership to another member when the node's member leads, asked on the node itself; a follower is left as it is. A control plane that is about to leave or go down does it first, so that its departure does not cost an election under load.",
+      "typeDescription": "EtcdForfeitLeadershipAction moves etcd leadership off a control plane.",
+      "nodeRef": true,
+      "fields": [
+        {
+          "name": "nodeRef",
+          "goName": "NodeRef",
+          "type": "object",
+          "goType": "Reference",
+          "required": true,
+          "description": "NodeRef names the control-plane TalosNode (os.pk.io) whose member gives up leadership.",
+          "markers": []
+        }
+      ]
+    },
+    {
+      "key": "deleteKubernetesNode",
+      "goName": "DeleteKubernetesNode",
+      "type": "DeleteKubernetesNodeAction",
+      "path": "spec.actions[].deleteKubernetesNode",
+      "description": "DeleteKubernetesNode deletes the node's Node object from its cluster's Kubernetes API, the last trace of a removed node there. Already gone is success.",
+      "typeDescription": "DeleteKubernetesNodeAction deletes a node's Kubernetes Node object.",
+      "nodeRef": true,
+      "fields": [
+        {
+          "name": "nodeRef",
+          "goName": "NodeRef",
+          "type": "object",
+          "goType": "Reference",
+          "required": true,
+          "description": "NodeRef names the TalosNode (os.pk.io); its name is the Kubernetes Node's name, and its cluster says which Kubernetes API to ask.",
+          "markers": []
+        }
+      ]
+    },
+    {
+      "key": "stageFirmware",
+      "goName": "StageFirmware",
+      "type": "StageFirmwareAction",
+      "path": "spec.actions[].stageFirmware",
+      "description": "StageFirmware pushes a system firmware image (BIOS/UEFI, NIC, RAID) to the BMC to apply at the machine's next reset. Staging changes nothing that runs; a reboot later in the operation applies it, and the version the inventory reports afterwards is the proof.",
+      "typeDescription": "StageFirmwareAction stages one update package for some inventory entries.",
+      "nodeRef": false,
+      "fields": [
+        {
+          "name": "image",
+          "goName": "Image",
+          "type": "string",
+          "goType": "string",
+          "required": true,
+          "description": "Image is the digest-pinned OCI reference of the update package.",
+          "markers": [
+            "Pattern=`@sha256:[a-f0-9]{64}$`"
+          ]
+        },
+        {
+          "name": "version",
+          "goName": "Version",
+          "type": "string",
+          "goType": "string",
+          "required": true,
+          "description": "Version is the version the entries report once the package applied: an entry that already reports it is not staged again.",
+          "markers": [
+            "MinLength=1"
+          ]
+        },
+        {
+          "name": "targets",
+          "goName": "Targets",
+          "type": "[]string",
+          "goType": "[]string",
+          "required": true,
+          "description": "Targets are the FirmwareInventory member ids to update, fixed at proposal: the approver sees which components change.",
+          "markers": [
+            "MinItems=1",
+            "MaxItems=16",
+            "listType=set"
+          ]
+        }
+      ]
+    }
+  ]
+}

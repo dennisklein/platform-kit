@@ -1,0 +1,1981 @@
+{
+  "roles": [
+    {
+      "kind": "ClusterRole",
+      "name": "pk-metal-approver",
+      "namespace": "",
+      "source": "metal/config/rbac/approver_role.yaml",
+      "generated": false,
+      "description": "The human side of the approval gate. An operation's target and actions are frozen at creation, so the only thing a patch can change is the approval: permission to patch IS permission to approve, and the admission policy checks that an approver signs with their own name. Bind this to the people (or the group) who may let a disruptive operation run. Nothing binds it by default, and the manager's own role has no patch on operations.\n\nThe same holds for a TalosRollout: what it changes, on which nodes, is frozen at creation and its plan is the operator's status, so a patch approves it, pauses or resumes it, or aborts it. One approval there covers every node's operation of the plan.",
+      "rules": [
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hostoperations"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "patch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hosts"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosrollouts"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "patch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosclusters",
+            "talosnodes"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "pk-metal-backup",
+      "namespace": "",
+      "source": "metal/config/rbac/backup_role.yaml",
+      "generated": false,
+      "description": "Reading the etcd backup catalogue and asking for a snapshot now (pk-metal backup now|list). Taking a snapshot reads etcd and changes no machine, so this is not part of the approval split; it holds no Secret and cannot decrypt a backup, which only the holders of the age identities can. Restoring one goes through an approved etcdRecover operation (docs site: operate/day-2/restore-etcd). Bind it to the people who look after backups. Nothing binds it by default.",
+      "rules": [
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "etcdbackuppolicies"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "etcdsnapshots"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "create"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosclusters"
+          ],
+          "verbs": [
+            "get",
+            "list"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "ClusterRole",
+      "name": "pk-metal-manager",
+      "namespace": "",
+      "source": "metal/config/rbac/role.yaml",
+      "generated": true,
+      "description": "",
+      "rules": [
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "nodes"
+          ],
+          "verbs": [
+            "get"
+          ]
+        },
+        {
+          "apiGroups": [
+            "events.k8s.io"
+          ],
+          "resources": [
+            "events"
+          ],
+          "verbs": [
+            "create",
+            "patch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "assets",
+            "biosprofiles",
+            "endpointprofiles",
+            "firmwareprofiles",
+            "maintenancewindows"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "assets/finalizers",
+            "assets/status",
+            "biossettings/status",
+            "hostclaims/status",
+            "hostoperations/status",
+            "maintenancewindows/status",
+            "managementendpoints/finalizers"
+          ],
+          "verbs": [
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "biosschemas",
+            "biossettings"
+          ],
+          "verbs": [
+            "create",
+            "delete",
+            "get",
+            "list",
+            "update",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hostclaims"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "update",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hostoperations"
+          ],
+          "verbs": [
+            "create",
+            "delete",
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hosts",
+            "managementendpoints"
+          ],
+          "verbs": [
+            "create",
+            "get",
+            "list",
+            "patch",
+            "update",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hosts/status",
+            "managementendpoints/status"
+          ],
+          "verbs": [
+            "patch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "bootassets"
+          ],
+          "verbs": [
+            "create",
+            "get",
+            "list",
+            "update",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "bootassets/finalizers",
+            "bootassets/status",
+            "etcdbackuppolicies/status",
+            "etcdsnapshots/status",
+            "talosclusters/finalizers",
+            "talosclusters/status",
+            "talosnodes/finalizers",
+            "talosnodes/status",
+            "talosrollouts/finalizers",
+            "talosrollouts/status"
+          ],
+          "verbs": [
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "etcdbackuppolicies",
+            "talosclusters"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "etcdsnapshots"
+          ],
+          "verbs": [
+            "create",
+            "delete",
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosnodes"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "patch",
+            "update",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosrollouts"
+          ],
+          "verbs": [
+            "create",
+            "get",
+            "list",
+            "watch"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "Role",
+      "name": "pk-metal-manager",
+      "namespace": "pk-metal",
+      "source": "metal/config/rbac/role.yaml",
+      "generated": true,
+      "description": "",
+      "rules": [
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "configmaps"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "events"
+          ],
+          "verbs": [
+            "create",
+            "patch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "pods"
+          ],
+          "verbs": [
+            "get"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "secrets"
+          ],
+          "verbs": [
+            "create",
+            "delete",
+            "get",
+            "list",
+            "update",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "batch"
+          ],
+          "resources": [
+            "jobs"
+          ],
+          "verbs": [
+            "create",
+            "delete",
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "cert-manager.io"
+          ],
+          "resources": [
+            "certificaterequests"
+          ],
+          "verbs": [
+            "create",
+            "delete",
+            "get"
+          ]
+        },
+        {
+          "apiGroups": [
+            "coordination.k8s.io"
+          ],
+          "resources": [
+            "leases"
+          ],
+          "verbs": [
+            "create",
+            "get",
+            "update"
+          ]
+        }
+      ]
+    }
+  ],
+  "bindings": [
+    {
+      "kind": "ClusterRoleBinding",
+      "name": "pk-metal-manager",
+      "namespace": "",
+      "source": "metal/config/rbac/role_binding.yaml",
+      "description": "Binds the generated roles (role.yaml, from the +kubebuilder:rbac markers on the reconcilers) to the manager's service account. The ClusterRole covers the cluster-scoped kinds and the claims and operations that live in any namespace; the Role covers what stays inside the operator's namespace: Secrets, the leader-election Lease, cert-manager requests.",
+      "roleRef": {
+        "apiGroup": "rbac.authorization.k8s.io",
+        "kind": "ClusterRole",
+        "name": "pk-metal-manager"
+      },
+      "subjects": [
+        {
+          "kind": "ServiceAccount",
+          "name": "pk-metal-manager",
+          "namespace": "pk-metal"
+        }
+      ]
+    },
+    {
+      "kind": "RoleBinding",
+      "name": "pk-metal-manager",
+      "namespace": "pk-metal",
+      "source": "metal/config/rbac/role_binding.yaml",
+      "description": "",
+      "roleRef": {
+        "apiGroup": "rbac.authorization.k8s.io",
+        "kind": "Role",
+        "name": "pk-metal-manager"
+      },
+      "subjects": [
+        {
+          "kind": "ServiceAccount",
+          "name": "pk-metal-manager",
+          "namespace": "pk-metal"
+        }
+      ]
+    }
+  ],
+  "markers": [
+    {
+      "source": "metal/cmd/manager/main.go",
+      "rules": [
+        {
+          "apiGroups": [
+            "coordination.k8s.io"
+          ],
+          "resources": [
+            "leases"
+          ],
+          "verbs": [
+            "get",
+            "create",
+            "update"
+          ],
+          "namespace": "pk-metal"
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "events"
+          ],
+          "verbs": [
+            "create",
+            "patch"
+          ],
+          "namespace": "pk-metal"
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "pods"
+          ],
+          "verbs": [
+            "get"
+          ],
+          "namespace": "pk-metal"
+        }
+      ]
+    },
+    {
+      "source": "metal/internal/controller/asset_controller.go",
+      "rules": [
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "assets"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "assets/status"
+          ],
+          "verbs": [
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "assets/finalizers"
+          ],
+          "verbs": [
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "managementendpoints"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "create",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "events.k8s.io"
+          ],
+          "resources": [
+            "events"
+          ],
+          "verbs": [
+            "create",
+            "patch"
+          ]
+        }
+      ]
+    },
+    {
+      "source": "metal/internal/controller/bootasset_controller.go",
+      "rules": [
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "bootassets"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "bootassets/status"
+          ],
+          "verbs": [
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "bootassets/finalizers"
+          ],
+          "verbs": [
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosnodes"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "secrets"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "create",
+            "update"
+          ],
+          "namespace": "pk-metal"
+        },
+        {
+          "apiGroups": [
+            "batch"
+          ],
+          "resources": [
+            "jobs"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "create",
+            "delete"
+          ],
+          "namespace": "pk-metal"
+        }
+      ]
+    },
+    {
+      "source": "metal/internal/controller/convergence_controller.go",
+      "rules": [
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hosts"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hosts/status"
+          ],
+          "verbs": [
+            "patch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "biosprofiles",
+            "firmwareprofiles"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "managementendpoints"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "biossettings",
+            "biosschemas"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "create",
+            "update",
+            "delete"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "biossettings/status"
+          ],
+          "verbs": [
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hostoperations"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "create",
+            "delete"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hostclaims"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosnodes"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "secrets"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ],
+          "namespace": "pk-metal"
+        }
+      ]
+    },
+    {
+      "source": "metal/internal/controller/endpointprofile_controller.go",
+      "rules": [
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "managementendpoints"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "managementendpoints/status"
+          ],
+          "verbs": [
+            "patch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "managementendpoints/finalizers"
+          ],
+          "verbs": [
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "endpointprofiles"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "secrets"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "create",
+            "update",
+            "delete"
+          ],
+          "namespace": "pk-metal"
+        },
+        {
+          "apiGroups": [
+            "cert-manager.io"
+          ],
+          "resources": [
+            "certificaterequests"
+          ],
+          "verbs": [
+            "get",
+            "create",
+            "delete"
+          ],
+          "namespace": "pk-metal"
+        }
+      ]
+    },
+    {
+      "source": "metal/internal/controller/etcdbackup_controller.go",
+      "rules": [
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "etcdbackuppolicies"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "etcdbackuppolicies/status"
+          ],
+          "verbs": [
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "etcdsnapshots"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "create",
+            "delete"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "etcdsnapshots/status"
+          ],
+          "verbs": [
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosclusters",
+            "talosnodes"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "secrets"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ],
+          "namespace": "pk-metal"
+        }
+      ]
+    },
+    {
+      "source": "metal/internal/controller/host_controller.go",
+      "rules": [
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hosts"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "create",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hosts/status"
+          ],
+          "verbs": [
+            "patch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "managementendpoints"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hostoperations"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hostclaims"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosnodes"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        }
+      ]
+    },
+    {
+      "source": "metal/internal/controller/hostclaim_controller.go",
+      "rules": [
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hostclaims"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hostclaims/status"
+          ],
+          "verbs": [
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "assets"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "managementendpoints"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hosts"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hostoperations"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "create",
+            "delete"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosclusters",
+            "talosnodes"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "bootassets"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "create",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "secrets"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ],
+          "namespace": "pk-metal"
+        }
+      ]
+    },
+    {
+      "source": "metal/internal/controller/hostoperation_controller.go",
+      "rules": [
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hostoperations"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "delete"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hostoperations/status"
+          ],
+          "verbs": [
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hosts"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "patch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hostclaims"
+          ],
+          "verbs": [
+            "get"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "managementendpoints"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "biossettings"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "bootassets",
+            "talosnodes",
+            "talosclusters"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "secrets"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ],
+          "namespace": "pk-metal"
+        },
+        {
+          "apiGroups": [
+            "events.k8s.io"
+          ],
+          "resources": [
+            "events"
+          ],
+          "verbs": [
+            "create",
+            "patch"
+          ]
+        }
+      ]
+    },
+    {
+      "source": "metal/internal/controller/hostoperation_etcdrecover.go",
+      "rules": [
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosclusters",
+            "talosnodes",
+            "etcdsnapshots"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        }
+      ]
+    },
+    {
+      "source": "metal/internal/controller/hostoperation_reinstall.go",
+      "rules": [
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosnodes"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "patch"
+          ]
+        }
+      ]
+    },
+    {
+      "source": "metal/internal/controller/hostoperation_rollout.go",
+      "rules": [
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosrollouts"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        }
+      ]
+    },
+    {
+      "source": "metal/internal/controller/identity.go",
+      "rules": [
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hosts",
+            "hostoperations"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        }
+      ]
+    },
+    {
+      "source": "metal/internal/controller/managementendpoint_controller.go",
+      "rules": [
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "managementendpoints"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "managementendpoints/status"
+          ],
+          "verbs": [
+            "patch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "assets"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "secrets"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ],
+          "namespace": "pk-metal"
+        }
+      ]
+    },
+    {
+      "source": "metal/internal/controller/protection_controller.go",
+      "rules": [
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hosts"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "patch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "managementendpoints"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "patch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "managementendpoints/status"
+          ],
+          "verbs": [
+            "patch"
+          ]
+        }
+      ]
+    },
+    {
+      "source": "metal/internal/controller/selfprotect.go",
+      "rules": [
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "nodes"
+          ],
+          "verbs": [
+            "get"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hostclaims"
+          ],
+          "verbs": [
+            "get"
+          ]
+        }
+      ]
+    },
+    {
+      "source": "metal/internal/controller/taloscluster_controller.go",
+      "rules": [
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosclusters"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosclusters/status"
+          ],
+          "verbs": [
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosclusters/finalizers"
+          ],
+          "verbs": [
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosnodes"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hosts"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "secrets"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "create",
+            "update"
+          ],
+          "namespace": "pk-metal"
+        }
+      ]
+    },
+    {
+      "source": "metal/internal/controller/talosnode_controller.go",
+      "rules": [
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosnodes"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosnodes/status"
+          ],
+          "verbs": [
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosnodes/finalizers"
+          ],
+          "verbs": [
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosclusters"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hosts"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "secrets"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "create",
+            "update"
+          ],
+          "namespace": "pk-metal"
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "configmaps"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ],
+          "namespace": "pk-metal"
+        }
+      ]
+    },
+    {
+      "source": "metal/internal/controller/talosnode_day2.go",
+      "rules": [
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "secrets"
+          ],
+          "verbs": [
+            "delete"
+          ],
+          "namespace": "pk-metal"
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hostoperations"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosrollouts"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        }
+      ]
+    },
+    {
+      "source": "metal/internal/controller/talosnode_finalizer.go",
+      "rules": [
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosnodes"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosnodes/status"
+          ],
+          "verbs": [
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosnodes/finalizers"
+          ],
+          "verbs": [
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hostclaims"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hostoperations"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        }
+      ]
+    },
+    {
+      "source": "metal/internal/controller/talosrollout_controller.go",
+      "rules": [
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosrollouts"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "create"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosrollouts/status"
+          ],
+          "verbs": [
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosrollouts/finalizers"
+          ],
+          "verbs": [
+            "update"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosclusters"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosnodes"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hosts"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "hostoperations"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "create"
+          ]
+        },
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "secrets"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ],
+          "namespace": "pk-metal"
+        }
+      ]
+    },
+    {
+      "source": "metal/internal/controller/talosrollout_proposer.go",
+      "rules": [
+        {
+          "apiGroups": [
+            "os.pk.io"
+          ],
+          "resources": [
+            "talosrollouts"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch",
+            "create"
+          ]
+        }
+      ]
+    },
+    {
+      "source": "metal/internal/controller/window.go",
+      "rules": [
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "maintenancewindows"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "metal.pk.io"
+          ],
+          "resources": [
+            "maintenancewindows/status"
+          ],
+          "verbs": [
+            "update"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "name": "scale",
+  "summary": "show which machines a cluster gains or gives back to reach a size, and in which order; --apply makes the claims say so",
+  "synopsis": "[-n namespace] --control-planes N --workers M [--apply] [--ack-etcd-risk reason] <cluster>",
+  "usage": [
+    "pk-metal scale [-n namespace] --control-planes N --workers M [--apply] [--ack-etcd-risk reason] <cluster>"
+  ],
+  "changes": true,
+  "needsCluster": true,
+  "description": "scale prints the plan that takes a cluster to the given number of control\nplanes and workers: which TalosNodes get a machine, which free hosts they\nclaim, which claims are deleted, and in which order the operator works\nthrough them. Nothing changes without --apply.\n\nGrowing needs TalosNodes written ahead (their network, disk and role are\nyours to say) and free hosts (Available, unclaimed, wiped). Each new node\ngets a HostClaim named after it. Control planes join one at a time.\n\nShrinking deletes the claims of the highest-named nodes: their nodes leave\nthe cluster, the machines are reset and go back to the pool. The TalosNodes\nstay, without a machine, ready for the next scale-up. Control planes leave\none at a time, the etcd leader last. A plan that passes through an even\nnumber of control planes needs --ack-etcd-risk.\n\nClaims written here are not in git; if you keep them in git, write the\nplan's claims there instead.",
+  "examples": [],
+  "exitStatus": [],
+  "flags": [
+    {
+      "name": "ack-etcd-risk",
+      "type": "string",
+      "default": "",
+      "usage": "reason to accept passing through an even number of control planes",
+      "global": false
+    },
+    {
+      "name": "apply",
+      "type": "bool",
+      "default": "",
+      "usage": "create and delete the claims of the plan",
+      "global": false
+    },
+    {
+      "name": "context",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig context to use (default: the current context)",
+      "global": true
+    },
+    {
+      "name": "control-planes",
+      "type": "int",
+      "default": "-1",
+      "usage": "control planes wanted (required)",
+      "global": false
+    },
+    {
+      "name": "kubeconfig",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig file (default: $KUBECONFIG, then ~/.kube/config, then the in-cluster account)",
+      "global": true
+    },
+    {
+      "name": "n",
+      "type": "string",
+      "default": "default",
+      "usage": "namespace for the claims of new nodes",
+      "global": false
+    },
+    {
+      "name": "workers",
+      "type": "int",
+      "default": "-1",
+      "usage": "workers wanted (required)",
+      "global": false
+    }
+  ],
+  "subcommands": []
+}

@@ -1,0 +1,155 @@
+{
+  "name": "rollout",
+  "summary": "see the rollouts that change a Talos cluster node by node (config, upgrade, reboot), approve one, resume it after its pause, or abort it",
+  "synopsis": "list | show <rollout> | approve [--yes] <rollout> | resume <rollout> | pause <rollout> | abort [--yes] <rollout>",
+  "usage": [
+    "pk-metal rollout list | show <rollout> | approve [--yes] <rollout> | resume <rollout> | pause <rollout> | abort [--yes] <rollout>"
+  ],
+  "changes": true,
+  "needsCluster": true,
+  "description": "A rollout changes the nodes of one Talos cluster one at a time: a config\nchange, a Talos upgrade, a Kubernetes upgrade or a rolling reboot. The\noperator proposes rollouts on its own when the cluster spec and the machines\ndisagree; it never starts one. A person approves the plan.\n\n  list                    every rollout, newest last, with its state\n  show <rollout>          the plan: each node in order, what changes on it,\n                          whether it reboots, and how far the rollout got\n  approve [--yes] <r>     show the plan, ask, and approve exactly that plan\n  resume <rollout>        go on after the pause (the first node is done, or\n                          someone paused it)\n  pause <rollout>         stop before the next node; the node that runs now\n                          finishes\n  abort [--yes] <r>       stop for good: no further node starts; the node that\n                          runs now finishes. An abort cannot be taken back\n\nThe approval names the plan by its hash. If the plan changes before the\nfirst node starts (a node was added, the spec changed again), the approval\nno longer covers it: the rollout ends as PlanChanged and the operator\nproposes a fresh one.\n\nAfter the first node the rollout always pauses, so you can look at that node\nbefore the rest follow. Control planes go first, one at a time, then workers.",
+  "examples": [
+    "pk-metal rollout list",
+    "pk-metal rollout show lab-talosupgrade-1a2b3c4d",
+    "pk-metal rollout approve lab-talosupgrade-1a2b3c4d",
+    "pk-metal rollout resume lab-talosupgrade-1a2b3c4d"
+  ],
+  "exitStatus": [],
+  "flags": [],
+  "subcommands": [
+    {
+      "name": "list",
+      "synopsis": "list",
+      "flags": [
+        {
+          "name": "context",
+          "type": "string",
+          "default": "",
+          "usage": "kubeconfig context to use (default: the current context)",
+          "global": true
+        },
+        {
+          "name": "kubeconfig",
+          "type": "string",
+          "default": "",
+          "usage": "kubeconfig file (default: $KUBECONFIG, then ~/.kube/config, then the in-cluster account)",
+          "global": true
+        }
+      ]
+    },
+    {
+      "name": "show",
+      "synopsis": "show <rollout>",
+      "flags": [
+        {
+          "name": "context",
+          "type": "string",
+          "default": "",
+          "usage": "kubeconfig context to use (default: the current context)",
+          "global": true
+        },
+        {
+          "name": "kubeconfig",
+          "type": "string",
+          "default": "",
+          "usage": "kubeconfig file (default: $KUBECONFIG, then ~/.kube/config, then the in-cluster account)",
+          "global": true
+        }
+      ]
+    },
+    {
+      "name": "approve",
+      "synopsis": "approve [--yes] <rollout>",
+      "flags": [
+        {
+          "name": "context",
+          "type": "string",
+          "default": "",
+          "usage": "kubeconfig context to use (default: the current context)",
+          "global": true
+        },
+        {
+          "name": "kubeconfig",
+          "type": "string",
+          "default": "",
+          "usage": "kubeconfig file (default: $KUBECONFIG, then ~/.kube/config, then the in-cluster account)",
+          "global": true
+        },
+        {
+          "name": "yes",
+          "type": "bool",
+          "default": "",
+          "usage": "do not ask (for scripts); the plan is still printed and still approved only as read",
+          "global": false
+        }
+      ]
+    },
+    {
+      "name": "resume",
+      "synopsis": "resume <rollout>",
+      "flags": [
+        {
+          "name": "context",
+          "type": "string",
+          "default": "",
+          "usage": "kubeconfig context to use (default: the current context)",
+          "global": true
+        },
+        {
+          "name": "kubeconfig",
+          "type": "string",
+          "default": "",
+          "usage": "kubeconfig file (default: $KUBECONFIG, then ~/.kube/config, then the in-cluster account)",
+          "global": true
+        }
+      ]
+    },
+    {
+      "name": "pause",
+      "synopsis": "pause <rollout>",
+      "flags": [
+        {
+          "name": "context",
+          "type": "string",
+          "default": "",
+          "usage": "kubeconfig context to use (default: the current context)",
+          "global": true
+        },
+        {
+          "name": "kubeconfig",
+          "type": "string",
+          "default": "",
+          "usage": "kubeconfig file (default: $KUBECONFIG, then ~/.kube/config, then the in-cluster account)",
+          "global": true
+        }
+      ]
+    },
+    {
+      "name": "abort",
+      "synopsis": "abort [--yes] <rollout>",
+      "flags": [
+        {
+          "name": "context",
+          "type": "string",
+          "default": "",
+          "usage": "kubeconfig context to use (default: the current context)",
+          "global": true
+        },
+        {
+          "name": "kubeconfig",
+          "type": "string",
+          "default": "",
+          "usage": "kubeconfig file (default: $KUBECONFIG, then ~/.kube/config, then the in-cluster account)",
+          "global": true
+        },
+        {
+          "name": "yes",
+          "type": "bool",
+          "default": "",
+          "usage": "do not ask (for scripts)",
+          "global": false
+        }
+      ]
+    }
+  ]
+}

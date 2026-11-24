@@ -1,0 +1,96 @@
+{
+  "name": "pivot",
+  "summary": "move the operator and its objects from this cluster to another one, for example from kind onto the Talos cluster it built",
+  "synopsis": "--to <kubeconfig> [--to-context name] [--yes] [flags]",
+  "usage": [
+    "pk-metal pivot --to <kubeconfig> [--to-context name] [--yes] [flags]"
+  ],
+  "changes": true,
+  "needsCluster": true,
+  "description": "pivot moves the pk-metal operator from the cluster it runs in now (the\ncurrent kubeconfig context, or --kubeconfig and --context) to another\ncluster (--to). It is meant for this case: the operator ran in a bootstrap\ncluster (kind) and installed a Talos cluster; now the operator moves onto that\nTalos cluster and manages the machines from there.\n\nThe steps:\n  1. Check: no operation runs or waits for approval, and the other cluster\n     runs no pk-metal operator.\n  2. Stop the operator here (scale it to zero) and wait until it has stopped.\n  3. Install the operator there: CRDs, admission policies, RBAC, namespace,\n     and the media store's PersistentVolumeClaim, empty (see --media-store).\n  4. Copy the operator's objects there, with their status: machines, BMCs,\n     claims, operations, Talos clusters and nodes, and the Secrets in the\n     pk-metal namespace.\n  5. Start the operator there, and watch it: it must not propose a new\n     operation (an install that was already done is never done again).\n\nThe operator here stays stopped, and its objects stay. Nothing on the\nmachines changes. pivot prints what the new cluster must be able to reach\n(BMCs, Talos API, media service); check it before you approve.\n\nThe media store (a PersistentVolumeClaim the operator keeps the installers\nfor one-slot BMCs in) needs storage on the other cluster: the claim there\nalready, or a default StorageClass to make it from. Its files do not move;\nthe operator builds the installers it needs again. A cluster without storage\nis refused, unless --media-store=ephemeral: the operator there then mounts an\nemptyDir, which starts empty and is lost on every restart, and it builds no\ninstaller for a one-slot BMC until the claim exists.\n\nRun pivot again after a failure: it continues where it stopped. To move back,\nrun pivot from the new cluster with --to naming the old one.",
+  "examples": [
+    "pk-metal pivot --to mgmt.kubeconfig",
+    "pk-metal --context kind-pk-metal pivot --to mgmt.kubeconfig --to-context admin@mgmt --yes"
+  ],
+  "exitStatus": [],
+  "flags": [
+    {
+      "name": "context",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig context to use (default: the current context)",
+      "global": true
+    },
+    {
+      "name": "force-waiting",
+      "type": "bool",
+      "default": "",
+      "usage": "move operations that wait for approval; they wait on the new cluster instead",
+      "global": false
+    },
+    {
+      "name": "image",
+      "type": "string",
+      "default": "",
+      "usage": "manager image on the new cluster (default: the image the operator runs now)",
+      "global": false
+    },
+    {
+      "name": "kubeconfig",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig file (default: $KUBECONFIG, then ~/.kube/config, then the in-cluster account)",
+      "global": true
+    },
+    {
+      "name": "media-store",
+      "type": "string",
+      "default": "copy",
+      "usage": "what the media store becomes on the new cluster: copy (a claim made there from its StorageClass, or the one already there) or ephemeral (an emptyDir: no installer for a one-slot BMC is built there)",
+      "global": false
+    },
+    {
+      "name": "media-url",
+      "type": "string",
+      "default": "",
+      "usage": "address the BMCs fetch boot media from on the new cluster, for example https://<node address>:30443 (default: the current one)",
+      "global": false
+    },
+    {
+      "name": "settle",
+      "type": "duration",
+      "default": "1m30s",
+      "usage": "how long to watch the new operator for operations it must not propose",
+      "global": false
+    },
+    {
+      "name": "timeout",
+      "type": "duration",
+      "default": "5m0s",
+      "usage": "how long to wait for each step",
+      "global": false
+    },
+    {
+      "name": "to",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig file of the cluster to move to (required)",
+      "global": false
+    },
+    {
+      "name": "to-context",
+      "type": "string",
+      "default": "",
+      "usage": "context in the --to kubeconfig (default: its current context)",
+      "global": false
+    },
+    {
+      "name": "yes",
+      "type": "bool",
+      "default": "",
+      "usage": "move without asking (for scripts); the checks are still printed",
+      "global": false
+    }
+  ],
+  "subcommands": []
+}

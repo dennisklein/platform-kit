@@ -1,0 +1,677 @@
+{
+  "kind": "TalosNode",
+  "listKind": "TalosNodeList",
+  "group": "os.pk.io",
+  "version": "v1alpha1",
+  "plural": "talosnodes",
+  "singular": "talosnode",
+  "shortNames": [],
+  "categories": [
+    "metal",
+    "os"
+  ],
+  "scope": "Cluster",
+  "source": "metal/config/crd/os.pk.io_talosnodes.yaml",
+  "description": "TalosNode is one member of a TalosCluster: the machine-specific half of its configuration, and what the machine reports once it runs.",
+  "statusSubresource": true,
+  "printerColumns": [
+    {
+      "name": "Cluster",
+      "type": "string",
+      "jsonPath": ".spec.clusterRef.name",
+      "priority": 0
+    },
+    {
+      "name": "Role",
+      "type": "string",
+      "jsonPath": ".spec.role",
+      "priority": 0
+    },
+    {
+      "name": "Address",
+      "type": "string",
+      "jsonPath": ".status.address",
+      "priority": 0
+    },
+    {
+      "name": "Stage",
+      "type": "string",
+      "jsonPath": ".status.stage",
+      "priority": 0
+    },
+    {
+      "name": "Ready",
+      "type": "string",
+      "jsonPath": ".status.conditions[?(@.type==\"Ready\")].status",
+      "priority": 0
+    },
+    {
+      "name": "Version",
+      "type": "string",
+      "jsonPath": ".status.version",
+      "priority": 1
+    },
+    {
+      "name": "InSync",
+      "type": "string",
+      "jsonPath": ".status.conditions[?(@.type==\"ConfigInSync\")].status",
+      "priority": 1
+    }
+  ],
+  "validations": [],
+  "fields": [
+    {
+      "path": "spec",
+      "name": "spec",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": true,
+      "description": "TalosNodeSpec is what belongs to one machine. Its hostname is the object's metadata.name."
+    },
+    {
+      "path": "spec.address",
+      "name": "address",
+      "parent": "spec",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": "Address is where the operator and talosctl reach the node's Talos API. Empty means the first static address of the first link. A node that only takes DHCP addresses needs it set, or its check-in has nothing to dial."
+    },
+    {
+      "path": "spec.clusterRef",
+      "name": "clusterRef",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": true,
+      "description": "ClusterRef names the TalosCluster this node is a member of."
+    },
+    {
+      "path": "spec.clusterRef.name",
+      "name": "name",
+      "parent": "spec.clusterRef",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.installDiskSelector",
+      "name": "installDiskSelector",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": true,
+      "description": "InstallDiskSelector picks the disk Talos installs onto. That disk is repartitioned and everything on it is erased. A disk matches when every matcher you set holds; if several disks match, Talos takes the first one it finds, which can change between boots. Prefer serial or wwid, which name exactly one disk.",
+      "validations": [
+        {
+          "rule": "has(self.serial) || has(self.model) || has(self.wwid) || has(self.busPath) || has(self.match)",
+          "message": "at least one matcher is required: a node that does not say where to install does not install"
+        }
+      ]
+    },
+    {
+      "path": "spec.installDiskSelector.busPath",
+      "name": "busPath",
+      "parent": "spec.installDiskSelector",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": "BusPath matches the disk's bus path. It changes when a disk moves to another slot."
+    },
+    {
+      "path": "spec.installDiskSelector.match",
+      "name": "match",
+      "parent": "spec.installDiskSelector",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": "Match is a CEL expression over `disk` (Talos' disk locator environment), for example `disk.size > 100u * GB && !disk.rotational`."
+    },
+    {
+      "path": "spec.installDiskSelector.model",
+      "name": "model",
+      "parent": "spec.installDiskSelector",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": "Model matches the disk model. Machines often have several disks of the same model; combine it with another matcher."
+    },
+    {
+      "path": "spec.installDiskSelector.serial",
+      "name": "serial",
+      "parent": "spec.installDiskSelector",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": "Serial matches the disk serial number. It names one disk and does not change when disks are re-cabled or found in another order."
+    },
+    {
+      "path": "spec.installDiskSelector.wwid",
+      "name": "wwid",
+      "parent": "spec.installDiskSelector",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": "WWID matches the disk's world wide identifier."
+    },
+    {
+      "path": "spec.labels",
+      "name": "labels",
+      "parent": "spec",
+      "depth": 1,
+      "type": "map[string]string",
+      "required": false,
+      "description": "Labels are Kubernetes node labels the kubelet registers with. Worker nodes may only set labels the NodeRestriction admission plugin allows."
+    },
+    {
+      "path": "spec.network",
+      "name": "network",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "Network configures the node's links."
+    },
+    {
+      "path": "spec.network.links",
+      "name": "links",
+      "parent": "spec.network",
+      "depth": 2,
+      "type": "[]object",
+      "required": false,
+      "listType": "map",
+      "listMapKeys": [
+        "name"
+      ],
+      "description": "Links configure physical links, each selected by its MAC address.",
+      "validations": [
+        {
+          "rule": "(has(self.dhcp) && self.dhcp) || (has(self.addresses) && size(self.addresses) > 0)",
+          "message": "a link without DHCP needs at least one static address"
+        }
+      ]
+    },
+    {
+      "path": "spec.network.links[].addresses",
+      "name": "addresses",
+      "parent": "spec.network.links",
+      "depth": 3,
+      "type": "[]string",
+      "required": false,
+      "description": "Addresses are static addresses in CIDR form, primary family first."
+    },
+    {
+      "path": "spec.network.links[].dhcp",
+      "name": "dhcp",
+      "parent": "spec.network.links",
+      "depth": 3,
+      "type": "boolean",
+      "required": false,
+      "description": "DHCP runs a DHCPv4 client on the link, alongside any static addresses."
+    },
+    {
+      "path": "spec.network.links[].hardwareAddr",
+      "name": "hardwareAddr",
+      "parent": "spec.network.links",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "pattern": "^([0-9a-f]{2}:){5}[0-9a-f]{2}$",
+      "description": "HardwareAddr is the link's permanent MAC address. A physical link whose driver reports no permanent address is matched on its current one instead. Lower case and colon-separated (0c:c4:7a:12:34:56): Talos compares it as text."
+    },
+    {
+      "path": "spec.network.links[].mtu",
+      "name": "mtu",
+      "parent": "spec.network.links",
+      "depth": 3,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "minimum": 576,
+      "description": "MTU overrides the link MTU."
+    },
+    {
+      "path": "spec.network.links[].name",
+      "name": "name",
+      "parent": "spec.network.links",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "pattern": "^[a-z][a-z0-9-]{0,14}$",
+      "description": "Name is the alias the link gets. Avoid kernel names (eth0, enp0s2): an alias must not collide with a real interface."
+    },
+    {
+      "path": "spec.network.links[].routes",
+      "name": "routes",
+      "parent": "spec.network.links",
+      "depth": 3,
+      "type": "[]object",
+      "required": false,
+      "description": "Routes are static routes over this link."
+    },
+    {
+      "path": "spec.network.links[].routes[].gateway",
+      "name": "gateway",
+      "parent": "spec.network.links[].routes",
+      "depth": 4,
+      "type": "string",
+      "required": false,
+      "description": "Gateway is the next hop."
+    },
+    {
+      "path": "spec.network.links[].routes[].metric",
+      "name": "metric",
+      "parent": "spec.network.links[].routes",
+      "depth": 4,
+      "type": "integer",
+      "format": "int32",
+      "required": false,
+      "description": "Metric orders competing routes."
+    },
+    {
+      "path": "spec.network.links[].routes[].network",
+      "name": "network",
+      "parent": "spec.network.links[].routes",
+      "depth": 4,
+      "type": "string",
+      "required": false,
+      "description": "Network is the destination CIDR; empty is the default route."
+    },
+    {
+      "path": "spec.patches",
+      "name": "patches",
+      "parent": "spec",
+      "depth": 1,
+      "type": "[]object",
+      "required": false,
+      "description": "Patches apply to this node only, in order, after the cluster's patches.",
+      "validations": [
+        {
+          "rule": "has(self.inline) != has(self.configMapRef)",
+          "message": "exactly one of inline or configMapRef"
+        }
+      ]
+    },
+    {
+      "path": "spec.patches[].configMapRef",
+      "name": "configMapRef",
+      "parent": "spec.patches",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "ConfigMapRef reads the patch from a ConfigMap key."
+    },
+    {
+      "path": "spec.patches[].configMapRef.key",
+      "name": "key",
+      "parent": "spec.patches[].configMapRef",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.patches[].configMapRef.name",
+      "name": "name",
+      "parent": "spec.patches[].configMapRef",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.patches[].configMapRef.namespace",
+      "name": "namespace",
+      "parent": "spec.patches[].configMapRef",
+      "depth": 3,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.patches[].inline",
+      "name": "inline",
+      "parent": "spec.patches",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": "Inline is the patch text."
+    },
+    {
+      "path": "spec.role",
+      "name": "role",
+      "parent": "spec",
+      "depth": 1,
+      "type": "string",
+      "required": true,
+      "enum": [
+        "controlplane",
+        "worker"
+      ],
+      "description": "Role is controlplane or worker."
+    },
+    {
+      "path": "spec.schematic",
+      "name": "schematic",
+      "parent": "spec",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "Schematic customizes this node's installer image and replaces the cluster's schematic when set. Extensions and kernel arguments both live here: Talos takes the installed kernel command line from the image, so an argument that is not part of the schematic does not survive the install."
+    },
+    {
+      "path": "spec.schematic.customization",
+      "name": "customization",
+      "parent": "spec.schematic",
+      "depth": 2,
+      "type": "object",
+      "required": false,
+      "description": "SchematicCustomization holds the image customization knobs."
+    },
+    {
+      "path": "spec.schematic.customization.extraKernelArgs",
+      "name": "extraKernelArgs",
+      "parent": "spec.schematic.customization",
+      "depth": 3,
+      "type": "[]string",
+      "required": false,
+      "description": "ExtraKernelArgs append to the image's kernel command line, for example where to put the console (console=ttyS0, what the BMC's serial-over-LAN shows). Do not add talos.config=metal-iso: the operator adds it to the boot medium itself, and the installed system must not carry it."
+    },
+    {
+      "path": "spec.schematic.customization.systemExtensions",
+      "name": "systemExtensions",
+      "parent": "spec.schematic.customization",
+      "depth": 3,
+      "type": "object",
+      "required": false,
+      "description": "SystemExtensions bakes extensions into the image."
+    },
+    {
+      "path": "spec.schematic.customization.systemExtensions.officialExtensions",
+      "name": "officialExtensions",
+      "parent": "spec.schematic.customization.systemExtensions",
+      "depth": 4,
+      "type": "[]string",
+      "required": false,
+      "description": "OfficialExtensions are siderolabs/* extension names (siderolabs/drbd)."
+    },
+    {
+      "path": "spec.taints",
+      "name": "taints",
+      "parent": "spec",
+      "depth": 1,
+      "type": "[]object",
+      "required": false,
+      "description": "Taints are Kubernetes node taints the kubelet registers with."
+    },
+    {
+      "path": "spec.taints[].effect",
+      "name": "effect",
+      "parent": "spec.taints",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "enum": [
+        "NoSchedule",
+        "PreferNoSchedule",
+        "NoExecute"
+      ],
+      "description": "TaintEffect is a Kubernetes taint effect."
+    },
+    {
+      "path": "spec.taints[].key",
+      "name": "key",
+      "parent": "spec.taints",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "spec.taints[].value",
+      "name": "value",
+      "parent": "spec.taints",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": ""
+    },
+    {
+      "path": "status",
+      "name": "status",
+      "parent": "",
+      "depth": 0,
+      "type": "object",
+      "required": false,
+      "description": "TalosNodeStatus reports the render and the machine's check-in. Rendered=False is alert-and-hold: the last rendered Secret stays in place, so a broken input never un-renders a machine's config."
+    },
+    {
+      "path": "status.address",
+      "name": "address",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": "Address is where the check-in dials (spec.address, or the first static link address)."
+    },
+    {
+      "path": "status.appliedConfigDigest",
+      "name": "appliedConfigDigest",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": "AppliedConfigDigest is the rendered config the machine was last seen to run: the digest of a render a dry run found no change against. Config Secrets of other digests are collected once nothing refers to them."
+    },
+    {
+      "path": "status.conditions",
+      "name": "conditions",
+      "parent": "status",
+      "depth": 1,
+      "type": "[]object",
+      "required": false,
+      "listType": "map",
+      "listMapKeys": [
+        "type"
+      ],
+      "description": "Conditions: Rendered, plus the check-in observations MachineReachable and Ready while a Host hands this node a machine, ConfigInSync (the dry-run drift check) and VersionCurrent (Talos version skew)."
+    },
+    {
+      "path": "status.conditions[].lastTransitionTime",
+      "name": "lastTransitionTime",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "format": "date-time",
+      "required": true,
+      "description": "lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable."
+    },
+    {
+      "path": "status.conditions[].message",
+      "name": "message",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "maxLength": 32768,
+      "description": "message is a human readable message indicating details about the transition. This may be an empty string."
+    },
+    {
+      "path": "status.conditions[].observedGeneration",
+      "name": "observedGeneration",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "integer",
+      "format": "int64",
+      "required": false,
+      "minimum": 0,
+      "description": "observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance."
+    },
+    {
+      "path": "status.conditions[].reason",
+      "name": "reason",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "pattern": "^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty."
+    },
+    {
+      "path": "status.conditions[].status",
+      "name": "status",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "enum": [
+        "True",
+        "False",
+        "Unknown"
+      ],
+      "description": "status of the condition, one of True, False, Unknown."
+    },
+    {
+      "path": "status.conditions[].type",
+      "name": "type",
+      "parent": "status.conditions",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$",
+      "maxLength": 316,
+      "description": "type of condition in CamelCase or in foo.example.com/CamelCase."
+    },
+    {
+      "path": "status.configDigest",
+      "name": "configDigest",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": "ConfigDigest is sha256:<hex> of the rendered config, what BootAsset builds key their rebuilds on."
+    },
+    {
+      "path": "status.configSecretRef",
+      "name": "configSecretRef",
+      "parent": "status",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "ConfigSecretRef points at the Secret holding this node's rendered machine config (key config.yaml). Owned by the TalosNode and collected with it; it is the one place the rendered secrets rest."
+    },
+    {
+      "path": "status.configSecretRef.name",
+      "name": "name",
+      "parent": "status.configSecretRef",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "status.configSecretRef.namespace",
+      "name": "namespace",
+      "parent": "status.configSecretRef",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": ""
+    },
+    {
+      "path": "status.drift",
+      "name": "drift",
+      "parent": "status",
+      "depth": 1,
+      "type": "object",
+      "required": false,
+      "description": "Drift is the last dry run of the rendered config against the machine (ConfigInSync tells the verdict)."
+    },
+    {
+      "path": "status.drift.changed",
+      "name": "changed",
+      "parent": "status.drift",
+      "depth": 2,
+      "type": "boolean",
+      "required": true,
+      "description": "Changed: the machine runs a config that differs from this render."
+    },
+    {
+      "path": "status.drift.configDigest",
+      "name": "configDigest",
+      "parent": "status.drift",
+      "depth": 2,
+      "type": "string",
+      "required": true,
+      "description": "ConfigDigest is the rendered config the dry run was made with."
+    },
+    {
+      "path": "status.drift.observedAt",
+      "name": "observedAt",
+      "parent": "status.drift",
+      "depth": 2,
+      "type": "string",
+      "format": "date-time",
+      "required": true,
+      "description": "ObservedAt is when the dry run was made."
+    },
+    {
+      "path": "status.drift.rebootRequired",
+      "name": "rebootRequired",
+      "parent": "status.drift",
+      "depth": 2,
+      "type": "boolean",
+      "required": false,
+      "description": "RebootRequired: the machine said it needs a reboot to take it."
+    },
+    {
+      "path": "status.drift.summary",
+      "name": "summary",
+      "parent": "status.drift",
+      "depth": 2,
+      "type": "string",
+      "required": false,
+      "description": "Summary counts the changed lines and names the configuration keys they touch. Values are left out: a diff of a machine config carries secrets."
+    },
+    {
+      "path": "status.installerImage",
+      "name": "installerImage",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": "InstallerImage is the installer the rendered config installs from."
+    },
+    {
+      "path": "status.renderedFor",
+      "name": "renderedFor",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": "RenderedFor is the Talos version the config was rendered for: the cluster's talosVersion, or the older version the machine still runs until its upgrade, so that a config is never written for a contract the running machine does not accept yet."
+    },
+    {
+      "path": "status.stage",
+      "name": "stage",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": "Stage is the machine's observed boot stage (maintenance, booting, installing, running, ...), empty while no machine answers."
+    },
+    {
+      "path": "status.version",
+      "name": "version",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "description": "Version is the Talos version the machine reports."
+    }
+  ]
+}

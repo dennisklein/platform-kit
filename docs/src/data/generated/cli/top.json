@@ -1,0 +1,54 @@
+{
+  "name": "top",
+  "summary": "live view of every machine: BMC, phase, operation, node; keys approve, hold and retry like the commands below",
+  "synopsis": "[--fleet url] [--workload-kubeconfig file]",
+  "usage": [
+    "pk-metal top [--fleet url] [--workload-kubeconfig file]"
+  ],
+  "changes": true,
+  "needsCluster": true,
+  "description": "A live view of every machine, updated as the cluster changes. One tile per\nmachine shows its BMC, the Host phase and what blocks it, the claim, the\noperation that runs (for example \"5/9 setBootOverride\") and whether it waits\nfor approval, and the TalosNode. The header shows each TalosCluster and how\nmany nodes are Ready.\n\nWith --fleet (the simulator's state endpoint, as in the virtual lab) each\ntile also shows what the simulated BMC holds (power, media, boot override,\nthe last Redfish call), whether the VM runs, and the last console lines.\nWithout it, top works the same against real hardware.\n\nWith --workload-kubeconfig the tiles also show whether each node is Ready in\nthe workload cluster itself.\n\nkeys:\n  tab, arrows  select a machine\n  a            show the plan of the operation that waits for approval, as\n               pk-metal approve does, and approve it on y\n  h            hold the claim, or remove the hold\n  r            retry the failed operation (pk-metal retry)\n  q            quit",
+  "examples": [
+    "pk-metal top",
+    "pk-metal --kubeconfig .lab/kubeconfig top --fleet http://127.0.0.1:8440/state"
+  ],
+  "exitStatus": [],
+  "flags": [
+    {
+      "name": "context",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig context to use (default: the current context)",
+      "global": true
+    },
+    {
+      "name": "fleet",
+      "type": "string",
+      "default": "",
+      "usage": "the simulator's state endpoint, for example http://127.0.0.1:8440/state (default: none, real hardware)",
+      "global": false
+    },
+    {
+      "name": "interval",
+      "type": "duration",
+      "default": "2s",
+      "usage": "how often the fleet and the console logs are read again; cluster objects update as they change",
+      "global": false
+    },
+    {
+      "name": "kubeconfig",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig file (default: $KUBECONFIG, then ~/.kube/config, then the in-cluster account)",
+      "global": true
+    },
+    {
+      "name": "workload-kubeconfig",
+      "type": "string",
+      "default": "",
+      "usage": "kubeconfig of the workload cluster, to show its Nodes' Ready condition (default: none)",
+      "global": false
+    }
+  ],
+  "subcommands": []
+}

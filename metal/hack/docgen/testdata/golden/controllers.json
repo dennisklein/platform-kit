@@ -1,0 +1,13 @@
+{
+  "source": "controller",
+  "controllers": [
+    {
+      "name": "widget",
+      "source": "controller/widget_controller.go"
+    },
+    {
+      "name": "widget-gc",
+      "source": "controller/widget_controller.go"
+    }
+  ]
+}
