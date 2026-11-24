@@ -341,6 +341,13 @@ func statusOf(err error) int {
 	return 0
 }
 
+// LoginRefused reports whether err is a manager refusing the credentials of
+// a request (401). Every refused login counts towards the manager's lockout,
+// so a caller backs off a credential that got this answer.
+func LoginRefused(err error) bool {
+	return statusOf(err) == http.StatusUnauthorized
+}
+
 // members lists a collection's member URIs in the order the service serves
 // them. gofish's own collection walks fetch concurrently and hand members back
 // in completion order, so wherever order carries meaning the walk happens here.

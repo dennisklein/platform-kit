@@ -17,6 +17,8 @@ ntp:
   standard: true
   enabled: true
   servers: ["ntp.example.org", "ntp.example.org"]
+  # Two fixed server slots.
+  slots: 2
 identity:
   # The OEM SmcSSLCert.Upload action (multipart
   # cert_file + key_file, leaf-only) — key-upload, the key is generated

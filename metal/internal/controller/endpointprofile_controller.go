@@ -3,11 +3,14 @@ package controller
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -24,6 +27,7 @@ import (
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
+	gofishclient "github.com/dennisklein/platform-kit/metal/internal/bmc/gofish"
 	"github.com/dennisklein/platform-kit/metal/internal/phase"
 )
 
@@ -63,6 +67,73 @@ type EndpointConvergenceReconciler struct {
 	APIReader client.Reader
 	// Dial opens the sessions to the endpoint; nil dials over gofish.
 	Dial Dialer
+
+	// logins remembers the credentials a manager refused, so that a probe
+	// does not try a known-bad password on every pass.
+	logins loginBackoff
+}
+
+// loginBackoff spaces the probes of a credential a manager refused: every
+// refused login is an audit event and counts towards the account lockout of
+// the manager. The wait doubles with each refusal, from loginBackoffMin up
+// to loginBackoffMax. A success, or a reset of the account to that
+// password, forgets the refusals.
+type loginBackoff struct {
+	mu      sync.Mutex
+	refused map[string]refusedLogin
+	now     func() time.Time // nil is time.Now
+}
+
+type refusedLogin struct {
+	at    time.Time
+	times int
+}
+
+const (
+	loginBackoffMin = time.Minute
+	loginBackoffMax = time.Hour
+)
+
+// loginKey names one credential at one endpoint; the password only as its
+// hash.
+func loginKey(ep, user, pass string) string {
+	sum := sha256.Sum256([]byte(pass))
+	return ep + "\x00" + user + "\x00" + hex.EncodeToString(sum[:])
+}
+
+func (b *loginBackoff) clock() time.Time {
+	if b.now != nil {
+		return b.now()
+	}
+	return time.Now()
+}
+
+// wait is how long the credential must not be tried yet; zero when it may.
+func (b *loginBackoff) wait(key string) time.Duration {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	r, ok := b.refused[key]
+	if !ok {
+		return 0
+	}
+	d := loginBackoffMin << min(r.times-1, 6)
+	return max(0, min(d, loginBackoffMax)-b.clock().Sub(r.at))
+}
+
+func (b *loginBackoff) refuse(key string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.refused == nil {
+		b.refused = map[string]refusedLogin{}
+	}
+	r := b.refused[key]
+	b.refused[key] = refusedLogin{at: b.clock(), times: r.times + 1}
+}
+
+func (b *loginBackoff) forget(key string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.refused, key)
 }
 
 // +kubebuilder:rbac:groups=metal.pk.io,resources=managementendpoints,verbs=get;list;watch
@@ -279,6 +350,8 @@ func (r *EndpointConvergenceReconciler) credentials(ctx context.Context, ep *met
 			if nextProbed {
 				return false
 			}
+		} else {
+			r.logins.forget(loginKey(ep.Name, next.user, next.pass))
 		}
 		nextProbed = true
 		return r.probe(ctx, ep, next.user, next.pass) == nil
@@ -420,23 +493,52 @@ func (r *EndpointConvergenceReconciler) ntp(ctx context.Context, ep *metalv1alph
 		"ntp " + strings.Join(pol.Servers, ","), nil
 }
 
+// ntpEqual compares two NTP configurations as ordered sets: a manager with
+// fixed server slots serves empty slots, and one that fills every slot
+// repeats a server (the X12 serves one server in both of its slots). The
+// order stays significant: it is the order of preference.
 func ntpEqual(a, b bmc.NTPConfig) bool {
-	return a.Enabled == b.Enabled && slices.Equal(a.Servers, b.Servers)
+	return a.Enabled == b.Enabled && slices.Equal(ntpServers(a.Servers), ntpServers(b.Servers))
+}
+
+// ntpServers drops empty entries and repeats, keeping the first of each.
+func ntpServers(servers []string) []string {
+	out := make([]string, 0, len(servers))
+	for _, s := range servers {
+		if s != "" && !slices.Contains(out, s) {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // probe proves a credential with a read-only authenticated call. The service
 // root is public on every Redfish implementation, so connecting alone proves
 // nothing — the Manager read is the authentication oracle.
+//
+// A credential the manager refused is not tried again until its backoff
+// has passed; the probe fails meanwhile without a login.
 func (r *EndpointConvergenceReconciler) probe(ctx context.Context, ep *metalv1alpha1.ManagementEndpoint, user, pass string) error {
+	key := loginKey(ep.Name, user, pass)
+	if wait := r.logins.wait(key); wait > 0 {
+		return fmt.Errorf("the manager refused this password for %s before; the next login with it is in %s", user, wait.Round(time.Second))
+	}
 	cfg, _, err := endpointTLSConfig(ctx, r.Client, r.CredentialsNamespace, ep, true)
 	if err != nil {
 		return err
 	}
 	cfg.Username, cfg.Password = user, pass
-	return withSession(ctx, r.Dial, cfg, func(ctx context.Context, cl bmc.Client) error {
+	err = withSession(ctx, r.Dial, cfg, func(ctx context.Context, cl bmc.Client) error {
 		_, err := cl.Manager(ctx)
 		return err
 	})
+	switch {
+	case err == nil:
+		r.logins.forget(key)
+	case gofishclient.LoginRefused(err):
+		r.logins.refuse(key)
+	}
+	return err
 }
 
 // repair sets the managed account's password through a factory session —
@@ -459,6 +561,9 @@ func (r *EndpointConvergenceReconciler) repair(ctx context.Context, ep *metalv1a
 	}); err != nil {
 		return fmt.Errorf("factory session: %w", err)
 	}
+	// The account holds this password now: an earlier refusal of it says
+	// nothing any more.
+	r.logins.forget(loginKey(ep.Name, user, pass))
 	return nil
 }
 

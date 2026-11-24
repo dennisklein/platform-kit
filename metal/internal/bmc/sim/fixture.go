@@ -74,6 +74,9 @@ type Fixture struct {
 		OemService bool     `yaml:"oem_service"`
 		Enabled    bool     `yaml:"enabled"`
 		Servers    []string `yaml:"servers"`
+		// Slots is the number of server slots; a write of more servers is
+		// refused. Zero is no limit, except on oem_service (three slots).
+		Slots int `yaml:"slots"`
 	} `yaml:"ntp"`
 
 	// Identity is the certificate-replacement surface. certificate_service is

@@ -16,6 +16,15 @@ import (
 // ntpServed reports whether the fixture models any NTP surface.
 func (f *Fixture) ntpServed() bool { return f.NTP.Standard || f.NTP.OemService }
 
+// ntpSlots is the number of NTP server slots; zero is no limit. The iBMC
+// has exactly three.
+func (f *Fixture) ntpSlots() int {
+	if f.NTP.Slots == 0 && f.NTP.OemService {
+		return 3
+	}
+	return f.NTP.Slots
+}
+
 func (s *State) NTP(context.Context) (bmc.NTPConfig, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -38,9 +47,8 @@ func (s *State) SetNTP(_ context.Context, cfg bmc.NTPConfig) error {
 		return refuse("fixture models no NTP surface")
 	}
 	servers := slices.DeleteFunc(slices.Clone(cfg.Servers), func(s string) bool { return s == "" })
-	if s.f.NTP.OemService && len(servers) > 3 {
-		// The iBMC has exactly three server slots.
-		return refuse("at most 3 NTP servers")
+	if slots := s.f.ntpSlots(); slots > 0 && len(servers) > slots {
+		return refuse("at most %d NTP servers", slots)
 	}
 	s.ntp = bmc.NTPConfig{Enabled: cfg.Enabled, Servers: servers}
 	return nil
