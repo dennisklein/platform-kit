@@ -153,6 +153,10 @@ type etcdReport struct {
 	learners map[uint64]bool
 	// alarms are the raised etcd alarms (NOSPACE, CORRUPT).
 	alarms []string
+	// leader is the member most members follow, zero when none knows one.
+	// During an election they may disagree for a moment; the next reading
+	// settles it.
+	leader uint64
 }
 
 // healthy: the member answers, votes, and reports no error.
@@ -240,6 +244,7 @@ func (a *talosAccess) etcdHealth(ctx context.Context, via []osv1alpha1.TalosNode
 		}
 		return nil, fmt.Errorf("no control plane of cluster %s lists the etcd members (%s)", a.cluster.Name, strings.Join(errs, "; "))
 	}
+	leaders := map[uint64]int{}
 	for _, m := range rep.members {
 		if m.IsLearner {
 			rep.learners[m.ID] = true
@@ -262,11 +267,20 @@ func (a *talosAccess) etcdHealth(ctx context.Context, via []osv1alpha1.TalosNode
 			if st.IsLearner {
 				rep.learners[m.ID] = true
 			}
+			if st.LeaderID != 0 {
+				leaders[st.LeaderID]++
+			}
 			return nil
 		})
 		cancel()
 		if err != nil {
 			rep.sick[m.ID] = "does not answer (" + err.Error() + ")"
+		}
+	}
+	best := 0
+	for id, n := range leaders {
+		if n > best || (n == best && id < rep.leader) {
+			rep.leader, best = id, n
 		}
 	}
 	return rep, nil
