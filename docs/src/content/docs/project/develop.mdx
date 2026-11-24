@@ -52,10 +52,11 @@ Each level is slower than the one before it, and it proves more. Run the lowest 
 | VM tier | `mise run e2e:qemu` | A simulated BMC with a QEMU machine. A real install from virtual media. | Many minutes | KVM, QEMU, OVMF |
 | Virtual lab | `mise run lab:up`, then `mise run lab:wait` | kind, the operator image, QEMU machines, real Talos and Kubernetes | 15 minutes or more | See [](lab:page/prerequisites) |
 | Fuzz | `mise run fuzz` | Each Go fuzz target for a short time | Minutes | Go |
+| Hardware checks | `mise run test:hardware` | One real BMC, read only. See [](cli:check#check-the-client-against-real-hardware). | Minutes | `PK_METAL_HW_URL` and `PK_METAL_BMC_PASSWORD` |
 
 - [](ref:status) says which levels run in CI, and when.
 - The unattended lab tasks [](lab:day2), [](lab:upgrade), [](lab:scale), [](lab:backup-restore) and [](lab:pivot) are the day-2 levels.
-- No level uses a real BMC. See [](ref:hardware).
+- Only the hardware checks use a real BMC, and CI does not run them. See [](ref:hardware).
 
 ## Before you commit
 

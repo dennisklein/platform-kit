@@ -4,8 +4,11 @@ Read the [project status](README.md#status) first. No license is chosen yet,
 so open an issue before you start a large change.
 
 The [documentation site](https://dennisklein.github.io/platform-kit/) explains
-the design. Start with the architecture page in the Concepts section. This file
-is the short version for a person who changes the repository.
+the design. Start with the
+[architecture page](https://dennisklein.github.io/platform-kit/concepts/architecture/).
+This file is the short version for a person who changes the repository; the
+[page for people who change the code](https://dennisklein.github.io/platform-kit/project/develop/)
+has the long one.
 
 ## Set up
 
@@ -36,10 +39,10 @@ your change, and let CI run the rest.
 | Unit | `mise run test` | Go | CI, every push and pull request |
 | Controllers (envtest) | `mise run envtest` | Go; downloads kube-apiserver and etcd | CI, every push and pull request |
 | Race detector | `mise run test:race` | cgo and a C compiler | CI, every push and pull request |
-| e2e, kind tier | `mise run e2e:kind` | Docker and a kind cluster | CI, pushes to one branch only (see `.github/workflows/ci.yml`) |
+| e2e, kind tier | `mise run e2e:kind` | Docker and a kind cluster | CI, pushes to `main` and `metal` (see `.github/workflows/ci.yml`) |
 | e2e, VM tier | `mise run e2e:qemu` | KVM, QEMU, OVMF | Your machine only |
 | Fuzz | `mise run fuzz` | Go | Your machine only |
-| Virtual lab | `mise run lab:up` and the other `lab:*` tasks | See [lab/README.md](lab/README.md) | The `lab-e2e` workflow, not on pull requests (see `.github/workflows/lab-e2e.yml`) |
+| Virtual lab | `mise run lab:up` and the other `lab:*` tasks | See [lab/README.md](lab/README.md) | The `lab-e2e` workflow: the install on pushes to `claude/**`, every round each night and by hand, not on pull requests (see `.github/workflows/lab-e2e.yml`) |
 
 A change to code comes with a test. BMC behavior goes in the simulator
 (`metal/internal/bmc/sim`). Controller behavior goes in
