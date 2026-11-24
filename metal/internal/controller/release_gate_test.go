@@ -62,3 +62,24 @@ func TestReleaseOfAnInstalledNodeWaitsWhileItIsNotReady(t *testing.T) {
 		assert.False(t, *rel[0].Spec.Approval.Required)
 	})
 }
+
+// TestReleaseOfARunningNodeWaitsBeforeItsHandOffIsRecorded: the Host
+// reports its node running, but the claim was deleted before the claim
+// controller wrote the hand-off record of that check-in, and no boot of the
+// claim ran (the node was found running). The release still takes the node
+// out of its cluster and waits for a person. It used to unbind the machine as
+// it was, with the node still running in its cluster.
+func TestReleaseOfARunningNodeWaitsBeforeItsHandOffIsRecorded(t *testing.T) {
+	claim := testClaim("node-b")
+	host := boundHost(claim)
+	host.Status.Conditions = []metav1.Condition{{Type: metalv1alpha1.ConditionOSReady, Status: metav1.ConditionTrue,
+		Reason: "NodeReady", LastTransitionTime: metav1.Now()}}
+	r := claimReconcilerFor(t, host)
+
+	require.False(t, releasePass(t, r, claim), "the release waits")
+	assert.True(t, hostBound(t, r), "the running node's machine stays bound")
+	rel := releaseOps(t, r, claim)
+	require.Len(t, rel, 1)
+	assert.True(t, *rel[0].Spec.Approval.Required, "a running node is released only with a person")
+	assert.Contains(t, provisionedCond(t, claim).Message, "pk-metal approve")
+}

@@ -434,10 +434,34 @@ func TestReconcile(t *testing.T) {
 		assert.Equal(t, osv1alpha1.ReasonNodeReady,
 			meta.FindStatusCondition(h.Status.Conditions, metalv1alpha1.ConditionOSReady).Reason)
 
-		// Release: the OS observations leave with the claim.
+		// Release: the machine runs its node, so the release takes the node
+		// out of its cluster and waits for a person. That holds whether or
+		// not the claim recorded the hand-off before it was deleted.
 		c2 := claimByName("fleet-prov")
 		require.NoError(t, cl.Delete(ctx, &c2))
+		h = waitHost("simhw2288v5000391", func(h metalv1alpha1.Host) bool {
+			return h.Status.Phase == metalv1alpha1.HostReleasing && h.Status.BlockedOn == "Approval(Release)"
+		})
+		require.NotNil(t, h.Spec.ClaimRef, "the running node's machine stays bound")
+		ops := &metalv1alpha1.HostOperationList{}
+		require.NoError(t, cl.List(ctx, ops, client.InNamespace("default"),
+			client.MatchingLabels{"metal.pk.io/purpose": "release"}))
+		require.Len(t, ops.Items, 1)
+		rel := ops.Items[0]
+		assert.Equal(t, "simhw2288v5000391", rel.Spec.HostRef.Name)
+		require.NotNil(t, rel.Spec.Approval.Required)
+		assert.True(t, *rel.Spec.Approval.Required, "a running node is released only with a person")
+		require.NotEmpty(t, rel.Spec.Actions)
+		assert.NotNil(t, rel.Spec.Actions[0].Cordon, "the node leaves its cluster first")
+
+		// No Talos API runs in this suite, so the release cannot run. Let the
+		// claim go by hand instead: without its finalizer, the claim
+		// controller unbinds the machine as it is. Then withdraw the release.
+		require.NoError(t, cl.Patch(ctx, &c2, client.RawPatch(types.MergePatchType,
+			[]byte(`{"metadata":{"finalizers":null}}`))))
+		require.NoError(t, client.IgnoreNotFound(cl.Delete(ctx, &rel)))
 		h = waitHost("simhw2288v5000391", hostPhaseIs(metalv1alpha1.HostAvailable))
+		assert.Nil(t, h.Spec.ClaimRef)
 		assert.Nil(t, meta.FindStatusCondition(h.Status.Conditions, metalv1alpha1.ConditionOSReady))
 		assert.Nil(t, meta.FindStatusCondition(h.Status.Conditions, metalv1alpha1.ConditionBooted))
 		require.NoError(t, cl.Delete(ctx, node))

@@ -920,9 +920,12 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 		// still there to read; the release operation then carries it.
 		// A node found already running when the claim was made counts too:
 		// it is a node of a cluster this operator renders, and releasing its
-		// machine takes it out of that cluster.
-		powerOff := op != nil || bootRan(provisionOps, host.Name) || installedOnRecord(claim, host.Name, provisionOps) ||
-			powerOffDecided(host, claim)
+		// machine takes it out of that cluster. So does a node the Host
+		// reports running: its OSReady and the claim's hand-off record follow
+		// the same check-in from two controllers, and a claim deleted between
+		// the two writes would otherwise unbind a running node as it is.
+		powerOff := op != nil || runsNode(host) || bootRan(provisionOps, host.Name) ||
+			installedOnRecord(claim, host.Name, provisionOps) || powerOffDecided(host, claim)
 		if !powerOff {
 			// Unbinding as it is cannot be taken back: confirm against the
 			// API server that no boot of the claim ran.
