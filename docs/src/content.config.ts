@@ -13,8 +13,16 @@ export const collections = {
         type: z
           .enum(['landing', 'start', 'kind', 'controller', 'cli', 'lab', 'concept', 'workflow', 'howto', 'runbook', 'tutorial', 'reference', 'project'])
           .optional(),
-        /** The category link id of this page: `[](kind:Host)` resolves to the page with `{cat: kind, id: Host}`. */
-        xref: z.object({ cat: z.enum(categoryIds), id: z.string() }).optional(),
+        /**
+         * The category link id of this page: `[](kind:Host)` resolves to the page with `{cat: kind, id: Host}`.
+         * `aliases` are old ids of a renamed page: links that still use them resolve to this page.
+         */
+        xref: z.object({ cat: z.enum(categoryIds), id: z.string(), aliases: z.array(z.string()).optional() }).optional(),
+        /**
+         * Old paths of a renamed page, without the base: `[operate/day-1/old-name/]`.
+         * astro.config.mjs makes a redirect from each to this page.
+         */
+        redirectFrom: z.array(z.string()).optional(),
         /**
          * More ids that this page owns, each at an anchor of the page: `act: [PowerCycle]`
          * makes `[](act:PowerCycle)` go to `#powercycle`. A map gives the anchor and the

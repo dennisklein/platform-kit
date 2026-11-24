@@ -1,6 +1,6 @@
 /*
  * Shared tokens. The theme file (theme.css) sets the --pk-*
- * colours, the fonts and the category colours (--c-*) for dark (:root) and light
+ * colors, the fonts and the category colors (--c-*) for dark (:root) and light
  * (:root[data-theme='light']). This file maps them to Starlight and to the glossary
  * domains, so the components use only --pk-* and --c-* tokens.
  */

@@ -1,5 +1,5 @@
 // Link categories. Each category has a URL scheme for authors (`[](kind:Host)`), a label,
-// a colour token (defined per theme in src/styles/theme-*.css) and a 16px stroke icon.
+// a color token (defined per theme in src/styles/theme-*.css) and a 16px stroke icon.
 // scripts/xref.mjs resolves the scheme; src/components/CategoryStyles.astro makes the CSS.
 
 /** Stroke paths on a 16x16 grid, 1.5px wide, round caps. */

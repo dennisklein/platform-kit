@@ -9,7 +9,7 @@
 //     "events": [ { "at": 0, "cmd": "mise run lab:up" }, { "at": 1.2, "out": "ok    go" } ] }
 //   { "version": 1, "title": "pk-metal top", "mode": "frames",
 //     "frames": [ { "hold": 3, "caption": "Two operations wait.", "lines": ["..."] } ] }
-// Colour: `[[ok|text]]`, `[[warn|text]]`, `[[err|text]]`, `[[dim|text]]`, `[[b|text]]`.
+// Color: `[[ok|text]]`, `[[warn|text]]`, `[[err|text]]`, `[[dim|text]]`, `[[b|text]]`.
 //
 // Without JavaScript, and in print, a lines cast shows all lines and a frames cast shows
 // its last frame. With reduced motion, the replay does not start by itself.
@@ -32,7 +32,7 @@ const frames = cast.mode === 'frames';
 const loop = Astro.props.loop ?? frames;
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-/** Escapes a cast line and turns `[[ok|text]]` into a coloured span. */
+/** Escapes a cast line and turns `[[ok|text]]` into a colored span. */
 // A mark or an arrow can come from a font with a different width. A cell of 1ch keeps
 // the columns of a full-screen frame in line.
 const paint = (s: string) =>

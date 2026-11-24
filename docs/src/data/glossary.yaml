@@ -9,7 +9,7 @@
 #   term     the name as the reader sees it.
 #   abbr     the expansion, when the term is an abbreviation.
 #   kind     noun | verb | api-kind | abbr | tool | phase | annotation.
-#   domain   one key of `domains` (colour and icon of the link).
+#   domain   one key of `domains` (color and icon of the link).
 #   forms    the words in page text that link to the term. Matched as whole
 #            words and case-sensitively. No two terms share a form. An empty
 #            list means: link it only by hand, with [text](term:<id>).
@@ -524,7 +524,7 @@ terms:
     domain: k8s
     forms: [Asset, Assets]
     see: kind:Asset
-    related: [ledger, managementendpoint, host, enrol]
+    related: [ledger, managementendpoint, host, enroll]
     def: >-
       The kind that you write for each physical machine: its serial number and
       the MAC address of its BMC. The operator does nothing with a machine
@@ -1282,11 +1282,12 @@ terms:
       All work after the install, while workloads run: reboots, upgrades,
       config changes, backups and changes to the hardware.
 
-  - id: enrol
-    term: enrol
+  - id: enroll
+    term: enroll
     kind: verb
     domain: ops
-    forms: [enrol, enrols, enrolled]
+    # The British forms stay until no page uses them (STE.American warns on them).
+    forms: [enroll, enrolls, enrolled, enrolling, enrol, enrols]
     see: howto:enrol-hosts
     related: [asset, ledger]
     def: >-
@@ -1299,7 +1300,7 @@ terms:
     domain: ops
     forms: [ledger]
     see: concept:ledger
-    related: [asset, bmc, enrol]
+    related: [asset, bmc, enroll]
     def: >-
       A list that gives the address of each BMC for its MAC address. It is the
       ConfigMap pk-metal-ledger. The operator reads it when it starts.

@@ -11,9 +11,6 @@ swap:
   '\b(?:Etcd|ETCD)\b': etcd
   '\b(?:Talosctl|TalosCtl)\b': talosctl
   '\b(?:Kubectl|KubeCtl)\b': kubectl
-  '\benroll\b': enrol
-  '\benrolls\b': enrols
-  '\benrollment\b': enrolment
   '\b(?:baseboard management controller|Baseboard management controller)\b': BMC
   '\bvirtual-media\b': virtual media
   '\bPk-metal\b': pk-metal

@@ -1,4 +1,4 @@
-// Checks the colour contrast of the theme tokens (mise run docs:lint:contrast).
+// Checks the color contrast of the theme tokens (mise run docs:lint:contrast).
 //
 // Reads the tokens of src/styles/theme.css for the dark theme (:root), the light
 // theme (:root[data-theme='light']) and the dark console panels in the light theme
@@ -52,7 +52,7 @@ const results = [];
 const check = (where, what, fg, bg, need) => results.push({ where, what, r: ratio(fg, bg), need });
 
 for (const [where, t] of [['dark', dark], ['light', light]]) {
-  // Category links are chips: the colour on an 11 % tint of itself (cli: on paper-3).
+  // Category links are chips: the color on an 11 % tint of itself (cli: on paper-3).
   for (const c of cats) {
     const chip = c === 'c-cli' ? t['pk-paper-3'] : mix(t[c], t['pk-paper'], 0.11);
     check(where, `--${c} link chip`, t[c], chip, TEXT);

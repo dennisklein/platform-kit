@@ -6,7 +6,7 @@ import { satteri } from '@astrojs/markdown-satteri';
 import baseLinks from './scripts/base-links.mjs';
 import xref from './scripts/xref.mjs';
 import glossary from './scripts/glossary.mjs';
-import { loadRegistry } from './scripts/registry.mjs';
+import { loadRedirects, loadRegistry } from './scripts/registry.mjs';
 import { sidebar } from './scripts/sidebar.mjs';
 import { site, base, repoUrl, branch } from './scripts/site.mjs';
 
@@ -41,6 +41,8 @@ const overrides = {
 export default defineConfig({
   site,
   base,
+  // Old paths of renamed pages (`redirectFrom` frontmatter), so old links and bookmarks work.
+  redirects: loadRedirects(base),
   outDir: process.env.PK_DOCS_OUT || './dist',
   markdown: {
     processor: satteri({

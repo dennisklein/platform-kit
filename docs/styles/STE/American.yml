@@ -1,0 +1,54 @@
+# ASD-STE100 uses American English spelling. Each word here is the British form of
+# a word that the site uses; the swap gives the American form.
+# Level warning while pages that use "enrol" are renamed (operate/day-1/enrol-hosts
+# becomes enroll-hosts with a redirect); then make it an error.
+extends: substitution
+message: "Use the American spelling '%s', not '%s'."
+link: https://www.asd-ste100.org/
+level: warning
+scope: ~text.frontmatter
+ignorecase: true
+swap:
+  enrol: enroll
+  enrols: enrolls
+  enrolment: enrollment
+  enrolments: enrollments
+  colour: color
+  colours: colors
+  coloured: colored
+  behaviour: behavior
+  behaviours: behaviors
+  favour: favor
+  honour: honor
+  centre: center
+  centres: centers
+  catalogue: catalog
+  catalogues: catalogs
+  licence: license
+  labelled: labeled
+  labelling: labeling
+  modelled: modeled
+  cancelled: canceled
+  cancelling: canceling
+  travelled: traveled
+  organise: organize
+  organised: organized
+  organisation: organization
+  recognise: recognize
+  recognised: recognized
+  initialise: initialize
+  initialised: initialized
+  serialise: serialize
+  serialised: serialized
+  analyse: analyze
+  analysed: analyzed
+  summarise: summarize
+  summarised: summarized
+  prioritise: prioritize
+  minimise: minimize
+  maximise: maximize
+  optimise: optimize
+  authorise: authorize
+  authorised: authorized
+  normalise: normalize
+  synchronise: synchronize

@@ -1,6 +1,6 @@
 /*
  * The site theme, "Control room": an operator console. Dark first, dense but calm. Inter and
- * IBM Plex Mono; a cyan accent; status colours for phases; category links as chips;
+ * IBM Plex Mono; a cyan accent; status colors for phases; category links as chips;
  * top tabs for the layers of the site (HeaderTabs.astro, SidebarTabs.astro).
  */
 
@@ -93,7 +93,7 @@
   color-scheme: light;
 }
 
-/* The console panels stay dark in light mode: they keep the dark status colours. */
+/* The console panels stay dark in light mode: they keep the dark status colors. */
 :root[data-theme='light'] .pk-ex,
 :root[data-theme='light'] .pk-hero-panel {
   --pk-ok: #3fb950;
@@ -103,8 +103,8 @@
   --pk-on-accent: #04141a;
 }
 
-/* Category colours for a dark background: the dark theme, and the console panels in
-   the light theme (each of them, not only kinds: a box title takes the colour of its
+/* Category colors for a dark background: the dark theme, and the console panels in
+   the light theme (each of them, not only kinds: a box title takes the color of its
    category). scripts/check-contrast.mjs checks all of them. */
 :root,
 :root[data-theme='light'] .pk-ex,

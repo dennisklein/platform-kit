@@ -1,7 +1,8 @@
 // The category link registry: every id that `[](<scheme>:<id>)` can name.
 //
 // Sources, in order of precedence:
-//   1. the `xref` frontmatter of the pages in src/content/docs (a page owns its id),
+//   1. the `xref` frontmatter of the pages in src/content/docs (a page owns its id;
+//      `xref.aliases` keeps the old ids of a renamed page working),
 //   2. the `anchors` frontmatter of a page: more ids, each at an anchor of that page
 //      (`act: [PowerCycle]` on the actions page is `#powercycle` there),
 //   3. src/data/xref-planned.yaml (pages that do not exist yet; optional),
@@ -70,6 +71,23 @@ export function anchorsOf(page) {
   return out;
 }
 
+/**
+ * The redirects of renamed pages (`redirectFrom` frontmatter), as Astro's `redirects`
+ * option. Astro adds the base to the source path, not to the destination.
+ */
+export function loadRedirects(base) {
+  const b = base.replace(/\/$/, '');
+  const out = {};
+  for (const p of loadPages()) {
+    for (const from of p.data.redirectFrom ?? []) {
+      const key = `/${String(from).replace(/^\/|\/$/g, '')}/`;
+      if (out[key]) throw new Error(`redirects: ${key} is in ${p.file} and in another page`);
+      out[key] = `${b}/${p.slug}`;
+    }
+  }
+  return out;
+}
+
 /** All pages: slug, frontmatter and file. */
 export function loadPages() {
   return walk(contentDir).map((file) => ({ file, slug: slugOf(file), data: frontmatter(file) }));
@@ -85,16 +103,29 @@ export function loadRegistry(base) {
   if (cache) return cache;
   const b = base.replace(/\/$/, '');
   const reg = new Map();
+  const aliases = new Map();
   for (const page of loadPages()) {
     const x = page.data.xref;
     if (!x) continue;
     if (!byId.has(x.cat)) throw new Error(`xref: ${page.file} has the unknown category "${x.cat}"`);
     const key = `${x.cat}:${x.id}`;
     if (reg.has(key)) throw new Error(`xref: "${key}" is in ${reg.get(key).file} and in ${page.file}`);
-    reg.set(key, {
+    const entry = {
       cat: x.cat, id: String(x.id), href: `${b}/${page.slug}`, title: page.data.title,
       description: page.data.description, planned: false, file: page.file,
-    });
+    };
+    reg.set(key, entry);
+    // The old ids of a renamed page resolve to the same entry, so a link that still
+    // uses one keeps working (and shows the page's current id).
+    for (const alias of x.aliases ?? []) {
+      const old = `${x.cat}:${alias}`;
+      if (reg.has(old)) throw new Error(`xref: "${old}" (an alias in ${page.file}) is also in ${reg.get(old).file}`);
+      aliases.set(old, entry);
+    }
+  }
+  for (const [key, entry] of aliases) {
+    if (reg.has(key)) throw new Error(`xref: "${key}" is an alias of ${entry.file} and an id of ${reg.get(key).file}`);
+    reg.set(key, { ...entry, alias: true });
   }
   for (const page of loadPages()) {
     for (const [cat, id, anchor, title] of anchorsOf(page)) {

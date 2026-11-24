@@ -3,7 +3,7 @@
 // `[](kind:Host)`, `[text](cli:approve#--yes)` and the other schemes in
 // src/data/categories.mjs become links to the page that owns the id (see
 // scripts/registry.mjs). The link gets `class="x"` and `data-cat`, so CSS gives it the
-// colour and the icon of its category. An empty link gets the canonical text. An
+// color and the icon of its category. An empty link gets the canonical text. An
 // unknown id stops the build with the file and the id in the message.
 // Links to https:// get `data-cat="ext"`, links to /repo/<path> get `data-cat="src"`.
 import { fileURLToPath } from 'node:url';
