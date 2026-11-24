@@ -35,6 +35,12 @@ Tables:
              running, or failed (failed ones stay until you retry them)
   ENDPOINT   one row per BMC
   CLAIM      claims that have no machine yet
+  CLUSTER    one row per TalosCluster: Talos and Kubernetes versions wanted
+             and running, ready control planes and workers, etcd health,
+             when it was bootstrapped, the backup state, and whether its
+             Kubernetes API is available
+  NODE       one row per TalosNode: its cluster, role, the host it runs on,
+             address, Talos version, boot stage and readiness
 Under each table, every blocked or failed row gets a line that says why, in
 the operator's own words, and what to run next when there is a command for it.
 
@@ -48,7 +54,14 @@ the operator's own words, and what to run next when there is a command for it.
    "endpoints":  [{"name", "asset", "vendor", "phase", "address",
                    "blockedOn", "message", "needsAttention"}],
    "claims":     [{"namespace", "name", "asset", "host", "phase",
-                   "blockedOn", "message", "onHold", "needsAttention"}]}
+                   "blockedOn", "message", "onHold", "needsAttention"}],
+   "clusters":   [{"name", "talosVersion", "talosVersionsRunning",
+                   "kubernetesVersion", "kubernetesVersionRunning",
+                   "controlPlanes", "readyControlPlanes", "workers",
+                   "readyWorkers", "available", "etcd", "bootstrappedAt",
+                   "backup", "backupMessage", "message", "needsAttention"}],
+   "nodes":      [{"name", "cluster", "role", "host", "address", "version",
+                   "stage", "ready", "message", "needsAttention"}]}
   Every key is always present; a missing value is "" (or null for node).
   "operations" and "claims" list all of them, also succeeded and bound ones.
   New keys may be added; existing keys keep their meaning while version is 1.
@@ -57,7 +70,9 @@ exit status:
   0  nothing needs a person
   1  error: the cluster could not be read
   2  something is blocked or failed (a row has needsAttention), including
-     operations that wait for approval
+     operations that wait for approval, a bootstrapped cluster whose etcd or
+     Kubernetes API is unhealthy or whose backup is stale, and a node of a
+     running cluster that is not Ready
 
 examples:
   pk-metal status
@@ -100,13 +115,17 @@ func runStatus(ctx context.Context, cl client.Client, format string, w io.Writer
 			return exitError, fmt.Errorf("read the cluster: %w", err)
 		}
 	}
-	// TalosNodes only fill the NODE column: a cluster without the OS kinds
-	// installed still has a status.
+	// The OS kinds fill the NODE column and the CLUSTER and NODE tables: a
+	// cluster without them installed still has a status.
 	nodes := &osv1alpha1.TalosNodeList{}
-	if err := cl.List(ctx, nodes); err != nil && !meta.IsNoMatchError(err) {
-		return exitError, fmt.Errorf("read the cluster: %w", err)
+	clusters := &osv1alpha1.TalosClusterList{}
+	for _, list := range []client.ObjectList{nodes, clusters} {
+		if err := cl.List(ctx, list); err != nil && !meta.IsNoMatchError(err) {
+			return exitError, fmt.Errorf("read the cluster: %w", err)
+		}
 	}
 	rep := buildReport(hosts.Items, eps.Items, claims.Items, ops.Items, nodes.Items)
+	addClusters(&rep, clusters.Items, nodes.Items, hosts.Items)
 	switch format {
 	case "json":
 		enc := json.NewEncoder(w)
@@ -132,6 +151,9 @@ type statusReport struct {
 	Operations     []opStatus    `json:"operations"`
 	Endpoints      []epStatus    `json:"endpoints"`
 	Claims         []claimStatus `json:"claims"`
+	// Clusters and Nodes came later (still version 1: new keys only).
+	Clusters []clusterStatus   `json:"clusters"`
+	Nodes    []talosNodeStatus `json:"nodes"`
 }
 
 type nodeStatus struct {
@@ -217,7 +239,8 @@ func nsName(namespace, name string) string { return namespace + "/" + name }
 // name so that two runs on the same cluster print the same thing.
 func buildReport(hosts []metalv1alpha1.Host, eps []metalv1alpha1.ManagementEndpoint, claims []metalv1alpha1.HostClaim,
 	ops []metalv1alpha1.HostOperation, nodes []osv1alpha1.TalosNode) statusReport {
-	rep := statusReport{Version: 1, Hosts: []hostStatus{}, Operations: []opStatus{}, Endpoints: []epStatus{}, Claims: []claimStatus{}}
+	rep := statusReport{Version: 1, Hosts: []hostStatus{}, Operations: []opStatus{}, Endpoints: []epStatus{}, Claims: []claimStatus{},
+		Clusters: []clusterStatus{}, Nodes: []talosNodeStatus{}}
 
 	epByName := map[string]*metalv1alpha1.ManagementEndpoint{}
 	for i := range eps {
@@ -425,6 +448,7 @@ func renderReport(rep statusReport) string {
 	if len(rows) > 0 {
 		section("CLAIM\tASSET\tPHASE\tBLOCKED", rows, notes)
 	}
+	renderClusters(rep, section)
 	return sb.String()
 }
 

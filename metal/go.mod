@@ -41,6 +41,10 @@ require (
 	github.com/kdomanski/iso9660 v0.4.0
 	// Already linked through machinery; formats and parses the sha256: digests the API stores.
 	github.com/opencontainers/go-digest v1.0.0
+	// Already linked through controller-runtime, whose metrics registry the manager serves;
+	// the domain gauges (internal/metrics) register on that same registry, so a second
+	// exposition format would be a second /metrics endpoint for no gain.
+	github.com/prometheus/client_golang v1.23.2
 	github.com/siderolabs/crypto v0.6.5
 	github.com/siderolabs/image-factory v1.4.0
 	github.com/siderolabs/talos/pkg/machinery v1.14.6
@@ -127,6 +131,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jsimonetti/rtnetlink/v2 v2.2.1-0.20260802200809-43bafec815b3 // indirect
 	github.com/json-iterator/go v1.1.13-0.20220915233716-71ac16282d12 // indirect
+	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.23 // indirect
@@ -146,7 +151,6 @@ require (
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20260702190614-8ae5a48058df // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	github.com/prometheus/client_golang v1.23.2 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.67.5 // indirect
 	github.com/prometheus/procfs v0.20.1 // indirect
