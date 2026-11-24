@@ -42,16 +42,26 @@ This is the only command that changes a machine without an approval. It prints i
 
 Give `--listen` or `--relay`, not the two. The BMC must reach the address that serves the image.
 
+## The installer medium
+
+The command mounts the machine configuration only. It does not mount an installer.
+A blank machine must start a Talos installer from a second virtual media slot.
+The installer must have the kernel argument `talos.config=metal-iso`, so that it reads the configuration from the medium of this command.
+Mount the installer yourself, and give the other slot with [`--media`](cli:boot#--media).
+[](howto:bootstrap-without-operator) shows the steps.
+
+A BMC with one slot cannot hold the two media. Install such a machine with the operator. See [](concept:one-slot-bmc).
+
 ## What it does
 
 1. The command packs the machine configuration into an ISO.
-2. It opens a Redfish session on the BMC and prints its plan.
+2. It connects to the BMC with HTTP Basic authentication and prints its plan. It opens no Redfish session.
 3. It ejects the media that is in the virtual media slot.
 4. It serves the ISO through HTTPS, with a user and a password that it makes for this one boot.
 5. It mounts the ISO as virtual media.
 6. It sets the boot override to that medium for the next start only.
 7. It turns the machine on. If the machine is on, it does a hard reset. This needs [`--yes`](cli:boot#--yes).
-8. It waits until the machine reads the full image, at most the time of [`--ttl`](cli:boot#--ttl).
+8. It waits until the machine reads the full image, at most the time of [`--ttl`](cli:boot#--ttl). Only the reads after the power step count. The BMC reads part of the image when it mounts it, and that read is not the boot.
 9. It ejects the medium and stops the server.
 
 ### Options for the power step
@@ -88,13 +98,14 @@ text={`
     boot:   4. boot from Cd at the next start only
     boot:   5. power the machine on
     boot:   6. wait until the machine has read the image, then eject it and stop serving
+    boot: serving 73728 B under a 10m0s grant at https://10.0.0.2:8443/grants/q3VbZ1…/cp-1.iso
     boot: media mounted
     boot: boot override Cd (once)
     boot: power On
     boot: image read complete
     boot: media ejected
     boot: grant revoked
-    boot: OK, the machine read the 1474560 byte image (1474560 bytes served)
+    boot: OK, the machine read the 73728 byte image (139264 bytes served)
 `}
 />
 

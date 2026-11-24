@@ -23,6 +23,14 @@ refuses unless you give --yes. With --no-power it only mounts the medium and
 sets the next boot; you restart the machine yourself (for example from the
 BMC web console) and boot waits until the image has been read.
 
+boot mounts the config only, not the installer. A blank machine must boot
+a Talos installer from a second virtual media slot: the factory ISO of your
+Talos version with the kernel argument talos.config=metal-iso, which makes
+the installer read the config from boot's medium. Mount the installer
+yourself (for example from the BMC web console), and give boot the other
+slot with --media. A BMC with one slot cannot hold both media: install such
+a machine with the operator, which builds an installer with the config in it.
+
 The BMC must reach the address boot serves on: give --listen with an address
 on the BMC network, or --relay to serve through pk-metal relay on a host that
 the BMCs can reach. With --relay, boot needs the relay's secret, from
@@ -31,7 +39,7 @@ $PK_METAL_BMC_PASSWORD only.
 
 example:
   PK_METAL_BMC_PASSWORD=... pk-metal boot --config clusterconfig/node-1.yaml \
-      --node node-1 --listen 10.0.0.2:8443 https://10.0.0.11`
+      --node node-1 --media 2 --listen 10.0.0.2:8443 https://10.0.0.11`
 }
 
 // bootCmd climbs the media ladder against one BMC — the CLI's first write verb.
