@@ -122,7 +122,9 @@ A Talos release that replaces `cluster.talosVersion`, for example `v1.14.5`.
 
 - The lab writes a copy of the spec to `.lab/spec.talos-<version>.yaml`. The file in git does not change.
 - [](lab:upgrade) upgrades the cluster to the release in the spec.
-- Set it again on each `lab:up` of that lab. Without it, `lab:up` renders the release in the spec.
+- Set it again on each `lab:up` of that lab. [](lab:up) records the release in `.lab/talos-override`.
+- A `lab:up` without it stops while the cluster still asks for the recorded release. Thus it does not start an upgrade outside [](lab:upgrade).
+- After [](lab:upgrade), or after [](lab:reset), the record is gone.
 
 ### Other variables
 

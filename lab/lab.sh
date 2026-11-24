@@ -107,6 +107,8 @@ DEPLOYMENT=pk-metal-manager
 REGISTRY_CONTAINER=pk-metal-lab-registry
 REGISTRY_IMAGE=registry:2.8.3
 PIVOT_MARK=pivoted
+# The file that records the PK_LAB_TALOS a lab was brought up with.
+TALOS_MARK=talos-override
 
 # Every kubectl, kind and pk-metal call below talks to the lab's own kubeconfig.
 # The person's ~/.kube/config is never read and never written.
@@ -759,12 +761,44 @@ rerender_guard() {
   (or run lab:up with the PK_LAB_NODES it was brought up with)"
 }
 
+# A lab brought up with PK_LAB_TALOS runs an older release than the spec. An
+# up without it renders the spec's release and so starts the upgrade outside
+# lab:upgrade, and its checks. The override is recorded, and an up without it
+# is refused while the cluster still asks for the recorded release. Once the
+# cluster asks for another one (lab:upgrade ran), the record is dropped; reset
+# drops it with the disks.
+talos_override_guard() {
+  local lab_dir=$1 gen=$2 override=$3
+  local record=$lab_dir/$TALOS_MARK recorded cluster_name current
+  if [[ -n $override ]]; then
+    mkdir -p "$lab_dir"
+    echo "$override" >"$record"
+    return 0
+  fi
+  [[ -s $record ]] || return 0
+  recorded=$(<"$record")
+  cluster_name=$(lab_value_or "$gen" TALOS_CLUSTER "")
+  current=""
+  [[ -z $cluster_name || ! -s $lab_dir/kubeconfig ]] \
+    || current=$(kubectl get taloscluster "$cluster_name" --output jsonpath='{.spec.talosVersion}' 2>/dev/null) || current=""
+  if [[ -n $current && $current != "$recorded" ]]; then
+    rm -f "$record"
+    return 0
+  fi
+  die "this lab was brought up on Talos $recorded (PK_LAB_TALOS). Without it, up applies the
+  spec's release and starts an upgrade outside lab:upgrade. Do one of these:
+    PK_LAB_TALOS=$recorded mise run lab:up                (keep the release)
+    mise run lab:upgrade                                  (upgrade through a rollout)
+    mise run lab:down && mise run lab:reset && mise run lab:up   (start again)"
+}
+
 up() {
   local root=$1 lab_dir=$2 spec=$3 size=$4 workload=$5 gen=$6 cluster=$7 min_free_gib=$8 kind_config=$9
-  local warm_timeout=${10}
+  local warm_timeout=${10} talos_override=${11}
   pivoted_guard "$lab_dir"
   doctor "$root" "$lab_dir" "$spec" "$size" "$workload" "$min_free_gib" "$kind_config"
   rerender_guard "$root" "$lab_dir" "$spec" "$size" "$workload"
+  talos_override_guard "$lab_dir" "$gen" "$talos_override"
   render "$root" "$spec" "$size" "$workload" "$gen"
   network_up "$root" "$gen"
   cluster_up "$lab_dir" "$cluster" "$kind_config"
@@ -2132,7 +2166,7 @@ reset() {
     && die "the fleet is running and has the disks open. Take the lab down first: mise run lab:down"
   state_dir=$(fleet_state_dir "$root" "$fleet")
   if [[ ! -e $state_dir ]]; then
-    rm -f "$lab_dir/$PIVOT_MARK"
+    rm -f "$lab_dir/$PIVOT_MARK" "$lab_dir/$TALOS_MARK"
     echo "nothing to wipe: $state_dir does not exist" >&2
     return 0
   fi
@@ -2141,8 +2175,8 @@ reset() {
   $STATE_MARK file, so it may not be the lab's (or it holds the repository). Nothing was removed.
   Remove the directory by hand if it really holds the lab's disks."
   rm -rf "$state_dir"
-  # No disk holds a moved operator any more.
-  rm -f "$lab_dir/$PIVOT_MARK"
+  # No disk holds a moved operator or an older release any more.
+  rm -f "$lab_dir/$PIVOT_MARK" "$lab_dir/$TALOS_MARK"
   echo "wiped $state_dir. The next lab:up installs every machine from scratch." >&2
 }
 
@@ -2152,7 +2186,7 @@ main() {
   case "$verb" in
     doctor) doctor "$ROOT" "$LAB_DIR" "$SPEC" "$SIZE" "$WORKLOAD" "$MIN_FREE_GIB" "$KIND_CONFIG" ;;
     render) render "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN" ;;
-    up) up "$ROOT" "$LAB_DIR" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN" "$CLUSTER" "$MIN_FREE_GIB" "$KIND_CONFIG" "$WARM_TIMEOUT" ;;
+    up) up "$ROOT" "$LAB_DIR" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN" "$CLUSTER" "$MIN_FREE_GIB" "$KIND_CONFIG" "$WARM_TIMEOUT" "${PK_LAB_TALOS:-}" ;;
     network)
       require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
       network_up "$ROOT" "$GEN"
