@@ -26,11 +26,14 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	"github.com/siderolabs/image-factory/pkg/schematic"
+	tconfig "github.com/siderolabs/talos/pkg/machinery/config"
+	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
 	clientconfig "github.com/siderolabs/talos/pkg/machinery/client/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.yaml.in/yaml/v4"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -92,6 +95,12 @@ func stubFactory(t *testing.T) (*render.Factory, func() []string) {
 			defer mu.Unlock()
 			return append([]string(nil), ids...)
 		}
+}
+
+// pinImage stands in for the registry: it pins a tag to a digest derived
+// from the reference, so a plan is stable and visibly pinned.
+func pinImage(_ context.Context, ref string) (string, error) {
+	return ref + "@" + digest.FromString(ref).String(), nil
 }
 
 // labSample reads config/samples/talos.yaml: the cluster and nodes under test
@@ -160,7 +169,10 @@ func TestOSLane(t *testing.T) {
 		ProbeKubernetes: probe,
 		CheckInterval:   100 * time.Millisecond,
 		ReadyInterval:   200 * time.Millisecond,
-	}, controller.LaneTalosNode, controller.LaneTalosCluster, controller.LaneBootAsset))
+		DriftInterval:   200 * time.Millisecond,
+		Proposer:        "pk-metal-operator",
+		ResolveImage:    pinImage,
+	}, controller.LaneTalosNode, controller.LaneTalosCluster, controller.LaneBootAsset, controller.LaneTalosRollout))
 	runManager(t, ctx, mgr)
 
 	lab := labSample(t)
@@ -570,6 +582,183 @@ func TestOSLane(t *testing.T) {
 		for _, name := range []string{"node-2", "node-3"} {
 			assert.Zero(t, machines[name].BootstrapCalls(), name)
 		}
+	})
+
+	rolloutOf := func(kind osv1alpha1.RolloutKind) *osv1alpha1.TalosRollout {
+		list := osv1alpha1.TalosRolloutList{}
+		require.NoError(t, cl.List(ctx, &list))
+		for i := range list.Items {
+			if ro := &list.Items[i]; ro.Spec.Kind == kind && ro.Spec.ClusterRef.Name == "lab" &&
+				!meta.IsStatusConditionTrue(ro.Status.Conditions, osv1alpha1.ConditionComplete) {
+				return ro
+			}
+		}
+		return nil
+	}
+
+	st.run(t, "a node edit shows as no-reboot drift, and a Config rollout is proposed", func(t *testing.T) {
+		inSync := func(name string) bool {
+			n, c := nodeCondition(name, osv1alpha1.ConditionConfigInSync)
+			return c != nil && c.Status == metav1.ConditionTrue && n.Status.AppliedConfigDigest == n.Status.ConfigDigest
+		}
+		require.Eventually(t, func() bool { return inSync("node-1") && inSync("node-2") && inSync("node-3") },
+			waitFor, tick, "a machine that runs its render must read as in sync")
+
+		n, _ := nodeCondition("node-3", osv1alpha1.ConditionConfigInSync)
+		running := n.Status.ConfigSecretRef.Name
+		n.Spec.Labels = map[string]string{"example.com/rack": "r2"}
+		require.NoError(t, cl.Update(ctx, &n))
+
+		require.Eventually(t, func() bool {
+			n, c := nodeCondition("node-3", osv1alpha1.ConditionConfigInSync)
+			return c != nil && c.Reason == osv1alpha1.ReasonConfigDrift && n.Status.ConfigSecretRef.Name != running
+		}, waitFor, tick, "the edit must render anew and read as drift")
+		n, c := nodeCondition("node-3", osv1alpha1.ConditionConfigInSync)
+		require.NotNil(t, n.Status.Drift)
+		assert.True(t, n.Status.Drift.Changed)
+		assert.False(t, n.Status.Drift.RebootRequired, "a label applies without a reboot")
+		assert.Contains(t, c.Message, "without a reboot")
+		assert.NotContains(t, n.Status.Drift.Summary, "r2", "the summary names keys, never values")
+		current := n.Status.ConfigSecretRef.Name
+		var old corev1.Secret
+		require.NoError(t, cl.Get(ctx, types.NamespacedName{Namespace: "default", Name: running}, &old),
+			"the config the machine runs is kept")
+
+		var ro *osv1alpha1.TalosRollout
+		require.Eventually(t, func() bool {
+			ro = rolloutOf(osv1alpha1.RolloutConfig)
+			return ro != nil && meta.IsStatusConditionTrue(ro.Status.Conditions, osv1alpha1.ConditionPlanned)
+		}, waitFor, tick, "drift must propose a Config rollout")
+		assert.Equal(t, "pk-metal-operator", ro.Spec.ProposedBy)
+		assert.Empty(t, ro.Spec.Approval.ApprovedBy, "a proposal is never approved")
+		require.Len(t, ro.Status.Plan, 1)
+		assert.Equal(t, "node-3", ro.Status.Plan[0].Node)
+		assert.Equal(t, current, ro.Status.Plan[0].ConfigSecret)
+		assert.False(t, ro.Status.Plan[0].RebootRequired)
+		assert.Equal(t, []string{"talosApplyConfig", "waitNodeReady"}, ro.Status.Plan[0].Actions,
+			"a no-reboot change is neither drained nor uncordoned")
+		ops := metalv1alpha1.HostOperationList{}
+		require.NoError(t, cl.List(ctx, &ops))
+		assert.Empty(t, ops.Items, "a proposal starts nothing")
+
+		// The machine takes the new config, as the approved apply would.
+		machines["node-3"].Configure(secretData(n.Status.ConfigSecretRef, asset.ConfigFilename))
+		require.Eventually(t, func() bool { return inSync("node-3") }, waitFor, tick)
+		require.Eventually(t, func() bool {
+			err := cl.Get(ctx, types.NamespacedName{Namespace: "default", Name: running}, &old)
+			return apierrors.IsNotFound(err)
+		}, waitFor, tick, "the config the machine no longer runs is collected")
+		require.Eventually(t, func() bool {
+			var got osv1alpha1.TalosRollout
+			return cl.Get(ctx, types.NamespacedName{Name: ro.Name}, &got) == nil &&
+				meta.IsStatusConditionTrue(got.Status.Conditions, osv1alpha1.ConditionComplete)
+		}, waitFor, tick, "a proposal whose change happened has nothing left to do")
+	})
+
+	st.run(t, "a machine on an older Talos keeps its contract and a TalosUpgrade is proposed", func(t *testing.T) {
+		setVersion := func(v string) {
+			require.NoError(t, talos.With(ctx, fleet.Dialer(), talos.Target{Endpoint: "10.77.0.13", Talosconfig: []byte("tc")},
+				func(c talos.Client) error {
+					_, err := c.Upgrade(ctx, talos.UpgradeOptions{Image: "factory.test/installer:" + v})
+					return err
+				}))
+		}
+		setVersion("v1.14.5")
+		require.Eventually(t, func() bool {
+			n, c := nodeCondition("node-3", osv1alpha1.ConditionVersionCurrent)
+			return c != nil && c.Reason == osv1alpha1.ReasonVersionSkew && n.Status.RenderedFor == "v1.14.5"
+		}, waitFor, tick, "the skew must show, and the render must follow the version the machine runs")
+		n, _ := nodeCondition("node-3", osv1alpha1.ConditionVersionCurrent)
+		assert.True(t, strings.HasSuffix(n.Status.InstallerImage, ":v1.14.5"))
+		require.Eventually(t, func() bool {
+			_, c := clusterCondition("lab", osv1alpha1.ConditionVersionsCurrent)
+			return c != nil && c.Status == metav1.ConditionFalse
+		}, waitFor, tick)
+
+		var ro *osv1alpha1.TalosRollout
+		require.Eventually(t, func() bool {
+			ro = rolloutOf(osv1alpha1.RolloutTalosUpgrade)
+			return ro != nil && meta.IsStatusConditionTrue(ro.Status.Conditions, osv1alpha1.ConditionPlanned)
+		}, waitFor, tick, "skew must propose a TalosUpgrade")
+		require.Len(t, ro.Status.Plan, 1)
+		step := ro.Status.Plan[0]
+		assert.Equal(t, "node-3", step.Node)
+		assert.Equal(t, "v1.14.5", step.From)
+		assert.Equal(t, labTalos, step.To)
+		assert.Regexp(t, `:v1\.14\.6@sha256:[0-9a-f]{64}$`, step.Image, "the installer is pinned by digest at planning")
+		assert.Equal(t, []string{"drain", "talosUpgrade", "waitNodeReady", "uncordon"}, step.Actions)
+
+		setVersion(labTalos)
+		require.Eventually(t, func() bool {
+			n, c := nodeCondition("node-3", osv1alpha1.ConditionVersionCurrent)
+			return c != nil && c.Status == metav1.ConditionTrue && n.Status.RenderedFor == labTalos
+		}, waitFor, tick)
+	})
+
+	st.run(t, "an edited secrets bundle is held while the machines run the old one", func(t *testing.T) {
+		cluster, _ := clusterCondition("lab", osv1alpha1.ConditionAvailable)
+		kubeconfig := secretData(cluster.Status.KubeconfigSecretRef, controller.KubeconfigKey)
+		node1, _ := nodeCondition("node-1", osv1alpha1.ConditionRendered)
+
+		other, err := secrets.NewBundle(secrets.NewClock(), tconfig.TalosVersion1_14)
+		require.NoError(t, err)
+		otherYAML, err := yaml.Marshal(other)
+		require.NoError(t, err)
+		var sec corev1.Secret
+		require.NoError(t, cl.Get(ctx, types.NamespacedName{Namespace: "default", Name: "lab-talos-secrets"}, &sec))
+		sec.Data[render.BundleKey] = otherYAML
+		require.NoError(t, cl.Update(ctx, &sec))
+
+		require.Eventually(t, func() bool {
+			_, c := clusterCondition("lab", osv1alpha1.ConditionSecretsBundleHeld)
+			return c != nil && c.Status == metav1.ConditionTrue && c.Reason == osv1alpha1.ReasonBundleChanged
+		}, waitFor, tick, "the edit must be held, not acted on")
+		_, held := clusterCondition("lab", osv1alpha1.ConditionSecretsBundleHeld)
+		assert.Contains(t, held.Message, "Talos API CA")
+		assert.Contains(t, held.Message, "lab-bundle-applied")
+		st.settle(t, ctx, &cluster, 3)
+		assert.Equal(t, kubeconfig, secretData(cluster.Status.KubeconfigSecretRef, controller.KubeconfigKey),
+			"the published kubeconfig still works against the running cluster")
+		n1, _ := nodeCondition("node-1", osv1alpha1.ConditionRendered)
+		assert.Equal(t, node1.Status.ConfigDigest, n1.Status.ConfigDigest, "configs still render from the bundle the machines run")
+
+		require.NoError(t, cl.Get(ctx, types.NamespacedName{Namespace: "default", Name: "lab-talos-secrets"}, &sec))
+		sec.Data[render.BundleKey] = bundle
+		require.NoError(t, cl.Update(ctx, &sec))
+		require.Eventually(t, func() bool {
+			_, c := clusterCondition("lab", osv1alpha1.ConditionSecretsBundleHeld)
+			return c != nil && c.Status == metav1.ConditionFalse
+		}, waitFor, tick, "putting the bundle back ends the hold")
+	})
+
+	st.run(t, "credentials are short-lived and a reader talosconfig is published on request", func(t *testing.T) {
+		c, _ := clusterCondition("lab", osv1alpha1.ConditionAvailable)
+		require.NotNil(t, c.Status.CredentialsExpireAt)
+		assert.WithinDuration(t, time.Now().Add(24*time.Hour), c.Status.CredentialsExpireAt.Time, time.Hour,
+			"the default lifetime is a day")
+
+		c.Spec.Credentials = &osv1alpha1.CredentialsSpec{TTL: &metav1.Duration{Duration: 2 * time.Hour}, ReaderTalosconfig: true}
+		require.NoError(t, cl.Update(ctx, &c))
+		require.Eventually(t, func() bool {
+			c, _ = clusterCondition("lab", osv1alpha1.ConditionAvailable)
+			return c.Status.ReaderTalosconfigSecretRef != nil && c.Status.CredentialsExpireAt != nil &&
+				c.Status.CredentialsExpireAt.Before(&metav1.Time{Time: time.Now().Add(3 * time.Hour)})
+		}, waitFor, tick, "a shorter TTL re-mints at once, and the reader appears")
+		reader := secretData(c.Status.ReaderTalosconfigSecretRef, controller.TalosconfigKey)
+		roles, err := render.TalosconfigRoles(reader)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"os:reader"}, roles)
+		admin := secretData(c.Status.TalosconfigSecretRef, controller.TalosconfigKey)
+		roles, err = render.TalosconfigRoles(admin)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"os:admin"}, roles)
+
+		c.Spec.Credentials = nil
+		require.NoError(t, cl.Update(ctx, &c))
+		require.Eventually(t, func() bool {
+			c, _ = clusterCondition("lab", osv1alpha1.ConditionAvailable)
+			return c.Status.ReaderTalosconfigSecretRef == nil
+		}, waitFor, tick, "the reader goes when it is no longer asked for")
 	})
 
 	st.run(t, "CEL refuses malformed specs", func(t *testing.T) {

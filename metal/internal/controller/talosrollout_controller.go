@@ -259,6 +259,13 @@ func (r *TalosRolloutReconciler) runPass(ctx context.Context, ro *osv1alpha1.Tal
 	}
 	r.set(ro, osv1alpha1.ConditionPaused, metav1.ConditionFalse, osv1alpha1.ReasonNotPaused, "")
 
+	if other, err := r.earlierActive(ctx, ro); err != nil {
+		return ctrl.Result{}, err
+	} else if other != "" {
+		r.set(ro, osv1alpha1.ConditionProgressing, metav1.ConditionTrue, osv1alpha1.ReasonWaitingForHealth,
+			"next step waits: rollout "+other+" of the same cluster runs; one rollout changes a cluster at a time")
+		return ctrl.Result{RequeueAfter: r.gateInterval()}, nil
+	}
 	if why, err := r.healthGate(ctx, ro, cluster); err != nil {
 		return ctrl.Result{}, err
 	} else if why != "" {
@@ -490,6 +497,28 @@ func (r *TalosRolloutReconciler) workload(ctx context.Context, cluster *osv1alph
 		return nil, "open the cluster's Kubernetes API: " + err.Error(), nil
 	}
 	return w, "", nil
+}
+
+// earlierActive names an approved, unfinished rollout of the same cluster
+// that was created before this one, "" when there is none. Two rollouts
+// running side by side could each take a control plane down at once.
+func (r *TalosRolloutReconciler) earlierActive(ctx context.Context, ro *osv1alpha1.TalosRollout) (string, error) {
+	rollouts := &osv1alpha1.TalosRolloutList{}
+	if err := r.List(ctx, rollouts); err != nil {
+		return "", err
+	}
+	for i := range rollouts.Items {
+		o := &rollouts.Items[i]
+		if o.UID == ro.UID || o.Spec.ClusterRef.Name != ro.Spec.ClusterRef.Name ||
+			o.Spec.Approval.ApprovedBy == "" || rolloutFinished(o) {
+			continue
+		}
+		if o.CreationTimestamp.Before(&ro.CreationTimestamp) ||
+			(o.CreationTimestamp.Equal(&ro.CreationTimestamp) && o.Name < ro.Name) {
+			return o.Name, nil
+		}
+	}
+	return "", nil
 }
 
 // healthGate checks, live, that the cluster can take the next step: every
