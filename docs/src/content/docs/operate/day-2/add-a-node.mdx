@@ -1,0 +1,85 @@
+---
+title: Add a node
+description: Write a TalosNode, claim a free machine for it and approve the install.
+type: howto
+day: 2
+xref: { cat: howto, id: add-a-node }
+sidebar:
+  order: 14
+sources:
+  - /repo/metal/cmd/pk-metal/lifecycle.go
+  - /repo/metal/internal/controller/lifecycle.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+## Goal
+
+Add one worker or one control plane to a running cluster.
+
+## Before you start
+
+- A free [](kind:Host) exists: `Available`, not claimed, and wiped.
+- You are a member of the admin group.
+- The cluster is `Available`. For a control plane, etcd is healthy.
+
+## Steps
+
+<Steps>
+
+1. Write the [](kind:TalosNode). Give its role, install disk and network links.
+
+   ```sh
+   kubectl apply -f nodes/w-3.yaml
+   ```
+
+   A TalosNode with no machine is not a member yet. The cluster lists it in `status.unassignedNodes`.
+
+2. Show the plan for the new size. This changes nothing.
+
+   ```sh
+   pk-metal scale prod --control-planes 3 --workers 3
+   ```
+
+   The plan pairs the node with a free machine. It prefers the Asset with the same name as the node.
+
+3. Make the claims of the plan.
+
+   ```sh
+   pk-metal scale prod --control-planes 3 --workers 3 --apply
+   ```
+
+4. Approve the install.
+
+   ```sh
+   pk-metal approve pk-metal/provision-simhw2288v5000399-2a3b4c5d
+   ```
+
+</Steps>
+
+You can also write the [](kind:HostClaim) yourself, as in [](howto:install-hosts).
+
+## Control planes join one at a time
+
+The operator holds the install of a control plane with `EtcdJoinWaiting` while:
+
+- another control plane of the cluster boots or leaves,
+- an etcd member is unhealthy or is a learner,
+- etcd still lists a member with the name of the new node.
+
+## Verify
+
+`kubectl get talosnode w-3` shows `READY` `True`. For a control plane, the etcd member votes.
+
+## If it fails
+
+| What you see | Go to |
+| --- | --- |
+| Claim blocked on `EtcdJoinWaiting` for a long time | [](rb:etcd-unhealthy) |
+| Claim blocked on `DiskNotWiped` | [](rb:disk-not-wiped) |
+| The install fails | [](rb:operation-failed) |
+
+## Related
+
+- [](cli:scale), [](howto:scale-control-planes), [](howto:remove-a-node)
+- [](lab:scale) runs a full scale round in the lab.

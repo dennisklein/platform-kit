@@ -1,0 +1,101 @@
+---
+title: Change the machine config
+description: Edit a TalosCluster or TalosNode and approve the Config rollout that the operator proposes.
+type: howto
+day: 2
+xref: { cat: howto, id: change-machine-config }
+sidebar:
+  order: 3
+sources:
+  - /repo/metal/internal/controller/talosrollout_proposer.go
+  - /repo/metal/internal/controller/talosnode_day2.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Goal
+
+Send a changed [](term:machine-config) to the running nodes, one node at a time.
+
+## Before you start
+
+- The change is in git and reviewed.
+- A second person can approve the rollout.
+- All other rollouts of the cluster are complete. The operator proposes nothing new while one is open.
+
+## Steps
+
+<Steps>
+
+1. Edit the [](kind:TalosCluster) or the [](kind:TalosNode). For example, add a patch.
+
+   ```sh
+   kubectl apply -f cluster.yaml
+   ```
+
+   The operator renders a new config into a new Secret. No machine changes.
+
+2. Wait for the drift check. It runs each 10 minutes on each `Ready` node.
+
+   ```sh
+   kubectl get talosnodes
+   ```
+
+   The column `INSYNC` shows `False` for the nodes that differ.
+
+3. Find the proposed rollout.
+
+   ```sh
+   pk-metal rollout list
+   ```
+
+   A rollout of the kind `Config` is in the state `AwaitingApproval`.
+
+4. Read the plan. It shows for each node if it reboots.
+
+   ```sh
+   pk-metal rollout show prod-config-5e6f7a8b
+   ```
+
+5. Ask a second person to approve the plan.
+
+   ```sh
+   pk-metal rollout approve prod-config-5e6f7a8b
+   ```
+
+6. After the first node, examine it. Then resume the rollout.
+
+   ```sh
+   pk-metal rollout resume prod-config-5e6f7a8b
+   ```
+
+</Steps>
+
+<Callout type="note">
+A node that does not need a reboot is not drained.
+If Talos does not say that a reboot is not necessary, the operator plans a reboot.
+</Callout>
+
+## Verify
+
+- Each TalosNode has `ConfigInSync=True`.
+- `pk-metal rollout show <rollout>` shows `Complete=True`.
+
+## Roll back
+
+Revert the change in git and apply it. The operator proposes a new `Config` rollout back to the old config.
+
+## If it fails
+
+| What you see | Go to |
+| --- | --- |
+| No rollout appears, `ConfigInSync` is `Unknown` | The dry run failed. The message on `DriftUnknown` says why. |
+| `PlanChanged` | [](rb:rollout-paused) |
+| A node fails | [](rb:operation-failed) |
+
+## Related
+
+- [](kind:TalosRollout), [](act:TalosApplyConfig), [](cli:rollout)
+- [](concept:talos-rendering), [](flow:day-2-change)
+- A change that you make with `talosctl` by hand is drift too. The next `Config` rollout undoes it.

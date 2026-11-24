@@ -1,0 +1,108 @@
+---
+title: Replace a node
+description: Move a node to another machine after a hardware failure, or replace a working machine by adding before removing.
+type: howto
+day: 2
+xref: { cat: howto, id: replace-a-node }
+sidebar:
+  order: 17
+sources:
+  - /repo/metal/cmd/pk-metal/lifecycle.go
+  - /repo/metal/internal/controller/lifecycle.go
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Goal
+
+Run a node on other hardware, with the same node name.
+
+## Before you start
+
+- You are a member of the admin group (`pk-metal:admins` by default). Only this group can point a claim at another machine.
+- A free [](kind:Host) exists for the new machine.
+- You know the disk serial and the NIC MAC of the new machine. A [](kind:TalosNode) can select by them.
+
+## Choose the method
+
+| The old hardware | Method |
+| --- | --- |
+| Still works | Add first, then remove. etcd never runs short. |
+| Failed (power supply, main board) | [](cli:replace). The operator releases the old machine first. |
+| Has a failed install disk only | Replace the disk, then [](howto:reinstall-a-node). |
+
+## Steps
+
+<Tabs>
+<TabItem label="Failed hardware">
+
+<Steps>
+
+1. Edit the TalosNode to the values of the new machine: `installDiskSelector` and the link `hardwareAddr`.
+
+   ```sh
+   kubectl apply -f nodes/cp-2.yaml
+   ```
+
+2. Ask for the replacement. For a control plane of three, give a reason. etcd has two members in between.
+
+   ```sh
+   pk-metal replace cp-2 --host simhw2288v5000401 --ack-etcd-risk "cp-2 PSU failed"
+   ```
+
+3. Approve the release of the old machine.
+
+   ```sh
+   pk-metal approve
+   ```
+
+4. Approve the install on the new machine.
+
+   ```sh
+   pk-metal approve
+   ```
+
+</Steps>
+
+</TabItem>
+<TabItem label="Working hardware">
+
+<Steps>
+
+1. Write a new TalosNode for the new machine, for example `cp-4`.
+
+2. Add it. See [](howto:add-a-node).
+
+3. Wait until it is `Ready`. For a control plane, wait until its etcd member votes.
+
+4. Remove the old node. See [](howto:remove-a-node).
+
+</Steps>
+
+</TabItem>
+</Tabs>
+
+<Callout type="note">
+If the old machine does not answer, the operator cannot reset it. It powers the machine off and marks its disk as not wiped.
+See [](howto:wipe-and-decommission).
+</Callout>
+
+## Verify
+
+- The node is `Ready` on the new Host.
+- `kubectl get hostclaim -n default cp-2` shows the new Host.
+
+## If it fails
+
+| What you see | Go to |
+| --- | --- |
+| `only an admin ... may point a claim at another machine` | Join the admin group. See [`hostclaim-provisioning`](ref:admission-policies#hostclaim-provisioning). |
+| Claim blocked on `EtcdRiskRefused` | Add `--ack-etcd-risk`. |
+| Old Host `InstalledNodeRemains` | [](rb:disk-not-wiped) |
+| The install fails | [](rb:operation-failed) |
+
+## Related
+
+- [](cli:replace), [](howto:reinstall-a-node)
+- [](lab:scale) replaces a control plane in the lab.

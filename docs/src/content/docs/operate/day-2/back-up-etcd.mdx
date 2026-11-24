@@ -1,0 +1,141 @@
+---
+title: Back up etcd
+description: Make age keys, choose a sink and write an EtcdBackupPolicy that takes encrypted snapshots on a schedule.
+type: howto
+day: 2
+xref: { cat: howto, id: back-up-etcd }
+sidebar:
+  order: 12
+sources:
+  - /repo/metal/internal/controller/etcdbackup_controller.go
+  - /repo/metal/config/samples/etcdbackup.yaml
+  - /repo/metal/cmd/pk-metal/backup.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+import Figure from '../../../../components/diagram/Figure.astro';
+import Box from '../../../../components/diagram/Box.astro';
+import Edge from '../../../../components/diagram/Edge.astro';
+
+## Goal
+
+Keep verified, encrypted etcd snapshots of a cluster away from its machines.
+
+## Before you start
+
+- You have `age-keygen`.
+- For an S3 sink: a bucket and a key that can write, read, list and delete there.
+- A snapshot reads etcd only. It needs no approval.
+
+<Figure
+  title="The operator takes a snapshot from a healthy etcd member, encrypts it to the age public keys, stores it in the sink and reads it back to verify it."
+  caption="Only a person with an age identity can decrypt a snapshot. The operator cannot."
+  width={760}
+  height={130}
+  wide
+>
+  <Box x={20} y={40} w={150} h={50} label="etcd member" sub="a follower" />
+  <Box x={220} y={40} w={150} h={50} label="Operator" sub="encrypt to age1..." variant="accent" />
+  <Box x={420} y={40} w={150} h={50} label="Sink" sub="s3 or pvc" />
+  <Box x={620} y={40} w={120} h={50} label="Verified" sub="EtcdSnapshot" variant="ok" />
+  <Edge points={[[170, 65], [220, 65]]} label="snapshot" at={[195, 58]} />
+  <Edge points={[[370, 58], [420, 58]]} label="write" at={[395, 50]} />
+  <Edge points={[[420, 74], [370, 74]]} label="read back" at={[395, 90]} />
+  <Edge points={[[570, 65], [620, 65]]} />
+</Figure>
+
+## Steps
+
+<Steps>
+
+1. Each person who may restore makes an age key pair. Keep `keys.txt` like an SSH private key.
+
+   ```sh
+   age-keygen -o ~/.config/age/keys.txt
+   ```
+
+2. Show the public key. It starts with `age1`.
+
+   ```sh
+   age-keygen -y ~/.config/age/keys.txt
+   ```
+
+3. Put the S3 key into a Secret in `pk-metal`.
+
+   ```sh
+   kubectl -n pk-metal create secret generic etcd-backup-s3 \
+     --from-literal=accessKeyID=AKEXAMPLE --from-literal=secretAccessKey="$S3_SECRET"
+   ```
+
+4. Write an [](kind:EtcdBackupPolicy). Name at least two recipients.
+
+   ```yaml title="prod-offsite.yaml"
+   apiVersion: os.pk.io/v1alpha1
+   kind: EtcdBackupPolicy
+   metadata:
+     name: prod-offsite
+   spec:
+     clusterRef:
+       name: prod
+     interval: 6h
+     retention:
+       count: 28
+     sink:
+       s3:
+         endpoint: https://s3.example.org
+         bucket: etcd-backups
+         prefix: metal/
+         pathStyle: true
+         credentialsSecretRef:
+           name: etcd-backup-s3
+     encryption:
+       ageRecipients:
+         - age1qexampleperson0000000000000000000000000000000000000000000
+         - age1qexampleoffline000000000000000000000000000000000000000000
+   ```
+
+5. Apply it.
+
+   ```sh
+   kubectl apply -f prod-offsite.yaml
+   ```
+
+6. Take the first snapshot now. The command waits until the operator verifies the snapshot.
+
+   ```sh
+   pk-metal backup now prod-offsite
+   ```
+
+7. Decrypt it on your workstation, as a test. Without `-o`, the command writes no plain file.
+
+   ```sh
+   pk-metal backup decrypt prod-offsite-20261124-060000 --identity ~/.config/age/keys.txt
+   ```
+
+</Steps>
+
+<Callout type="warning">
+Use an `s3` sink for the cluster that runs the operator. The operator refuses a `pvc` sink there, because you lose that volume with the etcd that it backs up.
+</Callout>
+
+## Verify
+
+```sh
+pk-metal backup list prod
+kubectl get etcdbackuppolicy prod-offsite
+```
+
+The policy shows `BackedUp=True` and `0` failures.
+
+## If it fails
+
+| What you see | Go to |
+| --- | --- |
+| `Ready=False`, `SinkRefused`, `SinkUnavailable` or `RecipientsInvalid` | [](rb:backup-failing) |
+| `BackedUp=False`, `BackupTooOld` | [](rb:backup-failing) |
+
+## Related
+
+- [](kind:EtcdBackupPolicy), [](kind:EtcdSnapshot), [](cli:backup)
+- [](howto:restore-etcd)

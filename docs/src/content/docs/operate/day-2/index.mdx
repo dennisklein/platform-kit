@@ -1,0 +1,92 @@
+---
+title: Day 2 overview
+description: The tasks for clusters that run workloads, and the approval that each one needs.
+type: howto
+day: 2
+xref: { cat: howto, id: day-2 }
+sidebar:
+  label: Overview
+  order: 0
+---
+
+import Figure from '../../../../components/diagram/Figure.astro';
+import Box from '../../../../components/diagram/Box.astro';
+import Edge from '../../../../components/diagram/Edge.astro';
+
+Day 2 is all the work after the install, while workloads run on the nodes.
+The rule does not change: the operator proposes, a person approves, the operator does it.
+
+<Figure
+  title="Two paths for a day-2 change: one HostOperation for one machine, or one TalosRollout for a whole cluster, node by node."
+  caption="One machine gets a HostOperation. A whole cluster gets a TalosRollout, which makes one HostOperation for each node."
+  width={760}
+  height={190}
+  wide
+>
+  <Box x={20} y={20} w={170} h={50} label="You ask" sub="CLI, spec edit, profile" variant="soft" />
+  <Box x={250} y={20} w={200} h={50} label="HostOperation" sub="one machine" cat="kind" href="/reference/kinds/hostoperation/" />
+  <Box x={250} y={110} w={200} h={50} label="TalosRollout" sub="one cluster, node by node" cat="kind" href="/reference/kinds/talosrollout/" />
+  <Box x={520} y={20} w={220} h={50} label="Approval" sub="pk-metal approve" variant="warn" />
+  <Box x={520} y={110} w={220} h={50} label="Approval of the plan" sub="pk-metal rollout approve" variant="warn" />
+  <Edge points={[[190, 45], [250, 45]]} />
+  <Edge points={[[105, 70], [105, 135], [250, 135]]} />
+  <Edge points={[[450, 45], [520, 45]]} />
+  <Edge points={[[450, 135], [520, 135]]} />
+  <Edge points={[[350, 110], [350, 70]]} variant="muted" label="one per node" at={[358, 94]} anchor="start" />
+</Figure>
+
+## Daily control
+
+| Task | Command | Approval |
+| --- | --- | --- |
+| [](howto:approve-hold-retry) | [](cli:approve), [](cli:hold), [](cli:retry), [](cli:abort) | Is the approval |
+| [](howto:maintenance-windows) | `kubectl apply` | None. A window only sets the time. |
+| [](howto:maintenance-mode) | `kubectl annotate host` | None |
+| [](howto:monitor) | [](cli:status), [](cli:top) | None. Reads only. |
+| [](howto:collect-diagnostics) | `kubectl`, `talosctl` | None. Reads only. |
+
+## Change nodes
+
+| Task | Command | Approval |
+| --- | --- | --- |
+| [](howto:reboot-a-node) | [](cli:reboot) | Second person |
+| [](howto:change-machine-config) | Edit the TalosCluster or TalosNode | Rollout plan |
+| [](howto:upgrade-talos) | [](cli:upgrade) | Rollout plan |
+| [](howto:upgrade-kubernetes) | [](cli:upgrade) | Rollout plan |
+| [](howto:rotate-cluster-credentials) | Edit the TalosCluster | None for a credential. Manual for a CA. |
+
+## Change machines
+
+| Task | Command | Approval |
+| --- | --- | --- |
+| [](howto:apply-bios-settings) | A [](kind:BiosProfile) | Each machine |
+| [](howto:flash-firmware) | A [](kind:FirmwareProfile) | Each machine |
+| [](howto:rotate-bmc-credentials) | An [](kind:EndpointProfile) | None. The machine does not stop. |
+
+## Protect the data
+
+| Task | Command | Approval |
+| --- | --- | --- |
+| [](howto:back-up-etcd) | [](cli:backup) | None. A snapshot reads only. |
+| [](howto:restore-etcd) | [](cli:restore) | Second person |
+
+## Change the cluster size
+
+| Task | Command | Approval |
+| --- | --- | --- |
+| [](howto:add-a-node) | A claim, or [](cli:scale) | Each install |
+| [](howto:remove-a-node) | Delete the claim, or [](cli:scale) | The release |
+| [](howto:scale-control-planes) | [](cli:scale) | One at a time |
+| [](howto:replace-a-node) | [](cli:replace) | Release, then install |
+| [](howto:reinstall-a-node) | [](cli:reinstall) | Each step |
+| [](howto:release-a-host) | Delete the claim | The release |
+| [](howto:wipe-and-decommission) | [](cli:wipe) | The wipe |
+
+## Move the operator back
+
+[](howto:move-back) returns the operator to the bootstrap cluster after a [](howto:pivot).
+
+## Learn first
+
+- [](flow:day-2-change) shows how one change goes from your edit to the machine.
+- [](concept:approval) explains why each change waits for a person.

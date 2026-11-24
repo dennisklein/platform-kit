@@ -1,0 +1,79 @@
+---
+title: Move back after a pivot
+description: Give the operator back to the bootstrap cluster, before or after the new manager started.
+type: howto
+day: 2
+xref: { cat: howto, id: move-back }
+sidebar:
+  order: 21
+sources:
+  - /repo/metal/cmd/pk-metal/pivot.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Goal
+
+Run the operator in the bootstrap cluster again, after a [](howto:pivot).
+
+## Before you start
+
+- You have the kubeconfigs of both clusters, for example `bootstrap.kubeconfig` and `mgmt.kubeconfig`.
+- Find if the new manager started. The pivot output says it.
+
+## Choose the case
+
+| The new manager | Method |
+| --- | --- |
+| Did not start | Scale the old manager up again. |
+| Started | Pivot in the other direction. |
+
+## Steps: the new manager did not start
+
+<Steps>
+
+1. Give the source its manager back.
+
+   ```sh
+   kubectl --kubeconfig bootstrap.kubeconfig -n pk-metal scale deployment pk-metal-manager --replicas=1
+   ```
+
+2. Make sure that the manager runs.
+
+   ```sh
+   pk-metal --kubeconfig bootstrap.kubeconfig status
+   ```
+
+</Steps>
+
+The objects on the target are a copy that nothing acts on. Remove them, or keep them for the next move.
+
+## Steps: the new manager started
+
+<Steps>
+
+1. Move from the new cluster to the bootstrap cluster.
+
+   ```sh
+   pk-metal --kubeconfig mgmt.kubeconfig pivot --to bootstrap.kubeconfig
+   ```
+
+   The source of the first move accepts the move back. The move removes objects that are gone on the new source.
+
+2. Type `y` to start.
+
+</Steps>
+
+<Callout type="warning">
+Do not run the two managers at the same time. Two operators then act on the same machines.
+</Callout>
+
+## Verify
+
+- `pk-metal --kubeconfig bootstrap.kubeconfig status` shows each Host in its phase.
+- The manager on the other cluster has zero replicas.
+
+## Related
+
+- [](cli:pivot), [](concept:pivot-model)

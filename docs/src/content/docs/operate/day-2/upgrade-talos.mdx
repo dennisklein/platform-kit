@@ -1,0 +1,148 @@
+---
+title: Upgrade Talos
+description: Ask for a new Talos release, approve the rollout and resume it after the first node.
+type: howto
+day: 2
+xref: { cat: howto, id: upgrade-talos }
+sources:
+  - /repo/metal/cmd/pk-metal/upgrade.go
+  - /repo/metal/cmd/pk-metal/rollout.go
+  - /repo/metal/internal/controller/talosrollout_controller.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+import Explainer from '../../../../components/Explainer.astro';
+import Box from '../../../../components/diagram/Box.astro';
+import Edge from '../../../../components/diagram/Edge.astro';
+
+## Goal
+
+Move every node of one cluster to a new Talos release, one node at a time.
+
+## Before you start
+
+- You have the kubeconfig of the management cluster.
+- A second person can approve. You cannot approve your own rollout.
+- The cluster is `Available`. Each node is `Ready`.
+- The new release is one step from the current release. [](cli:upgrade) refuses a jump and a downgrade.
+- Optional: a [](kind:MaintenanceWindow) covers the machines. A node outside its window waits.
+
+## How the rollout moves
+
+<Explainer
+  title="A Talos upgrade rollout"
+  steps={[
+    { title: 'Ask', caption: 'You set the new release. The operator proposes one TalosRollout with a plan. No machine changes.', code: 'pk-metal upgrade talos prod v1.14.7', state: { you: 'active', ro: 'warn', ask: 'flow' }, text: { 'ro-ph': 'AwaitingApproval' } },
+    { title: 'Approve', caption: 'A second person reads the plan and approves it. The approval names the plan hash.', code: 'pk-metal rollout approve prod-talosupgrade-1a2b3c4d', state: { you: 'done', ask: 'done', ro: 'active', other: 'active', ok: 'flow' }, text: { 'ro-ph': 'Approved' } },
+    { title: 'First node', caption: 'The first control plane drains, upgrades, reboots and becomes Ready. etcd must be healthy again.', code: 'cordon → drain → talosUpgrade → waitNodeReady → waitEtcdHealthy → uncordon', state: { ro: 'active', ok: 'done', cp1: 'active', r1: 'flow' }, text: { 'ro-ph': 'NodeRunning', 'cp1-v': 'upgrading' } },
+    { title: 'Pause', caption: 'The rollout always stops after the first node. Examine the node, then resume.', code: 'pk-metal rollout resume prod-talosupgrade-1a2b3c4d', state: { ro: 'warn', cp1: 'ok', you: 'active', res: 'flow' }, text: { 'ro-ph': 'PausedAfterFirstNode', 'cp1-v': 'v1.14.7' } },
+    { title: 'Control planes', caption: 'The other control planes follow, one at a time. The etcd leader goes last.', state: { ro: 'active', cp1: 'ok', cp2: 'active', r2: 'flow' }, text: { 'ro-ph': 'NodeRunning', 'cp1-v': 'v1.14.7', 'cp2-v': 'upgrading' } },
+    { title: 'Workers', caption: 'Then the workers. Between two nodes, the operator checks etcd and all Kubernetes nodes again.', state: { ro: 'active', cp1: 'ok', cp2: 'ok', cp3: 'ok', w1: 'active', r4: 'flow' }, text: { 'ro-ph': 'WaitingForHealth', 'cp1-v': 'v1.14.7', 'cp2-v': 'v1.14.7', 'cp3-v': 'v1.14.7', 'w1-v': 'upgrading' } },
+    { title: 'Complete', caption: 'Every node runs the new release. The rollout is Complete.', state: { ro: 'ok', cp1: 'ok', cp2: 'ok', cp3: 'ok', w1: 'ok', w2: 'ok' }, text: { 'ro-ph': 'Complete', 'cp1-v': 'v1.14.7', 'cp2-v': 'v1.14.7', 'cp3-v': 'v1.14.7', 'w1-v': 'v1.14.7', 'w2-v': 'v1.14.7' } },
+  ]}
+>
+  <svg viewBox="0 0 720 250" role="img" aria-labelledby="ex-up-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
+    <title id="ex-up-t">A TalosRollout upgrades the control planes one at a time, pauses after the first node, then upgrades the workers.</title>
+    <defs>
+      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
+      </marker>
+    </defs>
+    <Box node="you" x={20} y={14} w={120} h={34} label="You" variant="soft" />
+    <Box node="other" x={580} y={14} w={120} h={34} label="Approver" variant="soft" />
+    <Box node="ro" x={260} y={8} w={200} h={50} label="TalosRollout" sub="-" text="ro-ph" cat="kind" href="/reference/kinds/talosrollout/" />
+    <Edge node="ask" points={[[140, 31], [260, 31]]} label="upgrade" at={[200, 24]} />
+    <Edge node="ok" points={[[580, 31], [460, 31]]} label="approve" at={[520, 24]} />
+    <Edge node="res" points={[[80, 48], [80, 92], [260, 92], [260, 58]]} label="resume" at={[170, 86]} />
+    <Box node="cp1" x={20} y={140} w={120} h={50} label="cp-1" sub="v1.14.6" text="cp1-v" />
+    <Box node="cp2" x={160} y={140} w={120} h={50} label="cp-2" sub="v1.14.6" text="cp2-v" />
+    <Box node="cp3" x={300} y={140} w={120} h={50} label="cp-3 (leader)" sub="v1.14.6" text="cp3-v" />
+    <Box node="w1" x={440} y={140} w={120} h={50} label="w-1" sub="v1.14.6" text="w1-v" />
+    <Box node="w2" x={580} y={140} w={120} h={50} label="w-2" sub="v1.14.6" text="w2-v" />
+    <Edge node="r1" points={[[320, 58], [320, 110], [80, 110], [80, 140]]} />
+    <Edge node="r2" points={[[340, 58], [340, 118], [220, 118], [220, 140]]} />
+    <Edge node="r4" points={[[400, 58], [400, 118], [500, 118], [500, 140]]} />
+    <text class="t-small t-label" x={220} y={222} text-anchor="middle">control planes, one at a time</text>
+    <text class="t-small t-label" x={570} y={222} text-anchor="middle">workers</text>
+  </svg>
+</Explainer>
+
+## Steps
+
+<Steps>
+
+1. Ask for the new release. The command changes only the [](kind:TalosCluster) spec. It waits for the proposal and shows the plan.
+
+   ```sh
+   pk-metal upgrade talos prod v1.14.7
+   ```
+
+   The output names the rollout, for example `prod-talosupgrade-1a2b3c4d`.
+
+2. Ask a second person to approve the plan.
+
+   ```sh
+   pk-metal rollout approve prod-talosupgrade-1a2b3c4d
+   ```
+
+   The rollout starts on the first control plane.
+
+3. Monitor the first node.
+
+   ```sh
+   pk-metal rollout show prod-talosupgrade-1a2b3c4d
+   ```
+
+   The `Paused` condition has the reason `PausedAfterFirstNode`.
+
+4. Make sure that the first node runs the new release and is `Ready`.
+
+   ```sh
+   kubectl get talosnodes
+   ```
+
+   The `VERSION` column shows `v1.14.7` for the first node.
+
+5. Resume the rollout.
+
+   ```sh
+   pk-metal rollout resume prod-talosupgrade-1a2b3c4d
+   ```
+
+   The other nodes follow, one at a time.
+
+</Steps>
+
+<Callout type="caution">
+Do not change `spec.talosVersion` again while a rollout waits for approval.
+The plan changes, and the rollout ends with the reason `PlanChanged`.
+</Callout>
+
+## Verify
+
+- `pk-metal rollout show <rollout>` shows `Complete=True`.
+- `pk-metal status` shows one version in the `TALOS WANT/RUN` column of the cluster.
+- Each [](kind:TalosNode) has `VersionCurrent=True`.
+
+## Stop or roll back
+
+- To stop before the next node: `pk-metal rollout pause <rollout>`.
+- To stop for good: `pk-metal rollout abort <rollout>`. A node that runs finishes. The other nodes are `Skipped`.
+- The operator does not downgrade Talos. [](cli:upgrade) refuses a lower version.
+
+## If it fails
+
+| What you see | Go to |
+| --- | --- |
+| The rollout stops with `RolloutFailed` | [](rb:operation-failed) |
+| `Progressing` shows `WaitingForHealth` for a long time | [](rb:rollout-paused) |
+| `Complete=False` with `PlanChanged` | [](rb:rollout-paused) |
+| A drain does not end | [](rb:drain-stuck) |
+| A node does not come back | [](rb:node-not-ready) |
+
+## Related
+
+- [](howto:upgrade-kubernetes)
+- [](kind:TalosRollout), [](act:TalosUpgrade), [](cli:rollout)
+- [](lab:upgrade) runs this round in the virtual lab.

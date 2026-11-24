@@ -1,0 +1,117 @@
+---
+title: Apply BIOS settings
+description: Write a BiosProfile, approve the operation for each machine, and let the operator drain the node before the reset.
+type: howto
+day: 2
+xref: { cat: howto, id: apply-bios-settings }
+sidebar:
+  order: 6
+sources:
+  - /repo/metal/config/samples/profiles.yaml
+  - /repo/metal/internal/controller/convergence_controller.go
+  - /repo/metal/internal/controller/convergence_disrupt.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Goal
+
+Set the same BIOS attributes on a group of machines. The operator drains running nodes before the reset.
+
+## Before you start
+
+- The firmware of the machines agrees with their [](kind:FirmwareProfile). BIOS changes wait for firmware.
+- You know the attribute names and values from the [](kind:BiosSchema) of the machine model.
+- A person can approve one operation for each machine.
+
+## What the operation does
+
+On a machine that runs a node, the operator wraps the change in a drain:
+
+1. [](act:ApplyBios) stages the attributes on the BMC. Nothing on the running node changes.
+2. For a control plane: [](act:WaitEtcdHealthy).
+3. [](act:Cordon) and [](act:Drain).
+4. [](act:TalosReboot) in the mode `PowerCycle`. The firmware applies the staged attributes.
+5. [](act:WaitNodeReady). For a control plane: WaitEtcdHealthy again.
+6. [](act:Uncordon).
+
+On a machine with no node, the operation is ApplyBios and a [](act:PowerCycle).
+
+## Steps
+
+<Steps>
+
+1. Write a [](kind:BiosProfile). Select the machines by a discovered label or by a claim label.
+
+   ```yaml title="bios-worker.yaml"
+   apiVersion: metal.pk.io/v1alpha1
+   kind: BiosProfile
+   metadata:
+     name: role-worker
+   spec:
+     match:
+       matchLabels:
+         role: worker
+     layer: 10
+     attributes:
+       QuietBoot: true
+   ```
+
+2. Apply it.
+
+   ```sh
+   kubectl apply -f bios-worker.yaml
+   ```
+
+3. Show the result for each machine.
+
+   ```sh
+   kubectl get biossettings
+   ```
+
+   `CONVERGED` is `False` for the machines that differ. The operator proposes one operation for each.
+
+4. Show the proposals.
+
+   ```sh
+   pk-metal status
+   ```
+
+   The names end in `-bios-<hash>`, for example `simhw2288v5000398-bios-4b5c6d7e`.
+
+5. Approve the proposals one at a time, or in a [](kind:MaintenanceWindow).
+
+   ```sh
+   pk-metal approve pk-metal/simhw2288v5000398-bios-4b5c6d7e
+   ```
+
+</Steps>
+
+<Callout type="caution">
+Do not approve all control planes at the same time and expect a fast change.
+The cluster guard takes down one control plane at a time.
+</Callout>
+
+## Verify
+
+- [](kind:BiosSettings) shows `Converged=True`.
+- The [](kind:Host) shows `BiosConverged=True`.
+
+## If it fails
+
+| Reason on the BiosSettings or Host | Fix |
+| --- | --- |
+| `ProfileConflict` | Two profiles on the same layer set one attribute to different values. Change one layer. |
+| `SchemaViolation` | The attribute or the value is not in the BIOS schema of the machine. |
+| `AwaitingFirmware` | Do [](howto:flash-firmware) first. |
+| `InstalledNodeMissing` | The claim names a TalosNode that does not exist. The operator cannot drain it. |
+| `ConvergenceFailed` | The operation succeeded but the BMC did not change. See [](rb:operation-failed). |
+| The drain does not end | [](rb:drain-stuck) |
+
+To try a failed BIOS proposal again, use [](cli:retry). It marks the proposal. The operator replaces it.
+
+## Related
+
+- [](concept:convergence), [](ctrl:convergence)
+- [](kind:BiosProfile), [](kind:BiosSettings), [](kind:BiosSchema)

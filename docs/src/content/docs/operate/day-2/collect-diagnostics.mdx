@@ -1,0 +1,82 @@
+---
+title: Collect diagnostics
+description: Gather the status, the objects, the events and the logs that a person needs to find a fault.
+type: howto
+day: 2
+xref: { cat: howto, id: collect-diagnostics }
+sidebar:
+  order: 23
+sources:
+  - /repo/lab/lab.sh
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Goal
+
+Put all facts about a fault in one directory, before you change anything.
+
+## Before you start
+
+- You have the kubeconfig of the management cluster.
+- For node facts: you have the talosconfig of the cluster. The operator publishes it as the Secret `<cluster>-talosconfig`.
+- In the virtual lab, [](lab:collect) does all of this for you.
+
+## Steps
+
+<Steps>
+
+1. Make a directory.
+
+   ```sh
+   mkdir -p diag && cd diag
+   ```
+
+2. Save the status of the fleet.
+
+   ```sh
+   pk-metal status -o json > status.json
+   ```
+
+3. Save all pk-metal objects.
+
+   ```sh
+   kubectl get metal -A -o yaml > objects.yaml
+   ```
+
+4. Save the events of the operator namespace.
+
+   ```sh
+   kubectl -n pk-metal get events --sort-by=.lastTimestamp > events.txt
+   ```
+
+5. Save the manager log.
+
+   ```sh
+   kubectl -n pk-metal logs deployment/pk-metal-manager --since=24h > manager.log
+   ```
+
+6. For one node, save its kernel log and its services.
+
+   ```sh
+   talosctl -n 192.0.2.13 dmesg > node-w-1-dmesg.txt
+   ```
+
+7. Read the serial console of the machine through the BMC (serial-over-LAN), if the node does not answer.
+
+</Steps>
+
+<Callout type="caution">
+Do not attach `objects.yaml` to a public ticket. It can show addresses, serial numbers and Secret names of your site.
+`kubectl get metal` does not include Secret data.
+</Callout>
+
+## Read first
+
+- The `BLOCKED` column and the note lines of [](cli:status).
+- `kubectl describe` of the blocked object. Each condition has a reason and a message.
+
+## Related
+
+- [](howto:monitor), [](rb:index)

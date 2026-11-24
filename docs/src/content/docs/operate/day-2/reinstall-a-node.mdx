@@ -1,0 +1,72 @@
+---
+title: Reinstall a node
+description: Wipe and install a node again on the same machine, after a corrupted install or a new install disk.
+type: howto
+day: 2
+xref: { cat: howto, id: reinstall-a-node }
+sidebar:
+  order: 18
+sources:
+  - /repo/metal/internal/controller/hostoperation_reinstall.go
+  - /repo/metal/cmd/pk-metal/lifecycle.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Goal
+
+Install a node again on its machine. The operator never does this by itself.
+
+## Before you start
+
+- After a disk replacement: edit `installDiskSelector` of the [](kind:TalosNode) to the new disk.
+- A person can approve.
+
+## What the operation does
+
+It drains the node and removes a control plane from etcd. Then it resets the system disk, boots the installer and waits for a new check-in.
+A check-in from before the reinstall does not count.
+
+## Steps
+
+<Steps>
+
+1. If the disk changed, apply the edited TalosNode.
+
+   ```sh
+   kubectl apply -f nodes/w-1.yaml
+   ```
+
+2. Ask for the reinstall. For a control plane of three, add `--ack-etcd-risk "<reason>"`.
+
+   ```sh
+   pk-metal reinstall w-1
+   ```
+
+3. Approve the proposed operation.
+
+   ```sh
+   pk-metal approve
+   ```
+
+</Steps>
+
+<Callout type="warning">
+Do not reinstall a node that has local data you must keep. The reset wipes the system disk.
+</Callout>
+
+## Verify
+
+The claim shows a new `status.handOff.at`, and the node is `Ready`.
+
+## If it fails
+
+| What you see | Go to |
+| --- | --- |
+| The operation fails | [](rb:operation-failed) |
+| The node does not check in | [](rb:node-not-ready) |
+
+## Related
+
+- [](cli:reinstall), [](howto:replace-a-node)

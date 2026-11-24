@@ -1,0 +1,82 @@
+---
+title: Upgrade Kubernetes
+description: Ask for a new Kubernetes version, approve the rollout, and let it update control planes, kube-proxy and workers.
+type: howto
+day: 2
+xref: { cat: howto, id: upgrade-kubernetes }
+sidebar:
+  order: 5
+sources:
+  - /repo/metal/cmd/pk-metal/upgrade.go
+  - /repo/metal/internal/controller/talosrollout_plan.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+## Goal
+
+Move the control plane, kube-proxy and the kubelets of one cluster to a new Kubernetes version.
+
+## Before you start
+
+- The Talos release of the cluster supports the new version. [](cli:upgrade) refuses a version that it does not support.
+- A second person can approve.
+- The cluster is `Available`.
+
+## The order
+
+1. The control planes, one at a time. Each gets new API server, controller manager, scheduler and kubelet images.
+2. The kube-proxy DaemonSet. The rollout waits until each kube-proxy pod runs the new image.
+3. The workers. Each gets a new kubelet image.
+
+A node reboots only if Talos says that the change needs it.
+
+## Steps
+
+<Steps>
+
+1. Ask for the new version.
+
+   ```sh
+   pk-metal upgrade kubernetes prod v1.36.3
+   ```
+
+   The output names the rollout, for example `prod-kubernetesupgrade-9c8d7e6f`.
+
+2. Ask a second person to approve it.
+
+   ```sh
+   pk-metal rollout approve prod-kubernetesupgrade-9c8d7e6f
+   ```
+
+3. After the first control plane, examine it.
+
+   ```sh
+   kubectl --kubeconfig prod.kubeconfig get nodes
+   ```
+
+4. Resume the rollout.
+
+   ```sh
+   pk-metal rollout resume prod-kubernetesupgrade-9c8d7e6f
+   ```
+
+</Steps>
+
+## Verify
+
+- The [](kind:TalosCluster) has `VersionsCurrent=True`.
+- [](cli:status) shows one version in the `K8S WANT/RUN` column of the cluster.
+
+## If it fails
+
+| What you see | Go to |
+| --- | --- |
+| `PlanChanged` after a second edit of the version | [](rb:rollout-paused) |
+| The rollout waits with `WaitingForHealth` | [](rb:rollout-paused) |
+| A node fails | [](rb:operation-failed) |
+
+## Related
+
+- [](howto:upgrade-talos) uses the same commands.
+- [](kind:TalosRollout), [](cli:rollout)

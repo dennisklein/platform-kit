@@ -1,0 +1,85 @@
+---
+title: Wipe and decommission
+description: Wipe a machine that may still hold a node, and take a machine out of the fleet for good.
+type: howto
+day: 2
+xref: { cat: howto, id: wipe-and-decommission }
+sidebar:
+  order: 19
+sources:
+  - /repo/metal/internal/controller/host_wipe.go
+  - /repo/metal/cmd/pk-metal/lifecycle.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Goal
+
+Make sure that a machine holds no node and no cluster credentials. Then remove it from the operator.
+
+## Before you start
+
+- The machine has no claim, or you removed its node.
+- A person can approve the wipe.
+
+## Wipe a machine
+
+A machine that did not answer during its release keeps its install. Its Host shows `DiskWiped=False`, reason `InstalledNodeRemains`.
+
+<Steps>
+
+1. Ask for the wipe.
+
+   ```sh
+   pk-metal wipe simhw2288v5000399
+   ```
+
+2. Approve the proposed operation. Its name starts with `wipe-`.
+
+   ```sh
+   pk-metal approve
+   ```
+
+   The machine boots a Talos image that erases the system disk. It stays in Talos maintenance mode, with an empty disk.
+
+</Steps>
+
+If you know that the disk is empty (you replaced it, or erased it another way), remove the mark yourself:
+
+```sh
+kubectl annotate host simhw2288v5000399 metal.pk.io/disk-not-wiped-
+```
+
+## Decommission a machine
+
+<Steps>
+
+1. Release the machine. See [](howto:release-a-host).
+
+2. Wipe it, as above, if the Host shows `DiskWiped=False`.
+
+3. Delete its [](kind:Asset).
+
+   ```sh
+   kubectl delete asset sim-0003
+   ```
+
+4. Remove its line from the ledger and apply the overlay.
+
+5. Remove the BMC credentials Secret if no other Asset uses it.
+
+</Steps>
+
+<Callout type="note">
+A claim holds the Host and its endpoint. The operator keeps them until the claim is gone (`DeletionHeld`).
+</Callout>
+
+## Verify
+
+`kubectl get hosts` does not list the machine.
+
+## Related
+
+- [](cli:wipe), [](rb:disk-not-wiped)
+- [](kind:Host), [](kind:Asset)

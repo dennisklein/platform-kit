@@ -1,0 +1,232 @@
+---
+title: Restore etcd
+description: Find what is wrong with the etcd of a cluster and restore it - one member, a lost majority, or the operator's own cluster.
+type: howto
+day: 2
+xref: { cat: howto, id: restore-etcd }
+sidebar:
+  order: 13
+sources:
+  - /repo/metal/cmd/pk-metal/restore.go
+  - /repo/metal/internal/controller/hostoperation_etcdrecover.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+import Explainer from '../../../../components/Explainer.astro';
+import Box from '../../../../components/diagram/Box.astro';
+import Edge from '../../../../components/diagram/Edge.astro';
+
+## Goal
+
+Bring back the etcd of a cluster with the minimum data loss.
+
+## Before you start
+
+- A second person can approve.
+- For a lost majority: you have an age identity that can decrypt the snapshot, and a verified snapshot exists.
+- The operator never restores and never bootstraps again by itself.
+
+## Find the case
+
+```sh
+pk-metal restore plan prod
+```
+
+The command asks each control plane about its etcd. It changes nothing.
+
+| What the plan sees | Case |
+| --- | --- |
+| Each member healthy | Nothing to do |
+| One member stopped or has errors; the others keep a majority | [One member lost](#one-member-lost) |
+| No control plane lists members, or most do not answer | [Majority lost](#majority-lost) |
+| The operator's own cluster has no etcd | [](rb:management-cluster-lost) |
+
+## One member lost
+
+No snapshot is necessary. The broken member leaves, its data is wiped, and it joins again.
+
+<Steps>
+
+1. Propose the repair.
+
+   ```sh
+   pk-metal restore plan prod --propose
+   ```
+
+   The command makes `prod-etcd-replace-<node>` with [](act:EtcdRemoveMember), [](act:TalosReset) and [](act:WaitEtcdHealthy).
+
+2. Ask a second person to approve it.
+
+   ```sh
+   pk-metal approve pk-metal/prod-etcd-replace-cp-2
+   ```
+
+3. Monitor it until it is `Succeeded`.
+
+   ```sh
+   kubectl -n pk-metal get hostoperation prod-etcd-replace-cp-2 -w
+   ```
+
+</Steps>
+
+Repair one member at a time. With three control planes, a second lost member is a lost majority.
+
+## Majority lost
+
+<Explainer
+  title="Restore from a snapshot"
+  steps={[
+    { title: 'Plan', caption: 'The plan picks the newest verified snapshot and one control plane. It shows when the snapshot was taken.', code: 'pk-metal restore plan prod --propose', state: { you: 'active', snap: 'active' } },
+    { title: 'Reset', caption: 'An approved reset wipes the etcd data on each control plane that runs a stuck etcd.', code: 'prod-etcd-reset-cp-2, prod-etcd-reset-cp-3', state: { cp2: 'warn', cp3: 'warn' }, text: { 'cp2-s': 'reset', 'cp3-s': 'reset' } },
+    { title: 'Upload', caption: 'After the approval, you decrypt the snapshot on your workstation and stream it to cp-1. The plain data never touches a disk.', code: 'pk-metal restore upload pk-metal/prod-etcd-recover-cp-1 --identity ~/.config/age/keys.txt', state: { you: 'active', up: 'flow', cp1: 'active', snap: 'done' }, text: { 'cp2-s': 'no etcd', 'cp3-s': 'no etcd', 'cp1-s': 'snapshot received' } },
+    { title: 'Recover', caption: 'etcdRecover starts etcd on cp-1 from the snapshot, one time.', state: { cp1: 'ok' }, text: { 'cp1-s': 'etcd running', 'cp2-s': 'no etcd', 'cp3-s': 'no etcd' } },
+    { title: 'Join', caption: 'The other control planes join the restored member. Bootstrapped is True again.', state: { cp1: 'ok', cp2: 'ok', cp3: 'ok', j2: 'flow', j3: 'flow' }, text: { 'cp1-s': 'etcd running', 'cp2-s': 'joined', 'cp3-s': 'joined' } },
+  ]}
+>
+  <svg viewBox="0 0 720 220" role="img" aria-labelledby="ex-rs-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
+    <title id="ex-rs-t">A restore resets the stuck members and uploads the snapshot to one control plane. etcd starts there and the others join.</title>
+    <defs>
+      <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
+      </marker>
+    </defs>
+    <Box node="snap" x={20} y={20} w={180} h={50} label="EtcdSnapshot" sub="Verified" cat="kind" href="/reference/kinds/etcdsnapshot/" />
+    <Box node="you" x={20} y={130} w={180} h={50} label="Your workstation" sub="age identity" variant="soft" />
+    <Box node="cp1" x={300} y={130} w={130} h={50} label="cp-1" sub="no quorum" text="cp1-s" />
+    <Box node="cp2" x={450} y={130} w={120} h={50} label="cp-2" sub="no quorum" text="cp2-s" />
+    <Box node="cp3" x={590} y={130} w={120} h={50} label="cp-3" sub="no quorum" text="cp3-s" />
+    <Edge node="up" points={[[200, 155], [300, 155]]} label="upload" at={[250, 148]} />
+    <Edge node="j2" points={[[510, 130], [510, 100], [380, 100], [380, 130]]} label="join" at={[445, 94]} />
+    <Edge node="j3" points={[[650, 130], [650, 86], [400, 86], [400, 130]]} />
+    <Edge points={[[110, 70], [110, 130]]} variant="muted" label="download" at={[118, 104]} anchor="start" />
+  </svg>
+</Explainer>
+
+<Steps>
+
+1. List the snapshots.
+
+   ```sh
+   pk-metal backup list prod
+   ```
+
+2. Propose the plan. Name the snapshot and the control plane, or take the defaults.
+
+   ```sh
+   pk-metal restore plan prod --snapshot prod-offsite-20261124-060000 --node cp-1 --propose
+   ```
+
+3. Ask a second person to approve each reset operation.
+
+   ```sh
+   pk-metal approve pk-metal/prod-etcd-reset-cp-2
+   ```
+
+4. Ask a second person to approve the recover operation.
+
+   ```sh
+   pk-metal approve pk-metal/prod-etcd-recover-cp-1
+   ```
+
+5. Upload the snapshot. For a `pvc` sink, [copy the snapshot](#copy-a-snapshot-from-a-pvc-sink) first, then add `--from-file <file.age>`.
+
+   ```sh
+   pk-metal restore upload pk-metal/prod-etcd-recover-cp-1 --identity ~/.config/age/keys.txt
+   ```
+
+6. Monitor the operations.
+
+   ```sh
+   kubectl -n pk-metal get hostoperation -l os.pk.io/etcd-restore=prod
+   ```
+
+</Steps>
+
+<Callout type="warning">
+You lose all data written after the snapshot. Read the snapshot time in the plan before you approve.
+</Callout>
+
+## Copy a snapshot from a `pvc` sink
+
+The manager image has no shell. Use a small pod that mounts the backup volume.
+The pod runs as the user of the manager, which owns the files.
+It meets the `restricted` Pod Security level of the namespace.
+
+<Steps>
+
+1. Find the node of the manager. A volume that attaches to one node only needs the pod on that node.
+
+   ```sh
+   node=$(kubectl -n pk-metal get pod -l app.kubernetes.io/name=pk-metal,app.kubernetes.io/component=manager \
+     -o jsonpath='{.items[0].spec.nodeName}')
+   ```
+
+2. Start the reader pod on that node.
+
+   ```sh
+   kubectl apply -f - <<YAML
+   apiVersion: v1
+   kind: Pod
+   metadata:
+     name: etcd-backup-reader
+     namespace: pk-metal
+   spec:
+     nodeName: $node
+     restartPolicy: Never
+     securityContext:
+       runAsNonRoot: true
+       runAsUser: 65532
+       runAsGroup: 65532
+       seccompProfile: { type: RuntimeDefault }
+     containers:
+       - name: reader
+         image: busybox:1.37
+         command: ["sleep", "3600"]
+         securityContext:
+           allowPrivilegeEscalation: false
+           capabilities: { drop: ["ALL"] }
+         volumeMounts:
+           - { name: backups, mountPath: /backups, readOnly: true }
+     volumes:
+       - name: backups
+         persistentVolumeClaim: { claimName: pk-metal-etcd-backups, readOnly: true }
+   YAML
+   kubectl -n pk-metal wait --for=condition=Ready pod/etcd-backup-reader
+   ```
+
+3. Copy the snapshot. Its path is `<cluster>/<snapshot>.db.age`, as `status.key` of the [](kind:EtcdSnapshot) shows.
+
+   ```sh
+   kubectl -n pk-metal exec etcd-backup-reader -- ls -l /backups/prod
+   kubectl -n pk-metal exec etcd-backup-reader -- cat /backups/prod/prod-daily-20261124-060000.db.age > prod.db.age
+   ```
+
+4. Delete the pod.
+
+   ```sh
+   kubectl -n pk-metal delete pod etcd-backup-reader
+   ```
+
+</Steps>
+
+Give the file to `pk-metal restore upload --from-file`, or decrypt it with `pk-metal backup decrypt --in prod.db.age`.
+
+## Verify
+
+- `kubectl get taloscluster prod` shows `Bootstrapped=True` and `Available=True`.
+- `pk-metal restore plan prod` reports that each member is healthy.
+
+## If it fails
+
+| What you see | Go to |
+| --- | --- |
+| `etcdRecover` waits for a control plane that never answers | Remove its TalosNode, or replace the machine. Then plan again. |
+| `restore upload` stops on a hash mismatch | The file is not the approved snapshot. Use the approved one. |
+| `Bootstrapped=False` with another reason | [](rb:bootstrap-refused) |
+
+## Related
+
+- [](cli:restore), [](act:EtcdRecover), [](kind:EtcdSnapshot)
+- [](rb:etcd-unhealthy)
+- [](lab:backup-restore) runs the majority-lost case in the lab.

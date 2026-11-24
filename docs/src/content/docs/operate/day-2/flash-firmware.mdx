@@ -1,0 +1,122 @@
+---
+title: Flash firmware
+description: Write a FirmwareProfile for the BMC or for system firmware, and approve the flash for each machine.
+type: howto
+day: 2
+xref: { cat: howto, id: flash-firmware }
+sidebar:
+  order: 7
+sources:
+  - /repo/metal/config/samples/profiles.yaml
+  - /repo/metal/internal/controller/convergence_sysfw.go
+  - /repo/metal/internal/controller/hostoperation_firmware.go
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Goal
+
+Bring the BMC firmware, or the system firmware (BIOS, NIC, RAID), of a group of machines to one version.
+
+## Before you start
+
+- The firmware image is in your OCI registry, pinned by digest.
+- If the registry uses an internal CA, the manager has it (`--registry-ca`).
+- The endpoints are `Verified`. The operator writes nothing to a machine that it did not verify.
+- A person can approve one operation for each machine.
+
+## Two kinds of firmware
+
+| | BMC firmware | System firmware |
+| --- | --- | --- |
+| Field | `spec.manager` | `spec.system[]` |
+| Action | [](act:FlashFirmware) | [](act:StageFirmware), then a drained reset |
+| Running node | Does not stop | Drained and rebooted, as for BIOS |
+| Condition on the Host | `FirmwareConverged` | `SystemFirmwareConverged` |
+| Operation name ends in | `-firmware-<hash>` | `-sysfw-<hash>` |
+
+## Steps
+
+<Steps>
+
+1. Write a [](kind:FirmwareProfile).
+
+   <Tabs>
+     <TabItem label="BMC firmware">
+     ```yaml
+     apiVersion: metal.pk.io/v1alpha1
+     kind: FirmwareProfile
+     metadata:
+       name: x12-bmc
+     spec:
+       match:
+         matchLabels:
+           metal.pk.io/model: X12DPi-N6
+       manager:
+         version: "01.07.09"
+         image: registry.example.org/firmware/x12-bmc@sha256:<digest>
+     ```
+     </TabItem>
+     <TabItem label="System firmware">
+     ```yaml
+     apiVersion: metal.pk.io/v1alpha1
+     kind: FirmwareProfile
+     metadata:
+       name: compute-system-firmware
+     spec:
+       match:
+         matchLabels:
+           metal.pk.io/vendor: Generic
+       system:
+         - component: BIOS
+           version: "1.9.0"
+           image: registry.example.org/firmware/generic-bios@sha256:<digest>
+     ```
+     </TabItem>
+   </Tabs>
+
+2. Apply it.
+
+   ```sh
+   kubectl apply -f firmware.yaml
+   ```
+
+3. Show the proposals.
+
+   ```sh
+   pk-metal status
+   ```
+
+4. Approve each proposal.
+
+   ```sh
+   pk-metal approve pk-metal/simhw2288v5000398-sysfw-1f2e3d4c
+   ```
+
+</Steps>
+
+<Callout type="warning">
+Do not remove power from a machine while the BMC flashes its firmware.
+An interrupted flash can make the BMC unusable.
+</Callout>
+
+## Verify
+
+- The Host shows `FirmwareConverged=True` or `SystemFirmwareConverged=True`.
+- `kubectl describe managementendpoint <name>` shows the new version.
+
+## If it fails
+
+| Reason | Fix |
+| --- | --- |
+| `NoUpdateTransport` | The BMC has no supported push method. Flash it by hand. |
+| `NoMatchingComponent` | `component` matches no entry of the firmware inventory. Correct the expression. |
+| `ConvergenceFailed` | The flash reported success but the version did not change. See [](rb:operation-failed). |
+| `ProfileConflict` | Two profiles on one layer disagree. |
+
+## Related
+
+- [](howto:apply-bios-settings) runs after the firmware is correct.
+- [](concept:convergence), [](ctrl:convergence)
+- [](howto:reboot-a-node) with `--mode powercycle` gives a cold start.

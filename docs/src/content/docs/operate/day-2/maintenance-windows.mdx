@@ -1,0 +1,108 @@
+---
+title: Use maintenance windows
+description: Say when approved work may start on a set of machines.
+type: howto
+day: 2
+xref: { cat: howto, id: maintenance-windows }
+sidebar:
+  order: 8
+sources:
+  - /repo/metal/internal/controller/window.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Goal
+
+Make approved operations start only in agreed time slots. A window does not approve anything.
+
+## Before you start
+
+- You know which machines the window covers: a Host label, a cluster, or both.
+- You know the time zone of the plan, as an IANA name, for example `Europe/Berlin`.
+
+## Rules
+
+- An approved operation on a covered machine waits until a window that covers it is open.
+- A step that runs is never stopped when the window closes. Make windows long enough.
+- A machine that no window covers is not held.
+- New installs (reason `Provisioning`) are not held.
+- A window that the operator cannot read is never open. It holds work back.
+
+## Steps
+
+<Steps>
+
+1. Write a [](kind:MaintenanceWindow).
+
+   ```yaml title="compute-weekend.yaml"
+   apiVersion: metal.pk.io/v1alpha1
+   kind: MaintenanceWindow
+   metadata:
+     name: compute-weekend
+   spec:
+     hostSelector:
+       matchLabels:
+         role: worker
+     clusters: [prod]
+     timeZone: Europe/Berlin
+     weekly:
+       - days: [Sat]
+         start: "22:00"
+         duration: 6h
+     once:
+       - start: "2026-12-03T18:00:00+01:00"
+         end: "2026-12-03T23:00:00+01:00"
+   ```
+
+2. Apply it.
+
+   ```sh
+   kubectl apply -f compute-weekend.yaml
+   ```
+
+3. Make sure that the operator can read it.
+
+   ```sh
+   kubectl get maintenancewindows
+   ```
+
+   ```text
+   NAME              OPEN    NEXT CHANGE   ZONE            AGE
+   compute-weekend   false   2d            Europe/Berlin   1m
+   ```
+
+</Steps>
+
+## Start one operation now
+
+For an urgent fix, annotate the operation. The value is your reason.
+
+```sh
+kubectl -n pk-metal annotate hostoperation simhw2288v5000398-bios-4b5c6d7e \
+  metal.pk.io/ignore-window="CVE fix, agreed with on-call"
+```
+
+The operation still needs its approval.
+
+<Callout type="note">
+An operation that waits for its window does not make [](cli:status) exit with 2. That is the plan, not a fault.
+</Callout>
+
+## Verify
+
+- `kubectl describe maintenancewindow compute-weekend` shows `Valid=True`.
+- An approved operation outside the window shows `OutsideMaintenanceWindow` in the `BLOCKED` column.
+
+## If it fails
+
+| What you see | Go to |
+| --- | --- |
+| `Valid=False` | The message names the bad time zone or selector. |
+| Work does not start when the window opens | [](rb:operation-held) |
+
+## Related
+
+- [](kind:MaintenanceWindow)
+- [](lab:observe) shows a window that holds an operation in the lab.

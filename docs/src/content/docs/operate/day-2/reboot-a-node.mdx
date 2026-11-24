@@ -1,0 +1,105 @@
+---
+title: Reboot a node
+description: Propose a clean reboot of one Talos node - cordon, drain, reboot, wait until ready, uncordon.
+type: howto
+day: 2
+xref: { cat: howto, id: reboot-a-node }
+sidebar:
+  order: 2
+sources:
+  - /repo/metal/cmd/pk-metal/reboot.go
+  - /repo/metal/internal/controller/hostoperation_talos_steps.go
+  - /repo/metal/internal/controller/clusterguard.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Goal
+
+Reboot one node and give it back to the scheduler when it is `Ready`.
+
+## Before you start
+
+- A second person can approve. You propose the reboot, so you cannot approve it.
+- The PodDisruptionBudgets of the workloads let one pod leave.
+- The reboot goes through the Talos API. It does not need the BMC.
+
+## The steps of the operation
+
+| Role | Steps |
+| --- | --- |
+| Worker | [](act:Cordon) → [](act:Drain) → [](act:TalosReboot) → [](act:WaitNodeReady) → [](act:Uncordon) |
+| Control plane | The same, with [](act:WaitEtcdHealthy) before Uncordon |
+
+## Steps
+
+<Steps>
+
+1. Propose the reboot.
+
+   ```sh
+   pk-metal reboot w-1
+   ```
+
+   The command makes one [](kind:HostOperation), for example `pk-metal/reboot-w-1-x7k2p`.
+
+2. Ask a second person to approve it.
+
+   ```sh
+   pk-metal approve pk-metal/reboot-w-1-x7k2p
+   ```
+
+3. Monitor the operation.
+
+   ```sh
+   kubectl -n pk-metal get hostoperation reboot-w-1-x7k2p -w
+   ```
+
+   The phase goes from `Running` to `Succeeded`.
+
+</Steps>
+
+## Options
+
+<dl>
+  <dt>`--mode powercycle`</dt>
+  <dd>A cold start through the firmware. Use it after a firmware change. The default is a warm reboot or a kexec.</dd>
+  <dt>`--drain-timeout 30m`</dt>
+  <dd>The drain waits this long for pods to leave. The default is 15 minutes.</dd>
+  <dt>`--grace-period 60`</dt>
+  <dd>Each evicted pod gets 60 seconds to stop.</dd>
+  <dt>`--delete-emptydir-data`</dt>
+  <dd>Also evict pods with `emptyDir` volumes. You lose their data.</dd>
+</dl>
+
+## Reboot all nodes
+
+Propose one reboot for each node. Approve all of them.
+Workers reboot in parallel. Control planes reboot one at a time, because the cluster guard holds the others.
+
+<Callout type="note">
+With one control plane only, the cluster guard holds the reboot.
+Set `metal.pk.io/override-cluster-guard` on the operation, with the reason as the value.
+</Callout>
+
+## Verify
+
+```sh
+kubectl get talosnode w-1
+```
+
+`READY` is `True`. The Kubernetes node is schedulable.
+
+## If it fails
+
+| What you see | Go to |
+| --- | --- |
+| Blocked on `ClusterDisruption` | [](rb:operation-held) |
+| The drain step fails, the node stays cordoned | [](rb:drain-stuck) |
+| `waitNodeReady` fails | [](rb:node-not-ready) |
+
+## Related
+
+- [](cli:reboot), [](concept:self-protection)
+- [](lab:day2) reboots a worker and a control plane in the lab.

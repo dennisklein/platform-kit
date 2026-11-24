@@ -1,0 +1,108 @@
+---
+title: Monitor the fleet
+description: Read the state of machines and clusters with pk-metal status and top, and page on the metrics with the alert rules.
+type: howto
+day: 2
+xref: { cat: howto, id: monitor }
+sidebar:
+  order: 22
+sources:
+  - /repo/metal/cmd/pk-metal/status.go
+  - /repo/metal/config/prometheus/rules.yaml
+  - /repo/metal/internal/metrics
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Goal
+
+See what runs, what waits and what is wrong, from a quick look to a page.
+
+## Three ways to look
+
+| Tool | For | Reads |
+| --- | --- | --- |
+| [](cli:status) | A quick look, a cron check | The management cluster |
+| [](cli:top) | A live view, one tile for each machine | The management cluster |
+| Prometheus metrics and alerts | Dashboards and pages | The `/metrics` endpoint of the manager |
+
+## Use pk-metal status in a check
+
+<Steps>
+
+1. Run the command and read its exit status.
+
+   ```sh
+   pk-metal status; echo "exit=$?"
+   ```
+
+2. Read the result.
+
+   | Exit | Meaning |
+   | --- | --- |
+   | `0` | Nothing needs a person. |
+   | `1` | The command could not read the cluster. |
+   | `2` | Something needs a person: an approval, a failure, an unhealthy etcd, a stale backup, a node that is not `Ready`. |
+
+3. For a script, use the JSON form.
+
+   ```sh
+   pk-metal status -o json
+   ```
+
+</Steps>
+
+## Start the alerts
+
+<Steps>
+
+1. Make sure that the cluster has the Prometheus Operator. The rules are a `PrometheusRule`.
+
+2. Apply the rules.
+
+   ```sh
+   kubectl apply -f metal/config/prometheus/rules.yaml
+   ```
+
+</Steps>
+
+| Alert | Fires when | Go to |
+| --- | --- | --- |
+| `PkMetalOperationFailed` | An operation failed, for 5 minutes | [](rb:operation-failed) |
+| `PkMetalApprovalWaiting` | An operation waits more than one day | [](howto:approve-hold-retry) |
+| `PkMetalBMCUnreachable` | A BMC does not answer, for 15 minutes | [](rb:bmc-unreachable) |
+| `PkMetalNodeNotReady` | A node is not `Ready`, for 15 minutes | [](rb:node-not-ready) |
+| `PkMetalClusterUnavailable` | The API does not answer or a node is down, for 15 minutes | [](rb:etcd-unhealthy) |
+| `PkMetalEtcdBackupStale` | The newest verified backup is older than 12 hours | [](rb:backup-failing) |
+| `PkMetalCredentialsExpiring` | A published credential has less than one sixth of its lifetime left | [](howto:rotate-cluster-credentials) |
+
+<Callout type="caution">
+The default credential TTL is 24 hours, so `PkMetalCredentialsExpiring` fires with the default settings.
+Change its threshold to agree with your `spec.credentials.ttl`.
+</Callout>
+
+## Important metrics
+
+All names start with `pk_metal_`.
+
+<dl>
+  <dt>`host_phase`, `host_blocked`</dt>
+  <dd>The phase of each Host, and the reason when it waits.</dd>
+  <dt>`operation_failed`, `operation_awaiting_approval_seconds`, `operation_blocked`</dt>
+  <dd>Operations that need a person, and approved operations that did not start.</dd>
+  <dt>`bmc_reachable`</dt>
+  <dd>1 when the BMC answers Redfish.</dd>
+  <dt>`talosnode_ready`, `taloscluster_available`</dt>
+  <dd>Node and cluster health.</dd>
+  <dt>`etcd_backup_last_success_timestamp_seconds`</dt>
+  <dd>The time of the newest verified snapshot.</dd>
+  <dt>`rollout_nodes_done`, `rollout_nodes_total`</dt>
+  <dd>The progress of each rollout.</dd>
+</dl>
+
+## Related
+
+- [](howto:collect-diagnostics)
+- [](lab:observe) checks the tables and the metrics in the lab.
+- [](rb:index)

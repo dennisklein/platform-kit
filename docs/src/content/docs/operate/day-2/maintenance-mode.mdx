@@ -1,0 +1,66 @@
+---
+title: Put a host in maintenance
+description: Take a machine out of the operator's hands for hardware work.
+type: howto
+day: 2
+xref: { cat: howto, id: maintenance-mode }
+sidebar:
+  order: 9
+sources:
+  - /repo/metal/internal/controller/host_controller.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Goal
+
+Stop all new proposals for one machine while you work on its hardware.
+
+## Before you start
+
+- If the machine runs a node, drain it first or reboot it out with [](howto:reboot-a-node). Maintenance mode does not drain.
+- You know the [](kind:Host) name. It is the serial number in lower case.
+
+## Steps
+
+<Steps>
+
+1. Set the annotation. The value is your reason.
+
+   ```sh
+   kubectl annotate host simhw2288v5000398 metal.pk.io/maintenance="replace DIMM B2"
+   ```
+
+2. Make sure that the phase is `Maintenance`.
+
+   ```sh
+   kubectl get host simhw2288v5000398
+   ```
+
+3. Do the hardware work.
+
+4. Remove the annotation.
+
+   ```sh
+   kubectl annotate host simhw2288v5000398 metal.pk.io/maintenance-
+   ```
+
+</Steps>
+
+An operation that runs continues to its end. The operator starts no new operation for the machine.
+The claim shows `HostInMaintenance` in the `BLOCKED` column.
+
+<Callout type="note">
+You can use the BMC web console or `ipmitool` during the work.
+The Host then shows `Drifted=True` with `UnexpectedReset`. This is information only.
+</Callout>
+
+## Verify
+
+After step 4, the phase returns to the phase before the maintenance.
+
+## Related
+
+- [](kind:Host), [](concept:assert-vs-observe)
+- [](howto:replace-a-node) if you cannot repair the hardware.

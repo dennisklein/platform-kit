@@ -1,0 +1,89 @@
+---
+title: Remove a node
+description: Delete the claim of a node, approve the release, and let the operator drain, reset and power off the machine.
+type: howto
+day: 2
+xref: { cat: howto, id: remove-a-node }
+sidebar:
+  order: 15
+sources:
+  - /repo/metal/internal/controller/removal.go
+  - /repo/metal/internal/controller/talosnode_finalizer.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Goal
+
+Take one node out of its cluster and wipe its machine.
+
+## Before you start
+
+- The workloads can move to the other nodes.
+- For a control plane: what remains of etcd is safe. See [](howto:scale-control-planes).
+- A person can approve the release.
+
+## What the release does
+
+1. [](act:Cordon) and [](act:Drain). The drain stops after 15 minutes.
+2. For a control plane: [](act:EtcdForfeitLeadership) if it is the leader, and [](act:EtcdLeave).
+3. [](act:TalosReset). This wipes the system disk.
+4. [](act:DeleteKubernetesNode).
+5. [](act:PowerOff). The Host returns to the pool.
+
+## Steps
+
+<Steps>
+
+1. Delete the claim of the node.
+
+   ```sh
+   kubectl -n default delete hostclaim w-3
+   ```
+
+2. Approve the release.
+
+   ```sh
+   pk-metal approve pk-metal/release-simhw2288v5000399-8e7f6a5b
+   ```
+
+3. To remove the node for good, delete its TalosNode.
+
+   ```sh
+   kubectl delete talosnode w-3
+   ```
+
+</Steps>
+
+<Callout type="warning">
+Do not delete a claim to "stop managing" a machine. The release wipes its disk.
+A GitOps tool that prunes a deleted file deletes the claim too.
+</Callout>
+
+## Remove a control plane
+
+The operator refuses a removal that leaves etcd with no member, no healthy majority, or an even count.
+The claim then shows `EtcdRiskRefused`. To accept the risk, annotate the claim with your reason:
+
+```sh
+kubectl -n default annotate hostclaim cp-3 metal.pk.io/ack-etcd-risk="scale down to one control plane"
+```
+
+## Verify
+
+- The [](kind:Host) is `Available`.
+- `kubectl get talosnodes` does not list the node.
+
+## If it fails
+
+| What you see | Go to |
+| --- | --- |
+| The drain step fails | [](rb:drain-stuck) |
+| Host `DiskWiped=False`, `InstalledNodeRemains` | [](rb:disk-not-wiped) |
+| TalosNode stays with `RemovalBlocked` | The message names what it waits for: the machine, or the etcd member. |
+
+## Related
+
+- [](howto:release-a-host), [](howto:scale-control-planes)
+- [](flow:release-and-reuse)

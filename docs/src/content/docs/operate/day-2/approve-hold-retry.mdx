@@ -1,0 +1,157 @@
+---
+title: Approve, hold, retry and abort
+description: Say yes, not now, again or stop to the operations that the operator proposes.
+type: howto
+day: 2
+xref: { cat: howto, id: approve-hold-retry }
+sidebar:
+  order: 1
+sources:
+  - /repo/metal/cmd/pk-metal/approve.go
+  - /repo/metal/cmd/pk-metal/ops.go
+  - /repo/metal/cmd/pk-metal/abort.go
+  - /repo/metal/config/policy/hostoperation-approval.yaml
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+import Figure from '../../../../components/diagram/Figure.astro';
+import Box from '../../../../components/diagram/Box.astro';
+import Edge from '../../../../components/diagram/Edge.astro';
+
+## Goal
+
+Control each [](kind:HostOperation): run it, stop new proposals, run a failed one again, or stop a running one.
+
+## Before you start
+
+- You have the ClusterRole `pk-metal-approver`. It lets you patch HostOperations.
+- You did not propose the operation. The admission policy refuses an approval of your own proposal.
+
+<Figure
+  title="HostOperation phases: AwaitingApproval, Running, then Succeeded, Failed or Aborted. Retry deletes a failed operation so that the operator proposes it again."
+  caption="The four commands and the phases that they act on."
+  width={760}
+  height={206}
+  wide
+>
+  <Box x={20} y={70} w={170} h={50} label="AwaitingApproval" variant="warn" />
+  <Box x={290} y={70} w={150} h={50} label="Running" variant="accent" />
+  <Box x={560} y={10} w={180} h={44} label="Succeeded" variant="ok" />
+  <Box x={560} y={74} w={180} h={44} label="Failed" variant="err" />
+  <Box x={560} y={138} w={180} h={44} label="Aborted" variant="soft" />
+  <Edge points={[[190, 95], [290, 95]]} label="approve" at={[240, 88]} />
+  <Edge points={[[440, 85], [500, 85], [500, 32], [560, 32]]} />
+  <Edge points={[[440, 96], [560, 96]]} />
+  <Edge points={[[440, 108], [500, 108], [500, 160], [560, 160]]} label="abort" at={[506, 140]} anchor="start" />
+  <Edge points={[[740, 96], [754, 96], [754, 196], [105, 196], [105, 120]]} variant="muted" label="retry: the operator proposes again" at={[330, 190]} />
+</Figure>
+
+## Approve
+
+<Steps>
+
+1. List the operations that wait for a person.
+
+   ```sh
+   pk-metal approve
+   ```
+
+2. Approve one. The command shows each step in plain words. Type `y`.
+
+   ```sh
+   pk-metal approve pk-metal/provision-simhw2288v5000397-0f3c9a1e
+   ```
+
+   The operation goes to `Running`, or it waits for its [](kind:MaintenanceWindow).
+
+</Steps>
+
+The command reads the operation again after your answer. If the plan changed, it approves nothing.
+
+## Hold a claim
+
+A hold stops new proposals for one [](kind:HostClaim). Nothing on the machine changes.
+
+<Steps>
+
+1. Hold the claim. Give the reason.
+
+   ```sh
+   pk-metal hold --reason "waiting for new disk" default/w-1
+   ```
+
+   [](cli:status) shows `(on hold)` for the claim.
+
+2. When you are ready, remove the hold.
+
+   ```sh
+   pk-metal unhold default/w-1
+   ```
+
+</Steps>
+
+## Retry a failed operation
+
+<Steps>
+
+1. Read why the operation failed.
+
+   ```sh
+   kubectl -n pk-metal describe hostoperation provision-simhw2288v5000397-0f3c9a1e
+   ```
+
+2. Correct the cause.
+
+3. Retry the operation.
+
+   ```sh
+   pk-metal retry pk-metal/provision-simhw2288v5000397-0f3c9a1e
+   ```
+
+   The operator proposes the same plan again. The new operation waits for approval.
+
+</Steps>
+
+## Abort a running operation
+
+<Steps>
+
+1. Abort the operation. Give the reason.
+
+   ```sh
+   pk-metal abort --reason "wrong machine" pk-metal/reboot-w-1-x7k2p
+   ```
+
+2. Monitor the operation until its phase is `Aborted`.
+
+   ```sh
+   kubectl -n pk-metal get hostoperation reboot-w-1-x7k2p -w
+   ```
+
+</Steps>
+
+The operation stops before its next step. Then the operator ejects the media, clears the boot override and removes its cordon.
+A reboot, an applied config or an upgrade stays as it is.
+
+<Callout type="caution">
+Do not delete a running operation to stop it. A deletion stops it too, but it undoes nothing.
+</Callout>
+
+## Verify
+
+- `pk-metal status` shows the new phase.
+- The `APPROVED` column shows your user name.
+
+## If it fails
+
+| What you see | Go to |
+| --- | --- |
+| The approved operation does not start | [](rb:operation-held) |
+| The operation fails | [](rb:operation-failed) |
+
+## Related
+
+- [](cli:approve), [](cli:hold), [](cli:unhold), [](cli:retry), [](cli:abort)
+- [](concept:approval) and [](flow:approval-flow)
+- [](kind:HostOperation)

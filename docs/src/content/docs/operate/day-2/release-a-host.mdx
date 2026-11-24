@@ -1,0 +1,80 @@
+---
+title: Release a host
+description: Give a machine back to the pool by deleting its claim.
+type: howto
+day: 2
+xref: { cat: howto, id: release-a-host }
+sidebar:
+  order: 20
+sources:
+  - /repo/metal/internal/controller/provisioning.go
+  - /repo/metal/api/v1alpha1/hostclaim_types.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Goal
+
+Free one machine so that another claim can use it.
+
+## Before you start
+
+- You know the claim name and namespace.
+- The node of the machine is not needed. See [](howto:remove-a-node) for the effect on the cluster.
+
+## What happens
+
+| The machine | The release |
+| --- | --- |
+| Was never installed by this claim | Powered off without a question. |
+| Runs a node that answers | One operation: drain, etcd leave, reset, delete the Kubernetes node, power off. It waits for approval. |
+| Ran a node that does not answer | etcd member removed by ID, Kubernetes node deleted, power off. The operator marks the Host as not wiped. |
+
+## Steps
+
+<Steps>
+
+1. Delete the claim.
+
+   ```sh
+   kubectl -n default delete hostclaim w-2
+   ```
+
+   The Host goes to `Releasing`.
+
+2. Approve the release operation.
+
+   ```sh
+   pk-metal approve
+   ```
+
+3. Monitor the Host.
+
+   ```sh
+   kubectl get host simhw2288v5000398 -w
+   ```
+
+   The phase goes from `Releasing` to `Available`.
+
+</Steps>
+
+<Callout type="warning">
+Do not delete a claim of a machine with data that you must keep. The release wipes the disk.
+</Callout>
+
+## Verify
+
+The Host is `Available` and has no claim.
+
+## If it fails
+
+| What you see | Go to |
+| --- | --- |
+| Claim blocked on `ReleaseFailed` | [](rb:operation-failed). Retry the release. |
+| Host `DiskWiped=False` | [](rb:disk-not-wiped) |
+
+## Related
+
+- [](flow:release-and-reuse), [](kind:HostClaim)
+- [](lab:release) runs a release in the lab.

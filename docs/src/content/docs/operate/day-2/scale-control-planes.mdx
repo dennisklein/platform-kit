@@ -1,0 +1,81 @@
+---
+title: Scale control planes
+description: Change the number of control planes of a cluster without a loss of the etcd majority.
+type: howto
+day: 2
+xref: { cat: howto, id: scale-control-planes }
+sidebar:
+  order: 16
+sources:
+  - /repo/metal/cmd/pk-metal/lifecycle.go
+  - /repo/metal/internal/controller/removal.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Goal
+
+Go from one odd number of control planes to another: 1, 3 or 5.
+
+## Before you start
+
+- etcd is healthy. `pk-metal status` shows `EtcdRunning` in the `ETCD` column.
+- For a scale up, free machines exist.
+
+## The rules
+
+| After the removal | Without acknowledgement |
+| --- | --- |
+| No member left | Refused |
+| Fewer healthy members than a majority | Refused |
+| An even number of members (2, 4) | Refused |
+| The member is the leader while others leave | Waits. The leader leaves last. |
+| Another control plane joins or leaves | Waits |
+
+A cluster of 4 survives one failure, as a cluster of 3 does. Prefer odd sizes.
+
+## Steps
+
+<Steps>
+
+1. Show the plan. It lists each machine that the cluster gains or gives back, in order.
+
+   ```sh
+   pk-metal scale prod --control-planes 1 --workers 2
+   ```
+
+2. Apply the plan. Going from 3 to 1 passes through 2 members, so give a reason.
+
+   ```sh
+   pk-metal scale prod --control-planes 1 --workers 2 --apply --ack-etcd-risk "move to 1 control plane for rack work"
+   ```
+
+3. Approve the operations one at a time. Wait until etcd is healthy before you approve the next.
+
+   ```sh
+   pk-metal approve
+   ```
+
+</Steps>
+
+<Callout type="caution">
+While the cluster has 2 control planes, one failure stops etcd. Keep this time short.
+</Callout>
+
+## Verify
+
+`kubectl get taloscluster prod` shows the new count in `CP`.
+
+## If it fails
+
+| What you see | Go to |
+| --- | --- |
+| Claim blocked on `EtcdRiskRefused` | Give `--ack-etcd-risk`, or choose an odd size. |
+| Claim blocked on `RemovalWaiting` | Wait. Another control plane leaves first. |
+| etcd unhealthy | [](rb:etcd-unhealthy) |
+
+## Related
+
+- [](cli:scale), [](howto:add-a-node), [](howto:remove-a-node)
+- [](lab:scale)
