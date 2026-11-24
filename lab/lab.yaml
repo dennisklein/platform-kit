@@ -66,3 +66,9 @@ patches:
       nameservers:
         - address: 1.1.1.1
         - address: 8.8.8.8
+
+# A second cluster, for the pivot round (mise run lab:pivot): the operator
+# moves from kind onto the cluster above and installs this one from there.
+# Its machines come after the ones above and take the same role sizes. Without
+# this section, PK_LAB_WORKLOAD=1cp+0w adds it with these values.
+# workload: { name: work, vip: 10.77.0.9, controlPlanes: 1, workers: 0 }

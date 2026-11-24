@@ -26,6 +26,9 @@ HELP="usage: $SCRIPT <verb>
   release <namespace/name>
                delete a claim, approve the shutdown it proposes, and wait until its
                Host is Available again
+  pivot        move the operator from kind onto the first Talos cluster (pk-metal
+               pivot), delete kind, and install the second cluster from there;
+               needs a workload section (PK_LAB_WORKLOAD) and a converged lab
   collect      write logs and object dumps to <lab directory>/diagnostics
   down         stop the fleet, delete the kind cluster, remove the network; keeps disks and caches
   reset        wipe the machines' disks and firmware state (the lab must be down)
@@ -39,6 +42,8 @@ environment variables:
   PK_LAB_SPEC           the lab spec (default: <repo>/lab/lab.yaml)
   PK_LAB_NODES          the lab's size as <control planes>cp+<workers>w, e.g. 3cp+2w
                         (default: the counts in the spec); read by doctor, render and up
+  PK_LAB_WORKLOAD       a second cluster for the pivot round, as <cp>cp+<w>w, e.g. 1cp+0w
+                        (default: the spec's workload section, usually none)
   PK_LAB_WAIT_TIMEOUT   seconds wait gives the lab to converge (default: 2400)
   PK_LAB_RELEASE_TIMEOUT
                         seconds release gives a machine to come back (default: 900)
@@ -53,6 +58,7 @@ source "$ROOT/lab/distro.sh"
 LAB_DIR=$(realpath -m "${PK_LAB_DIR:-$ROOT/.lab}")
 SPEC=$(realpath -m "${PK_LAB_SPEC:-$ROOT/lab/lab.yaml}")
 SIZE=${PK_LAB_NODES:-}
+WORKLOAD=${PK_LAB_WORKLOAD:-}
 # Everything rendered from the spec. Generated, never edited, never committed.
 GEN=$LAB_DIR/generated
 FLEET=$GEN/fleet.yaml
@@ -68,6 +74,11 @@ KIND_CONFIG=${PK_LAB_KIND_CONFIG:-$ROOT/lab/kind.yaml}
 CLUSTER=pk-metal
 NAMESPACE=pk-metal
 DEPLOYMENT=pk-metal-manager
+# The pivot round: the workstation's registry the first cluster pulls the
+# operator image from, and the file that says the operator has moved.
+REGISTRY_CONTAINER=pk-metal-lab-registry
+REGISTRY_IMAGE=registry:2.8.3
+PIVOT_MARK=pivoted
 
 # Every kubectl, kind and pk-metal call below talks to the lab's own kubeconfig.
 # The person's ~/.kube/config is never read and never written.
@@ -92,18 +103,18 @@ STATE_MARK=.pk-metal-lab-state
 # the taps, the ledger and lab.env. The work is done in Go (metal/hack/labrender
 # and metal/internal/lab), where it is tested; this only runs it.
 render_into() {
-  local root=$1 spec=$2 size=$3 out=$4
+  local root=$1 spec=$2 size=$3 workload=$4 out=$5
   [[ -r $spec ]] || die "the lab spec $spec is not readable. Point PK_LAB_SPEC at one, or unset it to use lab/lab.yaml"
   have go || die "go is not on the PATH. Run the lab through mise (mise run lab:up), which puts it there"
   mkdir -p "$out"
-  (cd "$root/metal" && go run ./hack/labrender --spec "$spec" --out "$out" --nodes "$size" --source "${spec#"$root"/}") \
-    || die "the lab spec does not render. The message above names what to fix in $spec${size:+ or in PK_LAB_NODES=$size}"
+  (cd "$root/metal" && go run ./hack/labrender --spec "$spec" --out "$out" --nodes "$size" --workload "$workload" --source "${spec#"$root"/}") \
+    || die "the lab spec does not render. The message above names what to fix in $spec${size:+ or in PK_LAB_NODES=$size}${workload:+ or in PK_LAB_WORKLOAD=$workload}"
 }
 
 render() {
-  local root=$1 spec=$2 size=$3 gen=$4
+  local root=$1 spec=$2 size=$3 workload=$4 gen=$5
   step "render $spec${size:+ at size $size} into $gen"
-  render_into "$root" "$spec" "$size" "$gen"
+  render_into "$root" "$spec" "$size" "$workload" "$gen"
 }
 
 # The parts of up and the later verbs work on what up rendered last, so that a
@@ -111,8 +122,8 @@ render() {
 # without PK_LAB_NODES. Only a lab directory with nothing rendered yet is
 # rendered here.
 require_rendered() {
-  local root=$1 spec=$2 size=$3 gen=$4
-  [[ -s $gen/lab.env ]] || render "$root" "$spec" "$size" "$gen"
+  local root=$1 spec=$2 size=$3 workload=$4 gen=$5
+  [[ -s $gen/lab.env ]] || render "$root" "$spec" "$size" "$workload" "$gen"
 }
 
 # Prints one value of a rendered lab.env. The values are names and numbers the
@@ -127,6 +138,17 @@ lab_value() {
     fi
   done <"$gen/lab.env"
   die "$gen/lab.env has no $key. Render the lab again: mise run lab:render"
+}
+
+# Prints one value of a rendered lab.env, or the default when the file has no
+# such key: the keys of the second cluster are there only when it is.
+lab_value_or() {
+  local gen=$1 key=$2 default=$3
+  if grep -q "^$key=" "$gen/lab.env" 2>/dev/null; then
+    lab_value "$gen" "$key"
+  else
+    echo "$default"
+  fi
 }
 
 # ---------------------------------------------------------------- fleet file
@@ -284,7 +306,7 @@ enough_disk() {
 }
 
 doctor() {
-  local root=$1 lab_dir=$2 spec=$3 size=$4 min_free_gib=$5 kind_config=$6
+  local root=$1 lab_dir=$2 spec=$3 size=$4 workload=$5 min_free_gib=$6 kind_config=$7
   local missing=0 need_mib tool preview problem
 
   for tool in go kind kubectl talosctl yq jq; do
@@ -359,12 +381,12 @@ doctor() {
   # Its own messages are the fix, so they are shown instead of a generic one.
   # The subshell keeps render_into's die from ending doctor.
   preview=$(mktemp -d)
-  if problem=$( (render_into "$root" "$spec" "$size" "$preview") 2>&1 ); then
+  if problem=$( (render_into "$root" "$spec" "$size" "$workload" "$preview") 2>&1 ); then
     echo "ok    the lab spec renders${size:+ at size $size}" >&2
     # The machines' memory, summed over the machines this size renders, plus
     # room for the kind node and the fleet process.
     need_mib=$(($(lab_value "$preview" MEMORY_MIB) + 3072))
-    check "$need_mib MiB of available memory for $(lab_value "$preview" NODES) machines" \
+    check "$need_mib MiB of available memory for $(($(lab_value "$preview" NODES) + $(lab_value_or "$preview" WORKLOAD_NODES 0))) machines" \
       "close something, give the machines less in $spec (memoryMiB; a Talos control plane wants 2048, a worker 1024), or run fewer: PK_LAB_NODES=1cp+1w" \
       enough_memory "$need_mib" || missing=$((missing + 1))
   else
@@ -480,8 +502,9 @@ write_proxy_patch() {
 # rolls the manager without anybody restarting it.
 write_deploy_dir() {
   local root=$1 lab_dir=$2 gen=$3 image=$4
-  local dir=$lab_dir/deploy base proxy_patch bundle_secret
+  local dir=$lab_dir/deploy base proxy_patch bundle_secret workload_secret
   bundle_secret=$(lab_value "$gen" BUNDLE_SECRET)
+  workload_secret=$(lab_value_or "$gen" WORKLOAD_BUNDLE_SECRET "")
   mkdir -p "$dir"
   chmod 700 "$dir"
 
@@ -493,6 +516,14 @@ write_deploy_dir() {
   if [[ ! -s $dir/secrets.yaml ]]; then
     echo "  generating a Talos secrets bundle (kept in $dir)" >&2
     (umask 077 && talosctl gen secrets --output-file "$dir/secrets.yaml" >&2) \
+      || die "talosctl could not generate a secrets bundle. Check the tool: talosctl version --client"
+  fi
+
+  # The second cluster of the pivot round gets its own bundle, made the same
+  # way. Its Secret starts on kind and moves with the operator.
+  if [[ -n $workload_secret && ! -s $dir/workload-secrets.yaml ]]; then
+    echo "  generating a Talos secrets bundle for the second cluster (kept in $dir)" >&2
+    (umask 077 && talosctl gen secrets --output-file "$dir/workload-secrets.yaml" >&2) \
       || die "talosctl could not generate a secrets bundle. Check the tool: talosctl version --client"
   fi
 
@@ -528,6 +559,16 @@ secretGenerator:
       # reference kustomize knows how to rewrite.
       disableNameSuffixHash: true
 EOF
+  if [[ -n $workload_secret ]]; then
+    cat >> "$dir/kustomization.yaml" <<EOF
+  - name: $workload_secret
+    namespace: $NAMESPACE
+    files:
+      - secrets.yaml=workload-secrets.yaml
+    options:
+      disableNameSuffixHash: true
+EOF
+  fi
   if [[ -n $proxy_patch ]]; then
     printf 'patches:\n  - path: %s\n' "$proxy_patch" >> "$dir/kustomization.yaml"
     echo "  the manager gets this shell's proxy settings ($dir/$proxy_patch)" >&2
@@ -669,12 +710,12 @@ manifests_apply() {
 # machines it was started with, before anything under the lab directory is
 # rendered anew. Other changes (versions, patches) are fine and are applied.
 rerender_guard() {
-  local root=$1 lab_dir=$2 spec=$3 size=$4 preview differs=0
+  local root=$1 lab_dir=$2 spec=$3 size=$4 workload=$5 preview differs=0
   fleet_running "$lab_dir" "$root/metal/bin/pk-metal" || return 0
   # A fleet started some other way has no copy to compare with.
   [[ -e $lab_dir/fleet.running.yaml ]] || return 0
   preview=$(mktemp -d)
-  render_into "$root" "$spec" "$size" "$preview"
+  render_into "$root" "$spec" "$size" "$workload" "$preview"
   cmp -s "$preview/fleet.yaml" "$lab_dir/fleet.running.yaml" || differs=1
   rm -rf "$preview"
   (( differs == 0 )) || die "the lab runs other machines than $spec${size:+ at size $size} describes now.
@@ -684,10 +725,11 @@ rerender_guard() {
 }
 
 up() {
-  local root=$1 lab_dir=$2 spec=$3 size=$4 gen=$5 cluster=$6 min_free_gib=$7 kind_config=$8
-  doctor "$root" "$lab_dir" "$spec" "$size" "$min_free_gib" "$kind_config"
-  rerender_guard "$root" "$lab_dir" "$spec" "$size"
-  render "$root" "$spec" "$size" "$gen"
+  local root=$1 lab_dir=$2 spec=$3 size=$4 workload=$5 gen=$6 cluster=$7 min_free_gib=$8 kind_config=$9
+  pivoted_guard "$lab_dir"
+  doctor "$root" "$lab_dir" "$spec" "$size" "$workload" "$min_free_gib" "$kind_config"
+  rerender_guard "$root" "$lab_dir" "$spec" "$size" "$workload"
+  render "$root" "$spec" "$size" "$workload" "$gen"
   network_up "$root" "$gen"
   cluster_up "$lab_dir" "$cluster" "$kind_config"
   deploy "$root" "$lab_dir" "$gen" "$cluster"
@@ -785,11 +827,11 @@ secret_to_file() {
   fi
 }
 
-# Writes the workload cluster's kubeconfig and talosconfig into the lab
-# directory. Returns non-zero, quietly, while the operator has not published
-# them yet: wait() polls this.
+# Writes a cluster's kubeconfig and talosconfig to the files named. Returns
+# non-zero, quietly, while the operator has not published them yet: wait()
+# polls this.
 kubeconfig_fetch() {
-  local lab_dir=$1 cluster_name=$2
+  local cluster_name=$1 kube_file=$2 talos_file=$3
   local refs kube_ns kube_name talos_ns talos_name
   refs=$(kubectl get taloscluster "$cluster_name" --output json 2>/dev/null | jq -r '
     [.status.kubeconfigSecretRef.namespace // "", .status.kubeconfigSecretRef.name // "",
@@ -797,16 +839,16 @@ kubeconfig_fetch() {
     | @tsv') || return 1
   IFS=$'\t' read -r kube_ns kube_name talos_ns talos_name <<<"$refs"
   [[ -n $kube_name ]] || return 1
-  secret_to_file "${kube_ns:-$NAMESPACE}" "$kube_name" kubeconfig "$lab_dir/workload.kubeconfig" || return 1
+  secret_to_file "${kube_ns:-$NAMESPACE}" "$kube_name" kubeconfig "$kube_file" || return 1
   if [[ -n $talos_name ]]; then
-    secret_to_file "${talos_ns:-$NAMESPACE}" "$talos_name" talosconfig "$lab_dir/talosconfig" || return 1
+    secret_to_file "${talos_ns:-$NAMESPACE}" "$talos_name" talosconfig "$talos_file" || return 1
   fi
 }
 
 kubeconfig() {
   local lab_dir=$1 cluster_name=$2
   require_cluster "$lab_dir"
-  kubeconfig_fetch "$lab_dir" "$cluster_name" \
+  kubeconfig_fetch "$cluster_name" "$lab_dir/workload.kubeconfig" "$lab_dir/talosconfig" \
     || die "TalosCluster $cluster_name has not published a kubeconfig yet. It does once the first
   control plane is bootstrapped; see where things stand: mise run lab:status"
   cat >&2 <<EOF
@@ -839,13 +881,20 @@ progress() {
 
 converged() {
   local lab_dir=$1 want=$2
+  cluster_converged "$want" "$lab_dir/workload.kubeconfig" "$want"
+}
+
+# Succeeds when the operator reports hosts Provisioned machines and the
+# cluster behind kube_file has nodes Ready nodes.
+cluster_converged() {
+  local hosts=$1 kube_file=$2 nodes=$3
   local provisioned ready
   provisioned=$(kubectl get hosts --output json | jq '[.items[] | select(.status.phase == "Provisioned")] | length')
-  (( provisioned == want )) || return 1
-  [[ -s $lab_dir/workload.kubeconfig ]] || return 1
-  ready=$(kubectl --kubeconfig "$lab_dir/workload.kubeconfig" --request-timeout=5s get nodes --output json 2>/dev/null | jq '
+  (( provisioned == hosts )) || return 1
+  [[ -s $kube_file ]] || return 1
+  ready=$(kubectl --kubeconfig "$kube_file" --request-timeout=5s get nodes --output json 2>/dev/null | jq '
     [.items[] | select(any(.status.conditions[]?; .type == "Ready" and .status == "True"))] | length') || return 1
-  (( ready == want ))
+  (( ready == nodes ))
 }
 
 # The unattended run: stands in for the person by approving whatever is
@@ -859,7 +908,7 @@ wait_converged() {
   step "waiting up to ${timeout}s for $want Provisioned hosts and $want Ready nodes (from $(date '+%F %T %Z'))"
   while true; do
     approve_pending "$root" >/dev/null || true
-    kubeconfig_fetch "$lab_dir" "$cluster_name" || true
+    kubeconfig_fetch "$cluster_name" "$lab_dir/workload.kubeconfig" "$lab_dir/talosconfig" || true
     if converged "$lab_dir" "$want"; then
       echo "converged after $((SECONDS - (deadline - timeout)))s: $(progress "$lab_dir")" >&2
       return 0
@@ -921,6 +970,122 @@ release() {
   done
 }
 
+# ---------------------------------------------------------------- pivot
+
+# After lab:pivot the lab kubeconfig names the first Talos cluster, and kind is
+# gone. Bringing kind back with an operator in it would put two operators on
+# the same machines.
+pivoted_guard() {
+  local lab_dir=$1
+  [[ ! -e $lab_dir/$PIVOT_MARK ]] || die "the operator has moved to the first Talos cluster (mise run lab:pivot), and kind is gone.
+  Starting kind with an operator again would put two operators on the same machines.
+  Take the lab down first: mise run lab:down"
+}
+
+# Runs the workstation's image registry: on 127.0.0.1 for the push, and on the
+# lab bridge address for the machines. It holds nothing that is not rebuilt.
+registry_up() {
+  local registry=$1 port=${1##*:}
+  step "image registry on $registry"
+  if [[ $(docker inspect --format '{{.State.Running}}' "$REGISTRY_CONTAINER" 2>/dev/null) == true ]]; then
+    echo "  runs, reusing it" >&2
+    return 0
+  fi
+  docker rm --force "$REGISTRY_CONTAINER" >/dev/null 2>&1 || true
+  docker run --detach --name "$REGISTRY_CONTAINER" \
+    --publish "127.0.0.1:$port:5000" --publish "$registry:5000" "$REGISTRY_IMAGE" >&2 \
+    || die "docker could not start the registry ($REGISTRY_IMAGE). Its message above says why.
+  The lab network must be up for the address ${registry%:*}: mise run lab:up"
+}
+
+registry_down() {
+  if have docker; then
+    docker rm --force "$REGISTRY_CONTAINER" >/dev/null 2>&1 || true
+  fi
+}
+
+# Builds the operator image, pushes it to the registry and prints the
+# reference the first cluster pulls it by.
+image_push() {
+  local root=$1 registry=$2 image name
+  step "operator image to $registry"
+  image=$("$root/metal/hack/image.sh" build)
+  name=${image##*/}
+  docker tag "$image" "localhost:${registry##*:}/$name" >&2
+  docker push "localhost:${registry##*:}/$name" >&2 \
+    || die "docker could not push $image to the registry. Is it running? docker ps --filter name=$REGISTRY_CONTAINER"
+  echo "$registry/$name"
+}
+
+# Prints the VIP of the cluster a rendered Talos file describes.
+cluster_vip() {
+  yq -r 'select(.kind == "TalosCluster") | .spec.controlPlane.vip' "$1"
+}
+
+# The pivot round. The operator moves from kind onto the first Talos cluster
+# with pk-metal pivot, kind is deleted, and from its new place the operator
+# installs the second cluster. Rerun after a failure, it goes on from where it
+# stopped: the move itself resumes, and once kind is gone only the second
+# cluster is left to do.
+pivot() {
+  local root=$1 lab_dir=$2 gen=$3 cluster=$4 timeout=$5
+  local first second registry ref vip want_hosts want_nodes line last="" deadline=$((SECONDS + timeout))
+  require_cluster "$lab_dir"
+  [[ -n $(lab_value_or "$gen" WORKLOAD_CLUSTER "") ]] || die "the lab has no second cluster to install after the move.
+  Bring it up with one: mise run lab:down && PK_LAB_WORKLOAD=1cp+0w mise run lab:up && mise run lab:wait"
+  first=$(lab_value "$gen" TALOS_CLUSTER)
+  second=$(lab_value "$gen" WORKLOAD_CLUSTER)
+  registry=$(lab_value "$gen" REGISTRY)
+
+  if [[ ! -e $lab_dir/$PIVOT_MARK ]]; then
+    kubeconfig_fetch "$first" "$lab_dir/workload.kubeconfig" "$lab_dir/talosconfig" \
+      || die "TalosCluster $first has not published a kubeconfig, so there is nowhere to move to yet.
+  Install it first: mise run lab:wait"
+    registry_up "$registry"
+    ref=$(image_push "$root" "$registry")
+    vip=$(cluster_vip "$gen/manifests/20-talos.yaml")
+    step "pk-metal pivot to TalosCluster $first"
+    # The BMCs fetch boot media from the media service's NodePort; on the
+    # Talos cluster it answers on the VIP as on every node.
+    "$root/metal/bin/pk-metal" pivot --to "$lab_dir/workload.kubeconfig" --image "$ref" \
+      --media-url "https://$vip:30443" --timeout 600s --yes >&2 \
+      || die "the move did not finish. Its message above says what to do; rerun it with: mise run lab:pivot"
+    step "deleting the kind cluster $cluster"
+    kind delete cluster --name "$cluster" >&2
+    cp "$lab_dir/workload.kubeconfig" "$lab_dir/kubeconfig"
+    chmod 600 "$lab_dir/kubeconfig"
+    echo "$first" >"$lab_dir/$PIVOT_MARK"
+    echo "  the lab's kubeconfig names TalosCluster $first now" >&2
+  fi
+
+  step "TalosCluster $second, installed by the operator on $first"
+  admin_apply "$gen/workload/"
+  want_hosts=$(($(lab_value "$gen" NODES) + $(lab_value "$gen" WORKLOAD_NODES)))
+  want_nodes=$(lab_value "$gen" WORKLOAD_NODES)
+  while true; do
+    approve_pending "$root" >/dev/null || true
+    kubeconfig_fetch "$second" "$lab_dir/second.kubeconfig" "$lab_dir/second.talosconfig" || true
+    if cluster_converged "$want_hosts" "$lab_dir/second.kubeconfig" "$want_nodes"; then
+      echo "converged after $((SECONDS - (deadline - timeout)))s: $want_hosts Provisioned hosts, $want_nodes Ready nodes in $second" >&2
+      break
+    fi
+    line=$(progress "$lab_dir" 2>/dev/null || echo "the first cluster does not answer")
+    if [[ $line != "$last" ]]; then
+      echo "  [$(date '+%F %T %Z')] $line" >&2
+      last=$line
+    fi
+    (( SECONDS < deadline )) || die "TalosCluster $second did not come up within ${timeout}s. Last state: $line
+  Look at it: mise run lab:status; collect the evidence: mise run lab:collect"
+    sleep 15
+  done
+  cat >&2 <<EOF
+
+The operator runs on TalosCluster $first and installed $second from there.
+  the operator's cluster: $lab_dir/kubeconfig (also $lab_dir/workload.kubeconfig)
+  the second cluster:     $lab_dir/second.kubeconfig and $lab_dir/second.talosconfig
+EOF
+}
+
 # Everything worth reading after a failed run, in one directory that is safe to
 # publish: object dumps without Secret contents, logs, the machines' consoles.
 # The secrets bundle, the kubeconfigs, the disks and the image cache stay out.
@@ -967,7 +1132,9 @@ down() {
   if have kind && kind get clusters 2>/dev/null | grep -qx "$cluster"; then
     kind delete cluster --name "$cluster" >&2
   fi
-  rm -f "$lab_dir/kubeconfig" "$lab_dir/workload.kubeconfig" "$lab_dir/talosconfig"
+  registry_down
+  rm -f "$lab_dir/kubeconfig" "$lab_dir/workload.kubeconfig" "$lab_dir/talosconfig" \
+    "$lab_dir/second.kubeconfig" "$lab_dir/second.talosconfig" "$lab_dir/$PIVOT_MARK"
   "$root/lab/net.sh" down
   echo "kept: the machines' disks, the image cache and the secrets bundle. Wipe the disks with: mise run lab:reset" >&2
 }
@@ -1020,33 +1187,37 @@ reset() {
 main() {
   local verb=${1:-}
   case "$verb" in
-    doctor) doctor "$ROOT" "$LAB_DIR" "$SPEC" "$SIZE" "$MIN_FREE_GIB" "$KIND_CONFIG" ;;
-    render) render "$ROOT" "$SPEC" "$SIZE" "$GEN" ;;
-    up) up "$ROOT" "$LAB_DIR" "$SPEC" "$SIZE" "$GEN" "$CLUSTER" "$MIN_FREE_GIB" "$KIND_CONFIG" ;;
+    doctor) doctor "$ROOT" "$LAB_DIR" "$SPEC" "$SIZE" "$WORKLOAD" "$MIN_FREE_GIB" "$KIND_CONFIG" ;;
+    render) render "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN" ;;
+    up) up "$ROOT" "$LAB_DIR" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN" "$CLUSTER" "$MIN_FREE_GIB" "$KIND_CONFIG" ;;
     network)
-      require_rendered "$ROOT" "$SPEC" "$SIZE" "$GEN"
+      require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
       network_up "$ROOT" "$GEN"
       ;;
-    cluster) cluster_up "$LAB_DIR" "$CLUSTER" "$KIND_CONFIG" ;;
+    cluster)
+      pivoted_guard "$LAB_DIR"
+      cluster_up "$LAB_DIR" "$CLUSTER" "$KIND_CONFIG"
+      ;;
     deploy)
+      pivoted_guard "$LAB_DIR"
       require_cluster "$LAB_DIR"
-      require_rendered "$ROOT" "$SPEC" "$SIZE" "$GEN"
+      require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
       deploy "$ROOT" "$LAB_DIR" "$GEN" "$CLUSTER"
       ;;
     fleet)
-      require_rendered "$ROOT" "$SPEC" "$SIZE" "$GEN"
+      require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
       fleet_up "$ROOT" "$LAB_DIR" "$FLEET"
       ;;
     manifests)
       require_cluster "$LAB_DIR"
-      require_rendered "$ROOT" "$SPEC" "$SIZE" "$GEN"
+      require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
       manifests_apply "$GEN"
       ;;
     apply)
       require_cluster "$LAB_DIR"
       shift
       if (( $# == 0 )); then
-        require_rendered "$ROOT" "$SPEC" "$SIZE" "$GEN"
+        require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
         manifests_apply "$GEN"
       else
         admin_apply "$@"
@@ -1055,24 +1226,28 @@ main() {
     status) status "$ROOT" "$LAB_DIR" ;;
     approve) approve "$ROOT" "$LAB_DIR" ;;
     kubeconfig)
-      require_rendered "$ROOT" "$SPEC" "$SIZE" "$GEN"
+      require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
       kubeconfig "$LAB_DIR" "$(lab_value "$GEN" TALOS_CLUSTER)"
       ;;
     wait)
-      require_rendered "$ROOT" "$SPEC" "$SIZE" "$GEN"
+      require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
       wait_converged "$ROOT" "$LAB_DIR" "$GEN" "$WAIT_TIMEOUT"
       ;;
     release)
       (( $# == 2 )) || die "name one claim, e.g.: mise run lab:release default/node-3"
       release "$ROOT" "$LAB_DIR" "$2" "$RELEASE_TIMEOUT"
       ;;
+    pivot)
+      require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
+      pivot "$ROOT" "$LAB_DIR" "$GEN" "$CLUSTER" "$WAIT_TIMEOUT"
+      ;;
     collect)
-      require_rendered "$ROOT" "$SPEC" "$SIZE" "$GEN"
+      require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
       collect "$ROOT" "$LAB_DIR" "$FLEET"
       ;;
     down) down "$ROOT" "$LAB_DIR" "$CLUSTER" ;;
     reset)
-      require_rendered "$ROOT" "$SPEC" "$SIZE" "$GEN"
+      require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
       reset "$ROOT" "$LAB_DIR" "$FLEET"
       ;;
     -h | --help | help) usage ;;

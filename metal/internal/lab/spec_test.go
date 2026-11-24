@@ -47,6 +47,11 @@ func TestSpecRejects(t *testing.T) {
 		"override name":       {minimal + "nodes: { node3: { cpus: 4 } }\n", `"node3" is not a machine name`},
 		"override memory":     {minimal + "nodes: { node-2: { memoryMiB: 100 } }\n", "nodes.node-2.memoryMiB"},
 		"empty patch":         {minimal + "patches: [ { inline: '' } ]\n", "patches[0]"},
+		"workload name":       {minimal + "workload: { name: lab, vip: 10.77.0.9, controlPlanes: 1 }\n", "name of the first cluster"},
+		"workload vip":        {minimal + "workload: { name: work, vip: 10.77.0.10, controlPlanes: 1 }\n", "first cluster's VIP"},
+		"workload vip a node": {minimal + "workload: { name: work, vip: 10.77.0.14, controlPlanes: 1 }\n", "workload.vip 10.77.0.14 is the address of node-4"},
+		"workload even":       {minimal + "workload: { name: work, vip: 10.77.0.9, controlPlanes: 2 }\n", "workload.controlPlanes is 2"},
+		"workload too many":   {minimal + "workload: { name: work, vip: 10.77.0.9, controlPlanes: 1, workers: 97 }\n", "101 machines"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := lab.Parse([]byte(tc.spec))
@@ -111,4 +116,18 @@ func TestPatchesRoundTrip(t *testing.T) {
 		map[string]any{"inline": odd},
 		map[string]any{"inline": "a: 1\n"},
 	}, spec["patches"])
+}
+
+func TestSetWorkload(t *testing.T) {
+	s, err := lab.Parse([]byte(minimal))
+	require.NoError(t, err)
+	assert.Nil(t, s.Workload)
+	assert.Equal(t, 3, s.Machines())
+	require.NoError(t, s.SetWorkload("1cp+2w"))
+	require.NotNil(t, s.Workload)
+	assert.Equal(t, lab.Workload{Name: "work", VIP: "10.77.0.9", ControlPlanes: 1, Workers: 2}, *s.Workload)
+	assert.Equal(t, 6, s.Machines())
+	assert.Equal(t, lab.DefaultWorkload.ControlPlanes, 1, "the default is not changed")
+	require.Error(t, s.SetWorkload("2cp+0w"))
+	require.Error(t, s.SetWorkload("1cp"))
 }

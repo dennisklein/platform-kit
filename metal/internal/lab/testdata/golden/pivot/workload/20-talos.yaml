@@ -1,0 +1,79 @@
+# Generated from lab/lab.yaml. Do not edit: change the spec and run mise run lab:up.
+#
+# The workload cluster the lab installs, on the lab bridge, the Kubernetes API
+# on a virtual IP the control planes hold.
+#
+#   VIP     10.77.0.9
+#   node-2  10.77.0.12  control plane
+#
+# Links and install disks are selected by what the fleet gives each machine
+# (NIC MAC, disk serial), never by a device name that depends on probe order.
+# The gateway is the workstation's end of the bridge, which NATs.
+#
+# The secrets bundle is not here and the operator never makes one. `mise run
+# lab:up` generates it once on the workstation with `talosctl gen secrets` and
+# creates the Secret the cluster names below (key secrets.yaml).
+#
+# The TalosCluster holds what every node shares (think group_vars, or the
+# %include part of a kickstart); each TalosNode holds what is per machine
+# (address, install disk, role). The operator renders one Talos machine
+# configuration per node from the two. A machine that is already installed does
+# not pick a change up by itself: push it with talosctl
+# (talosctl -n <address> patch machineconfig --patch @change.yaml).
+apiVersion: os.pk.io/v1alpha1
+kind: TalosCluster
+metadata:
+  name: work
+spec:
+  talosVersion: v1.14.6
+  kubernetesVersion: v1.36.2
+  endpoint: https://10.77.0.9:6443
+  controlPlane:
+    vip: 10.77.0.9
+    # No workers: ordinary workloads run on the control planes.
+    allowScheduling: true
+  network:
+    cni:
+      name: flannel
+  secretsRef:
+    namespace: pk-metal
+    name: work-talos-secrets
+  schematic:
+    customization:
+      extraKernelArgs:
+        # The simulated BMC records the machine's serial console; without this
+        # the boot is invisible in .lab/state/<machine>/console.log.
+        - console=ttyS0
+  # Talos machine configuration documents from the spec, merged into every
+  # node's configuration. The operator adds nothing here on its own.
+  patches:
+    - inline: |
+        apiVersion: v1alpha1
+        kind: TimeSyncConfig
+        bootTimeout: 2m0s
+    - inline: |
+        apiVersion: v1alpha1
+        kind: ResolverConfig
+        nameservers:
+          - address: 1.1.1.1
+          - address: 8.8.8.8
+---
+apiVersion: os.pk.io/v1alpha1
+kind: TalosNode
+metadata:
+  name: node-2
+spec:
+  clusterRef:
+    name: work
+  role: controlplane
+  # The disk Talos installs onto; it is repartitioned and overwritten.
+  installDiskSelector:
+    serial: pklab-disk-2
+  network:
+    links:
+      - name: lan
+        hardwareAddr: "52:54:00:77:00:12"
+        addresses:
+          - 10.77.0.12/24
+        routes:
+          - gateway: 10.77.0.1

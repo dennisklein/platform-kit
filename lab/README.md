@@ -121,6 +121,7 @@ root on that machine; on a shared workstation, decide that on purpose.
 | `mise run lab:load` | Rebuilds the operator image and rolls the manager. |
 | `mise run lab:wait` | Unattended: approves and waits until every machine is a Ready node. |
 | `mise run lab:release <namespace/name>` | Deletes a claim, approves the shutdown it proposes, and waits until its Host is Available. |
+| `mise run lab:pivot` | Moves the operator from kind onto the first Talos cluster and installs a second one from there (see below). |
 | `mise run lab:collect` | Writes logs and object dumps to `.lab/diagnostics`. |
 | `mise run lab:down` | Stops everything and removes the network. Keeps disks and caches. |
 | `mise run lab:reset` | Wipes the machines' disks. The lab must be down. |
@@ -243,6 +244,45 @@ fleet runs, and the other commands use what the last `lab:up` rendered, so
 mise run lab:down && mise run lab:reset
 PK_LAB_NODES=3cp+2w mise run lab:up
 ```
+
+## Move the operator onto the cluster it built (pivot)
+
+In a real site the operator starts in a small bootstrap cluster (kind on a
+workstation), installs the first Talos cluster, and then moves onto that
+cluster with `pk-metal pivot`. The lab runs this round too. It needs a
+second cluster for the operator to install from its new place:
+
+```sh
+PK_LAB_NODES=1cp+0w PK_LAB_WORKLOAD=1cp+0w mise run lab:doctor
+PK_LAB_NODES=1cp+0w PK_LAB_WORKLOAD=1cp+0w mise run lab:up
+mise run lab:wait         # installs the first cluster, from kind
+mise run lab:pivot        # moves the operator, deletes kind, installs the second
+kubectl --kubeconfig .lab/second.kubeconfig get nodes
+```
+
+What `lab:pivot` does:
+
+1. It starts an image registry on the workstation (`10.77.0.1:5000`) and
+   pushes the operator image there. The first cluster pulls it through a
+   registry mirror, which the lab renders only when there is a second
+   cluster.
+2. It runs `pk-metal pivot --to .lab/workload.kubeconfig`. The move stops the
+   operator in kind, installs it on the first cluster, copies its objects,
+   and fails if the operator there proposes any operation. The machine it
+   installed must not be installed again.
+3. It deletes the kind cluster. `.lab/kubeconfig` names the first cluster
+   from now on, so `lab:status`, `lab:approve` and `lab:collect` go there.
+4. It applies `.lab/generated/workload/` (TalosCluster, TalosNodes and
+   HostClaims of the second cluster), approves, and waits until the second
+   cluster's nodes are Ready. It writes `.lab/second.kubeconfig` and
+   `.lab/second.talosconfig`.
+
+Its machines come after the first cluster's: with `1cp+0w` and `1cp+0w`,
+node-1 is the first cluster and node-2 the second. The second cluster's VIP
+is `10.77.0.9`. To change the defaults, add a `workload:` section to
+`lab/lab.yaml` (there is a commented example at its end). Once the operator
+has moved, `lab:up` refuses to start kind again; take the lab down first. The
+whole procedure for a real site is in `docs/metal/pivot.md`.
 
 ## Look at a machine (there is no ssh)
 

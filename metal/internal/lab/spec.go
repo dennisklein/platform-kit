@@ -35,6 +35,7 @@ import (
 //	      apiVersion: v1alpha1
 //	      kind: ResolverConfig
 //	      ...
+//	workload: { name: work, vip: 10.77.0.9, controlPlanes: 1, workers: 0 }
 type Spec struct {
 	Cluster       Cluster `yaml:"cluster"`
 	ControlPlanes int     `yaml:"controlPlanes"`
@@ -49,6 +50,33 @@ type Spec struct {
 	// Patches are Talos configuration patches for every node, copied into
 	// the TalosCluster as they are.
 	Patches []Patch `yaml:"patches"`
+	// Workload is a second Talos cluster, for the pivot round: the operator
+	// moves from kind onto the first cluster and installs this one from
+	// there. Absent, the lab has one cluster.
+	Workload *Workload `yaml:"workload"`
+}
+
+// Workload is the second cluster. Its machines come after the first
+// cluster's (node-<n+1>, ...) and take the same role shapes and node
+// overrides; it runs the first cluster's Talos and Kubernetes versions.
+type Workload struct {
+	Name          string `yaml:"name"`
+	VIP           string `yaml:"vip"`
+	ControlPlanes int    `yaml:"controlPlanes"`
+	Workers       int    `yaml:"workers"`
+}
+
+// DefaultWorkload is the second cluster PK_LAB_WORKLOAD adds when the spec
+// has none: its VIP is the free address below the first cluster's.
+var DefaultWorkload = Workload{Name: "work", VIP: "10.77.0.9", ControlPlanes: 1}
+
+// Machines is how many machines the lab runs, both clusters together.
+func (s *Spec) Machines() int {
+	n := s.ControlPlanes + s.Workers
+	if s.Workload != nil {
+		n += s.Workload.ControlPlanes + s.Workload.Workers
+	}
+	return n
 }
 
 // Cluster is what the TalosCluster says about the cluster as a whole.
@@ -146,6 +174,21 @@ func (s *Spec) Resize(size string) error {
 	return s.Validate()
 }
 
+// SetWorkload sizes the second cluster from the size knob, adding the
+// default one when the spec has none, and validates the result.
+func (s *Spec) SetWorkload(size string) error {
+	cp, w, err := ParseSize(size)
+	if err != nil {
+		return err
+	}
+	if s.Workload == nil {
+		wl := DefaultWorkload
+		s.Workload = &wl
+	}
+	s.Workload.ControlPlanes, s.Workload.Workers = cp, w
+	return s.Validate()
+}
+
 // Validate reports everything that is wrong at once, so that a spec is fixed
 // in one pass.
 func (s *Spec) Validate() error {
@@ -173,19 +216,42 @@ func (s *Spec) Validate() error {
 	if s.Workers < 0 {
 		bad("workers is %d: it cannot be negative", s.Workers)
 	}
-	if n := s.ControlPlanes + s.Workers; n > MaxNodes {
+	if n := s.Machines(); n > MaxNodes {
 		bad("%d machines is more than the lab supports (%d)", n, MaxNodes)
 	}
 
-	if vip, err := netip.ParseAddr(s.Cluster.VIP); err != nil || !labPrefix.Contains(vip) {
-		bad("cluster.vip %q is not an address in the lab network %s", s.Cluster.VIP, labPrefix)
-	} else if vip == labGateway {
-		bad("cluster.vip %s is the workstation's address on the lab bridge", vip)
-	} else if n := s.ControlPlanes + s.Workers; n <= MaxNodes {
-		for i := 1; i <= n; i++ {
-			if nodeAddress(i) == vip {
-				bad("cluster.vip %s is the address of node-%d; machines take .11 upwards, pick one below", vip, i)
+	checkVIP := func(where, value string) {
+		if vip, err := netip.ParseAddr(value); err != nil || !labPrefix.Contains(vip) {
+			bad("%s %q is not an address in the lab network %s", where, value, labPrefix)
+		} else if vip == labGateway {
+			bad("%s %s is the workstation's address on the lab bridge", where, vip)
+		} else if n := s.Machines(); n <= MaxNodes {
+			for i := 1; i <= n; i++ {
+				if nodeAddress(i) == vip {
+					bad("%s %s is the address of node-%d; machines take .11 upwards, pick one below", where, vip, i)
+				}
 			}
+		}
+	}
+	checkVIP("cluster.vip", s.Cluster.VIP)
+	if w := s.Workload; w != nil {
+		if !dnsLabel.MatchString(w.Name) {
+			bad("workload.name %q must be lower-case letters, digits and dashes", w.Name)
+		} else if w.Name == s.Cluster.Name {
+			bad("workload.name %q is the name of the first cluster; give the second its own", w.Name)
+		}
+		switch {
+		case w.ControlPlanes < 1:
+			bad("workload.controlPlanes is %d: a cluster needs at least one", w.ControlPlanes)
+		case w.ControlPlanes%2 == 0:
+			bad("workload.controlPlanes is %d: use an odd number (1, 3 or 5), etcd needs a majority", w.ControlPlanes)
+		}
+		if w.Workers < 0 {
+			bad("workload.workers is %d: it cannot be negative", w.Workers)
+		}
+		checkVIP("workload.vip", w.VIP)
+		if w.VIP == s.Cluster.VIP {
+			bad("workload.vip %s is the first cluster's VIP; each cluster needs its own", w.VIP)
 		}
 	}
 

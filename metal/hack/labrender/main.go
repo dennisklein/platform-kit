@@ -3,7 +3,7 @@
 // and lab.env for lab/lab.sh. lab/lab.sh runs it on every lab:up and lab:doctor;
 // the logic lives in internal/lab.
 //
-// usage: go run ./hack/labrender --spec <lab.yaml> --out <dir> [--nodes <cp>cp+<w>w]
+// usage: go run ./hack/labrender --spec <lab.yaml> --out <dir> [--nodes <cp>cp+<w>w] [--workload <cp>cp+<w>w]
 package main
 
 import (
@@ -20,22 +20,23 @@ func main() {
 	spec := flag.String("spec", "", "the lab spec (lab/lab.yaml)")
 	out := flag.String("out", "", "directory to write the rendered files into")
 	nodes := flag.String("nodes", "", "override the spec's size: <control planes>cp+<workers>w, for example 3cp+2w")
+	workload := flag.String("workload", "", "add or size the second cluster of the pivot round: <control planes>cp+<workers>w")
 	source := flag.String("source", "", "how the generated headers name the spec (default: --spec)")
 	flag.Parse()
 	if *spec == "" || *out == "" || flag.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "usage: labrender --spec <lab.yaml> --out <dir> [--nodes <cp>cp+<w>w]")
+		fmt.Fprintln(os.Stderr, "usage: labrender --spec <lab.yaml> --out <dir> [--nodes <cp>cp+<w>w] [--workload <cp>cp+<w>w]")
 		os.Exit(2)
 	}
 	if *source == "" {
 		*source = *spec
 	}
-	if err := run(*spec, *out, *nodes, *source); err != nil {
+	if err := run(*spec, *out, *nodes, *workload, *source); err != nil {
 		fmt.Fprintf(os.Stderr, "labrender: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(specPath, out, nodes, source string) error {
+func run(specPath, out, nodes, workload, source string) error {
 	s, err := lab.Load(specPath)
 	if err != nil {
 		return err
@@ -43,6 +44,11 @@ func run(specPath, out, nodes, source string) error {
 	if nodes != "" {
 		if err := s.Resize(nodes); err != nil {
 			return fmt.Errorf("PK_LAB_NODES: %w", err)
+		}
+	}
+	if workload != "" {
+		if err := s.SetWorkload(workload); err != nil {
+			return fmt.Errorf("PK_LAB_WORKLOAD: %w", err)
 		}
 	}
 	// A personality that names no fixture would only fail once the fleet

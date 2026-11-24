@@ -54,13 +54,18 @@ func nodeAddress(index int) netip.Addr {
 }
 
 // Plan lists the machines: the control planes first, then the workers, each
-// with its role's shape and its own override applied.
+// with its role's shape and its own override applied. The second cluster's
+// machines, if the spec has one, follow in the same order.
 func (s *Spec) Plan() []Node {
-	n := s.ControlPlanes + s.Workers
+	n := s.Machines()
+	first := s.ControlPlanes + s.Workers
 	nodes := make([]Node, 0, n)
 	for i := 1; i <= n; i++ {
 		role, shape := RoleControlPlane, s.ControlPlane
-		if i > s.ControlPlanes {
+		switch {
+		case i <= first && i > s.ControlPlanes:
+			role, shape = RoleWorker, s.Worker
+		case i > first && i-first > s.Workload.ControlPlanes:
 			role, shape = RoleWorker, s.Worker
 		}
 		name := fmt.Sprintf("node-%d", i)
@@ -108,7 +113,31 @@ const (
 	FileTaps     = "taps"
 	FileLedger   = "ledger.yaml"
 	FileEnv      = "lab.env"
+	// The second cluster's files, only with a workload section. They are
+	// outside manifests/: lab:up applies that directory to kind, and these go
+	// to the first cluster once the operator has moved there.
+	FileWorkloadTalos  = "workload/20-talos.yaml"
+	FileWorkloadClaims = "workload/30-claims.yaml"
 )
+
+// Registry is where the pivot round serves the operator image from: a
+// registry on the workstation's lab bridge address. The first cluster pulls
+// from it over plain HTTP, through a registry mirror.
+const Registry = "10.77.0.1:5000"
+
+// mirror is one registry mirror of a rendered TalosCluster.
+type mirror struct{ Registry, Endpoint string }
+
+// clusterData is what the TalosCluster, TalosNode and HostClaim templates
+// read about one cluster.
+type clusterData struct {
+	Cluster       Cluster
+	BundleSecret  string
+	Nodes         []Node
+	ControlPlanes []Node
+	Workers       []Node
+	Mirrors       []mirror
+}
 
 // Files are rendered file contents by path relative to the output directory.
 type Files map[string][]byte
@@ -123,46 +152,84 @@ func Render(s *Spec, source string) (Files, error) {
 	if err != nil {
 		return nil, err
 	}
-	nodes := s.Plan()
+	machines := s.Plan()
 	memory := 0
-	for _, n := range nodes {
+	for _, n := range machines {
 		memory += n.MemoryMiB
 	}
-	data := struct {
-		Source        string
-		Spec          *Spec
-		Nodes         []Node
-		Gateway       netip.Addr
-		PrefixBits    int
-		Patches       string
-		Username      string
-		Password      string
-		DiskGiB       int
-		MemoryMiB     int
-		ControlPlanes []Node
-		Workers       []Node
-	}{
-		Source:        source,
-		Spec:          s,
-		Nodes:         nodes,
-		Gateway:       labGateway,
-		PrefixBits:    labPrefix.Bits(),
-		Patches:       patches,
-		Username:      bmcUsername,
-		Password:      bmcPassword,
-		DiskGiB:       diskGiB,
-		MemoryMiB:     memory,
-		ControlPlanes: nodes[:s.ControlPlanes],
-		Workers:       nodes[s.ControlPlanes:],
+	first := s.ControlPlanes + s.Workers
+	management := clusterData{
+		Cluster:       s.Cluster,
+		BundleSecret:  s.Cluster.Name + "-talos-secrets",
+		Nodes:         machines[:first],
+		ControlPlanes: machines[:s.ControlPlanes],
+		Workers:       machines[s.ControlPlanes:first],
+	}
+	var workload *clusterData
+	if w := s.Workload; w != nil {
+		// The operator moves onto the first cluster, and its image comes
+		// from the workstation's registry.
+		management.Mirrors = []mirror{{Registry: Registry, Endpoint: "http://" + Registry}}
+		c := s.Cluster
+		c.Name, c.VIP = w.Name, w.VIP
+		workload = &clusterData{
+			Cluster:       c,
+			BundleSecret:  w.Name + "-talos-secrets",
+			Nodes:         machines[first:],
+			ControlPlanes: machines[first : first+w.ControlPlanes],
+			Workers:       machines[first+w.ControlPlanes:],
+		}
+	}
+	type data struct {
+		clusterData
+		Source     string
+		Machines   []Node
+		Workload   *clusterData
+		Gateway    netip.Addr
+		PrefixBits int
+		Patches    string
+		Username   string
+		Password   string
+		DiskGiB    int
+		MemoryMiB  int
+	}
+	base := data{
+		clusterData: management,
+		Source:      source,
+		Machines:    machines,
+		Workload:    workload,
+		Gateway:     labGateway,
+		PrefixBits:  labPrefix.Bits(),
+		Patches:     patches,
+		Username:    bmcUsername,
+		Password:    bmcPassword,
+		DiskGiB:     diskGiB,
+		MemoryMiB:   memory,
 	}
 
 	files := Files{}
-	for path, tmpl := range templates {
+	execute := func(path string, tmpl *template.Template, d data) error {
 		var buf bytes.Buffer
-		if err := tmpl.Execute(&buf, data); err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
+		if err := tmpl.Execute(&buf, d); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
 		}
 		files[path] = buf.Bytes()
+		return nil
+	}
+	for path, tmpl := range templates {
+		if err := execute(path, tmpl, base); err != nil {
+			return nil, err
+		}
+	}
+	if workload != nil {
+		second := base
+		second.clusterData = *workload
+		if err := execute(FileWorkloadTalos, templates[FileTalos], second); err != nil {
+			return nil, err
+		}
+		if err := execute(FileWorkloadClaims, templates[FileClaims], second); err != nil {
+			return nil, err
+		}
 	}
 	return files, nil
 }
@@ -244,7 +311,7 @@ const fleetTemplate = `# Generated from {{.Source}}. Do not edit: change the spe
 stateDir: .lab/state # per machine: disk, UEFI variables, console log
 mediaCache: .lab/cache # downloaded installer images, kept across lab:down
 machines:
-{{- range .Nodes}}
+{{- range .Machines}}
   - name: {{.Name}} # {{.Role}}
     listen: {{.Listen}}
     personality: {{.Personality}}
@@ -278,7 +345,7 @@ stringData:
   # The simulators' credentials. They open nothing else.
   username: {{.Username}}
   password: {{.Password}}
-{{- range .Nodes}}
+{{- range .Machines}}
 ---
 apiVersion: metal.pk.io/v1alpha1
 kind: Asset
@@ -299,7 +366,7 @@ const talosTemplate = `# Generated from {{.Source}}. Do not edit: change the spe
 # on a virtual IP the control planes hold{{if gt (len .ControlPlanes) 1}} (it moves to another control
 # plane when its holder goes down){{end}}.
 #
-#   VIP     {{.Spec.Cluster.VIP}}
+#   VIP     {{.Cluster.VIP}}
 {{- range .Nodes}}
 #   {{printf "%-7s" .Name}} {{printf "%-11s" .Address.String}} {{if eq .Role "controlplane"}}control plane{{else}}worker{{end}}
 {{- end}}
@@ -320,13 +387,13 @@ const talosTemplate = `# Generated from {{.Source}}. Do not edit: change the spe
 apiVersion: os.pk.io/v1alpha1
 kind: TalosCluster
 metadata:
-  name: {{.Spec.Cluster.Name}}
+  name: {{.Cluster.Name}}
 spec:
-  talosVersion: {{.Spec.Cluster.TalosVersion}}
-  kubernetesVersion: {{.Spec.Cluster.KubernetesVersion}}
-  endpoint: https://{{.Spec.Cluster.VIP}}:6443
+  talosVersion: {{.Cluster.TalosVersion}}
+  kubernetesVersion: {{.Cluster.KubernetesVersion}}
+  endpoint: https://{{.Cluster.VIP}}:6443
   controlPlane:
-    vip: {{.Spec.Cluster.VIP}}
+    vip: {{.Cluster.VIP}}
 {{- if eq (len .Workers) 0}}
     # No workers: ordinary workloads run on the control planes.
     allowScheduling: true
@@ -334,9 +401,19 @@ spec:
   network:
     cni:
       name: flannel
+{{- if .Mirrors}}
+  # The workstation's registry, over plain HTTP: pk-metal pivot runs the
+  # operator here with an image pushed there.
+  registryMirrors:
+{{- range .Mirrors}}
+    - registry: "{{.Registry}}"
+      endpoints:
+        - {{.Endpoint}}
+{{- end}}
+{{- end}}
   secretsRef:
     namespace: pk-metal
-    name: {{.Spec.Cluster.Name}}-talos-secrets
+    name: {{.BundleSecret}}
   schematic:
     customization:
       extraKernelArgs:
@@ -356,7 +433,7 @@ metadata:
   name: {{.Name}}
 spec:
   clusterRef:
-    name: {{$.Spec.Cluster.Name}}
+    name: {{$.Cluster.Name}}
   role: {{.Role}}
   # The disk Talos installs onto; it is repartitioned and overwritten.
   installDiskSelector:
@@ -406,23 +483,33 @@ spec:
 `
 
 // One tap per line, for lab/net.sh up.
-const tapsTemplate = `{{range .Nodes}}{{.Tap}}
+const tapsTemplate = `{{range .Machines}}{{.Tap}}
 {{end}}`
 
 // The ledger the operator joins Assets against: BMC MAC -> the URL its
 // simulator listens on.
 const ledgerTemplate = `# Generated from {{.Source}}. Do not edit.
-{{- range .Nodes}}
+{{- range .Machines}}
 "{{.BMCMAC}}": https://{{.Listen}}
 {{- end}}
 `
 
 // What lab/lab.sh needs to know, as KEY=value lines. The values are names and
 // numbers the spec validates, so a reader may split on the first '='.
-const envTemplate = `TALOS_CLUSTER={{.Spec.Cluster.Name}}
-BUNDLE_SECRET={{.Spec.Cluster.Name}}-talos-secrets
+//
+// NODES counts the first cluster's machines, which lab:wait waits for. With
+// a workload section, the WORKLOAD_ keys describe the second cluster, and
+// MEMORY_MIB covers the machines of both.
+const envTemplate = `TALOS_CLUSTER={{.Cluster.Name}}
+BUNDLE_SECRET={{.BundleSecret}}
 CONTROL_PLANES={{len .ControlPlanes}}
 WORKERS={{len .Workers}}
 NODES={{len .Nodes}}
 MEMORY_MIB={{.MemoryMiB}}
+{{- with .Workload}}
+WORKLOAD_CLUSTER={{.Cluster.Name}}
+WORKLOAD_BUNDLE_SECRET={{.BundleSecret}}
+WORKLOAD_NODES={{len .Nodes}}
+REGISTRY=` + Registry + `
+{{- end}}
 `

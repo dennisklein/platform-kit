@@ -198,6 +198,11 @@ run = "lab/lab.sh wait"
 description = "Unattended: delete a claim (namespace/name), approve its shutdown and wait until its Host is Available"
 run = "lab/lab.sh release"
 
+[tasks."lab:pivot"]
+description = "Unattended: move the operator from kind onto the first Talos cluster, delete kind, and install the second cluster (PK_LAB_WORKLOAD) from there"
+depends = ["build"]
+run = "lab/lab.sh pivot"
+
 [tasks."lab:collect"]
 description = "Write logs and object dumps of the lab to .lab/diagnostics"
 run = "lab/lab.sh collect"

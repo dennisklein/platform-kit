@@ -9,10 +9,20 @@
 # releases one claim and waits until that machine is back, so the release path
 # (a gated shutdown of a running node) runs against a real machine too. The
 # fleet mixes BMC dialects: node-3 is a simulated Supermicro X12.
+#
+# The pivot round runs on request only (workflow_dispatch with pivot set), in
+# its own job: the operator installs a one-machine Talos cluster from kind,
+# moves onto it with pk-metal pivot, kind is deleted, and from its new place
+# the operator installs a second one-machine cluster.
 name: lab-e2e
 
 on:
   workflow_dispatch:
+    inputs:
+      pivot:
+        description: "Also run the pivot round: move the operator from kind onto the cluster it built, then install a second cluster from there"
+        type: boolean
+        default: false
   push:
     branches:
       - "claude/**"
@@ -113,6 +123,78 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lab-diagnostics
+          path: .lab/diagnostics
+          if-no-files-found: warn
+          retention-days: 7
+
+  pivot:
+    name: move the operator onto the cluster it built
+    if: github.event_name == 'workflow_dispatch' && inputs.pivot
+    # A hosted runner has 16 GiB. Two machines of 4 GiB and the kind node fit;
+    # kind goes away after the move.
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      PK_LAB_MIN_FREE_GIB: "10"
+      PK_LAB_WAIT_TIMEOUT: "2400"
+      PK_LAB_NODES: "1cp+0w"
+      PK_LAB_WORKLOAD: "1cp+0w"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Enable KVM for the runner user
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install QEMU and the UEFI firmware
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends qemu-system-x86 qemu-utils ovmf
+
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
+
+      - name: Locate the Go caches
+        id: go
+        run: |
+          echo "modcache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "buildcache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go.outputs.modcache }}
+            ${{ steps.go.outputs.buildcache }}
+          key: go-lab-${{ runner.os }}-${{ hashFiles('metal/go.sum') }}
+          restore-keys: go-lab-${{ runner.os }}-
+
+      - name: Check the prerequisites
+        run: mise run lab:doctor
+
+      - name: Bring the lab up
+        run: mise run lab:up
+
+      - name: Install the first cluster from kind
+        run: mise run lab:wait
+
+      # pk-metal pivot fails when the operator proposes anything after the
+      # move; the machine it installed must not be installed again.
+      - name: Move the operator onto it and install the second cluster from there
+        run: |
+          mise run lab:pivot
+          mise run lab:status
+          kubectl --kubeconfig .lab/second.kubeconfig get nodes --output wide
+
+      - name: Collect diagnostics
+        if: failure()
+        run: mise run lab:collect
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lab-pivot-diagnostics
           path: .lab/diagnostics
           if-no-files-found: warn
           retention-days: 7
