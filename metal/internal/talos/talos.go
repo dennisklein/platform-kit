@@ -4,9 +4,10 @@
 //
 // The maintenance service is deliberately narrow here: it binds :50000 with no
 // client authentication, so on real metal the config rides the BMC's media
-// channel and the insecure dial exists only for the container tier (no media)
-// and day-0 liveness probing. Callers must name that choice loudly (Target.
-// Insecure; the CLI's --apply-insecure).
+// channel. In the operator and the CLI the insecure dial (Target.Insecure)
+// only observes: day-0 liveness probing and reading a node in maintenance
+// mode. Only the container test tier, which has no media, applies a config
+// over it.
 package talos
 
 import (
