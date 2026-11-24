@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -298,6 +299,140 @@ func TestApprove(t *testing.T) {
 		a.Yes = true
 		assert.ErrorContains(t, approve(ctx, fakeClient(objs...), a), "has finished (Succeeded)",
 			"an AwaitingApproval phase does not hide a recorded outcome")
+	})
+}
+
+// answerAfter is a person who answers only after something else changed the
+// cluster while the question was open.
+type answerAfter struct {
+	meanwhile func()
+	answer    io.Reader
+}
+
+func (a *answerAfter) Read(p []byte) (int, error) {
+	if a.meanwhile != nil {
+		a.meanwhile()
+		a.meanwhile = nil
+	}
+	return a.answer.Read(p)
+}
+
+// conflictOnce answers the first approval patch with a write of its own just
+// before it, the way the operator writing the operation's status between the
+// read and the patch does.
+type conflictOnce struct {
+	client.Client
+	meanwhile func()
+}
+
+func (c *conflictOnce) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+	if c.meanwhile != nil {
+		c.meanwhile()
+		c.meanwhile = nil
+	}
+	return c.Client.Patch(ctx, obj, patch, opts...)
+}
+
+// TestApproveWhatWasShown: an approval lands on the operation object whose
+// plan the person read, or on nothing.
+func TestApproveWhatWasShown(t *testing.T) {
+	ctx := context.Background()
+	asked := func(op *metalv1alpha1.HostOperation, in io.Reader, out *bytes.Buffer) approval {
+		return approval{Namespace: op.Namespace, Name: op.Name, User: "alice", Interactive: true, In: in, Out: out}
+	}
+
+	t.Run("an operation created again under the name while the question was open", func(t *testing.T) {
+		op, objs := bootPlan()
+		op.UID = "first"
+		cl := fakeClient(objs...)
+		var out bytes.Buffer
+		in := &answerAfter{answer: strings.NewReader("y\n"), meanwhile: func() {
+			old := &metalv1alpha1.HostOperation{}
+			assert.NoError(t, cl.Get(ctx, client.ObjectKeyFromObject(op), old))
+			assert.NoError(t, cl.Delete(ctx, old))
+			again := op.DeepCopy()
+			again.UID, again.ResourceVersion = "second", ""
+			again.Spec.Actions = again.Spec.Actions[:1]
+			assert.NoError(t, cl.Create(ctx, again))
+		}}
+		err := approve(ctx, cl, asked(op, in, &out))
+		assert.ErrorContains(t, err, "changed since its plan was shown; nothing changed")
+		assert.Empty(t, approvedBy(t, cl, op))
+	})
+
+	t.Run("the same plan on a new object is still another object", func(t *testing.T) {
+		op, objs := bootPlan()
+		op.UID = "first"
+		cl := fakeClient(objs...)
+		var out bytes.Buffer
+		in := &answerAfter{answer: strings.NewReader("y\n"), meanwhile: func() {
+			old := &metalv1alpha1.HostOperation{}
+			assert.NoError(t, cl.Get(ctx, client.ObjectKeyFromObject(op), old))
+			assert.NoError(t, cl.Delete(ctx, old))
+			again := op.DeepCopy()
+			again.UID, again.ResourceVersion = "second", ""
+			assert.NoError(t, cl.Create(ctx, again))
+		}}
+		assert.ErrorContains(t, approve(ctx, cl, asked(op, in, &out)), "changed since its plan was shown")
+		assert.Empty(t, approvedBy(t, cl, op))
+	})
+
+	t.Run("a status write while the question was open does not stop it", func(t *testing.T) {
+		op, objs := bootPlan()
+		cl := fakeClient(objs...)
+		var out bytes.Buffer
+		in := &answerAfter{answer: strings.NewReader("y\n"), meanwhile: func() {
+			now := &metalv1alpha1.HostOperation{}
+			assert.NoError(t, cl.Get(ctx, client.ObjectKeyFromObject(op), now))
+			now.Status.Conditions[0].Message = "still waiting"
+			assert.NoError(t, cl.Update(ctx, now))
+		}}
+		require.NoError(t, approve(ctx, cl, asked(op, in, &out)))
+		assert.Equal(t, "alice", approvedBy(t, cl, op))
+	})
+
+	t.Run("a write between the read and the patch is caught by the resourceVersion", func(t *testing.T) {
+		op, objs := bootPlan()
+		inner := fakeClient(objs...)
+		cl := &conflictOnce{Client: inner, meanwhile: func() {
+			now := &metalv1alpha1.HostOperation{}
+			require.NoError(t, inner.Get(ctx, client.ObjectKeyFromObject(op), now))
+			now.Spec.Actions = now.Spec.Actions[:1]
+			require.NoError(t, inner.Update(ctx, now))
+		}}
+		var out bytes.Buffer
+		a := asked(op, nil, &out)
+		a.Yes = true
+		assert.ErrorContains(t, approve(ctx, cl, a), "changed since its plan was shown")
+		assert.Empty(t, approvedBy(t, inner, op))
+	})
+
+	t.Run("a status write between the read and the patch is retried", func(t *testing.T) {
+		op, objs := bootPlan()
+		inner := fakeClient(objs...)
+		cl := &conflictOnce{Client: inner, meanwhile: func() {
+			now := &metalv1alpha1.HostOperation{}
+			require.NoError(t, inner.Get(ctx, client.ObjectKeyFromObject(op), now))
+			now.Status.Conditions[0].Message = "still waiting"
+			require.NoError(t, inner.Update(ctx, now))
+		}}
+		var out bytes.Buffer
+		a := asked(op, nil, &out)
+		a.Yes = true
+		require.NoError(t, approve(ctx, cl, a))
+		assert.Equal(t, "alice", approvedBy(t, inner, op))
+	})
+
+	t.Run("no answer within the window approves nothing", func(t *testing.T) {
+		op, objs := bootPlan()
+		cl := fakeClient(objs...)
+		var out bytes.Buffer
+		never, w := io.Pipe()
+		defer w.Close()
+		a := asked(op, never, &out)
+		a.Window = 20 * time.Millisecond
+		assert.ErrorContains(t, approve(ctx, cl, a), "no answer within 0s; nothing changed")
+		assert.Empty(t, approvedBy(t, cl, op))
 	})
 }
 

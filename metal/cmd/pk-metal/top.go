@@ -330,23 +330,27 @@ type clusterActions struct {
 	cl client.Client
 }
 
-func (a clusterActions) Plan(ctx context.Context, namespace, name string) (string, string, error) {
+func (a clusterActions) Plan(ctx context.Context, namespace, name string) (shownPlan, error) {
 	user, err := whoAmI(ctx, a.cl)
 	if err != nil {
-		return "", "", err
+		return shownPlan{}, err
 	}
-	_, plan, err := approvalPlan(ctx, a.cl, namespace, name, user)
-	return plan, user, err
+	op, plan, err := approvalPlan(ctx, a.cl, namespace, name, user)
+	if err != nil {
+		return shownPlan{}, err
+	}
+	return shownPlan{Text: plan, User: user, UID: op.UID}, nil
 }
 
-func (a clusterActions) Approve(ctx context.Context, namespace, name, user, plan string) (string, error) {
+func (a clusterActions) Approve(ctx context.Context, namespace, name string, p shownPlan) (string, error) {
 	var out bytes.Buffer
-	err := approve(ctx, a.cl, approval{Namespace: namespace, Name: name, User: user, Yes: true, Out: &out, Expect: plan})
+	err := approve(ctx, a.cl, approval{Namespace: namespace, Name: name, User: p.User, Yes: true, Out: &out,
+		Expect: p.Text, ExpectUID: p.UID})
 	if err != nil {
 		return "", err
 	}
 	// approve printed the plan again, then its outcome.
-	return strings.TrimPrefix(out.String(), plan), nil
+	return strings.TrimPrefix(out.String(), p.Text), nil
 }
 
 func (a clusterActions) Hold(ctx context.Context, namespace, name string, on bool) (string, error) {

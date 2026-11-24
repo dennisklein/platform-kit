@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -176,18 +177,20 @@ type fakeActions struct {
 	planErr  error
 	approved []string
 	expected []string
+	uids     []types.UID
 	holds    []string
 	retried  []string
 }
 
-func (f *fakeActions) Plan(_ context.Context, ns, name string) (string, string, error) {
-	return f.plan, "carol", f.planErr
+func (f *fakeActions) Plan(_ context.Context, ns, name string) (shownPlan, error) {
+	return shownPlan{Text: f.plan, User: "carol", UID: "uid-" + types.UID(name)}, f.planErr
 }
 
-func (f *fakeActions) Approve(_ context.Context, ns, name, user, plan string) (string, error) {
-	f.approved = append(f.approved, ns+"/"+name+" as "+user)
-	f.expected = append(f.expected, plan)
-	return "approved " + ns + "/" + name + " as " + user + "; the operator starts it now.\n", nil
+func (f *fakeActions) Approve(_ context.Context, ns, name string, p shownPlan) (string, error) {
+	f.approved = append(f.approved, ns+"/"+name+" as "+p.User)
+	f.expected = append(f.expected, p.Text)
+	f.uids = append(f.uids, p.UID)
+	return "approved " + ns + "/" + name + " as " + p.User + "; the operator starts it now.\n", nil
 }
 
 func (f *fakeActions) Hold(_ context.Context, ns, name string, on bool) (string, error) {
@@ -346,7 +349,22 @@ func TestTopKeys(t *testing.T) {
 	m, _ = feed(t, m, cmd())
 	assert.Equal(t, []string{"pk-metal/provision-node3-5e6f7a8b as carol"}, act.approved)
 	assert.Equal(t, []string{act.plan}, act.expected)
+	assert.Equal(t, []types.UID{"uid-provision-node3-5e6f7a8b"}, act.uids, "and the very object it was read from")
 	assert.Contains(t, screen(m), "approved pk-metal/provision-node3-5e6f7a8b as carol")
+
+	// A plan left on the screen past the approval window approves nothing.
+	clock := time.Now()
+	m.now = func() time.Time { return clock }
+	m, cmd = feed(t, m, key("a"))
+	m, _ = feed(t, m, cmd())
+	clock = clock.Add(approvalWindow + time.Second)
+	m, cmd = feed(t, m, key("y"))
+	assert.Nil(t, cmd)
+	assert.Equal(t, modeTiles, m.mode)
+	assert.True(t, m.statusBad)
+	assert.Contains(t, m.status, "was shown more than 5m ago; nothing changed")
+	assert.Len(t, act.approved, 1)
+	m.now = nil
 
 	// h holds a claim that is not held, and lifts a hold.
 	m, cmd = feed(t, m, key("h"))
@@ -491,11 +509,16 @@ func TestApproveTheShownPlanOnly(t *testing.T) {
 	var out strings.Builder
 	err = approve(ctx, cl, approval{Namespace: op.Namespace, Name: op.Name, User: "alice", Yes: true, Out: &out,
 		Expect: plan + "   10. something the person did not see\n"})
-	assert.ErrorContains(t, err, "changed since it was shown")
+	assert.ErrorContains(t, err, "changed since its plan was shown")
 	assert.Empty(t, approvedBy(t, cl, op))
 
 	act := clusterActions{cl: cl}
-	text, err := act.Approve(ctx, op.Namespace, op.Name, "alice", plan)
+	_, err = act.Approve(ctx, op.Namespace, op.Name, shownPlan{Text: plan, User: "alice", UID: "an-earlier-object"})
+	assert.ErrorContains(t, err, "changed since its plan was shown",
+		"the same plan on an operation deleted and created again under the name is another object")
+	assert.Empty(t, approvedBy(t, cl, op))
+
+	text, err := act.Approve(ctx, op.Namespace, op.Name, shownPlan{Text: plan, User: "alice", UID: shownOp.UID})
 	require.NoError(t, err)
 	assert.Equal(t, "alice", approvedBy(t, cl, op))
 	assert.NotContains(t, text, "steps, in this order", "the status line gets the outcome, not the plan again")

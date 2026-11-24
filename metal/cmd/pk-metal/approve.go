@@ -31,6 +31,9 @@ The operator never acts on a machine before a person approves the plan.
 approve prints the plan first: the machine, its BMC, each step in order, the
 media it mounts, the boot target, and for an OS install the node, its address
 and the disk that will be overwritten. Then it asks "Approve? [y/N]".
+The question waits five minutes. After a yes, approve reads the operation
+again and approves it only if it is the same object and its plan reads the
+same; otherwise nothing changes and you look at the new plan.
 
 The approval is recorded as your cluster user. You cannot approve an operation
 that you proposed yourself, and an approval cannot be changed afterwards.
@@ -112,6 +115,11 @@ func whoAmI(ctx context.Context, cl client.Client) (string, error) {
 	return ssr.Status.UserInfo.Username, nil
 }
 
+// approvalWindow is how long a shown plan can be approved. A person who
+// answers later, or presses y in pk-metal top later, approves nothing and is
+// asked to look at the plan again.
+const approvalWindow = 5 * time.Minute
+
 // approval is one approve call: the operation, who approves, and how to ask.
 type approval struct {
 	Namespace, Name string
@@ -121,12 +129,25 @@ type approval struct {
 	Interactive     bool
 	Out             io.Writer
 	// Expect is the plan the person saw and agreed to somewhere else (pk-metal
-	// top). When set, approve refuses if the plan reads differently now.
-	Expect string
+	// top), and ExpectUID the operation it was read from. When set, approve
+	// refuses if the plan reads differently now, or belongs to another
+	// operation of the same name.
+	Expect    string
+	ExpectUID types.UID
+	// Window bounds the wait for the person's answer; zero is approvalWindow.
+	Window time.Duration
 }
 
 // errDeclined: the person answered no. Nothing changed.
 var errDeclined = errors.New("not approved; nothing changed")
+
+// errNoAnswer: the person did not answer within the window.
+var errNoAnswer = errors.New("no answer")
+
+// patchAttempts bounds how often an approval is sent again after the
+// operation changed under it in a way that does not touch the plan (the
+// operator writing its status).
+const patchAttempts = 3
 
 func approve(ctx context.Context, cl client.Client, a approval) error {
 	op, plan, err := approvalPlan(ctx, cl, a.Namespace, a.Name, a.User)
@@ -134,38 +155,104 @@ func approve(ctx context.Context, cl client.Client, a approval) error {
 		return err
 	}
 	ref := op.Namespace + "/" + op.Name
-	if a.Expect != "" && plan != a.Expect {
-		return fmt.Errorf("the plan of %s changed since it was shown; nothing changed. Look at the new plan and approve again", ref)
+	changed := fmt.Errorf("operation %s changed since its plan was shown; nothing changed. "+
+		"Look at the plan as it is now and approve again", ref)
+	if a.Expect != "" && (plan != a.Expect || (a.ExpectUID != "" && op.UID != a.ExpectUID)) {
+		return changed
 	}
 	fmt.Fprint(a.Out, plan)
 
+	shown := op.UID
+	reread := false
 	if !a.Yes {
 		if !a.Interactive {
 			return fmt.Errorf("stdin is not a terminal, so pk-metal cannot ask; " +
 				"read the plan above and rerun with --yes to approve it")
 		}
+		window := a.Window
+		if window <= 0 {
+			window = approvalWindow
+		}
 		fmt.Fprintf(a.Out, "\nApprove as %s? [y/N] ", a.User)
-		line, _ := bufio.NewReader(a.In).ReadString('\n')
+		line, err := ask(ctx, a.In, window)
+		if errors.Is(err, errNoAnswer) {
+			fmt.Fprintln(a.Out)
+			return fmt.Errorf("no answer within %s; nothing changed. Run approve again to see the plan as it is now",
+				shortDuration(window))
+		}
 		switch strings.ToLower(strings.TrimSpace(line)) {
 		case "y", "yes":
 		default:
 			return errDeclined
 		}
+		// The person took a while to answer. Whatever they agreed to was
+		// read before that, so it is read again and must still be the same
+		// operation with the same plan.
+		reread = true
 	}
 
-	// Marshalled, not formatted: Go's %q escapes are not JSON's, and a user
-	// name comes from whatever the identity provider allows.
-	patch, err := json.Marshal(map[string]any{
-		"spec": map[string]any{"approval": map[string]any{"approvedBy": a.User}},
-	})
-	if err != nil {
-		return err
-	}
-	if err := cl.Patch(ctx, op, client.RawPatch(types.MergePatchType, patch)); err != nil {
-		return fmt.Errorf("approve %s: %w", ref, err)
+	for attempt := 0; ; attempt++ {
+		if reread {
+			now, nowPlan, err := approvalPlan(ctx, cl, a.Namespace, a.Name, a.User)
+			if err != nil {
+				return err
+			}
+			if now.UID != shown || nowPlan != plan {
+				return changed
+			}
+			op = now
+		}
+		err := cl.Patch(ctx, op, client.RawPatch(types.MergePatchType, approvalPatch(op, a.User)))
+		if err == nil {
+			break
+		}
+		if !apierrors.IsConflict(err) || attempt+1 >= patchAttempts {
+			if apierrors.IsConflict(err) {
+				return changed
+			}
+			return fmt.Errorf("approve %s: %w", ref, err)
+		}
+		// The operation changed after it was read; read it again, and
+		// approve it only if the plan is still the one shown.
+		reread = true
 	}
 	fmt.Fprintf(a.Out, "approved %s as %s; the operator starts it now. Follow it with: pk-metal status\n", ref, a.User)
 	return nil
+}
+
+// approvalPatch stamps the approval on exactly the object that was read: the
+// uid and resourceVersion make the API server refuse it (409 Conflict) when
+// the operation was deleted and created again under the same name, or
+// changed in any way since. Marshalled, not formatted: Go's %q escapes are
+// not JSON's, and a user name comes from whatever the identity provider
+// allows.
+func approvalPatch(op *metalv1alpha1.HostOperation, user string) []byte {
+	patch, _ := json.Marshal(map[string]any{
+		"metadata": map[string]any{"uid": op.UID, "resourceVersion": op.ResourceVersion},
+		"spec":     map[string]any{"approval": map[string]any{"approvedBy": user}},
+	})
+	return patch
+}
+
+// ask reads one answer line, giving up after window. A reader that cannot be
+// interrupted (a terminal) leaves its goroutine blocked until the process
+// exits, which follows the refusal at once.
+func ask(ctx context.Context, in io.Reader, window time.Duration) (string, error) {
+	answer := make(chan string, 1)
+	go func() {
+		line, _ := bufio.NewReader(in).ReadString('\n')
+		answer <- line
+	}()
+	timer := time.NewTimer(window)
+	defer timer.Stop()
+	select {
+	case line := <-answer:
+		return line, nil
+	case <-timer.C:
+		return "", errNoAnswer
+	case <-ctx.Done():
+		return "", errNoAnswer
+	}
 }
 
 // approvalPlan reads an operation, refuses one that user cannot approve, and

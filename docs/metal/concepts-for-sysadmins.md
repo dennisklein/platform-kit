@@ -197,6 +197,15 @@ kubectl get hostoperation -n pk-metal <name> -o yaml     # the steps it will run
 pk-metal approve -n pk-metal <name>
 ```
 
+`pk-metal approve` approves the operation whose plan it printed, and nothing
+else. After you answer y it reads the operation again: if it was deleted and
+created again under the same name, or its plan reads differently now, nothing
+is approved and you are asked to look again. The approval itself names the
+object it was read from (uid and resourceVersion), so the API server refuses
+it if the operation changed in the moment between. The question waits five
+minutes; with no answer by then nothing is approved. `pk-metal top` follows
+the same rules when you press y on a plan.
+
 The rules, enforced by admission policies in the API server
 (`metal/config/policy`):
 

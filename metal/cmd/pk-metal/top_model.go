@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // The terminal half of pk-metal top: a Bubble Tea model. Update and View are
@@ -25,10 +26,12 @@ type topSource interface {
 // pk-metal approve, hold, unhold and retry.
 type topActions interface {
 	// Plan returns the plan of an operation as pk-metal approve prints it,
-	// and who would approve it; an error when the caller cannot approve it.
-	Plan(ctx context.Context, namespace, name string) (plan, user string, err error)
-	// Approve approves the operation as user, if its plan is still plan.
-	Approve(ctx context.Context, namespace, name, user, plan string) (string, error)
+	// who would approve it, and which object it was read from; an error when
+	// the caller cannot approve it.
+	Plan(ctx context.Context, namespace, name string) (shownPlan, error)
+	// Approve approves the operation as the plan's user, if it is still the
+	// same object and its plan still reads the same.
+	Approve(ctx context.Context, namespace, name string, p shownPlan) (string, error)
 	Hold(ctx context.Context, namespace, name string, on bool) (string, error)
 	Retry(ctx context.Context, namespace, name string) (string, error)
 }
@@ -39,8 +42,9 @@ type (
 	topTickMsg   struct{}
 	topChangeMsg struct{}
 	topPlanMsg   struct {
-		namespace, name, plan, user string
-		err                         error
+		namespace, name string
+		plan            shownPlan
+		err             error
 	}
 	topDoneMsg struct {
 		text string
@@ -69,11 +73,28 @@ type topModel struct {
 	mode    topMode
 	busy    bool // an action runs
 
-	plan             string
+	plan             shownPlan
 	planNS, planName string
-	planUser         string
+	planAt           time.Time // when the plan was put on the screen
 	status           string
 	statusBad        bool
+	// now is the clock the approval window is measured with; nil is
+	// time.Now.
+	now func() time.Time
+}
+
+// shownPlan is an approval plan as a person sees it: the text, who would
+// approve, and the operation object it was read from.
+type shownPlan struct {
+	Text, User string
+	UID        types.UID
+}
+
+func (m topModel) clock() time.Time {
+	if m.now != nil {
+		return m.now()
+	}
+	return time.Now()
 }
 
 func newTopModel(src topSource, act topActions, changes <-chan struct{}, every time.Duration) topModel {
@@ -138,7 +159,8 @@ func (m topModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setStatus(msg.err.Error(), true)
 			return m, nil
 		}
-		m.mode, m.plan, m.planNS, m.planName, m.planUser = modePlan, msg.plan, msg.namespace, msg.name, msg.user
+		m.mode, m.plan, m.planNS, m.planName = modePlan, msg.plan, msg.namespace, msg.name
+		m.planAt = m.clock()
 		m.status = ""
 		return m, nil
 	case topDoneMsg:
@@ -173,17 +195,24 @@ func (m topModel) key(k string) (tea.Model, tea.Cmd) {
 	if m.mode == modePlan {
 		// Only an explicit yes approves; every other key leaves the
 		// operation as it was, as pk-metal approve does.
-		ns, name, user, plan := m.planNS, m.planName, m.planUser, m.plan
-		m.mode, m.plan = modeTiles, ""
+		ns, name, plan := m.planNS, m.planName, m.plan
+		m.mode, m.plan = modeTiles, shownPlan{}
 		if k != "y" && k != "Y" {
 			m.setStatus(errDeclined.Error(), false)
+			return m, nil
+		}
+		// The same window as pk-metal approve's question: a plan left on
+		// the screen longer is read again before anything is approved.
+		if m.clock().Sub(m.planAt) > approvalWindow {
+			m.setStatus(fmt.Sprintf("the plan of %s/%s was shown more than %s ago; nothing changed. Press a to see it as it is now",
+				ns, name, shortDuration(approvalWindow)), true)
 			return m, nil
 		}
 		m.busy = true
 		m.setStatus("approving "+ns+"/"+name+" …", false)
 		act := m.act
 		return m, func() tea.Msg {
-			text, err := act.Approve(context.Background(), ns, name, user, plan)
+			text, err := act.Approve(context.Background(), ns, name, plan)
 			return topDoneMsg{text, err}
 		}
 	}
@@ -220,8 +249,8 @@ func (m topModel) key(k string) (tea.Model, tea.Cmd) {
 		m.busy = true
 		m.setStatus("reading the plan of "+ns+"/"+name+" …", false)
 		return m, func() tea.Msg {
-			plan, user, err := act.Plan(context.Background(), ns, name)
-			return topPlanMsg{namespace: ns, name: name, plan: plan, user: user, err: err}
+			plan, err := act.Plan(context.Background(), ns, name)
+			return topPlanMsg{namespace: ns, name: name, plan: plan, err: err}
 		}
 	case "h":
 		if t.ClaimName == "" {
@@ -300,7 +329,7 @@ func (m topModel) render() string {
 	switch {
 	case m.mode == modePlan:
 		box := styleBox.Width(width)
-		body := m.plan + "\n" + styleTitle.Render(fmt.Sprintf("Approve as %s? [y/N]", m.planUser))
+		body := m.plan.Text + "\n" + styleTitle.Render(fmt.Sprintf("Approve as %s? [y/N]", m.plan.User))
 		b.WriteString(box.Render(body))
 	case !m.loaded:
 		b.WriteString("reading the cluster …")
