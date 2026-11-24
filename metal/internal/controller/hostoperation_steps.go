@@ -619,13 +619,23 @@ func nodeCheckedIn(node *osv1alpha1.TalosNode) bool {
 	return meta.IsStatusConditionTrue(node.Status.Conditions, osv1alpha1.ConditionReady)
 }
 
-// applyBios stages the pinned attributes' drifted subset into the pending
-// object. Converge-to-goal at key granularity: an attribute already current or
-// already staged with the desired value is done, not a conflict — a resumed
-// operation PATCHes only what is left, and a fully-staged machine PATCHes
-// nothing (the paired powerCycle then applies it). The attributes come from
-// the operation itself, never from the live BiosSettings: what runs is what
-// was approved.
+// applyBios stages the pinned attributes that are not current yet. The
+// attributes come from the operation itself, never from the live
+// BiosSettings: what runs is what was approved. An attribute already current
+// and with nothing contradictory pending is done.
+//
+// An attribute already staged with the desired value is sent again with the
+// rest. Staging is not only the value: on iDRAC a value staged without an
+// apply time gets no configuration job, and the reset that follows applies
+// nothing. The client asks for OnReset where the service lists it, so
+// sending the value again is what creates the job for a value an earlier
+// client staged without one. Elsewhere the same value staged twice is the
+// same staging.
+//
+// Sending it again can be refused where a job already holds it (a pass
+// resumed after its own PATCH landed). When every value sent was already
+// staged right, that refusal is not a failure: the goal was met before the
+// call, as far as anything can read it.
 func applyBios(ctx context.Context, cl bmc.Client, systemID string, a *metalv1alpha1.ApplyBiosAction) error {
 	if len(a.Attributes) == 0 {
 		return fmt.Errorf("applyBios carries no attributes")
@@ -635,25 +645,32 @@ func applyBios(ctx context.Context, cl bmc.Client, systemID string, a *metalv1al
 		return err
 	}
 	stage := map[string]any{}
+	restaged := true // every value in stage is already staged right
 	for k, want := range decodeAttrs(a.Attributes) {
 		staged, stagedOK := state.Pending[k]
 		switch {
 		case stagedOK && jsonEqual(staged, want):
-			continue // already staged right
+			stage[k] = want // staged right: sent again, see above
 		case stagedOK:
 			// A contradictory value sits pending (a stale earlier staging) —
 			// overwrite it, or the paired reboot applies the wrong one.
-			stage[k] = want
+			stage[k], restaged = want, false
 		case jsonEqual(state.Attributes[k], want):
 			continue // already current, nothing pending
 		default:
-			stage[k] = want
+			stage[k], restaged = want, false
 		}
 	}
 	if len(stage) == 0 {
-		return nil // goal already met (or fully staged)
+		return nil // goal already met
 	}
-	return cl.SetBiosAttributes(ctx, systemID, stage)
+	err = cl.SetBiosAttributes(ctx, systemID, stage)
+	if err != nil && restaged && !transient(ctx, err) {
+		logf.FromContext(ctx).Info("BMC refused to stage again values already staged; taking them as staged",
+			"error", err.Error())
+		return nil
+	}
+	return err
 }
 
 // flashFirmware pushes the image and waits for the observable proof — the

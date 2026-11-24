@@ -342,7 +342,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `settingsRef` _[Reference](#reference)_ | SettingsRef names the BiosSettings the attributes came from — provenance<br />only: the executor never reads it, so an edit after approval cannot<br />change what runs. |  | Optional: \{\} <br /> |
-| `attributes` _object (keys:string, values:[JSON](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#json-v1-apiextensions-k8s-io))_ | Attributes are the values to stage, copied in at proposal time — what<br />the approver saw is exactly what is applied. Only the drifted subset is<br />PATCHed; already-staged keys are converged goals, not conflicts. |  | MinProperties: 1 <br /> |
+| `attributes` _object (keys:string, values:[JSON](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#json-v1-apiextensions-k8s-io))_ | Attributes are the values to stage, copied in at proposal time — what<br />the approver saw is exactly what is applied. Keys already current are<br />left out; keys already staged with the wanted value are PATCHed again<br />with the rest, so the staging carries the apply time this client asks<br />for, and a refusal to stage only such keys again counts as staged. |  | MinProperties: 1 <br /> |
 
 
 

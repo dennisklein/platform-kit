@@ -240,8 +240,10 @@ type ApplyBiosAction struct {
 	SettingsRef *Reference `json:"settingsRef,omitempty"`
 
 	// Attributes are the values to stage, copied in at proposal time — what
-	// the approver saw is exactly what is applied. Only the drifted subset is
-	// PATCHed; already-staged keys are converged goals, not conflicts.
+	// the approver saw is exactly what is applied. Keys already current are
+	// left out; keys already staged with the wanted value are PATCHed again
+	// with the rest, so the staging carries the apply time this client asks
+	// for, and a refusal to stage only such keys again counts as staged.
 	// +kubebuilder:validation:MinProperties=1
 	Attributes map[string]apiextensionsv1.JSON `json:"attributes"`
 }
