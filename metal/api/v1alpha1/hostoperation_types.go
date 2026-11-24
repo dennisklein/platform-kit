@@ -12,6 +12,24 @@ import (
 // operation instead is not a retry: deletion is how a proposal is refused.
 const AnnotationRetry = "metal.pk.io/retry"
 
+// AnnotationAbort on a HostOperation asks the executor to stop it. The value
+// says who asked and why (pk-metal abort writes "<user>: <reason>"). An
+// operation that has not started ends at once. A running one stops before
+// its next step: a step that already acted on the machine (a reboot asked
+// for, a power cycle half done) is finished first, then the executor undoes
+// what the operation left behind (it ejects the media it mounted, clears the
+// boot override it set, and makes schedulable again the node it cordoned)
+// and the operation ends as Aborted. Deleting the operation also stops it,
+// but undoes nothing.
+const AnnotationAbort = "metal.pk.io/abort"
+
+// AnnotationOverrideClusterGuard on a HostOperation lets it take a control
+// plane down although etcd is not fully healthy without it: the way out
+// when etcd is already broken and the reboot is the repair, or for a cluster
+// with a single control plane. The value says why. It does not lift the
+// one-control-plane-at-a-time rule, and it does not lift self-protection.
+const AnnotationOverrideClusterGuard = "metal.pk.io/override-cluster-guard"
+
 // Spec reasons of the operations the convergence lane proposes.
 const (
 	OperationReasonBiosConvergence     = "BiosConvergence"
@@ -20,9 +38,10 @@ const (
 
 // OperationPhase summarizes an operation's conditions. Proposed means it exists
 // but has not been approved; AwaitingApproval that it is waiting on a human;
-// Running that steps are executing; Succeeded and Failed are terminal. A failed
-// operation stays for inspection — nothing disruptive is retried automatically.
-// +kubebuilder:validation:Enum=Proposed;AwaitingApproval;Running;Succeeded;Failed
+// Running that steps are executing; Succeeded, Failed and Aborted are
+// terminal. A failed operation stays for inspection — nothing disruptive is
+// retried automatically. Aborted means a person stopped it (metal.pk.io/abort).
+// +kubebuilder:validation:Enum=Proposed;AwaitingApproval;Running;Succeeded;Failed;Aborted
 type OperationPhase string
 
 const (
@@ -31,6 +50,7 @@ const (
 	OperationRunning          OperationPhase = "Running"
 	OperationSucceeded        OperationPhase = "Succeeded"
 	OperationFailed           OperationPhase = "Failed"
+	OperationAborted          OperationPhase = "Aborted"
 )
 
 // HostOperationSpec is what to do to a machine, and the approval that lets it
@@ -639,11 +659,30 @@ type OperationBaseline struct {
 	CapturedAt *metav1.Time `json:"capturedAt,omitempty"`
 }
 
+// TalosStepProgress records what one Talos step did before its goal shows.
+type TalosStepProgress struct {
+	// Step is the index in spec.actions this progress belongs to.
+	// +kubebuilder:validation:Minimum=0
+	Step int32 `json:"step"`
+	// BootTime is the node's boot time before the step acted. The step's
+	// restart shows as a later boot time.
+	// +optional
+	BootTime *metav1.Time `json:"bootTime,omitempty"`
+	// RequestedAt is when the node accepted the request.
+	// +optional
+	RequestedAt *metav1.Time `json:"requestedAt,omitempty"`
+	// Mode is how the node said it applies a config (talosApplyConfig):
+	// reboot, no-reboot, staged or try.
+	// +optional
+	Mode string `json:"mode,omitempty"`
+}
+
 // OperationStep is one executed action's outcome.
 type OperationStep struct {
-	// Action is the union key that ran (powerCycle, insertMedia, …).
+	// Action is the union key that ran (powerCycle, insertMedia, …), or
+	// "abort" for the record of an abort and what it undid.
 	Action string `json:"action"`
-	// +kubebuilder:validation:Enum=Succeeded;Failed
+	// +kubebuilder:validation:Enum=Succeeded;Failed;Aborted
 	Phase string `json:"phase"`
 	// +optional
 	Message string `json:"message,omitempty"`
@@ -677,6 +716,21 @@ type HostOperationStatus struct {
 	// operation finishes the cycle instead of starting a second one.
 	// +optional
 	OffObserved *metav1.MicroTime `json:"offObserved,omitempty"`
+
+	// TalosStep is the progress of the Talos step in flight that restarts or
+	// wipes the node (talosReboot, talosUpgrade, talosApplyConfig,
+	// talosReset, talosShutdown): the node's boot time before it acted, and
+	// when the request was accepted. A resumed operation waits for the boot
+	// time to move on instead of asking a second time.
+	// +optional
+	TalosStep *TalosStepProgress `json:"talosStep,omitempty"`
+
+	// CordonedNode is the Kubernetes Node this operation made unschedulable
+	// (a cordon or drain step that found it schedulable). An abort makes it
+	// schedulable again; a node a person had cordoned before is left as it
+	// was.
+	// +optional
+	CordonedNode string `json:"cordonedNode,omitempty"`
 
 	// Steps records each action's outcome in execution order, written as each
 	// step reaches its goal. A resumed operation continues after the last

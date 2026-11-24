@@ -30,7 +30,7 @@ import (
 //   - the claim reconciler (bind, propose, withdraw, release, finalizer),
 //   - the executor, one pass per operation (gate, queue, baseline, one step),
 //   - a person (approve, hold, unhold, maintenance on and off, delete the
-//     claim, retry a failed operation),
+//     claim, retry a failed or aborted operation, abort an unfinished one),
 //   - the machine (a node checks in once it booted the operator's media; an
 //     installed node can stop answering for a while and answer again),
 //   - convergence (proposes the BIOS operation).
@@ -72,7 +72,8 @@ type mOp struct {
 	Started                    bool  // the baseline is recorded
 	Queued                     bool  // Executed=Unknown/OperationQueued
 	Steps                      uint8 // recorded steps
-	Outcome                    uint8 // 0 unfinished, 1 succeeded, 2 failed
+	Outcome                    uint8 // 0 unfinished, 1 succeeded, 2 failed, 3 aborted
+	Abort                      bool  // a person asked it to stop (metal.pk.io/abort)
 	Seq                        uint8 // creation order: the queue's age
 	// Ghosts: facts only the checker reads.
 	HeldAtCreate, ApprovedWhileHeld bool
@@ -112,7 +113,7 @@ type world struct {
 	// Ghosts.
 	BootStarted, ReleaseDone bool
 	// Budgets bound what a person and the machine do, so the space is finite.
-	Holds, Maints, Retries, Fails, Proposals, SelfAllows, Flaps uint8
+	Holds, Maints, Retries, Fails, Proposals, SelfAllows, Flaps, Aborts uint8
 }
 
 // state is the current world and the one before it: what a stale cache shows.
@@ -162,6 +163,8 @@ func opObj(o mOp) *metalv1alpha1.HostOperation {
 		set(metalv1alpha1.ConditionExecuted, metav1.ConditionTrue, metalv1alpha1.ReasonStepsSucceeded)
 	case o.Outcome == 2:
 		set(metalv1alpha1.ConditionExecuted, metav1.ConditionFalse, metalv1alpha1.ReasonStepFailed)
+	case o.Outcome == 3:
+		set(metalv1alpha1.ConditionExecuted, metav1.ConditionFalse, metalv1alpha1.ReasonAborted)
 	case o.Queued:
 		set(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonOperationQueued)
 	case o.Started:
@@ -314,12 +317,13 @@ type pass struct {
 	next  world
 	label string
 	// Facts of the turn for the transition invariants.
-	unbound, finalizerRemoved, mounted bool
-	started                            opSlot
-	startedAny                         bool
-	createdRelease                     bool
-	mountedBy                          opSlot
-	dead                               bool // a write conflicted: the pass ended
+	unbound, finalizerRemoved, mounted, aborted bool
+	abortedSlot                                 opSlot
+	started                                     opSlot
+	startedAny                                  bool
+	createdRelease                              bool
+	mountedBy                                   opSlot
+	dead                                        bool // a write conflicted: the pass ended
 }
 
 func newPass(s state, label string) *pass { return &pass{s: s, next: s.Cur, label: label} }
@@ -568,6 +572,12 @@ func executorPass(s state, v view, mask uint8, i opSlot, fail bool) *pass {
 		}
 		return p
 	}
+	// An abort of an operation that has not started ends it at once, before
+	// the approval gate: nothing was done to the machine.
+	if o.Abort && !o.Started {
+		p.updateOp(i, o, func(m *mOp) { m.Outcome, m.Queued = 3, false })
+		return p
+	}
 	if approvalRequired(obj) && obj.Spec.Approval.ApprovedBy == "" {
 		return p // Approved=False; nothing else
 	}
@@ -617,6 +627,22 @@ func executorPass(s state, v view, mask uint8, i opSlot, fail bool) *pass {
 		return p
 	}
 	step := o.Steps
+	// An abort is honoured between steps (every model step acts within its
+	// pass, so none is in flight here): the executor undoes what the steps
+	// before left on the machine and ends the operation. The boot's mount is
+	// the one thing the model's machine keeps. It is ejected even when no
+	// step is on record: a pass that read the operation before the abort
+	// may have mounted and then lost its status write (exec.undo ejects for
+	// the insertMedia step in flight for that reason).
+	if o.Abort {
+		if p.updateOp(i, o, func(m *mOp) { m.Outcome, m.Queued = 3, false }) {
+			if i == slotBoot && step < opSteps[slotBoot] {
+				p.next.BMC.Media = false
+			}
+			p.aborted, p.abortedSlot = true, i
+		}
+		return p
+	}
 	if i == slotBoot && step == 2 && !v.NodeReady {
 		return p // awaitCheckIn waits
 	}
@@ -689,8 +715,13 @@ func successors(s state) []*pass {
 				n.Ops[i].ApprovedWhileHeld = n.Claim.Held
 			})
 		}
-		if o := w.Ops[i]; o.Exists && o.Outcome == 2 && w.Retries > 0 {
+		if o := w.Ops[i]; o.Exists && (o.Outcome == 2 || o.Outcome == 3) && w.Retries > 0 {
 			person("person retries "+i.String(), func(n *world) { n.Ops[i] = mOp{}; n.Retries-- })
+		}
+	}
+	for i := range nSlots {
+		if o := w.Ops[i]; o.Exists && o.Outcome == 0 && !o.Abort && w.Aborts > 0 {
+			person("person aborts "+i.String(), func(n *world) { n.Ops[i].Abort = true; n.Aborts-- })
 		}
 	}
 	if w.Claim.Exists && !w.Claim.Held && w.Holds > 0 {
@@ -830,6 +861,18 @@ var protocolInvariants = []invariant{
 			b := p.next.BMC
 			if !p.next.Host.Claimed && (b.Media || (b.On && b.FromMedia)) && !anyActive(p.next) {
 				return fmt.Sprintf("unbound, media %v, booted from media %v", b.Media, b.On && b.FromMedia)
+			}
+			return ""
+		},
+	},
+	{
+		// What the boot mounted, its abort ejects. An aborted release leaves
+		// the boot's media as it found them: the release was the step that
+		// would have ejected them, and the claim's release holds for a person.
+		name: "an aborted boot leaves no operator media in the slot",
+		check: func(p *pass) string {
+			if p.aborted && p.abortedSlot == slotBoot && p.next.BMC.Media {
+				return "aborted with the media still mounted"
 			}
 			return ""
 		},
@@ -1026,6 +1069,10 @@ func TestProtocolModel(t *testing.T) {
 		Holds: 1, Maints: 1, Retries: 1, Fails: 1, Proposals: 1, SelfAllows: 1, Flaps: 1,
 	}
 	initial = append(initial, state{Cur: self, Prev: self})
+	// A person may abort an operation once, and retry once. The other
+	// budgets stay at zero so that the space stays small.
+	aborting := world{Claim: mClaim{Exists: true}, Retries: 1, Proposals: 1, Aborts: 1}
+	initial = append(initial, state{Cur: aborting, Prev: aborting})
 	violations, known, n := explore(t, initial, depth)
 	require.Positive(t, n)
 	for _, inv := range protocolInvariants {

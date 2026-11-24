@@ -20,6 +20,12 @@
 # for it, with its machine config inside (the imager runs as a Job in kind).
 # That run pulls the imager image (about 270 MB) and builds an ISO of about
 # 370 MB on top of the default run, so it is not the default.
+#
+# A run started by hand with day2 set also reboots a worker and then a control
+# plane the way a person would (lab/lab.sh day2): pk-metal reboot proposes,
+# a second user approves, and the run checks on the workload cluster that each
+# node booted again and is Ready and schedulable. It runs before the release,
+# while every machine still runs its node.
 name: lab-e2e
 
 on:
@@ -31,6 +37,10 @@ on:
         default: false
       huawei:
         description: Give node-2 a one-slot Huawei iBMC (builds an installer with its config inside)
+        type: boolean
+        default: false
+      day2:
+        description: "Also run the day-2 round: reboot a worker and a control plane with pk-metal reboot (cordon, drain, Talos reboot, uncordon)"
         type: boolean
         default: false
   push:
@@ -49,8 +59,9 @@ jobs:
     name: provision the virtual lab
     runs-on: ubuntu-latest
     # Doctor and up take about ten minutes on a cold runner, the wait is capped
-    # at forty, and a failed run still needs time to collect its evidence.
-    timeout-minutes: 75
+    # at forty, and a failed run still needs time to collect its evidence. The
+    # day-2 round adds two reboots of at most twenty minutes each.
+    timeout-minutes: ${{ inputs.day2 && 115 || 75 }}
     env:
       # A hosted runner promises 14 GB of free disk. The lab's sparse disks, the
       # installer image and the container images stay well below that.
@@ -120,6 +131,12 @@ jobs:
           mise run lab:status
           mise run lab:kubeconfig
           kubectl --kubeconfig .lab/workload.kubeconfig get nodes --output wide
+
+      - name: Reboot a worker and a control plane through pk-metal reboot
+        if: inputs.day2
+        run: |
+          mise run lab:day2
+          mise run lab:status
 
       # Deleting the claim of a running node proposes a shutdown that waits
       # for a person. lab:release approves it, as lab:wait does, and checks the

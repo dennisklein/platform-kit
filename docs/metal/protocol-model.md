@@ -42,8 +42,9 @@ there.
 - The operation executor, one pass per operation: approval gate, queue,
   baseline, then one step.
 - A person: approve, hold and lift the hold, put the host in maintenance and
-  give it back, delete the claim, retry a failed operation, allow the
-  disruption of the operator's own control plane and take that back.
+  give it back, delete the claim, retry a failed or aborted operation, abort
+  an unfinished operation (`metal.pk.io/abort`), allow the disruption of the
+  operator's own control plane and take that back.
 - The machine: the node checks in once it booted the operator's media. Once
   installed, it can stop answering for a while (a network flap, the Talos
   API restarting) and answer again.
@@ -102,6 +103,13 @@ mirrors. If you change a branch in the controller, change its mirror too.
     answer, so the annotation is enough; etcd's majority, counted from what
     the other control planes answer at the moment of the decision, is
     covered by the unit tests of `disruptionVerdict` and `SelfGuard.Check`.
+11. An aborted boot leaves no operator media in a slot. The abort ejects the
+    media even when no step is on record yet: a pass that read the boot
+    before the abort can mount and then lose its status write. An aborted
+    release leaves the boot's media as it found them; the claim's release
+    then waits for a person. The one-control-plane-at-a-time rule of the
+    cluster guard needs more than one host, so it is covered by the unit
+    tests of `ClusterGuard` and by envtest, not here.
 
 ### Bounds
 
@@ -110,9 +118,9 @@ mirrors. If you change a branch in the controller, change its mirror too.
 | Hosts, claims | 1 each |
 | Operations | boot, release, one BIOS proposal |
 | Turns | 14 by default, 10 with `go test -short` |
-| Person actions | one hold, one maintenance, one retry, one refused step, one BIOS proposal, one allowance of self-disruption; a hold, a maintenance and the allowance can also be lifted |
+| Person actions | one hold, one maintenance, one retry, one refused step, one BIOS proposal, one allowance of self-disruption; a hold, a maintenance and the allowance can also be lifted. A fourth start state allows one abort, one retry and one BIOS proposal, and nothing else |
 | Machine actions | the node checks in; where approval is required it may also stop answering once and answer again |
-| Claims at start | one with approval required, one with approval waived, one on a control plane of the operator's own cluster |
+| Claims at start | one with approval required, one with approval waived, one on a control plane of the operator's own cluster, one where a person may abort |
 | Cache lag | one turn, per object kind |
 
 At 14 turns the model visits about 1,200,000 states in about 40 seconds. Set

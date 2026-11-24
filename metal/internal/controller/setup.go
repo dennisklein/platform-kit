@@ -82,6 +82,9 @@ type Options struct {
 	RegistryClient *http.Client
 	Media          *asset.Service
 	WaitInterval   time.Duration
+	// GuardInterval paces the next look at an operation the self or
+	// cluster guard holds; zero is 30s.
+	GuardInterval time.Duration
 
 	// MediaStore holds the artifacts too large for a Secret; the BootAsset
 	// lane writes them, the HostOperation lane serves them under grants.
@@ -187,6 +190,10 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 			Client: c, CredentialsNamespace: o.CredentialsNamespace,
 			RegistryClient: o.RegistryClient, Media: o.Media, Store: o.MediaStore,
 			Recorder: recorder(), WaitInterval: o.WaitInterval, Self: self,
+			TalosDial: o.TalosDial, GuardInterval: o.GuardInterval,
+			// The cluster guard holds for every Talos cluster, wherever the
+			// operator runs; SelfGuard adds the rules for its own.
+			Guard: &ClusterGuard{Reader: mgr.GetAPIReader(), Dial: o.TalosDial, Namespace: o.CredentialsNamespace},
 		}
 	case LaneConvergence:
 		return "convergence", &ConvergenceReconciler{

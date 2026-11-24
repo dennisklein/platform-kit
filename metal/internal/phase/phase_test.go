@@ -239,6 +239,14 @@ func TestForOperation(t *testing.T) {
 			conds: []metav1.Condition{approved,
 				c(metalv1alpha1.ConditionExecuted, metav1.ConditionFalse, metalv1alpha1.ReasonStepFailed)},
 			phase: metalv1alpha1.OperationFailed},
+		{name: "an abort is terminal and is not a failure",
+			conds: []metav1.Condition{approved,
+				c(metalv1alpha1.ConditionExecuted, metav1.ConditionFalse, metalv1alpha1.ReasonAborted)},
+			phase: metalv1alpha1.OperationAborted},
+		{name: "held by the cluster guard before it starts",
+			conds: []metav1.Condition{approved,
+				c(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonClusterDisruption)},
+			phase: metalv1alpha1.OperationProposed, blocked: "ClusterDisruption"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

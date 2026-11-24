@@ -66,6 +66,9 @@ func (x *exec) step(ctx context.Context, i int) (stepState, error) {
 	case a.AwaitCheckIn != nil:
 		return x.awaitCheckIn(ctx, a.AwaitCheckIn)
 	}
+	if st, ok, err := x.talosStep(ctx, i); ok {
+		return st, err
+	}
 	return stepState{}, fmt.Errorf("action carries no known key")
 }
 
@@ -78,11 +81,11 @@ func (x *exec) step(ctx context.Context, i int) (stepState, error) {
 // window did not show would fail for good after a single look. A restart
 // starts the count again, which can only make a step fail later.
 //
-// awaitCheckIn acts on nothing: the machine has been booting since the
-// previous step ended, whether or not anyone looked, so its budget counts
-// from there.
+// awaitCheckIn, waitNodeReady and waitEtcdHealthy act on nothing: the
+// machine has been booting since the previous step ended, whether or not
+// anyone looked, so their budget counts from there.
 func (x *exec) waitStart(i int, entered time.Time) time.Time {
-	if x.op.Spec.Actions[i].AwaitCheckIn != nil {
+	if a := x.op.Spec.Actions[i]; a.AwaitCheckIn != nil || a.WaitNodeReady != nil || a.WaitEtcdHealthy != nil {
 		return x.stepStart(i)
 	}
 	key := types.NamespacedName{Namespace: x.op.Namespace, Name: x.op.Name}
@@ -110,6 +113,9 @@ func (x *exec) stepBudget(i int) time.Duration {
 	}
 	if a := x.op.Spec.Actions[i].PowerOff; a != nil {
 		return gracefulWindow(a) + x.r.powerTimeout()
+	}
+	if d, ok := talosStepBudget(x.op.Spec.Actions[i]); ok {
+		return d
 	}
 	return x.r.powerTimeout()
 }

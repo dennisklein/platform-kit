@@ -1127,9 +1127,11 @@ _Appears in:_
 | `observedResetTime` _[MicroTime](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#microtime-v1-meta)_ | ObservedResetTime is the reset-time observation after the last step — the<br />proof the reset happened, and what marks a Host reset-time advance as<br />explained rather than Drifted. |  | Optional: \{\} <br /> |
 | `shutdownRequested` _[MicroTime](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#microtime-v1-meta)_ | ShutdownRequested is when the executor asked the OS to shut down for a<br />graceful powerOff. The step forces the machine off once the graceful<br />window, counted from here, has passed; recording it means a resumed<br />operation neither asks again nor restarts the window. |  | Optional: \{\} <br /> |
 | `offObserved` _[MicroTime](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#microtime-v1-meta)_ | OffObserved is when the executor saw the machine report off during a<br />power cycle — the first half of the cycle, recorded so that a resumed<br />operation finishes the cycle instead of starting a second one. |  | Optional: \{\} <br /> |
+| `talosStep` _[TalosStepProgress](#talosstepprogress)_ | TalosStep is the progress of the Talos step in flight that restarts or<br />wipes the node (talosReboot, talosUpgrade, talosApplyConfig,<br />talosReset, talosShutdown): the node's boot time before it acted, and<br />when the request was accepted. A resumed operation waits for the boot<br />time to move on instead of asking a second time. |  | Optional: \{\} <br /> |
+| `cordonedNode` _string_ | CordonedNode is the Kubernetes Node this operation made unschedulable<br />(a cordon or drain step that found it schedulable). An abort makes it<br />schedulable again; a node a person had cordoned before is left as it<br />was. |  | Optional: \{\} <br /> |
 | `steps` _[OperationStep](#operationstep) array_ | Steps records each action's outcome in execution order, written as each<br />step reaches its goal. A resumed operation continues after the last<br />recorded step: a goal that a later step consumed (a Once boot override<br />used up by the boot that followed) is never re-armed. |  | Optional: \{\} <br /> |
 | `conditions` _[Condition](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#condition-v1-meta) array_ | Conditions are the truth — the only thing reconcilers branch on. |  | Optional: \{\} <br /> |
-| `phase` _[OperationPhase](#operationphase)_ | Phase summarizes the conditions below for people and for kubectl columns.<br />It is a summary, not the contract: automation should read conditions. |  | Enum: [Proposed AwaitingApproval Running Succeeded Failed] <br />Optional: \{\} <br /> |
+| `phase` _[OperationPhase](#operationphase)_ | Phase summarizes the conditions below for people and for kubectl columns.<br />It is a summary, not the contract: automation should read conditions. |  | Enum: [Proposed AwaitingApproval Running Succeeded Failed Aborted] <br />Optional: \{\} <br /> |
 | `blockedOn` _string_ | BlockedOn is derived — why the operation isn't advancing (AwaitingApproval,<br />OperationQueued). |  | Optional: \{\} <br /> |
 
 
@@ -1437,11 +1439,12 @@ _Underlying type:_ _string_
 
 OperationPhase summarizes an operation's conditions. Proposed means it exists
 but has not been approved; AwaitingApproval that it is waiting on a human;
-Running that steps are executing; Succeeded and Failed are terminal. A failed
-operation stays for inspection — nothing disruptive is retried automatically.
+Running that steps are executing; Succeeded, Failed and Aborted are
+terminal. A failed operation stays for inspection — nothing disruptive is
+retried automatically. Aborted means a person stopped it (metal.pk.io/abort).
 
 _Validation:_
-- Enum: [Proposed AwaitingApproval Running Succeeded Failed]
+- Enum: [Proposed AwaitingApproval Running Succeeded Failed Aborted]
 
 _Appears in:_
 - [HostOperationStatus](#hostoperationstatus)
@@ -1453,6 +1456,7 @@ _Appears in:_
 | `Running` |  |
 | `Succeeded` |  |
 | `Failed` |  |
+| `Aborted` |  |
 
 
 #### OperationStep
@@ -1468,8 +1472,8 @@ _Appears in:_
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
-| `action` _string_ | Action is the union key that ran (powerCycle, insertMedia, …). |  |  |
-| `phase` _string_ |  |  | Enum: [Succeeded Failed] <br /> |
+| `action` _string_ | Action is the union key that ran (powerCycle, insertMedia, …), or<br />"abort" for the record of an abort and what it undid. |  |  |
+| `phase` _string_ |  |  | Enum: [Succeeded Failed Aborted] <br /> |
 | `message` _string_ |  |  | Optional: \{\} <br /> |
 | `finishedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | FinishedAt is when the step reached its goal (or failed). |  | Optional: \{\} <br /> |
 
@@ -1704,6 +1708,25 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `nodeRef` _[Reference](#reference)_ | NodeRef names the TalosNode (os.pk.io) to shut down. |  |  |
 | `force` _boolean_ | Force shuts down even when the node cannot cordon and drain itself<br />first (its Kubernetes API is down). |  | Optional: \{\} <br /> |
+
+
+#### TalosStepProgress
+
+
+
+TalosStepProgress records what one Talos step did before its goal shows.
+
+
+
+_Appears in:_
+- [HostOperationStatus](#hostoperationstatus)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `step` _integer_ | Step is the index in spec.actions this progress belongs to. |  | Minimum: 0 <br /> |
+| `bootTime` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | BootTime is the node's boot time before the step acted. The step's<br />restart shows as a later boot time. |  | Optional: \{\} <br /> |
+| `requestedAt` _[Time](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#time-v1-meta)_ | RequestedAt is when the node accepted the request. |  | Optional: \{\} <br /> |
+| `mode` _string_ | Mode is how the node said it applies a config (talosApplyConfig):<br />reboot, no-reboot, staged or try. |  | Optional: \{\} <br /> |
 
 
 #### TalosUpgradeAction

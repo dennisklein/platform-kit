@@ -231,6 +231,11 @@ Deleting a proposed operation is not "no": the operator proposes the same
 plan again on its next pass. Deleting a **failed** operation is how you retry
 it.
 
+To stop an operation that is approved or running: `pk-metal abort
+pk-metal/<operation>`. It stops before its next step, ejects the media it
+mounted, clears its boot override and uncordons the node it cordoned. See
+[Day-2 steps](day2-actions.md#abort).
+
 ## What changes a machine, and when
 
 | You do | What happens to the machine |
@@ -241,6 +246,7 @@ it.
 | Approve an operation | It runs, step by step. |
 | Delete a claim | The machine is **powered off**, if a boot of that claim ran on it. See below. |
 | Edit a TalosNode or TalosCluster | The configuration is rendered again. A running node does not pick it up by itself. |
+| `pk-metal reboot <node>`, and it is approved | The node is cordoned, drained, rebooted through Talos and uncordoned once ready. Control planes go one at a time. See [Day-2 steps](day2-actions.md). |
 | Use `ipmitool` or the BMC web UI | Allowed. See "Using the BMC directly". |
 
 ### The install disk

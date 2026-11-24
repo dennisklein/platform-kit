@@ -741,12 +741,22 @@ func TestBootOfAReleasedClaimDoesNotStart(t *testing.T) {
 // An operation that names an action the executor does not run yet fails
 // before it starts: no baseline, no call to the BMC, even for the BMC
 // actions in front of it, and the step message says why.
+func TestEveryActionIsImplemented(t *testing.T) {
+	for _, key := range metalv1alpha1.ActionKeys() {
+		assert.True(t, implementedActions[key], "the executor does not run %s", key)
+	}
+}
+
 func TestUnimplementedActionFailsBeforeAnythingRuns(t *testing.T) {
 	op := preClearedOp(
 		metalv1alpha1.HostOperationAction{PowerCycle: &metalv1alpha1.PowerCycleAction{}},
 		metalv1alpha1.HostOperationAction{TalosReboot: &metalv1alpha1.TalosRebootAction{NodeRef: metalv1alpha1.Reference{Name: "node-a"}}},
 	)
 	r, _, rec := executorFor(t, "huawei-2288h-v5", op)
+	// Every action the API defines today runs; the refusal stays for the
+	// next one the API gains before its executor does.
+	delete(implementedActions, "talosReboot")
+	t.Cleanup(func() { implementedActions["talosReboot"] = true })
 
 	got := runOp(t, r)
 	ex := meta.FindStatusCondition(got.Status.Conditions, metalv1alpha1.ConditionExecuted)

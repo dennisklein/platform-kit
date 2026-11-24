@@ -29,6 +29,7 @@ import (
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	gofishclient "github.com/dennisklein/platform-kit/metal/internal/bmc/gofish"
 	"github.com/dennisklein/platform-kit/metal/internal/phase"
+	"github.com/dennisklein/platform-kit/metal/internal/talos"
 )
 
 // opHostIndex joins operations to the Host they act on.
@@ -124,6 +125,21 @@ type HostOperationReconciler struct {
 	// Workers is how many passes run at once. Zero defaults.
 	Workers int
 
+	// TalosDial opens the machine API of the node a Talos step acts on, and
+	// of the control planes the cluster guard asks about etcd. Nil fails
+	// every Talos step, saying so.
+	TalosDial talos.Dialer
+	// Workload opens a client for a workload cluster's Kubernetes API from
+	// its admin kubeconfig; nil builds one with clientcmd. A test seam.
+	Workload func(ctx context.Context, kubeconfig []byte) (client.Client, error)
+	// Guard keeps a disruptive step off a control plane while another one of
+	// its cluster is down or etcd is not fully healthy (see ClusterGuard);
+	// nil allows every one.
+	Guard *ClusterGuard
+	// GuardInterval paces the next look at an operation a guard holds. Zero
+	// defaults to selfRecheck.
+	GuardInterval time.Duration
+
 	// locks keeps two passes off one host and off one BMC. startMu makes a
 	// guarded start (the self guard's verdict through the baseline write)
 	// one at a time across hosts. clock remembers when each waiting step
@@ -153,6 +169,11 @@ type exec struct {
 
 	cl       bmc.Client
 	systemID string
+
+	// talos and kube reach the Talos cluster of the host's node, opened on
+	// first use and kept for the pass.
+	talos *talosAccess
+	kube  client.Client
 }
 
 // stepState is what a step reports besides an error: done, or still waiting
@@ -176,7 +197,7 @@ func waitingOn(format string, args ...any) stepState {
 // +kubebuilder:rbac:groups=metal.pk.io,resources=hostclaims,verbs=get
 // +kubebuilder:rbac:groups=metal.pk.io,resources=managementendpoints,verbs=get;list;watch
 // +kubebuilder:rbac:groups=metal.pk.io,resources=biossettings,verbs=get;list;watch
-// +kubebuilder:rbac:groups=os.pk.io,resources=bootassets;talosnodes,verbs=get;list;watch
+// +kubebuilder:rbac:groups=os.pk.io,resources=bootassets;talosnodes;talosclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch,namespace=pk-metal
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
@@ -213,6 +234,13 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 		orig = op.DeepCopy()
 		return nil
+	}
+
+	// An abort of an operation that has not started ends it at once:
+	// nothing was done to the machine, so there is nothing to undo.
+	if by, asked := op.Annotations[metalv1alpha1.AnnotationAbort]; asked && op.Status.Baseline == nil {
+		return r.finishAborted(op, req.NamespacedName, setCond, flush,
+			abortMessage(by, "before it started", nil, nil)+"; nothing was done to the machine")
 	}
 
 	if approvalRequired(op) && op.Spec.Approval.ApprovedBy == "" {
@@ -296,7 +324,7 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			if msg != "" {
 				setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonSelfDisruption,
 					msg+". This operation starts once that is resolved")
-				return ctrl.Result{RequeueAfter: selfRecheck}, client.IgnoreNotFound(flush())
+				return ctrl.Result{RequeueAfter: r.guardInterval()}, client.IgnoreNotFound(flush())
 			}
 		}
 	}
@@ -313,6 +341,9 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	x := &exec{r: r, op: op, host: host, flush: flush}
 	defer x.close()
 
+	// guarded is the step the guards just decided on at the start, which
+	// need not be asked again in the same pass; -1 when none was.
+	guarded := -1
 	// Persist the baseline and the Running state BEFORE the first mutating call —
 	// the crash rail: a resumed execution re-derives what already happened from
 	// the world, starting with this record.
@@ -326,17 +357,25 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 				metalv1alpha1.ReasonOperationQueued, "operation "+pred+" holds host "+op.Spec.HostRef.Name)
 			return ctrl.Result{}, client.IgnoreNotFound(flush())
 		}
-		obs, hold, err := x.observe(bctx)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		if hold != "" {
-			setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonNoReachablePath, hold)
-			return ctrl.Result{}, client.IgnoreNotFound(flush())
+		// The BMC baseline is taken only when a step uses the BMC: an
+		// operation made of Talos and Kubernetes steps runs while the BMC is
+		// down, and its steps record their own proof (the node's boot time).
+		var obs baseline.Observation
+		if usesBMC(op) {
+			var hold string
+			var err error
+			if obs, hold, err = x.observe(bctx); err != nil {
+				return ctrl.Result{}, err
+			}
+			if hold != "" {
+				setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonNoReachablePath, hold)
+				return ctrl.Result{}, client.IgnoreNotFound(flush())
+			}
 		}
 		if res, started, err := r.begin(ctx, op, host, obs, setCond, flush); !started {
 			return res, err
 		}
+		guarded = recordedSteps(op)
 	}
 
 	// fail records step i as failed — terminal, one-shots never auto-retry.
@@ -367,11 +406,32 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// it is entered again, so trying later is safe where failing for good
 	// would end an operation over a network hiccup.
 	held := func(i int, err error) (ctrl.Result, error) {
-		return wait(i, "BMC unavailable, retrying: "+err.Error(), r.waitInterval())
+		what := "BMC"
+		if !actionUsesBMC(op.Spec.Actions[i]) {
+			what = "cluster API"
+		}
+		return wait(i, what+" unavailable, retrying: "+err.Error(), r.waitInterval())
+	}
+
+	// abort stops before step i, which has not acted on the machine, and
+	// undoes what the steps before it left behind. An undo the machine could
+	// not be reached for is tried again on the next pass.
+	abort := func(i int, by string) (ctrl.Result, error) {
+		undone, failed, err := x.undo(bctx, i)
+		if err != nil {
+			return wait(i, "aborting, undoing what the operation left behind: "+err.Error()+
+				". Delete the operation to stop trying", r.waitInterval())
+		}
+		where := fmt.Sprintf("before step %d/%d %s", i+1, len(op.Spec.Actions), actionName(op.Spec.Actions[i]))
+		return r.finishAborted(op, req.NamespacedName, setCond, flush, abortMessage(by, where, undone, failed))
 	}
 
 	start := recordedSteps(op)
 	if start < len(op.Spec.Actions) {
+		if by, asked := op.Annotations[metalv1alpha1.AnnotationAbort]; asked && !x.acted(start) {
+			// Asked while the step waited: no remount, nothing new mounted.
+			return abort(start, by)
+		}
 		if err := x.remount(bctx, start); err != nil {
 			if transient(bctx, err) {
 				return held(start, err)
@@ -381,10 +441,16 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 	for i := start; i < len(op.Spec.Actions); i++ {
 		// A pass can outlive its operation: a release deletes an unfinished
-		// provisioning operation, and the steps after that must not run.
-		if gone, err := r.opGone(ctx, req.NamespacedName); err != nil || gone {
+		// provisioning operation, and the steps after that must not run. A
+		// person can ask it to stop (an abort), which it does here, between
+		// steps, unless the step ahead already acted.
+		gone, by, asked, err := r.opNow(ctx, req.NamespacedName)
+		if err != nil || gone {
 			r.forget(req.NamespacedName)
 			return ctrl.Result{}, err
+		}
+		if asked && !x.acted(i) {
+			return abort(i, by)
 		}
 		// A pass that cannot fit another power settle stops between steps
 		// and the next pass continues; at least one step runs per pass.
@@ -392,6 +458,18 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			return wait(i, "pass budget spent, continuing", passResume)
 		}
 		name := actionName(op.Spec.Actions[i])
+		// A step that takes a control plane down is decided again right
+		// before it acts: a drain in front of it can take long, and etcd can
+		// lose a member meanwhile. A step that already acted finishes.
+		if disruptsAction(op.Spec.Actions[i]) && !x.acted(i) && i != guarded {
+			msg, err := r.Guard.Check(ctx, host, op)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if msg != "" {
+				return wait(i, "held: "+msg, r.guardInterval())
+			}
+		}
 		entered := time.Now()
 		st, err := x.step(bctx, i)
 		if perr := (*persistError)(nil); errors.As(err, &perr) {
@@ -452,7 +530,7 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 // each count the other as up, and both would start.
 func (r *HostOperationReconciler) begin(ctx context.Context, op *metalv1alpha1.HostOperation, host *metalv1alpha1.Host,
 	obs baseline.Observation, setCond func(string, metav1.ConditionStatus, string, string), flush func() error) (res ctrl.Result, started bool, err error) {
-	if r.Self != nil && disrupts(op) {
+	if (r.Self != nil || r.Guard != nil) && disrupts(op) {
 		r.startMu.Lock()
 		defer r.startMu.Unlock()
 		msg, err := r.Self.Check(ctx, host)
@@ -462,7 +540,18 @@ func (r *HostOperationReconciler) begin(ctx context.Context, op *metalv1alpha1.H
 		if msg != "" {
 			setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonSelfDisruption,
 				msg+". This operation starts once that is resolved")
-			return ctrl.Result{RequeueAfter: selfRecheck}, false, client.IgnoreNotFound(flush())
+			return ctrl.Result{RequeueAfter: r.guardInterval()}, false, client.IgnoreNotFound(flush())
+		}
+		// Every Talos cluster, not only the operator's own: one control
+		// plane down at a time, and only while etcd stays fully healthy
+		// without it.
+		if msg, err = r.Guard.Check(ctx, host, op); err != nil {
+			return ctrl.Result{}, false, err
+		}
+		if msg != "" {
+			setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonClusterDisruption,
+				msg+". This operation starts once that is resolved")
+			return ctrl.Result{RequeueAfter: r.guardInterval()}, false, client.IgnoreNotFound(flush())
 		}
 	}
 	if refused, err := r.recordBootStart(ctx, op, host); err != nil {
@@ -667,16 +756,46 @@ func (r *HostOperationReconciler) powerTimeout() time.Duration {
 	return defaultPowerTimeout
 }
 
-// opGone re-reads the operation between steps; deleted or deleting stops the pass.
-func (r *HostOperationReconciler) opGone(ctx context.Context, key types.NamespacedName) (bool, error) {
+// opNow re-reads the operation between steps: deleted or deleting stops the
+// pass; an abort annotation asks it to stop and undo (by is its value).
+func (r *HostOperationReconciler) opNow(ctx context.Context, key types.NamespacedName) (gone bool, by string, asked bool, err error) {
 	cur := &metalv1alpha1.HostOperation{}
 	if err := r.Get(ctx, key, cur); err != nil {
 		if apierrors.IsNotFound(err) {
-			return true, nil
+			return true, "", false, nil
 		}
-		return false, err
+		return false, "", false, err
 	}
-	return !cur.DeletionTimestamp.IsZero(), nil
+	by, asked = cur.Annotations[metalv1alpha1.AnnotationAbort]
+	return !cur.DeletionTimestamp.IsZero(), by, asked, nil
+}
+
+// finishAborted ends the operation as Aborted, with the record of it as the
+// last step.
+func (r *HostOperationReconciler) finishAborted(op *metalv1alpha1.HostOperation, key types.NamespacedName,
+	setCond func(string, metav1.ConditionStatus, string, string), flush func() error, msg string) (ctrl.Result, error) {
+	op.Status.Steps = append(op.Status.Steps, metalv1alpha1.OperationStep{
+		Action: "abort", Phase: "Aborted", Message: msg, FinishedAt: ptrTime(metav1.Now()),
+	})
+	setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionFalse, metalv1alpha1.ReasonAborted, msg)
+	r.Recorder.Eventf(op, nil, corev1.EventTypeWarning, metalv1alpha1.ReasonAborted, "Abort", "%s", msg)
+	r.forget(key)
+	return ctrl.Result{}, client.IgnoreNotFound(flush())
+}
+
+// abortMessage says who stopped the operation, where, and what was undone.
+func abortMessage(by, where string, undone, failed []string) string {
+	msg := "aborted " + where
+	if by = strings.TrimSpace(by); by != "" {
+		msg += " (" + by + ")"
+	}
+	if len(undone) > 0 {
+		msg += "; undone: " + strings.Join(undone, ", ")
+	}
+	if len(failed) > 0 {
+		msg += "; NOT undone, see to it by hand: " + strings.Join(failed, "; ")
+	}
+	return msg
 }
 
 // grantHandle names an operation's grants in the media service's table.
@@ -780,12 +899,36 @@ func (r *HostOperationReconciler) recordBootStart(ctx context.Context, op *metal
 
 // passTimeout budgets one executor pass by what it runs.
 func passTimeout(op *metalv1alpha1.HostOperation) time.Duration {
+	budget := executeTimeout
 	for _, a := range op.Spec.Actions {
-		if a.FlashFirmware != nil {
-			return flashTimeout
+		switch {
+		case a.TalosUpgrade != nil:
+			budget = max(budget, talosUpgradePass)
+		case a.FlashFirmware != nil:
+			budget = max(budget, flashTimeout)
 		}
 	}
-	return executeTimeout
+	return budget
+}
+
+func (r *HostOperationReconciler) guardInterval() time.Duration {
+	if r.GuardInterval > 0 {
+		return r.GuardInterval
+	}
+	return selfRecheck
+}
+
+// usesBMC: a step of the operation talks to the BMC, so the operation needs
+// the BMC's baseline before it starts.
+func usesBMC(op *metalv1alpha1.HostOperation) bool {
+	return slices.ContainsFunc(op.Spec.Actions, actionUsesBMC)
+}
+
+// actionUsesBMC: the action is one the BMC carries out. The Talos and
+// Kubernetes actions are not; awaitCheckIn reads the TalosNode.
+func actionUsesBMC(a metalv1alpha1.HostOperationAction) bool {
+	return a.PowerCycle != nil || a.PowerOff != nil || a.SetBootOverride != nil || a.InsertMedia != nil ||
+		a.EjectMedia != nil || a.ApplyBios != nil || a.FlashFirmware != nil
 }
 
 // approvalRequired: nil is a closed gate — the safe default for every client
@@ -981,6 +1124,9 @@ type pathClient struct {
 var implementedActions = map[string]bool{
 	"powerCycle": true, "powerOff": true, "setBootOverride": true, "insertMedia": true,
 	"ejectMedia": true, "applyBios": true, "flashFirmware": true, "awaitCheckIn": true,
+	"cordon": true, "drain": true, "uncordon": true, "talosReboot": true, "talosShutdown": true,
+	"talosUpgrade": true, "talosApplyConfig": true, "etcdLeave": true, "etcdRemoveMember": true,
+	"talosReset": true, "waitNodeReady": true, "waitEtcdHealthy": true,
 }
 
 // unimplementedAction returns the index and key of the first action step
