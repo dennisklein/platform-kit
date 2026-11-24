@@ -38,6 +38,7 @@ const (
 	LaneTalosNode
 	LaneTalosCluster
 	LaneBootAsset
+	LaneEtcdBackup
 	LaneMaintenanceWindow
 	laneCount
 )
@@ -46,6 +47,7 @@ const (
 var AllLanes = []Lane{
 	LaneAsset, LaneEndpoint, LaneHost, LaneHostClaim, LaneProtection, LaneHostOperation,
 	LaneConvergence, LaneEndpointConvergence, LaneTalosNode, LaneTalosCluster, LaneBootAsset,
+	LaneEtcdBackup,
 	LaneMaintenanceWindow,
 }
 
@@ -101,6 +103,12 @@ type Options struct {
 	ProbeKubernetes KubernetesProber
 	CheckInterval   time.Duration
 	ReadyInterval   time.Duration
+
+	// EtcdBackupDir is where the manager's etcd backup volume is mounted
+	// (empty: none, pvc sinks are unavailable); EtcdBackupVolume names it in
+	// the snapshots' pvc:// locations.
+	EtcdBackupDir    string
+	EtcdBackupVolume string
 
 	// DriftInterval paces the TalosNode lane's dry-run drift check.
 	DriftInterval time.Duration
@@ -235,6 +243,12 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 			Client: c, Scheme: scheme, Namespace: o.CredentialsNamespace,
 			Dial: o.TalosDial, ProbeKubernetes: o.ProbeKubernetes,
 			CheckInterval: o.CheckInterval, ReadyInterval: o.ReadyInterval,
+		}
+	case LaneEtcdBackup:
+		return "etcd backup", &EtcdBackups{
+			Client: c, Namespace: o.CredentialsNamespace, Dial: o.TalosDial,
+			Dir: o.EtcdBackupDir, VolumeName: o.EtcdBackupVolume, Self: self,
+			RetryInterval: o.CheckInterval,
 		}
 	case LaneMaintenanceWindow:
 		return "maintenancewindow", &MaintenanceWindowReconciler{Client: c}

@@ -106,6 +106,8 @@ rules:
   resources:
   - bootassets/finalizers
   - bootassets/status
+  - etcdbackuppolicies/status
+  - etcdsnapshots/status
   - talosclusters/finalizers
   - talosclusters/status
   - talosnodes/finalizers
@@ -115,10 +117,20 @@ rules:
 - apiGroups:
   - os.pk.io
   resources:
-  - etcdsnapshots
+  - etcdbackuppolicies
   - talosclusters
   - talosrollouts
   verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - os.pk.io
+  resources:
+  - etcdsnapshots
+  verbs:
+  - create
+  - delete
   - get
   - list
   - watch
