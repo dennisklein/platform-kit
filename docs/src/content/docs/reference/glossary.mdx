@@ -1,0 +1,21 @@
+---
+title: Glossary
+description: The words that this site uses with one meaning, each with a short definition and the page that explains it.
+type: reference
+eyebrow: Reference · words
+xref: { cat: ref, id: glossary }
+tableOfContents: false
+sidebar:
+  order: 90
+sources:
+  - /repo/docs/src/data/glossary.yaml
+---
+
+import GlossaryPage from '../../../components/GlossaryPage.astro';
+
+Each word on this list has one meaning on this site.
+A dotted line under a word in a page links to its entry here. Hover over the word or focus it to see the definition.
+
+Select a domain to show only its terms. Type in the box to find a term or a word in a definition.
+
+<GlossaryPage />
