@@ -47,7 +47,7 @@ type testRelay struct {
 	dials         *dialRecorder
 }
 
-func startTestRelay(t testing.TB, rendezvous time.Duration) *testRelay {
+func startTestRelay(t testing.TB, rendezvous time.Duration, opts ...Option) *testRelay {
 	t.Helper()
 	tunnel, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -58,6 +58,9 @@ func startTestRelay(t testing.TB, rendezvous time.Duration) *testRelay {
 	r.dial = d.dial
 	r.handshakeTimeout = 200 * time.Millisecond
 	r.rendezvousTimeout = rendezvous
+	for _, opt := range opts {
+		opt(r)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	loops := goroutinesIn("relay.acceptLoop(")

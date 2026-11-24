@@ -18,7 +18,8 @@
 //
 //	REGISTER          -> OK front=<addr>    the control connection (last wins)
 //	ACCEPT <id>       picks up the front stream announced as "STREAM <id>"
-//	DIAL <host:port>  -> OK | ERR <why>     the operator's Redfish path onward
+//	DIAL <host:port>  -> OK | ERR <why>     the operator's Redfish path onward,
+//	                                        to targets in the allow list only
 //
 // Everything after a connection's first line is spliced payload. Without the
 // secret, a connection to the tunnel port can neither take the control slot
@@ -47,15 +48,20 @@ const (
 // listener dies. advertise overrides the front address reported to the
 // registering operator (the address as BMCs reach it); empty means front.Addr().
 // secret is the shared secret every tunnel connection must prove it holds
-// (ParseSecret, LoadSecret); the relay refuses to run without one.
-func Serve(ctx context.Context, tunnel, front net.Listener, advertise string, secret []byte) error {
+// (ParseSecret, LoadSecret); the relay refuses to run without one. Without
+// WithAllow, a DIAL may name any target.
+func Serve(ctx context.Context, tunnel, front net.Listener, advertise string, secret []byte, opts ...Option) error {
 	if len(secret) < minSecret {
 		return fmt.Errorf("relay: a secret of at least %d characters is required", minSecret)
 	}
 	if advertise == "" {
 		advertise = front.Addr().String()
 	}
-	return newRelay(advertise, secret).serve(ctx, tunnel, front)
+	r := newRelay(advertise, secret)
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r.serve(ctx, tunnel, front)
 }
 
 func newRelay(advertise string, secret []byte) *relay {
@@ -64,6 +70,7 @@ func newRelay(advertise string, secret []byte) *relay {
 		secret:            secret,
 		pending:           map[string]chan net.Conn{},
 		dial:              net.DialTimeout,
+		lookup:            lookupHost,
 		handshakeTimeout:  handshakeTimeout,
 		rendezvousTimeout: rendezvousTimeout,
 	}
@@ -91,9 +98,12 @@ func (r *relay) serve(ctx context.Context, tunnel, front net.Listener) error {
 type relay struct {
 	advertise string
 	secret    []byte
-	// dial and the two timeouts are fields so that tests can record onward
+	// allow limits the onward dials; nil allows every target.
+	allow Allow
+	// dial, lookup and the two timeouts are fields so that tests can record onward
 	// dials and wait milliseconds, not seconds.
 	dial              func(network, address string, timeout time.Duration) (net.Conn, error)
+	lookup            resolver
 	handshakeTimeout  time.Duration
 	rendezvousTimeout time.Duration
 
@@ -196,7 +206,17 @@ func (r *relay) accept(c net.Conn, id string) {
 }
 
 func (r *relay) dialOnward(c net.Conn, hostport string) {
-	target, err := r.dial("tcp", hostport, r.handshakeTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), r.handshakeTimeout)
+	address, err := r.allow.target(ctx, r.lookup, hostport)
+	cancel()
+	if err != nil {
+		// Refused before any dial: the allow list is what keeps the relay
+		// from being a general TCP pivot for a holder of the secret.
+		_, _ = fmt.Fprintf(c, "ERR %v\n", err)
+		_ = c.Close()
+		return
+	}
+	target, err := r.dial("tcp", address, r.handshakeTimeout)
 	if err != nil {
 		_, _ = fmt.Fprintf(c, "ERR %v\n", err)
 		_ = c.Close()

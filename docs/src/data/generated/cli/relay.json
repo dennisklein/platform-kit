@@ -7,7 +7,7 @@
   ],
   "changes": false,
   "needsCluster": false,
-  "description": "relay runs on a host that can reach the BMCs. BMCs download boot media from\nits front address, and it hands that traffic to pk-metal boot through its\ntunnel address; boot's Redfish calls to the BMCs go out the same way.\n\nEvery connection to the tunnel must prove it holds the relay's secret, so\nnobody else on the host or its network can take the media traffic over or\nreach the BMCs through it. Give the secret in $PK_METAL_RELAY_SECRET, or name\na file with --secret-file: when the file does not exist, relay writes a new\nsecret there (readable by you only) and uses it; an existing file is never\nreplaced. Hand the same secret to pk-metal boot.\n\nThe secret proves who connects; it does not encrypt the tunnel. Keep the\ntunnel on loopback (the default) and reach it over ssh -L.\n\nexample:\n  pk-metal relay --front 10.0.0.2:8443 --secret-file ~/.config/pk-metal/relay.secret",
+  "description": "relay runs on a host that can reach the BMCs. BMCs download boot media from\nits front address, and it hands that traffic to pk-metal boot through its\ntunnel address; boot's Redfish calls to the BMCs go out the same way.\n\nEvery connection to the tunnel must prove it holds the relay's secret, so\nnobody else on the host or its network can take the media traffic over or\nreach the BMCs through it. Give the secret in $PK_METAL_RELAY_SECRET, or name\na file with --secret-file: when the file does not exist, relay writes a new\nsecret there (readable by you only) and uses it; an existing file is never\nreplaced. Hand the same secret to pk-metal boot.\n\nThe secret proves who connects; it does not encrypt the tunnel. Keep the\ntunnel on loopback (the default) and reach it over ssh -L.\n\nboot's onward dials go only to the targets --allow names: by default any\naddress on port 443, where Redfish answers. Name the BMC network to narrow\nit, e.g. --allow 10.0.0.0/24:443; the relay refuses every other target.\n\nexample:\n  pk-metal relay --front 10.0.0.2:8443 --allow 10.0.0.0/24:443 --secret-file ~/.config/pk-metal/relay.secret",
   "examples": [],
   "exitStatus": [],
   "flags": [
@@ -16,6 +16,13 @@
       "type": "string",
       "default": "",
       "usage": "front address as BMCs reach it (default: the bound address)",
+      "global": false
+    },
+    {
+      "name": "allow",
+      "type": "string",
+      "default": "*:443",
+      "usage": "targets boot may dial through the relay, as <CIDR, IP or *>:<port or *>, comma-separated",
       "global": false
     },
     {
