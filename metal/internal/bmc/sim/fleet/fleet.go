@@ -21,6 +21,13 @@ type Options struct {
 	// Wrap decorates a machine's Redfish handler — request logging, mostly.
 	// Nil serves the handler as it is.
 	Wrap func(machine string, h http.Handler) http.Handler
+	// StateListen is the address the read-only state endpoint answers on,
+	// over plain HTTP (see StateHandler). Empty serves none. Keep it on
+	// loopback: it tells anyone who connects what every machine is doing.
+	StateListen string
+	// RequestHistory is how many Redfish requests per machine the state
+	// endpoint shows; zero is DefaultRequestHistory.
+	RequestHistory int
 }
 
 // Endpoint is one BMC of a running fleet.
@@ -39,7 +46,9 @@ type Endpoint struct {
 // Fleet is a set of BMCs being served.
 type Fleet struct {
 	endpoints []Endpoint
+	members   []member
 	mediaURL  string
+	stateURL  string
 	servers   []*http.Server
 	backends  []sim.Machine
 	failed    chan error
@@ -126,7 +135,8 @@ func Start(ctx context.Context, cfg *Config, o Options) (_ *Fleet, err error) {
 		if err != nil {
 			return nil, fmt.Errorf("machine %q: %w", m.Name, err)
 		}
-		var h http.Handler = sim.NewServer(st)
+		reqs := newRequestLog(o.RequestHistory)
+		h := reqs.wrap(sim.NewServer(st), time.Now)
 		if o.Wrap != nil {
 			h = o.Wrap(m.Name, h)
 		}
@@ -139,6 +149,16 @@ func Start(ctx context.Context, cfg *Config, o Options) (_ *Fleet, err error) {
 			ep.Username, ep.Password = fx.Accounts[0].Username, fx.Accounts[0].Password
 		}
 		f.endpoints = append(f.endpoints, ep)
+		// The configured identity first: a fixture may hide the serial from
+		// Redfish (the X12 blind spot), the fleet file never does.
+		mem := member{ep: ep, serial: m.Identity.Serial, bmcMAC: m.Identity.BMCMAC, backend: backend, log: reqs}
+		if mem.serial == "" {
+			mem.serial = fx.Systems[0].Serial
+		}
+		if mem.bmcMAC == "" {
+			mem.bmcMAC = fx.Manager.MAC
+		}
+		f.members = append(f.members, mem)
 	}
 
 	if cfg.Media != nil {
@@ -152,6 +172,16 @@ func Start(ctx context.Context, cfg *Config, o Options) (_ *Fleet, err error) {
 		}
 		f.mediaURL = "https://" + ln.Addr().String()
 		ready = append(ready, pending{"media", ln, http.FileServer(http.Dir(cfg.Media.Dir))})
+	}
+
+	if o.StateListen != "" {
+		ln, err := net.Listen("tcp", o.StateListen)
+		if err != nil {
+			return nil, fmt.Errorf("state endpoint: %w", err)
+		}
+		listeners = append(listeners, ln)
+		f.stateURL = "http://" + ln.Addr().String() + StatePath
+		ready = append(ready, pending{"state", ln, f.StateHandler()})
 	}
 
 	for _, p := range ready {
@@ -194,6 +224,9 @@ func (f *Fleet) Endpoints() []Endpoint { return f.endpoints }
 
 // MediaURL is the base URL of the media directory, empty when none is served.
 func (f *Fleet) MediaURL() string { return f.mediaURL }
+
+// StateURL is the URL of the state endpoint, empty when none is served.
+func (f *Fleet) StateURL() string { return f.stateURL }
 
 // Failed delivers the error of a listener that stopped serving on its own.
 func (f *Fleet) Failed() <-chan error { return f.failed }

@@ -209,6 +209,11 @@ written by `mise run lab:kubeconfig` once the cluster is bootstrapped.
 # The serial console, from the first firmware line on, during the install too:
 tail -f .lab/state/node-2/console.log
 
+# What each simulated BMC holds and what its VM does: power, media slots,
+# boot override, the last Redfish requests, whether QEMU runs. Read-only,
+# on loopback (pk-metal sim fleet --state-listen changes the address):
+curl -s http://127.0.0.1:8440/state | jq '.machines[] | {name, power, media, backend}'
+
 export TALOSCONFIG=$PWD/.lab/talosconfig
 talosctl -n 10.77.0.12 dashboard          # like top, plus the kernel log and service states
 talosctl -n 10.77.0.12 dmesg              # the kernel log

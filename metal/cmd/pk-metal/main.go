@@ -141,7 +141,7 @@ func simCmd(args []string) {
 		fmt.Fprintln(w, `pk-metal sim: run simulated BMCs (Redfish) for tests and demos
 
 usage: pk-metal sim serve [--fixture <name|path>] [--listen addr] [--tls] [--verbose]
-       pk-metal sim fleet --config <file> [--verbose]
+       pk-metal sim fleet --config <file> [--verbose] [--state-listen addr]
 
 run: pk-metal sim serve -h, or pk-metal sim fleet -h, for the flags`)
 		os.Exit(code)

@@ -475,6 +475,26 @@ func (m *Machine) BootProgress(context.Context) (string, error) {
 	return m.console.progress(), nil
 }
 
+// Status is what an observer may know about the VM: whether it runs and how
+// far its boot got. It names no process id; the VM is reached through its
+// BMC, never by signalling the process.
+type Status struct {
+	Running      bool
+	BootProgress string
+	ConsoleLog   string
+}
+
+// Status reads the VM's state for a dashboard. It follows the console the
+// same way BootProgress does.
+func (m *Machine) Status(ctx context.Context) Status {
+	st := Status{ConsoleLog: m.ConsoleLog()}
+	st.Running, _ = m.Running(ctx)
+	if st.Running {
+		st.BootProgress, _ = m.BootProgress(ctx)
+	}
+	return st
+}
+
 // consoleScan follows a serial console capture incrementally: each read picks
 // up where the last one stopped.
 type consoleScan struct {
