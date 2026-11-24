@@ -27,6 +27,12 @@ import { Steps } from '@astrojs/starlight/components';
   <dd>The operation of one node failed. No further node starts.</dd>
   <dt>`Approved=False`, `AwaitingApproval`</dt>
   <dd>Nobody approved the plan.</dd>
+  <dt>`Planned=False`, `PlanBlocked`</dt>
+  <dd>The operator cannot make the plan yet. The message names the step and why.</dd>
+  <dt>[](cli:status)</dt>
+  <dd>The `ROLLOUT` table shows the reason in the `STATE` column.</dd>
+  <dt>Alert</dt>
+  <dd>`PkMetalRolloutStalled` (waits for health, cannot plan, or paused after the first node, for one hour) or `PkMetalRolloutFailed`.</dd>
 </dl>
 
 ## Impact
@@ -45,10 +51,28 @@ pk-metal rollout show prod-talosupgrade-1a2b3c4d
 | Reason | Fix |
 | --- | --- |
 | `PausedAfterFirstNode`, `PausedByPerson` | Examine the nodes. Then run `pk-metal rollout resume <rollout>`. |
-| `WaitingForHealth` | The message names what it waits for. See [](rb:etcd-unhealthy) or [](rb:node-not-ready). |
+| `WaitingForHealth`, the message names a node or etcd | See [](rb:etcd-unhealthy) or [](rb:node-not-ready). |
+| `WaitingForHealth`, the message says "rollout X of the same cluster runs" | Only one rollout changes a cluster at a time. Examine the other rollout first. |
+| `PlanBlocked` | The message names the step that the operator cannot plan. Correct the cause. The operator then makes the plan again. |
 | `PlanChanged` | The operator proposes a fresh rollout. Read it and approve it. |
 | `RolloutFailed` | See [](rb:operation-failed) for the failed node. Then delete the failed rollout. The operator proposes a new one. |
 | `AwaitingApproval` | A second person runs `pk-metal rollout approve <rollout>`. |
+
+### Stop it now
+
+To stop before the next node, pause the rollout. The node that runs now finishes.
+
+```sh
+pk-metal rollout pause prod-talosupgrade-1a2b3c4d
+```
+
+To stop for good, abort it. No further node starts. You cannot undo an abort.
+
+```sh
+pk-metal rollout abort prod-talosupgrade-1a2b3c4d
+```
+
+### Ask for a new proposal
 
 An operation of a rollout that shows `RolloutRefused` was not covered by the approval. Its machine did not change.
 

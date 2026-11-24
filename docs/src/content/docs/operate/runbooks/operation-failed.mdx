@@ -63,7 +63,7 @@ The operation stopped at the failed step. Steps before it stay done. The operato
 
 1. Correct the cause.
 
-2. Retry the operation. The operator proposes the same plan again.
+2. Retry the operation. If the operator made it, the operator proposes the same plan again.
 
    ```sh
    pk-metal retry pk-metal/provision-simhw2288v5000397-0f3c9a1e
@@ -76,6 +76,11 @@ The operation stopped at the failed step. Steps before it stay done. The operato
    ```
 
 </Steps>
+
+<Callout type="note">
+`pk-metal retry` only deletes an operation that a person made, for example with [](cli:reboot). Make it again yourself.
+An operation of a rollout ends the rollout. Follow [](rb:rollout-paused).
+</Callout>
 
 <Callout type="note">
 For an `Aborted` operation, the last step lists what the abort undid and what it could not undo. Retry it in the same way.

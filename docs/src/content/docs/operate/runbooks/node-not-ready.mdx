@@ -16,11 +16,11 @@ import { Steps } from '@astrojs/starlight/components';
   <dt>[](kind:TalosNode)</dt>
   <dd>`Ready` is not `True`. The reason is `Converging`, `AwaitingContact` or `DialFailed`. `MachineReachable` can show `MaintenanceMode`.</dd>
   <dt>[](kind:TalosCluster)</dt>
-  <dd>`Available=False` with `NodesNotReady` or `KubernetesUnreachable`.</dd>
+  <dd>`Available=False` with `NodesNotReady`. For `KubernetesUnreachable`, start at [](rb:cluster-unavailable).</dd>
   <dt>Operation</dt>
   <dd>[](act:AwaitCheckIn) or [](act:WaitNodeReady) failed.</dd>
   <dt>Alert</dt>
-  <dd>`PkMetalNodeNotReady` or `PkMetalClusterUnavailable`.</dd>
+  <dd>`PkMetalNodeNotReady`, for 15 minutes. It fires only for a node of a bootstrapped cluster that answered before. A node that the operator still installs does not page.</dd>
 </dl>
 
 ## Impact

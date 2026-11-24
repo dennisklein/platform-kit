@@ -17,7 +17,32 @@ import Callout from '../../../../components/Callout.astro';
   <dd>Exit status 1. The management cluster does not answer.</dd>
   <dt>The Talos nodes of the management cluster</dt>
   <dd>They answer, but etcd does not run or has no quorum.</dd>
+  <dt>Alert</dt>
+  <dd>`PkMetalMetricsAbsent`: Prometheus did not scrape the manager for 10 minutes. No other pk-metal alert can fire then.</dd>
 </dl>
+
+## Diagnose
+
+`PkMetalMetricsAbsent` also fires when only the manager stopped. Find the case before you change anything.
+
+<Steps>
+
+1. Ask the API server of the management cluster.
+
+   ```sh
+   kubectl -n pk-metal get pods,endpoints
+   ```
+
+2. Read the result.
+
+   | Result | Case | What to do |
+   | --- | --- | --- |
+   | The API server does not answer | You lost the management cluster | Continue with [Fix](#fix). |
+   | The manager pod is not `Running` | The manager stopped | Read its log: `kubectl -n pk-metal logs deploy/pk-metal-manager --previous`. |
+   | The pod runs, the Service has no endpoints | The pod is not ready | `kubectl -n pk-metal describe pod -l app.kubernetes.io/component=manager`. |
+   | The pod runs and has endpoints | Prometheus cannot scrape it | Check the ServiceMonitor and the metrics reader role. See [](howto:monitor). |
+
+</Steps>
 
 ## Impact
 

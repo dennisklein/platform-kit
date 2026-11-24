@@ -11,6 +11,23 @@ sidebar:
 Start with [](cli:status). Find the value from the `PHASE` or `BLOCKED` column, or the reason of a condition, in the table.
 Each runbook has the same parts: symptoms, impact, diagnosis, fix and verification.
 
+## Alerts
+
+Each alert links to one runbook in its `runbook_url` annotation.
+
+| Alert | Runbook |
+| --- | --- |
+| `PkMetalMetricsAbsent` | [](rb:management-cluster-lost) |
+| `PkMetalOperationFailed` | [](rb:operation-failed) |
+| `PkMetalOperationStuck` | [](rb:operation-stuck) |
+| `PkMetalOperationBlocked`, `PkMetalApprovalWaiting` | [](rb:operation-held) |
+| `PkMetalBMCUnreachable` | [](rb:bmc-unreachable) |
+| `PkMetalNodeNotReady` | [](rb:node-not-ready) |
+| `PkMetalClusterUnavailable` | [](rb:cluster-unavailable) |
+| `PkMetalEtcdBackupStale`, `PkMetalEtcdBackupMissing` | [](rb:backup-failing) |
+| `PkMetalCredentialsExpiring` | [](rb:credentials-not-renewed) |
+| `PkMetalRolloutStalled`, `PkMetalRolloutFailed` | [](rb:rollout-paused) |
+
 ## Machines and BMCs
 
 | You see | Where | Runbook |
@@ -32,18 +49,20 @@ Each runbook has the same parts: symptoms, impact, diagnosis, fix and verificati
 | `HeldByUser`, `HostInMaintenance`, `EtcdJoinWaiting`, `EtcdRiskRefused`, `RemovalWaiting` | Claim `BLOCKED` | [](rb:operation-held) |
 | `RolloutRefused` | Operation `Executed=False` | [](rb:operation-held) |
 | A drain step failed, the node stays cordoned | Operation message | [](rb:drain-stuck) |
+| `Running` in the same step for hours | Operation, `pk_metal_operation_running_seconds` | [](rb:operation-stuck) |
 
 ## Nodes and clusters
 
 | You see | Where | Runbook |
 | --- | --- | --- |
 | `Ready=False`, `Converging`, `DialFailed`, `MaintenanceMode` | TalosNode | [](rb:node-not-ready) |
-| `NodesNotReady`, `KubernetesUnreachable` | Cluster `Available=False` | [](rb:node-not-ready) |
+| `NodesNotReady`, `KubernetesUnreachable` | Cluster `Available=False` | [](rb:cluster-unavailable) |
 | `EtcdUnavailable`, a member unhealthy | Cluster `Bootstrapped`, `pk-metal restore plan` | [](rb:etcd-unhealthy) |
 | `EtcdDataLost`, `EtcdDataPresent`, `RestorePending`, `BootstrapRefused` | Cluster `Bootstrapped=False` | [](rb:bootstrap-refused) |
-| `PausedAfterFirstNode`, `WaitingForHealth`, `PlanChanged`, `RolloutFailed` | TalosRollout | [](rb:rollout-paused) |
+| `PausedAfterFirstNode`, `WaitingForHealth`, `PlanBlocked`, `PlanChanged`, `RolloutFailed` | TalosRollout, `ROLLOUT` table | [](rb:rollout-paused) |
 | `BackupTooOld`, `SinkRefused`, `SinkUnavailable`, `SnapshotFailed` | EtcdBackupPolicy, EtcdSnapshot | [](rb:backup-failing) |
 | The management cluster does not answer | Everything | [](rb:management-cluster-lost) |
+| `credentialsExpireAt` near, not renewed | TalosCluster status | [](rb:credentials-not-renewed) |
 
 ## Before you change anything
 

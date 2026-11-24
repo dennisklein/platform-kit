@@ -19,7 +19,7 @@ import { Steps } from '@astrojs/starlight/components';
   <dt>[](cli:status)</dt>
   <dd>The `BACKUP` column of the cluster. Exit status 2.</dd>
   <dt>Alert</dt>
-  <dd>`PkMetalEtcdBackupStale`.</dd>
+  <dd>`PkMetalEtcdBackupStale`: the newest verified snapshot is older than two intervals of the policy, the same rule as `BackupTooOld`. `PkMetalEtcdBackupMissing`: a policy exists, but no snapshot was ever verified.</dd>
 </dl>
 
 ## Impact
@@ -54,6 +54,7 @@ A loss of the etcd majority now loses more data. Nothing on the cluster changes.
 | `SnapshotFailed` | The message says what failed. Usually no healthy etcd member, or the sink refused the write. |
 | `Damaged`, `ReadBackFailed` | The sink did not return what the operator wrote. Check the store. |
 | `BackupTooOld` | The newest verified snapshot is older than two intervals. Correct the cause above. |
+| `suspend: true` on the policy | A person stopped the schedule. The alert still fires after two intervals. Remove `suspend`, or delete the policy if the cluster needs no backup. |
 
 After the fix, take a snapshot now:
 

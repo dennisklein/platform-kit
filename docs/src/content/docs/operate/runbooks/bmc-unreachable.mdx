@@ -31,25 +31,30 @@ The operator cannot read or change the machine. Steps that go through the Talos 
 
 <Steps>
 
-1. Read the Asset condition.
+1. Read the endpoint phase and its `Reachable` condition.
 
    ```sh
-   kubectl get asset sim-0001
-   ```
-
-   The `ENDPOINT` column shows the reason.
-
-2. Read the endpoint message.
-
-   ```sh
+   kubectl get managementendpoints
    kubectl describe managementendpoint sim-0001
    ```
 
-3. From a node of the management cluster, check the BMC.
+   The `Reachable` message holds the error of the last probe.
+
+2. If no endpoint exists, read the Asset condition.
 
    ```sh
-   pk-metal check --insecure https://192.0.2.21
+   kubectl describe asset sim-0001
    ```
+
+   The `Materialized` condition names the ledger problem.
+
+3. From a workstation on the BMC network, check the BMC. Talos nodes have no shell.
+
+   ```sh
+   pk-metal check https://192.0.2.21
+   ```
+
+   Do not add `--insecure` to find the cause. A certificate error is a cause.
 
 </Steps>
 
@@ -61,6 +66,7 @@ The operator cannot read or change the machine. Steps that go through the Talos 
 | `LedgerEntryInvalid` | The line is not an `https` URL, or the MAC is in the ledger two times. Correct it. |
 | Timeout | Check the network path on TCP 443. See [](howto:network-checklist). |
 | A proxy is set | Add the BMC network to `NO_PROXY` of the manager. See [](howto:behind-a-proxy). |
+| `x509` or `certificate` in the message | The manager does not trust the BMC certificate. Give the CA that signed it to the manager (`--bmc-ca-secret`, see [](ctrl:manager)), or replace the BMC certificate. |
 | `401` in the message | The credentials are wrong. Check the Secret that `credentialsRef` names. |
 | The BMC hangs | Reset the BMC from its web console, or remove power from the BMC. |
 

@@ -45,21 +45,21 @@ The node is cordoned. Its running pods stay. No new pod goes to it.
 | --- | --- |
 | A PodDisruptionBudget allows 0 disruptions | Scale the workload up, or change the budget. |
 | A pod has an `emptyDir` volume | Move the pod. Or propose again with `--delete-emptydir-data`. You lose the data. |
-| A pod does not stop in time | Give a longer `--drain-timeout` or `--grace-period`. |
+| A pod does not stop in time | Propose the reboot again with a longer `--drain-timeout` or `--grace-period`. These are flags of [](cli:reboot), not of [](cli:retry). |
 
 ## Fix
 
-<Steps>
+Correct the cause first. Then find who made the operation. Its `spec.reason` tells you.
 
-1. Correct the cause.
+```sh
+kubectl -n pk-metal get hostoperation reboot-w-1-x7k2p -o jsonpath='{.spec.reason}{"\n"}'
+```
 
-2. Retry the operation.
-
-   ```sh
-   pk-metal retry pk-metal/reboot-w-1-x7k2p
-   ```
-
-</Steps>
+| Made by | Reason | Fix |
+| --- | --- | --- |
+| The operator, for a claim | `Provisioning`, `Release`, and others | Run `pk-metal retry pk-metal/reboot-w-1-x7k2p`. The operator proposes it again. A second person approves it. |
+| A person, with [](cli:reboot) | `Reboot` | `pk-metal retry` only deletes it. Then propose it again, for example `pk-metal reboot --drain-timeout 30m w-1`, and get it approved. |
+| A rollout | `TalosRollout` | The rollout has failed. Follow [](rb:rollout-paused). |
 
 To give the node back without the change, uncordon it:
 
@@ -73,7 +73,11 @@ Do not delete pods by force to make the drain pass. You can lose data of a state
 
 ## Verify
 
-The new operation goes past the drain step.
+A new operation for the node exists and goes past the drain step.
+
+```sh
+kubectl -n pk-metal get hostoperations
+```
 
 ## Related
 

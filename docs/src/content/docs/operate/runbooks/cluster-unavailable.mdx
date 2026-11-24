@@ -1,0 +1,61 @@
+---
+title: Cluster unavailable
+description: A bootstrapped TalosCluster reports Available=False. Find out if the Kubernetes API or a node is the cause, then go to the right runbook.
+type: runbook
+xref: { cat: rb, id: cluster-unavailable }
+sources:
+  - /repo/metal/internal/controller/taloscluster_controller.go
+  - /repo/metal/config/prometheus/rules.yaml
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+## Symptoms
+
+<dl>
+  <dt>[](kind:TalosCluster)</dt>
+  <dd>`Available=False` with `KubernetesUnreachable` or `NodesNotReady`.</dd>
+  <dt>[](cli:status)</dt>
+  <dd>The `AVAILABLE` column of the cluster. Exit status 2.</dd>
+  <dt>Alert</dt>
+  <dd>`PkMetalClusterUnavailable`, for 15 minutes. It fires only for a bootstrapped cluster. A cluster that the operator still builds does not page.</dd>
+</dl>
+
+## Impact
+
+With `KubernetesUnreachable`, nobody can change the workloads of the cluster. With `NodesNotReady`, the workloads of some nodes do not run.
+
+## Diagnose
+
+<Steps>
+
+1. Read the reason of `Available`.
+
+   ```sh
+   kubectl get taloscluster prod -o jsonpath='{.status.conditions[?(@.type=="Available")].reason}{"\n"}'
+   ```
+
+2. Read the etcd state of the cluster. The `ETCD` column of [](cli:status) shows it.
+
+   ```sh
+   pk-metal status
+   ```
+
+</Steps>
+
+## Fix
+
+| Reason | `ETCD` | Go to |
+| --- | --- | --- |
+| `KubernetesUnreachable` | `EtcdUnavailable` | [](rb:etcd-unhealthy). etcd is the cause. |
+| `KubernetesUnreachable` | `EtcdDataLost` | [](rb:bootstrap-refused) |
+| `KubernetesUnreachable` | `EtcdRunning` | The API server or the endpoint is the cause. Check the control planes in [](rb:node-not-ready). |
+| `NodesNotReady` | any | [](rb:node-not-ready). The message names the nodes. |
+
+## Verify
+
+`kubectl get taloscluster prod` shows `Available=True`. The alert resolves.
+
+## Related
+
+- [](kind:TalosCluster), [](howto:monitor)

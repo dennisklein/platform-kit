@@ -1,0 +1,79 @@
+---
+title: Operation stuck
+description: A HostOperation stays Running in the same step for too long. Stop it safely with pk-metal abort.
+type: runbook
+xref: { cat: rb, id: operation-stuck }
+sources:
+  - /repo/metal/cmd/pk-metal/abort.go
+  - /repo/metal/internal/metrics/collector.go
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Symptoms
+
+<dl>
+  <dt>[](kind:HostOperation)</dt>
+  <dd>`Running`, and the step count does not change.</dd>
+  <dt>Metric</dt>
+  <dd>`pk_metal_operation_running_seconds` shows the step and how long it runs.</dd>
+  <dt>Alert</dt>
+  <dd>`PkMetalOperationStuck`: one step runs for more than two hours.</dd>
+</dl>
+
+## Impact
+
+The machine can be in the middle of a change: media mounted, a boot override set, the node cordoned. No other operation starts on the Host.
+
+## Diagnose
+
+<Steps>
+
+1. Read the step and its message.
+
+   ```sh
+   kubectl -n pk-metal describe hostoperation reboot-w-1-x7k2p
+   ```
+
+2. Examine the machine through the BMC or the node console. Find if the step can still finish.
+
+</Steps>
+
+## Fix
+
+If the step can finish, correct the cause and wait. Each step has its own deadline and fails at the end of it.
+
+If the step cannot finish, stop the operation.
+
+<Steps>
+
+1. Abort the operation and give the reason.
+
+   ```sh
+   pk-metal abort --reason "drain hangs on w-1" pk-metal/reboot-w-1-x7k2p
+   ```
+
+2. Wait for the phase `Aborted`. The last step lists what the abort undid: media, boot override, cordon.
+
+   ```sh
+   kubectl -n pk-metal get hostoperation reboot-w-1-x7k2p
+   ```
+
+</Steps>
+
+<Callout type="caution">
+Do not delete the operation to stop it. A delete stops it, but undoes nothing: media stay mounted and the node stays cordoned.
+</Callout>
+
+## Verify
+
+The operation is `Aborted`. The Host shows no `BLOCKED` value from it.
+
+## If this does not work
+
+To run the change again, see [](rb:operation-failed). Follow [](howto:collect-diagnostics).
+
+## Related
+
+- [](cli:abort), [](howto:approve-hold-retry)
