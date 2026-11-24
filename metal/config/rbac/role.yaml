@@ -1,0 +1,160 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pk-metal-manager
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+- apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - metal.pk.io
+  resources:
+  - assets
+  - biossettings
+  - maintenancewindows
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - metal.pk.io
+  resources:
+  - hostclaims
+  verbs:
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - metal.pk.io
+  resources:
+  - hostclaims/status
+  - hostoperations/status
+  - maintenancewindows/status
+  verbs:
+  - update
+- apiGroups:
+  - metal.pk.io
+  resources:
+  - hostoperations
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - metal.pk.io
+  resources:
+  - hosts
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - metal.pk.io
+  resources:
+  - hosts/status
+  - managementendpoints/status
+  verbs:
+  - patch
+- apiGroups:
+  - metal.pk.io
+  resources:
+  - managementendpoints
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - os.pk.io
+  resources:
+  - bootassets
+  verbs:
+  - create
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - os.pk.io
+  resources:
+  - bootassets/finalizers
+  - bootassets/status
+  - talosclusters/finalizers
+  - talosclusters/status
+  - talosnodes/finalizers
+  - talosnodes/status
+  verbs:
+  - update
+- apiGroups:
+  - os.pk.io
+  resources:
+  - etcdsnapshots
+  - talosclusters
+  - talosrollouts
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - os.pk.io
+  resources:
+  - talosnodes
+  verbs:
+  - get
+  - list
+  - patch
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pk-metal-manager
+  namespace: pk-metal
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch

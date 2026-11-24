@@ -51,13 +51,16 @@ dir = "metal"
 run = "go test -count=1 -run TestPhaseWriteSites ./internal/phase/"
 
 [tasks.generate]
-description = "Regenerate everything derived from the Go sources: deepcopy code, CRDs"
+description = "Regenerate everything derived from the Go sources: deepcopy code, CRDs, RBAC"
 dir = "metal"
 run = [
   "go tool controller-gen object paths=./api/...",
   "go tool controller-gen crd paths=./api/... output:crd:artifacts:config=config/crd",
   "go run ./hack/reflowdesc config/crd/*_*.yaml",
   "hack/crd-kustomization.sh config/crd",
+  # The manager's role comes from the +kubebuilder:rbac markers next to the code that
+  # needs each permission, on the reconcilers.
+  "go tool controller-gen rbac:roleName=pk-metal-manager paths=./internal/controller/... output:rbac:artifacts:config=config/rbac",
 ]
 
 [tasks."generate:check"]
