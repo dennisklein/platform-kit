@@ -129,7 +129,7 @@ func TestRenderPlanLiftedGuards(t *testing.T) {
 	assert.Contains(t, out, "guards lifted for this operation:\n"+
 		"  metal.pk.io/override-cluster-guard (pk-metal restore: etcd of cluster lab is broken and this operation is its repair): "+
 		"a control plane may go down although etcd is not fully healthy without it\n"+
-		"  metal.pk.io/ignore-window (no reason given): it may start outside every maintenance window\n"+
+		"  metal.pk.io/ignore-window (empty: lifts nothing)\n"+
 		"steps, in this order:\n")
 
 	// The plan is what approve compares before it writes: a guard lifted

@@ -72,7 +72,7 @@ func init() {
 			summary: "mount a machine config ISO through a BMC and REBOOT the machine into it, without the operator"},
 		{name: "bootstrap", synopsis: "--dir <manifests> --secrets <secrets.yaml|-> [flags]", run: bootstrapCmd, changes: true,
 			summary: "start a new Talos cluster on booted machines and wait until every node is ready, without the operator"},
-		{name: "relay", synopsis: "[--front addr] [--tunnel addr] [--advertise host:port] [--secret-file file]", run: relayCmd,
+		{name: "relay", synopsis: "[--front addr] [--tunnel addr] [--advertise host:port] [--secret-file file] [--allow rules]", run: relayCmd,
 			summary: "run on a host that can reach the BMCs: BMCs download boot media from it, and it forwards that traffic to pk-metal boot"},
 		{name: "sim", synopsis: "serve [flags] | fleet --config <file>", run: simCmd,
 			summary: "run simulated BMCs for tests: serve one, or a fleet with a virtual machine behind each"},

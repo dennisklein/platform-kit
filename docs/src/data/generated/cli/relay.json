@@ -1,9 +1,9 @@
 {
   "name": "relay",
   "summary": "run on a host that can reach the BMCs: BMCs download boot media from it, and it forwards that traffic to pk-metal boot",
-  "synopsis": "[--front addr] [--tunnel addr] [--advertise host:port] [--secret-file file]",
+  "synopsis": "[--front addr] [--tunnel addr] [--advertise host:port] [--secret-file file] [--allow rules]",
   "usage": [
-    "pk-metal relay [--front addr] [--tunnel addr] [--advertise host:port] [--secret-file file]"
+    "pk-metal relay [--front addr] [--tunnel addr] [--advertise host:port] [--secret-file file] [--allow rules]"
   ],
   "changes": false,
   "needsCluster": false,

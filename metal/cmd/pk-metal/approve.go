@@ -544,7 +544,9 @@ var guardEffect = map[string]string{
 
 // liftedGuards lists the annotations on the operation that lift a safety
 // rule, each with its reason and the rule it lifts. The approver must see
-// them: the plan alone does not show that a rule no longer holds.
+// them: the plan alone does not show that a rule no longer holds. An
+// annotation with an empty value lifts nothing (the operator ignores it),
+// and the plan says so.
 func liftedGuards(op *metalv1alpha1.HostOperation) []string {
 	var out []string
 	for _, key := range metalv1alpha1.GuardAnnotations {
@@ -554,7 +556,8 @@ func liftedGuards(op *metalv1alpha1.HostOperation) []string {
 		}
 		why = strings.TrimSpace(why)
 		if why == "" {
-			why = "no reason given"
+			out = append(out, key+" (empty: lifts nothing)")
+			continue
 		}
 		out = append(out, fmt.Sprintf("%s (%s): %s", key, why, guardEffect[key]))
 	}
