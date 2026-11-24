@@ -202,6 +202,15 @@ func TestPivot(t *testing.T) {
 			Address: "192.0.2.11", InstallDiskSelector: osv1alpha1.DiskSelector{Serial: "sim-disk"}},
 	}
 	require.NoError(t, cl.Create(ctx, node))
+	// A day-2 kind moves with the rest: the copy list is discovered.
+	require.NoError(t, cl.Create(ctx, &metalv1alpha1.MaintenanceWindow{
+		ObjectMeta: metav1.ObjectMeta{Name: "weekend"},
+		Spec: metalv1alpha1.MaintenanceWindowSpec{
+			HostSelector: &metav1.LabelSelector{},
+			Weekly: []metalv1alpha1.WeeklyWindow{{Days: []metalv1alpha1.Weekday{"Sat"}, Start: "22:00",
+				Duration: metav1.Duration{Duration: 4 * time.Hour}}},
+		},
+	}))
 	node.Status.ConfigSecretRef = &osv1alpha1.SecretReference{Namespace: ns, Name: "worker-1-render"}
 	node.Status.ConfigDigest = digest.FromBytes(cfgBytes).String()
 	node.Status.Conditions = []metav1.Condition{{Type: osv1alpha1.ConditionRendered, Status: metav1.ConditionTrue,
@@ -368,6 +377,8 @@ func TestPivot(t *testing.T) {
 	assert.Equal(t, 1, rep.Copied["HostClaim"])
 	assert.Equal(t, 1, rep.Copied["HostOperation"])
 	assert.Equal(t, []string{claimNS + "/worker-1"}, rep.HandedOff)
+	assert.Equal(t, 1, rep.Copied["MaintenanceWindow"], "day-2 kinds move too")
+	require.NoError(t, dst.cl.Get(ctx, client.ObjectKey{Name: "weekend"}, &metalv1alpha1.MaintenanceWindow{}))
 
 	srcClaim := &metalv1alpha1.HostClaim{}
 	require.NoError(t, cl.Get(ctx, client.ObjectKey{Namespace: claimNS, Name: "worker-1"}, srcClaim))

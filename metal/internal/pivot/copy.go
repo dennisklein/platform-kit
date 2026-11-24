@@ -11,6 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -77,6 +78,7 @@ var movedKinds = []movedKind{
 	{gvk: osGV.WithKind("TalosCluster")},
 	{gvk: osGV.WithKind("TalosNode")},
 	{gvk: osGV.WithKind("BootAsset")},
+	{gvk: metalGV.WithKind("MaintenanceWindow")},
 }
 
 // movedKindOf finds the moved kind an owner reference names.
@@ -85,7 +87,8 @@ func movedKindOf(apiVersion, kind string) bool {
 	if err != nil {
 		return false
 	}
-	return slices.ContainsFunc(movedKinds, func(k movedKind) bool { return k.gvk == gv.WithKind(kind) })
+	return slices.Contains(movedGroups, gv.Group) ||
+		slices.ContainsFunc(movedKinds, func(k movedKind) bool { return k.gvk == gv.WithKind(kind) })
 }
 
 // Report is what a copy did, and what the verification compares against.
@@ -237,13 +240,13 @@ func (m *Mover) Copy(ctx context.Context, plan *Plan) (*Report, error) {
 			}
 		}
 	}
-	m.logf("copied %s; %d UID references rewritten", copiedSummary(rep.Copied), rep.Rewritten)
+	m.logf("copied %s; %d UID references rewritten", copiedSummary(m.movedKinds(), rep.Copied), rep.Rewritten)
 	return rep, nil
 }
 
-func copiedSummary(copied map[string]int) string {
+func copiedSummary(kinds []movedKind, copied map[string]int) string {
 	var parts []string
-	for _, k := range movedKinds {
+	for _, k := range kinds {
 		if n := copied[k.gvk.Kind]; n > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", n, k.gvk.Kind))
 		}
@@ -258,7 +261,7 @@ func copiedSummary(copied map[string]int) string {
 // by name within a kind, so that two runs copy in the same order.
 func (m *Mover) readSource(ctx context.Context) ([]sourceObject, error) {
 	var out []sourceObject
-	for _, k := range movedKinds {
+	for _, k := range m.movedKinds() {
 		list := &unstructured.UnstructuredList{}
 		list.SetGroupVersionKind(k.gvk.GroupVersion().WithKind(k.gvk.Kind + "List"))
 		var opts []client.ListOption
@@ -266,6 +269,9 @@ func (m *Mover) readSource(ctx context.Context) ([]sourceObject, error) {
 			opts = append(opts, client.InNamespace(m.Options.Namespace))
 		}
 		if err := m.Source.Client.List(ctx, list, opts...); err != nil {
+			if !k.core && meta.IsNoMatchError(err) {
+				continue // an operator version without this kind: none of it to move
+			}
 			return nil, fmt.Errorf("list %s on %s: %w", k.gvk.Kind, m.Source.Name, err)
 		}
 		items := list.Items
@@ -499,14 +505,18 @@ func (m *Mover) prune(ctx context.Context, objs []sourceObject) ([]string, error
 		keep[so.kind.gvk.Kind+" "+objectRef(so.obj)] = true
 	}
 	var pruned []string
-	for i := len(movedKinds) - 1; i >= 0; i-- {
-		k := movedKinds[i]
+	kinds := m.movedKinds()
+	for i := len(kinds) - 1; i >= 0; i-- {
+		k := kinds[i]
 		if k.core {
 			continue
 		}
 		list := &unstructured.UnstructuredList{}
 		list.SetGroupVersionKind(k.gvk.GroupVersion().WithKind(k.gvk.Kind + "List"))
 		if err := m.Target.Client.List(ctx, list); err != nil {
+			if meta.IsNoMatchError(err) {
+				continue // the target does not serve the kind: nothing of it to prune
+			}
 			return nil, err
 		}
 		for j := range list.Items {
