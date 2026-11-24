@@ -223,8 +223,10 @@ func (im *Imager) imagerJob(ba *osv1alpha1.BootAsset, namespace, job, configSecr
 								corev1.ResourceCPU:    resource.MustParse("500m"),
 								corev1.ResourceMemory: resource.MustParse("512Mi"),
 							},
-							// The memory-backed /tmp counts against this.
-							Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("3Gi")},
+							// The memory-backed /tmp counts against this. The imager keeps
+							// a kernel, an initramfs and a boot image there, a few hundred
+							// MiB; the ISO itself goes to the store.
+							Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("2Gi")},
 						},
 						SecurityContext: restrictedContainer(),
 						VolumeMounts: []corev1.VolumeMount{
@@ -235,8 +237,8 @@ func (im *Imager) imagerJob(ba *osv1alpha1.BootAsset, namespace, job, configSecr
 						},
 					}},
 					Volumes: []corev1.Volume{
+						// The staged manager binary holds no secret: disk will do.
 						{Name: "helper", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{
-							Medium:    corev1.StorageMediumMemory,
 							SizeLimit: ptr.To(resource.MustParse("256Mi")),
 						}}},
 						{Name: "config", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
@@ -249,7 +251,7 @@ func (im *Imager) imagerJob(ba *osv1alpha1.BootAsset, namespace, job, configSecr
 						}}},
 						{Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{
 							Medium:    corev1.StorageMediumMemory,
-							SizeLimit: ptr.To(resource.MustParse("2Gi")),
+							SizeLimit: ptr.To(resource.MustParse("1Gi")),
 						}}},
 					},
 				},

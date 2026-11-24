@@ -198,9 +198,9 @@ func main() {
 		MediaStore:             store,
 		Imager: &controller.Imager{Repository: c.imagerRepo, Digests: c.imagerPins, StoreClaim: c.storeClaim,
 			HelperImage: helper},
-		Factory:                factory,
-		TalosDial:              machineapi.Dial,
-		NodeName:               c.nodeName,
+		Factory:   factory,
+		TalosDial: machineapi.Dial,
+		NodeName:  c.nodeName,
 	}, controller.AllLanes...); err != nil {
 		log.Error(err, "setup reconcilers")
 		os.Exit(1)

@@ -161,7 +161,7 @@ func TestEmbeddedInstallerBuildsInAJobAndImportsTheResult(t *testing.T) {
 	}
 	for _, v := range pod.Volumes {
 		assert.Nil(t, v.HostPath, "no host paths: no loop devices are needed for an ISO")
-		if v.EmptyDir != nil {
+		if v.Name == "tmp" {
 			assert.Equal(t, corev1.StorageMediumMemory, v.EmptyDir.Medium, "what the imager derives from the config stays off disk")
 		}
 	}
