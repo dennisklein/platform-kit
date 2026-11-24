@@ -820,6 +820,7 @@ func (r *TalosRolloutReconciler) planNode(ctx context.Context, ro *osv1alpha1.Ta
 	switch ro.Spec.Kind {
 	case osv1alpha1.RolloutReboot:
 		step.From, step.To = n.Status.Version, n.Status.Version
+		step.RebootRequired = true
 		return step, "", nil
 	case osv1alpha1.RolloutTalosUpgrade:
 		running := n.Status.Version
@@ -840,7 +841,10 @@ func (r *TalosRolloutReconciler) planNode(ctx context.Context, ro *osv1alpha1.Ta
 		if err != nil {
 			return nil, "pin the installer image: " + err.Error(), nil
 		}
+		// A Talos upgrade boots the new image: the plan the approver reads
+		// says the node restarts, as it does.
 		step.From, step.To, step.Image = running, target.TalosVersion, pinned
+		step.RebootRequired = true
 		return step, "", nil
 	default: // Config, KubernetesUpgrade
 		if !meta.IsStatusConditionTrue(n.Status.Conditions, osv1alpha1.ConditionRendered) {

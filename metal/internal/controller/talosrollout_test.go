@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/talos"
+	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
 )
 
 func step(node string, role osv1alpha1.NodeRole) osv1alpha1.RolloutStep {
@@ -184,6 +186,27 @@ func TestSummarizeDryRun(t *testing.T) {
 	assert.True(t, changed)
 	assert.Equal(t, "2 lines added, 1 removed; keys: token, example.com/rack", summary)
 	assert.NotContains(t, summary, "secretvalue", "values never reach the status")
+}
+
+// TestPlanNodeSaysWhenTheNodeRestarts: the plan an approver reads says
+// "REBOOTS" for a reboot and for a Talos upgrade, which boots the new image.
+// It said "no reboot" for an upgrade.
+func TestPlanNodeSaysWhenTheNodeRestarts(t *testing.T) {
+	r := &TalosRolloutReconciler{Factory: render.NewFactory(""),
+		ResolveImage: func(_ context.Context, ref string) (string, error) {
+			return ref + "@sha256:" + strings.Repeat("0", 64), nil
+		}}
+	cluster := &osv1alpha1.TalosCluster{ObjectMeta: metav1.ObjectMeta{Name: "c"}}
+	n := &osv1alpha1.TalosNode{ObjectMeta: metav1.ObjectMeta{Name: "a"},
+		Spec: osv1alpha1.TalosNodeSpec{Role: osv1alpha1.RoleControlPlane}, Status: osv1alpha1.TalosNodeStatus{Version: "v1.14.5"}}
+	for _, kind := range []osv1alpha1.RolloutKind{osv1alpha1.RolloutTalosUpgrade, osv1alpha1.RolloutReboot} {
+		ro := &osv1alpha1.TalosRollout{Spec: osv1alpha1.TalosRolloutSpec{Kind: kind}}
+		step, why, err := r.planNode(t.Context(), ro, cluster, n, "box-a", osv1alpha1.RolloutTarget{TalosVersion: "v1.14.6"})
+		require.NoError(t, err)
+		require.Empty(t, why)
+		require.NotNil(t, step)
+		assert.True(t, step.RebootRequired, "a %s restarts the node", kind)
+	}
 }
 
 func TestRebootRequired(t *testing.T) {
