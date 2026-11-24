@@ -40,6 +40,13 @@
       "global": false
     },
     {
+      "name": "system",
+      "type": "string",
+      "default": "",
+      "usage": "system id to describe (default: the BMC's only system)",
+      "global": false
+    },
+    {
       "name": "user",
       "type": "string",
       "default": "admin",

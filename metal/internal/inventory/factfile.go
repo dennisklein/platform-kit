@@ -57,7 +57,29 @@ func Gather(ctx context.Context, c bmc.Client) (Facts, error) {
 	return f, nil
 }
 
-// Write renders the fact file. node and address come from the caller (ledger name and
+// Pick narrows the facts to one system, the one the fact file describes. An
+// empty id picks the only system; an endpoint that fronts more than one
+// (a blade chassis manager) needs the id.
+func (f Facts) Pick(systemID string) (Facts, error) {
+	var ids []string
+	for _, s := range f.Systems {
+		ids = append(ids, s.ID)
+		if s.ID == systemID {
+			f.Systems = []bmc.System{s}
+			return f, nil
+		}
+	}
+	switch {
+	case systemID != "":
+		return f, fmt.Errorf("inventory: the endpoint has no system %q (it has %s)", systemID, strings.Join(ids, ", "))
+	case len(f.Systems) != 1:
+		return f, fmt.Errorf("inventory: the endpoint fronts %d systems (%s); give one with --system", len(ids), strings.Join(ids, ", "))
+	}
+	return f, nil
+}
+
+// Write renders the fact file. It describes the first system of f; Pick
+// narrows f to the one wanted. node and address come from the caller (ledger name and
 // reachable address — the endpoint knows neither); ts pins the header for testability.
 func Write(w io.Writer, node, address string, ts time.Time, f Facts) {
 	sys := f.Systems[0]

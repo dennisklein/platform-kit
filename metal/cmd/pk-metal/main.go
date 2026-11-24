@@ -101,6 +101,7 @@ func inventoryCmd(args []string) {
 	fs := newFlags("inventory")
 	node := fs.String("node", "", "node name for the fact file (default: derived from the endpoint host)")
 	address := fs.String("address", "", "address label for the fact file (default: endpoint host)")
+	system := fs.String("system", "", "system id to describe (default: the BMC's only system)")
 	bf := connectFlags(fs)
 	parseFlags(fs, args)
 	if fs.NArg() != 1 {
@@ -121,6 +122,9 @@ func inventoryCmd(args []string) {
 	defer c.Close()
 	facts, err := inventory.Gather(ctx, c)
 	if err != nil {
+		die(err)
+	}
+	if facts, err = facts.Pick(*system); err != nil {
 		die(err)
 	}
 	inventory.Write(os.Stdout, *node, *address, time.Now(), facts)
