@@ -13,18 +13,6 @@ import (
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 )
 
-// The cluster-side condition types status reads beyond the ones this API
-// version defines. They are read when a controller writes them and shown as
-// "-" when none does: status reports what the cluster says, never a guess.
-const (
-	// conditionEtcdHealthy is the etcd health a cluster controller reports
-	// (every member answers, no alarm, no learner).
-	conditionEtcdHealthy = "EtcdHealthy"
-	// conditionBackedUp is the backup freshness a backup controller reports
-	// (False once the newest verified snapshot is too old).
-	conditionBackedUp = "BackedUp"
-)
-
 // clusterStatus is one TalosCluster row of -o json.
 type clusterStatus struct {
 	Name                     string   `json:"name"`
@@ -72,9 +60,37 @@ func clusterCond(conds []metav1.Condition, t string) (state, msg string, c *meta
 	return string(c.Status), c.Message, c
 }
 
+// backedUp is a cluster's backup state as its EtcdBackupPolicies report it
+// (their BackedUp condition): the freshest policy that is backed up speaks
+// for the cluster, else the first one that is not. A cluster without a
+// policy has no backup state, and none is invented.
+func backedUp(policies []osv1alpha1.EtcdBackupPolicy, cluster string) (state, msg string, c *metav1.Condition) {
+	var worst *metav1.Condition
+	for i := range policies {
+		p := &policies[i]
+		if p.Spec.ClusterRef.Name != cluster {
+			continue
+		}
+		pc := meta.FindStatusCondition(p.Status.Conditions, osv1alpha1.ConditionBackedUp)
+		switch {
+		case pc == nil:
+		case pc.Status == metav1.ConditionTrue:
+			return clusterCond(p.Status.Conditions, osv1alpha1.ConditionBackedUp)
+		case worst == nil:
+			worst = pc
+		}
+	}
+	if worst == nil {
+		return "", "", nil
+	}
+	return clusterCond([]metav1.Condition{*worst}, osv1alpha1.ConditionBackedUp)
+}
+
 // addClusters fills the cluster and node tables. Hosts give the NODE table
-// its HOST column (the Host whose spec.os names the node).
-func addClusters(rep *statusReport, clusters []osv1alpha1.TalosCluster, nodes []osv1alpha1.TalosNode, hosts []metalv1alpha1.Host) {
+// its HOST column (the Host whose spec.os names the node); the backup
+// policies its BACKUP column.
+func addClusters(rep *statusReport, clusters []osv1alpha1.TalosCluster, nodes []osv1alpha1.TalosNode, hosts []metalv1alpha1.Host,
+	policies []osv1alpha1.EtcdBackupPolicy) {
 	hostOf := map[string]string{}
 	for _, h := range hosts {
 		if h.Spec.OS != nil {
@@ -122,14 +138,12 @@ func addClusters(rep *statusReport, clusters []osv1alpha1.TalosCluster, nodes []
 		}
 		avail, availMsg, availCond := clusterCond(st.Conditions, osv1alpha1.ConditionAvailable)
 		row.Available = avail
-		// Etcd health as the cluster controller reports it; without that
-		// report, what bootstrapping last observed about etcd.
-		etcd, etcdMsg, etcdCond := clusterCond(st.Conditions, conditionEtcdHealthy)
-		if etcdCond == nil {
-			etcd, etcdMsg, etcdCond = clusterCond(st.Conditions, osv1alpha1.ConditionBootstrapped)
-		}
+		// Etcd as the cluster controller last observed it: its Bootstrapped
+		// condition says EtcdRunning, or EtcdDataLost when every control
+		// plane lost its data (docs/metal/disaster-recovery.md).
+		etcd, etcdMsg, etcdCond := clusterCond(st.Conditions, osv1alpha1.ConditionBootstrapped)
 		row.Etcd = etcd
-		backup, backupMsg, backupCond := clusterCond(st.Conditions, conditionBackedUp)
+		backup, backupMsg, backupCond := backedUp(policies, c.Name)
 		// The backup controller's own sentence carries when the newest
 		// verified snapshot was taken; the condition's transition time is
 		// not that time, so it is not shown as one.

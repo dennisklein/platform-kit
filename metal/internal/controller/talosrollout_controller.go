@@ -28,6 +28,7 @@ import (
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/asset"
 	"github.com/dennisklein/platform-kit/metal/internal/k8supgrade"
+	"github.com/dennisklein/platform-kit/metal/internal/metrics"
 	"github.com/dennisklein/platform-kit/metal/internal/talos"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
 )
@@ -78,6 +79,9 @@ type TalosRolloutReconciler struct {
 	// unapproved rollout re-planned every pass does not ask the registry
 	// every pass.
 	resolved sync.Map
+	// reported maps a rollout to the cluster its progress series carries,
+	// so that the series can be dropped once the rollout is gone.
+	reported sync.Map
 }
 
 const (
@@ -105,12 +109,21 @@ type resolvedImage struct {
 func (r *TalosRolloutReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	ro := &osv1alpha1.TalosRollout{}
 	if err := r.Get(ctx, req.NamespacedName, ro); err != nil {
+		if apierrors.IsNotFound(err) {
+			r.forgetProgress(req.Name)
+		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	if !ro.DeletionTimestamp.IsZero() || rolloutFinished(ro) {
+	if !ro.DeletionTimestamp.IsZero() {
+		r.forgetProgress(ro.Name)
+		return ctrl.Result{}, nil
+	}
+	if rolloutFinished(ro) {
+		r.reportProgress(ro)
 		return ctrl.Result{}, nil
 	}
 	orig := ro.DeepCopy()
+	defer r.reportProgress(ro)
 	var res ctrl.Result
 	var err error
 	if ro.Spec.Approval.ApprovedBy == "" {
@@ -125,6 +138,30 @@ func (r *TalosRolloutReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 	return res, nil
+}
+
+// reportProgress feeds the rollout progress metric from the status this
+// pass wrote; an unapproved rollout has no plan to count yet.
+func (r *TalosRolloutReconciler) reportProgress(ro *osv1alpha1.TalosRollout) {
+	if ro.Spec.Approval.ApprovedBy == "" || len(ro.Status.Steps) == 0 {
+		return
+	}
+	done := 0
+	for _, st := range ro.Status.Steps {
+		if st.State == osv1alpha1.RolloutNodeSucceeded {
+			done++
+		}
+	}
+	r.reported.Store(ro.Name, ro.Spec.ClusterRef.Name)
+	metrics.SetRolloutProgress(ro.Name, ro.Spec.ClusterRef.Name, done, len(ro.Status.Steps))
+}
+
+// forgetProgress drops a deleted rollout's series. Its cluster is what the
+// last report named: the object is gone and cannot say.
+func (r *TalosRolloutReconciler) forgetProgress(name string) {
+	if cluster, ok := r.reported.LoadAndDelete(name); ok {
+		metrics.ForgetRollout(name, cluster.(string))
+	}
 }
 
 func (r *TalosRolloutReconciler) set(ro *osv1alpha1.TalosRollout, t string, s metav1.ConditionStatus, reason, msg string) {

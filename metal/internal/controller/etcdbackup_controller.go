@@ -25,6 +25,7 @@ import (
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/etcdbackup"
+	"github.com/dennisklein/platform-kit/metal/internal/metrics"
 	"github.com/dennisklein/platform-kit/metal/internal/talos"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
 )
@@ -336,6 +337,9 @@ func (r *EtcdBackupPolicyReconciler) reconcile(ctx context.Context, p *osv1alpha
 				}
 			}
 		}
+	}
+	if err := r.reportLastSuccess(ctx, p.Spec.ClusterRef.Name); err != nil {
+		return ctrl.Result{}, err
 	}
 	window := 2 * interval
 	var flip time.Duration // until BackedUp turns False on its own
@@ -656,4 +660,24 @@ func (r *EtcdSnapshotReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&osv1alpha1.EtcdSnapshot{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Named("etcdsnapshot").
 		Complete(r)
+}
+
+// reportLastSuccess feeds the backup-age metric with the newest verified
+// snapshot of the cluster under any of its policies: a cluster backed up by
+// two policies is as fresh as the fresher one. Every pass sets it from the
+// catalogue, so a restarted manager reports the age it had, not none.
+func (r *EtcdBackups) reportLastSuccess(ctx context.Context, cluster string) error {
+	all := &osv1alpha1.EtcdSnapshotList{}
+	if err := r.List(ctx, all, client.MatchingLabels{osv1alpha1.LabelSnapshotCluster: cluster}); err != nil {
+		return err
+	}
+	var newest time.Time
+	for i := range all.Items {
+		s := &all.Items[i]
+		if snapshotState(s) == etcdbackup.Verified && snapshotTime(s).After(newest) {
+			newest = snapshotTime(s)
+		}
+	}
+	metrics.SetEtcdBackupLastSuccess(cluster, newest)
+	return nil
 }

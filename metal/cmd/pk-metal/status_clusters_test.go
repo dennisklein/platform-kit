@@ -57,12 +57,12 @@ func lab() ([]osv1alpha1.TalosCluster, []osv1alpha1.TalosNode, []metalv1alpha1.H
 func TestStatusClusterTables(t *testing.T) {
 	clusters, nodes, hosts := lab()
 	rep := buildReport(hosts, nil, nil, nil, nodes)
-	addClusters(&rep, clusters, nodes, hosts)
+	addClusters(&rep, clusters, nodes, hosts, nil)
 
 	require.Len(t, rep.Clusters, 1)
 	c := rep.Clusters[0]
 	assert.Equal(t, []string{"v1.14.5", "v1.14.6"}, c.TalosVersionsRunning, "every running version, sorted: the skew shows")
-	assert.Equal(t, osv1alpha1.ReasonEtcdRunning, c.Etcd, "without an etcd health report, the bootstrap observation")
+	assert.Equal(t, osv1alpha1.ReasonEtcdRunning, c.Etcd, "the cluster controller's Bootstrapped observation")
 	assert.Equal(t, "2026-01-02T03:04:05Z", c.BootstrappedAt)
 	assert.Empty(t, c.Backup, "no backup controller reported: no backup state is invented")
 	assert.True(t, c.NeedsAttention, "a bootstrapped cluster that is not available needs a person")
@@ -79,15 +79,29 @@ func TestStatusClusterTables(t *testing.T) {
 	assert.Contains(t, out, "v1.14.6 / v1.14.5,v1.14.6")
 	assert.Contains(t, out, "node-3: no answer since 10:00")
 
-	// A backup controller's verdict counts once it reports one.
+	// The backup policies' verdict counts once one reports it.
 	clusters[0].Status.Conditions = append(clusters[0].Status.Conditions[:1],
-		metav1.Condition{Type: osv1alpha1.ConditionAvailable, Status: metav1.ConditionTrue, Reason: osv1alpha1.ReasonClusterAvailable},
-		metav1.Condition{Type: conditionBackedUp, Status: metav1.ConditionFalse, Reason: "BackupStale", Message: "newest snapshot is 30h old"})
+		metav1.Condition{Type: osv1alpha1.ConditionAvailable, Status: metav1.ConditionTrue, Reason: osv1alpha1.ReasonClusterAvailable})
+	policy := func(name, cluster string, s metav1.ConditionStatus, reason, msg string) osv1alpha1.EtcdBackupPolicy {
+		p := osv1alpha1.EtcdBackupPolicy{ObjectMeta: metav1.ObjectMeta{Name: name}}
+		p.Spec.ClusterRef.Name = cluster
+		p.Status.Conditions = []metav1.Condition{{Type: osv1alpha1.ConditionBackedUp, Status: s, Reason: reason, Message: msg}}
+		return p
+	}
+	stale := policy("lab-daily", "lab", metav1.ConditionFalse, osv1alpha1.ReasonBackupTooOld, "newest snapshot is 30h old")
 	rep = buildReport(nil, nil, nil, nil, nil)
-	addClusters(&rep, clusters, nil, nil)
-	assert.Equal(t, "BackupStale", rep.Clusters[0].Backup)
+	addClusters(&rep, clusters, nil, nil, []osv1alpha1.EtcdBackupPolicy{
+		stale, policy("other-hourly", "other", metav1.ConditionTrue, osv1alpha1.ReasonSnapshotRecent, "")})
+	assert.Equal(t, osv1alpha1.ReasonBackupTooOld, rep.Clusters[0].Backup, "another cluster's policy does not speak for it")
 	assert.Equal(t, "newest snapshot is 30h old", rep.Clusters[0].Message)
 	assert.True(t, rep.NeedsAttention)
+
+	// A second policy that is backed up does.
+	rep = buildReport(nil, nil, nil, nil, nil)
+	addClusters(&rep, clusters, nil, nil, []osv1alpha1.EtcdBackupPolicy{
+		stale, policy("lab-hourly", "lab", metav1.ConditionTrue, osv1alpha1.ReasonSnapshotRecent, "lab-hourly-1 taken at ...")})
+	assert.Equal(t, osv1alpha1.ReasonSnapshotRecent, rep.Clusters[0].Backup)
+	assert.False(t, rep.Clusters[0].NeedsAttention)
 }
 
 func TestStatusClustersInJSON(t *testing.T) {

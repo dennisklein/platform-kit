@@ -10,6 +10,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -124,8 +125,14 @@ func runStatus(ctx context.Context, cl client.Client, format string, w io.Writer
 			return exitError, fmt.Errorf("read the cluster: %w", err)
 		}
 	}
+	// The BACKUP column comes from the backup policies. A person whose role
+	// may not read them (an approver) sees "-" there, not an error.
+	policies := &osv1alpha1.EtcdBackupPolicyList{}
+	if err := cl.List(ctx, policies); err != nil && !meta.IsNoMatchError(err) && !apierrors.IsForbidden(err) {
+		return exitError, fmt.Errorf("read the cluster: %w", err)
+	}
 	rep := buildReport(hosts.Items, eps.Items, claims.Items, ops.Items, nodes.Items)
-	addClusters(&rep, clusters.Items, nodes.Items, hosts.Items)
+	addClusters(&rep, clusters.Items, nodes.Items, hosts.Items, policies.Items)
 	switch format {
 	case "json":
 		enc := json.NewEncoder(w)

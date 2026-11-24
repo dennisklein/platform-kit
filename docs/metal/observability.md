@@ -22,10 +22,13 @@ line per row that needs a person, saying why in the operator's own words:
 - **CLUSTER**: each TalosCluster. `TALOS WANT/RUN` is the Talos version the
   cluster asks for and every version its nodes run now (more than one means a
   rollout is under way or stuck); the same for Kubernetes. `CP` and `WORKERS`
-  are ready/total. `ETCD` is the etcd health the cluster controller reports
-  (until it reports one: what bootstrapping last saw). `BOOTSTRAPPED` is when
-  etcd was created; pk-metal never bootstraps a cluster twice. `BACKUP` is the
-  state the backup controller reports for the newest verified snapshot.
+  are ready/total. `ETCD` is what the cluster controller last saw of etcd (the
+  reason of the TalosCluster's `Bootstrapped` condition: `EtcdRunning`, or
+  `EtcdDataLost` when every control plane lost its data). `BOOTSTRAPPED` is
+  when etcd was created; pk-metal never bootstraps a cluster twice. `BACKUP`
+  is the `BackedUp` condition of the cluster's EtcdBackupPolicies: the reason
+  of one that is backed up, else of one that is not, `-` without a policy
+  ([disaster recovery](disaster-recovery.md)).
 - **NODE**: each TalosNode: cluster, role, the machine it runs on, address,
   Talos version, boot stage and readiness.
 
