@@ -171,12 +171,12 @@ func FuzzServePath(f *testing.F) {
 		g := live[token]
 		match := isGrant && wellFormed && g != nil && filename == g.Filename
 		credsOK := g == nil || g.Credentials == nil || (user == g.Credentials.Username && pass == g.Credentials.Password)
-		getOrHead := method == http.MethodGet || method == http.MethodHead
+		getOrHead := req.Method == http.MethodGet || req.Method == http.MethodHead
 
 		switch rec.Code {
 		case http.StatusOK, http.StatusPartialContent:
 			assert.True(t, getOrHead && match && credsOK, "%s %q answered %d", method, req.URL.Path, rec.Code)
-			if method == http.MethodGet && rec.Code == http.StatusOK {
+			if req.Method == http.MethodGet && rec.Code == http.StatusOK {
 				assert.Equal(t, g.content, body)
 			}
 		case http.StatusUnauthorized:
@@ -184,7 +184,7 @@ func FuzzServePath(f *testing.F) {
 		}
 		if getOrHead && isGrant && wellFormed && !match {
 			assert.Equal(t, http.StatusForbidden, rec.Code, "%s %q", method, req.URL.Path)
-			if method == http.MethodGet {
+			if req.Method == http.MethodGet {
 				assert.Equal(t, forbidden.Body.String(), string(body), "the refusal must not tell grants apart")
 			}
 		}
