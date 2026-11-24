@@ -71,6 +71,37 @@ jobs:
       - name: Unit and controller tests with -race
         run: mise run test:race
 
+  # The kind tier of test/e2e: a simulated BMC driving a real Talos
+  # container, managers in process against a kind cluster. It needs docker
+  # and no KVM, so a hosted runner runs it. It pulls the Talos image and takes
+  # minutes, so it runs on main only.
+  e2e-kind:
+    name: e2e (kind tier)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
+      - name: Locate the Go caches
+        id: go
+        run: |
+          echo "modcache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "buildcache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go.outputs.modcache }}
+            ${{ steps.go.outputs.buildcache }}
+          key: go-e2e-${{ runner.os }}-${{ hashFiles('metal/go.sum') }}
+          restore-keys: go-e2e-${{ runner.os }}-
+      # The test refuses any kube-context that is not a kind cluster. It only
+      # stores objects there, so kind's default node is enough.
+      - name: A kind cluster
+        run: kind create cluster --name pk-metal --wait 180s
+      - name: Kind tier
+        run: mise run e2e:kind
+
   lint:
     name: lint
     runs-on: ubuntu-latest
