@@ -1,6 +1,8 @@
 ---
 // Explainer: move the operator from a bootstrap cluster to the cluster it built.
-// Source: metal/cmd/pk-metal/pivot.go (preflight, install, pause, copy, start, settle).
+// Source: metal/internal/pivot/lifecycle.go, Mover.Run: preflight, pause, install,
+// copy, start, settle. reference/cli/pivot.mdx lists the same steps with the same
+// names; change both together.
 import Explainer from '../Explainer.astro';
 import Box from '../diagram/Box.astro';
 import Edge from '../diagram/Edge.astro';
@@ -26,16 +28,16 @@ const steps = [
     text: { 'src-ph': '1 replica', 'dst-ph': 'no operator', 'obj-ph': 'in source' },
   },
   {
+    title: 'Pause the source',
+    caption: 'pivot scales the source manager to zero and waits until it stops. It does not delete it. Annotations on the namespace record the move.',
+    code: 'metal.pk.io/pivoted-to, metal.pk.io/pivot-replicas',
+    state: { src: 'warn', check: 'ok' },
+    text: { 'src-ph': '0 replicas', 'dst-ph': 'no operator', 'obj-ph': 'in source' },
+  },
+  {
     title: 'Install',
     caption: 'pivot installs the CRDs, the admission policies, the roles and the manager on the target. The manager has zero replicas.',
     code: 'CRDs → policies → RBAC → namespace → Deployment (0)',
-    state: { src: 'ok', check: 'ok', dst: 'active' },
-    text: { 'src-ph': '1 replica', 'dst-ph': '0 replicas', 'obj-ph': 'in source' },
-  },
-  {
-    title: 'Pause the source',
-    caption: 'pivot scales the source manager to zero. It does not delete it. Annotations on the namespace record the move.',
-    code: 'metal.pk.io/pivoted-to, metal.pk.io/pivot-replicas',
     state: { src: 'warn', dst: 'active' },
     text: { 'src-ph': '0 replicas', 'dst-ph': '0 replicas', 'obj-ph': 'in source' },
   },
@@ -72,7 +74,7 @@ const steps = [
 
 <Explainer title="Move the operator (pivot)" steps={steps as any} start={start}>
   <svg viewBox="0 0 720 270" role="img" aria-labelledby="ex-piv-t" xmlns="http://www.w3.org/2000/svg" class="pk-stage-svg">
-    <title id="ex-piv-t">pk-metal pivot installs the operator on the target cluster, pauses the source, copies the objects, starts the target manager and watches it.</title>
+    <title id="ex-piv-t">pk-metal pivot pauses the operator in the source cluster, installs it on the target cluster, copies the objects, starts the target manager and watches it.</title>
     <defs>
       <marker id="pk-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
         <path d="M0 0 10 5 0 10z" fill="context-stroke"></path>
