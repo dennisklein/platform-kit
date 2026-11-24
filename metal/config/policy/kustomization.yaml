@@ -3,3 +3,4 @@ kind: Kustomization
 resources:
   - hostoperation-approval.yaml
   - hostclaim-provisioning.yaml
+  - talosrollout-approval.yaml

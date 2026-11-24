@@ -227,6 +227,9 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		setCond(metalv1alpha1.ConditionApproved, metav1.ConditionTrue,
 			metalv1alpha1.ReasonApprovalNotRequired, "proposed by "+op.Spec.ProposedBy)
 	}
+	if res, stop, err := r.gateRollout(ctx, op, setCond, flush); stop { // hostoperation_rollout.go
+		return res, err
+	}
 
 	// An action this executor does not run yet fails the operation before it
 	// starts: before the queue, the baseline and any call to the machine, so

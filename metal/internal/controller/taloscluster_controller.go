@@ -31,12 +31,13 @@ import (
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
 )
 
-// Credential lifetimes. The published admin credentials live a year, like the
-// ones Talos mints itself, and are re-minted a month before they expire, or as
-// soon as the bundle or the endpoints they name move.
+// Credential lifetimes. The published admin credentials live a day unless
+// spec.credentials.ttl says otherwise (a certificate signed by the cluster's
+// CA cannot be revoked, so a short life is what bounds a leaked copy), and are
+// re-minted once less than a third of it is left, or as soon as the bundle or
+// the endpoints they name move.
 const (
-	adminCredentialTTL   = 365 * 24 * time.Hour
-	adminCredentialRenew = 30 * 24 * time.Hour
+	defaultCredentialTTL = 24 * time.Hour
 	// KubeconfigKey and TalosconfigKey are the data keys of the published
 	// credential Secrets.
 	KubeconfigKey  = "kubeconfig"
@@ -169,6 +170,9 @@ func (r *TalosClusterReconciler) reconcile(ctx context.Context, cluster *osv1alp
 		}
 	}
 
+	if err := r.guardBundle(ctx, cluster); err != nil {
+		return ctrl.Result{}, err
+	}
 	bundle, err := loadBundle(ctx, r.Client, r.Namespace, cluster)
 	if unavailable := (*bundleUnavailable)(nil); errors.As(err, &unavailable) {
 		set(osv1alpha1.ConditionBootstrapped, metav1.ConditionUnknown, osv1alpha1.ReasonSecretsUnavailable, unavailable.msg)
@@ -186,6 +190,7 @@ func (r *TalosClusterReconciler) reconcile(ctx context.Context, cluster *osv1alp
 
 	version, kerr := r.probe(ctx, kubeconfig)
 	st.KubernetesVersion = version
+	r.observeVersions(cluster, nodes)
 	if r.Dial == nil {
 		return retry, nil
 	}
@@ -257,29 +262,44 @@ func (r *TalosClusterReconciler) reconcile(ctx context.Context, cluster *osv1alp
 // not churn on every pass.
 func (r *TalosClusterReconciler) publish(ctx context.Context, cluster *osv1alpha1.TalosCluster,
 	bundle *secrets.Bundle, endpoints []string) ([]byte, error) {
+	ttl := credentialTTL(cluster)
+	renew := ttl / 3
 	kubeconfig, ref, err := r.credential(ctx, cluster, cluster.Name+"-kubeconfig", KubeconfigKey,
 		func(cur []byte) bool {
-			return render.KubeconfigCurrent(cur, bundle, cluster.Spec.Endpoint, adminCredentialRenew)
+			return render.KubeconfigCurrent(cur, bundle, cluster.Spec.Endpoint, renew) &&
+				notTooLong(render.KubeconfigNotAfter(cur))(bundle, ttl)
 		},
 		func() ([]byte, error) {
-			return render.Kubeconfig(bundle, cluster.Name, cluster.Spec.Endpoint, adminCredentialTTL)
+			return render.Kubeconfig(bundle, cluster.Name, cluster.Spec.Endpoint, ttl)
 		})
 	if err != nil {
 		return nil, err
 	}
 	cluster.Status.KubeconfigSecretRef = ref
+	expiry := expiryOf(render.KubeconfigNotAfter(kubeconfig))
 
-	_, ref, err = r.credential(ctx, cluster, cluster.Name+"-talosconfig", TalosconfigKey,
+	talosconfig, ref, err := r.credential(ctx, cluster, cluster.Name+"-talosconfig", TalosconfigKey,
 		func(cur []byte) bool {
-			return render.TalosconfigCurrent(cur, bundle, endpoints, adminCredentialRenew)
+			return render.TalosconfigCurrent(cur, bundle, endpoints, renew) &&
+				notTooLong(render.TalosconfigNotAfter(cur))(bundle, ttl)
 		},
 		func() ([]byte, error) {
-			return render.Talosconfig(bundle, cluster.Name, endpoints, adminCredentialTTL)
+			return render.Talosconfig(bundle, cluster.Name, endpoints, ttl)
 		})
 	if err != nil {
 		return nil, err
 	}
 	cluster.Status.TalosconfigSecretRef = ref
+	expiry = earliest(expiry, expiryOf(render.TalosconfigNotAfter(talosconfig)))
+
+	readerExpiry, err := r.publishReader(ctx, cluster, bundle, endpoints, ttl)
+	if err != nil {
+		return nil, err
+	}
+	expiry = earliest(expiry, readerExpiry)
+	if !expiry.IsZero() {
+		cluster.Status.CredentialsExpireAt = &metav1.Time{Time: expiry}
+	}
 	return kubeconfig, nil
 }
 
@@ -343,10 +363,14 @@ func (r *TalosClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// this reconciler's own output, and reacting to that write would rerun
 	// the machine probes (and formerly a bootstrap) within milliseconds. The
 	// pace between passes is RequeueAfter; members and Secrets have watches.
+	// Annotations wake it too: they are how a person asks for something
+	// (D25), and its own status write changes neither.
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&osv1alpha1.TalosCluster{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&osv1alpha1.TalosCluster{}, builder.WithPredicates(
+			predicate.Or(predicate.GenerationChangedPredicate{}, predicate.AnnotationChangedPredicate{}))).
 		Owns(&corev1.Secret{}).
 		Watches(&osv1alpha1.TalosNode{}, handler.EnqueueRequestsFromMapFunc(clusterForNode)).
+		Watches(&osv1alpha1.TalosRollout{}, handler.EnqueueRequestsFromMapFunc(clusterForRollout)).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.clustersForBundle)).
 		Named("taloscluster").
 		Complete(r)

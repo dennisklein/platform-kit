@@ -212,7 +212,12 @@ func TestOSLane(t *testing.T) {
 		}, waitFor, tick, "Rendered never went True")
 
 		n, _ := nodeCondition("node-1", osv1alpha1.ConditionRendered)
-		assert.Equal(t, &osv1alpha1.SecretReference{Namespace: "default", Name: "machineconfig-node-1"}, n.Status.ConfigSecretRef)
+		// Content-addressed: the name carries the digest, so an approved
+		// apply finds exactly the bytes it was approved for.
+		require.NotNil(t, n.Status.ConfigSecretRef)
+		assert.Equal(t, "default", n.Status.ConfigSecretRef.Namespace)
+		assert.Regexp(t, `^machineconfig-node-1-[0-9a-f]{12}$`, n.Status.ConfigSecretRef.Name)
+		assert.Equal(t, labTalos, n.Status.RenderedFor)
 		assert.Equal(t, "10.77.0.11", n.Status.Address)
 		assert.Regexp(t, `^`+regexp.QuoteMeta(factory.RegistryURL)+`/metal-installer/[0-9a-f]{64}:v1\.14\.6$`, n.Status.InstallerImage,
 			"the installer must be named on the factory the operator was given")
@@ -227,7 +232,11 @@ func TestOSLane(t *testing.T) {
 		configDigest = n.Status.ConfigDigest
 
 		sec := corev1.Secret{}
-		require.NoError(t, cl.Get(ctx, types.NamespacedName{Namespace: "default", Name: "machineconfig-node-1"}, &sec))
+		require.NoError(t, cl.Get(ctx, types.NamespacedName{Namespace: "default", Name: n.Status.ConfigSecretRef.Name}, &sec))
+		assert.True(t, strings.HasPrefix(n.Status.ConfigDigest, "sha256:"+strings.TrimPrefix(sec.Name, "machineconfig-node-1-")),
+			"the name carries the digest of what it holds")
+		require.NotNil(t, sec.Immutable)
+		assert.True(t, *sec.Immutable, "a config Secret is never rewritten")
 		require.Len(t, sec.OwnerReferences, 1, "config Secret must die with its node")
 		assert.Equal(t, "TalosNode", sec.OwnerReferences[0].Kind)
 		id := strings.TrimSuffix(strings.Split(n.Status.InstallerImage, "/")[2], ":"+labTalos)
