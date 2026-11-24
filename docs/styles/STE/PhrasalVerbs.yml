@@ -1,0 +1,32 @@
+# STE rule 1.x: do not use phrasal verbs. Use the one-word approved verb.
+extends: substitution
+message: "Use '%s' instead of the phrasal verb '%s'."
+level: warning
+# Frontmatter (title, description, type) is page data, not prose to lint.
+scope: ~text.frontmatter
+ignorecase: true
+swap:
+  set(?:s|ting)? up: configure|install|make
+  find(?:s|ing)? out: find|learn
+  found out: found
+  carr(?:y|ies|ied) out: do
+  look(?:s|ed)? into: examine
+  look(?:s|ed)? up: find
+  look(?:s|ed)? at: examine|read
+  figure(?:s|d)? out: find
+  point(?:s|ed)? out: show|tell
+  com(?:e|es) up with: make
+  go(?:es)? back: return
+  give(?:s)? up: stop
+  take(?:s)? over: control
+  bring(?:s)? up: start
+  fill(?:s|ed)? (?:in|out): complete
+  ma(?:ke|kes|de) up: make
+  run(?:s)? into: find
+  turn(?:s|ed)? on: start|set to on
+  turn(?:s|ed)? off: stop|set to off
+  switch(?:es|ed)? on: start
+  switch(?:es|ed)? off: stop
+  pick(?:s|ed)? up: get|use
+  check(?:s|ed)? out: examine
+  get(?:s)? rid of: remove

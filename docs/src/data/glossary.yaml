@@ -1,0 +1,1677 @@
+# Glossary of the pk-metal documentation site.
+#
+# One entry for each term. The site links the first use of a term in each h2
+# section to its entry, shows the definition in a hover card, and builds the
+# glossary page from this file.
+#
+# Fields of a term:
+#   id       stable anchor on the glossary page; lower case, words joined with "-".
+#   term     the name as the reader sees it.
+#   abbr     the expansion, when the term is an abbreviation.
+#   kind     noun | verb | api-kind | abbr | tool | phase | annotation.
+#   domain   one key of `domains` (colour and icon of the link).
+#   forms    the words in page text that link to the term. Matched as whole
+#            words and case-sensitively. No two terms share a form. An empty
+#            list means: link it only by hand, with [text](term:<id>).
+#   guards   optional: not_before / not_after (regular expressions on the text
+#            next to the form) stop a link where the form means something else.
+#   see      the page that explains the term, as a category link.
+#   related  ids of other terms in this file.
+#   def      the definition. ASD-STE100: one to three sentences, present tense,
+#            active voice, approved words, at most 25 words in a sentence.
+#
+# `mise run docs:lint:glossary` checks the definitions with the STE Vale style.
+
+domains:
+  hw:      { name: Hardware and BMC,         icon: chip }
+  redfish: { name: Redfish,                  icon: plug }
+  k8s:     { name: Kubernetes and operator,  icon: wheel }
+  talos:   { name: Talos and nodes,          icon: layers }
+  safety:  { name: Approval and safety,      icon: shield }
+  ops:     { name: Day-2 operations,         icon: calendar }
+  lab:     { name: Virtual lab,              icon: flask }
+
+terms:
+  # --- Hardware and BMC -------------------------------------------------------
+
+  - id: bmc
+    term: BMC
+    abbr: Baseboard Management Controller
+    kind: abbr
+    domain: hw
+    forms: [BMC, BMCs]
+    see: concept:architecture
+    related: [redfish, managementendpoint, virtual-media, sol]
+    def: >-
+      A small computer on the main board of a server. It controls the power,
+      the boot order and the virtual media of the server, also when the server
+      is off. The operator talks to it through Redfish.
+
+  - id: bios
+    term: BIOS
+    abbr: Basic Input/Output System
+    kind: abbr
+    domain: hw
+    forms: [BIOS]
+    see: concept:convergence
+    related: [uefi, biosprofile, biossettings, biosschema]
+    def: >-
+      The firmware that starts a server before the operating system. In this
+      documentation, BIOS settings are the settings of that firmware, also on
+      UEFI machines.
+
+  - id: uefi
+    term: UEFI
+    abbr: Unified Extensible Firmware Interface
+    kind: abbr
+    domain: hw
+    forms: [UEFI]
+    see: concept:virtual-media-boot
+    related: [bios, ovmf]
+    def: >-
+      The standard firmware interface of modern servers. Talos boots in UEFI
+      mode. The virtual lab uses OVMF as the UEFI firmware of its virtual
+      machines.
+
+  - id: pxe
+    term: PXE
+    abbr: Preboot Execution Environment
+    kind: abbr
+    domain: hw
+    forms: [PXE]
+    see: concept:virtual-media-boot
+    related: [virtual-media]
+    def: >-
+      A method to boot a server from the network with DHCP and TFTP. pk-metal
+      does not use PXE. It boots each machine from virtual media.
+
+  - id: sol
+    term: SOL
+    abbr: Serial over LAN
+    kind: abbr
+    domain: hw
+    forms: [SOL, serial-over-LAN]
+    see: howto:collect-diagnostics
+    related: [bmc]
+    def: >-
+      A function of the BMC that sends the serial console of the server over
+      the network. Use it to read the console of a node, because Talos has no
+      shell.
+
+  - id: virtual-media
+    term: virtual media
+    kind: noun
+    domain: hw
+    forms: [virtual media, virtual-media]
+    see: concept:virtual-media-boot
+    related: [bmc, media-slot, boot-override, grant, media-store]
+    def: >-
+      A disk image that the BMC downloads from a URL and shows to the server
+      as a CD or USB drive. The operator boots each machine from virtual media.
+
+  - id: media-slot
+    term: media slot
+    kind: noun
+    domain: hw
+    forms: [media slot, media slots, virtual media slot, virtual media slots]
+    see: concept:one-slot-bmc
+    related: [virtual-media, one-slot-bmc]
+    def: >-
+      One place on a BMC that holds one virtual media image. Most BMCs have two
+      or more slots. Some BMCs have only one.
+
+  - id: one-slot-bmc
+    term: one-slot BMC
+    kind: noun
+    domain: hw
+    forms: [one-slot BMC, one-slot BMCs]
+    see: concept:one-slot-bmc
+    related: [media-slot, embedded-installer, imager, media-store]
+    def: >-
+      A BMC that holds only one virtual media image at a time. For a blank
+      machine behind it, the operator builds an installer with the machine
+      config inside.
+
+  - id: boot-override
+    term: boot override
+    kind: noun
+    domain: hw
+    forms: [boot override, boot overrides]
+    see: act:SetBootOverride
+    related: [virtual-media, power-cycle]
+    def: >-
+      A setting on the BMC that tells the server which device to boot from at
+      the next start. The operator sets a one-time override to the virtual CD.
+
+  - id: power-cycle
+    term: power cycle
+    kind: noun
+    domain: hw
+    forms: [power cycle, power-cycle, power cycles]
+    see: act:PowerCycle
+    related: [boot-override]
+    def: >-
+      A hard restart through the BMC: the power goes off, then on again. The
+      operating system does not shut down first.
+
+  - id: firmware
+    term: firmware
+    kind: noun
+    domain: hw
+    forms: [firmware]
+    see: concept:convergence
+    related: [firmwareprofile, bios]
+    def: >-
+      The software inside a hardware part, for example the BMC, the BIOS, a
+      network card or a RAID controller. A FirmwareProfile sets the version
+      that a group of machines must have.
+
+  - id: install-disk
+    term: install disk
+    kind: noun
+    domain: hw
+    forms: [install disk, install disks]
+    see: kind:TalosNode
+    related: [talosnode, install]
+    def: >-
+      The disk that Talos installs onto. The installDiskSelector of the
+      TalosNode selects it. The install erases all data on this disk.
+
+  # --- Redfish ----------------------------------------------------------------
+
+  - id: redfish
+    term: Redfish
+    kind: noun
+    domain: redfish
+    forms: [Redfish]
+    see: concept:protocol-model
+    related: [bmc, dialect]
+    def: >-
+      A standard HTTPS and JSON API to control servers through their BMC. The
+      operator uses only Redfish to control machines.
+
+  - id: dialect
+    term: dialect
+    kind: noun
+    domain: redfish
+    forms: [dialect, dialects]
+    see: concept:protocol-model
+    related: [redfish, managementendpoint]
+    def: >-
+      The way a BMC vendor implements a Redfish function, for example the
+      standard InsertMedia action or an OEM action. The operator reads the
+      dialect from the BMC and uses it.
+
+  - id: inventory
+    term: inventory
+    kind: noun
+    domain: redfish
+    forms: [inventory]
+    see: cli:inventory
+    related: [managementendpoint, host]
+    def: >-
+      The hardware facts that a BMC reports: vendor, model, serial numbers,
+      systems, media slots and firmware versions. The operator keeps them in
+      the status of the ManagementEndpoint and the Host.
+
+  - id: grant
+    term: grant
+    kind: noun
+    domain: redfish
+    forms: [grant, grants, media grant, media grants]
+    see: concept:virtual-media-boot
+    related: [media-service, virtual-media]
+    def: >-
+      A one-time user name and password for one boot image on the media
+      service. A BMC must have a grant to download the image. The grant stops
+      when the operation ends.
+
+  - id: media-service
+    term: media service
+    kind: noun
+    domain: redfish
+    forms: [media service, media server]
+    see: concept:virtual-media-boot
+    related: [grant, media-store, virtual-media]
+    def: >-
+      The HTTPS server in the manager that gives boot images to BMCs. The
+      manager flag --media-url sets the address that BMCs use.
+
+  - id: managed-account
+    term: managed account
+    kind: noun
+    domain: redfish
+    forms: [managed account, managed accounts]
+    see: flow:credential-rotation
+    related: [credential-rotation, endpointprofile]
+    def: >-
+      The BMC account that the operator makes and rotates. Its password is in
+      the Secret endpoint-creds-<endpoint> in the namespace of the operator.
+
+  # --- Kubernetes and operator -------------------------------------------------
+
+  - id: kubernetes
+    term: Kubernetes
+    kind: noun
+    domain: k8s
+    forms: [Kubernetes]
+    see: concept:architecture
+    related: [management-cluster, workload-cluster, operator]
+    def: >-
+      A system that runs containers on a group of machines and keeps the state
+      of the cluster as API objects. pk-metal runs in one Kubernetes cluster
+      and installs others.
+
+  - id: operator
+    term: operator
+    kind: noun
+    domain: k8s
+    forms: [operator, pk-metal operator]
+    see: concept:architecture
+    related: [manager, controller, reconcile]
+    def: >-
+      A program that runs in a Kubernetes cluster and changes the world until
+      it agrees with the API objects. The pk-metal operator controls machines
+      through their BMCs.
+
+  - id: manager
+    term: manager
+    kind: noun
+    domain: k8s
+    forms: [manager, pk-metal-manager]
+    see: ctrl:manager
+    related: [operator, controller, media-service]
+    def: >-
+      The process of the pk-metal operator. It runs all controllers and the
+      media service. Its flags set the ledger file, the media URL and the
+      image factory.
+
+  - id: controller
+    term: controller
+    kind: noun
+    domain: k8s
+    forms: [controller, controllers, reconciler, reconcilers]
+    see: ctrl:index
+    related: [reconcile, manager]
+    def: >-
+      One control loop in the manager. Each controller watches one primary
+      kind and reconciles its objects.
+
+  - id: reconcile
+    term: reconcile
+    kind: verb
+    domain: k8s
+    forms: [reconcile, reconciles, reconciled]
+    see: concept:assert-vs-observe
+    related: [controller, convergence]
+    def: >-
+      To compare the wanted state of an object with the observed state, and to
+      do the next step that brings them closer. A controller reconciles again
+      when something changes.
+
+  - id: management-cluster
+    term: management cluster
+    kind: noun
+    domain: k8s
+    forms: [management cluster, management clusters]
+    see: concept:architecture
+    related: [workload-cluster, pivot, kind-tool]
+    def: >-
+      The Kubernetes cluster that runs the operator and keeps all its objects.
+      At first it is often a kind cluster. A pivot moves the operator to another
+      cluster.
+
+  - id: workload-cluster
+    term: workload cluster
+    kind: noun
+    domain: k8s
+    forms: [workload cluster, workload clusters]
+    see: concept:architecture
+    related: [management-cluster, taloscluster]
+    def: >-
+      A Talos cluster that the operator installs on the machines. Your
+      applications run on it.
+
+  - id: kind
+    term: kind
+    kind: noun
+    domain: k8s
+    forms: [kind, kinds]
+    guards: { not_before: '^\s+cluster' }
+    see: kind:index
+    related: [crd, kind-tool]
+    def: >-
+      The type of a Kubernetes API object, for example Host or HostClaim. Each
+      kind has a schema, and a CRD adds a kind to the cluster.
+
+  - id: crd
+    term: CRD
+    abbr: CustomResourceDefinition
+    kind: abbr
+    domain: k8s
+    forms: [CRD, CRDs]
+    see: kind:index
+    related: [kind]
+    def: >-
+      A Kubernetes object that adds a kind and its schema to the API server.
+      pk-metal adds its kinds in the groups metal.pk.io and os.pk.io.
+
+  - id: spec
+    term: spec
+    kind: noun
+    domain: k8s
+    forms: [spec]
+    see: concept:assert-vs-observe
+    related: [status]
+    def: >-
+      The part of an object that gives the wanted state. You write the spec of
+      most kinds. The operator writes the spec of Host and HostOperation.
+
+  - id: status
+    term: status
+    kind: noun
+    domain: k8s
+    forms: [status]
+    guards: { not_after: 'pk-metal\s+$' }
+    see: concept:assert-vs-observe
+    related: [spec, condition, phase]
+    def: >-
+      The part of an object that says what the operator found or did. Only the
+      operator writes it.
+
+  - id: condition
+    term: condition
+    kind: noun
+    domain: k8s
+    forms: [condition, conditions]
+    see: concept:phases-and-conditions
+    related: [phase, reason, blocked-on]
+    def: >-
+      One observation in the status of an object, with a type, a status (True,
+      False or Unknown), a reason and a message. Read the conditions to find
+      why an object waits.
+
+  - id: reason
+    term: reason
+    kind: noun
+    domain: k8s
+    forms: [reason, reasons]
+    see: concept:phases-and-conditions
+    related: [condition, blocked-on]
+    def: >-
+      A short CamelCase word on a condition that tells why the condition has
+      its status, for example AwaitingApproval.
+
+  - id: phase
+    term: phase
+    kind: noun
+    domain: k8s
+    forms: [phase, phases]
+    see: concept:phases-and-conditions
+    related: [condition, blocked-on]
+    def: >-
+      A one-word summary of the conditions of an object, for tables. Host,
+      ManagementEndpoint, HostClaim and HostOperation have a phase. The
+      conditions are the true state.
+
+  - id: blocked-on
+    term: blockedOn
+    kind: noun
+    domain: k8s
+    forms: [blockedOn, BLOCKED]
+    see: concept:phases-and-conditions
+    related: [phase, reason]
+    def: >-
+      A status field that gives the reason why an object cannot go on.
+      pk-metal status shows it in the BLOCKED column.
+
+  - id: finalizer
+    term: finalizer
+    kind: noun
+    domain: k8s
+    forms: [finalizer, finalizers]
+    see: concept:self-protection
+    related: [release]
+    def: >-
+      A key on an object that stops its deletion until a controller removes
+      the key. The operator uses finalizers to release a machine before its
+      claim goes away.
+
+  - id: admission-policy
+    term: admission policy
+    kind: noun
+    domain: k8s
+    forms: [admission policy, admission policies]
+    see: concept:approval
+    related: [vap, approval]
+    def: >-
+      A rule in the API server that refuses a change to an object. pk-metal
+      uses them to make sure that a person approves as themselves.
+
+  - id: vap
+    term: VAP
+    abbr: ValidatingAdmissionPolicy
+    kind: abbr
+    domain: k8s
+    forms: [VAP, ValidatingAdmissionPolicy]
+    see: concept:approval
+    related: [admission-policy]
+    def: >-
+      The Kubernetes kind of an admission policy written in CEL. It runs in the
+      API server and needs no webhook.
+
+  - id: cel
+    term: CEL
+    abbr: Common Expression Language
+    kind: abbr
+    domain: k8s
+    forms: [CEL]
+    see: kind:index
+    related: [vap, crd]
+    def: >-
+      A small expression language. CRD validation rules and admission policies
+      use CEL to check an object before the API server stores it.
+
+  - id: credentialsref
+    term: credentialsRef
+    kind: noun
+    domain: k8s
+    forms: [credentialsRef]
+    see: kind:Asset
+    related: [asset, bmc]
+    def: >-
+      The field of an Asset that names a Secret with the user name and password
+      of the BMC. The Secret is in the namespace of the operator.
+
+  - id: kubectl
+    term: kubectl
+    kind: tool
+    domain: k8s
+    forms: [kubectl]
+    see: concept:architecture
+    related: [kubeconfig, pk-metal]
+    def: >-
+      The command-line client of Kubernetes. Use it to apply, read and delete
+      the objects of the operator.
+
+  - id: kubeconfig
+    term: kubeconfig
+    kind: noun
+    domain: k8s
+    forms: [kubeconfig, kubeconfigs]
+    see: cli:global-flags
+    related: [kubectl, talosconfig]
+    def: >-
+      A file with the address of a Kubernetes cluster and the credentials to
+      connect to it. kubectl and pk-metal read it.
+
+  - id: pk-metal
+    term: pk-metal
+    kind: tool
+    domain: k8s
+    forms: [pk-metal]
+    guards: { not_before: '^-manager' }
+    see: cli:index
+    related: [operator, kubectl]
+    def: >-
+      The command-line tool of the project. It shows the state of the machines,
+      approves operations and runs day-2 tasks. Some commands work without the
+      operator.
+
+  - id: asset
+    term: Asset
+    kind: api-kind
+    domain: k8s
+    forms: [Asset, Assets]
+    see: kind:Asset
+    related: [ledger, managementendpoint, host, enrol]
+    def: >-
+      The kind that you write for each physical machine: its serial number and
+      the MAC address of its BMC. The operator does nothing with a machine
+      until an Asset names it.
+
+  - id: managementendpoint
+    term: ManagementEndpoint
+    kind: api-kind
+    domain: k8s
+    forms: [ManagementEndpoint, ManagementEndpoints, endpoint, endpoints]
+    guards: { not_after: '(cluster|API|Kubernetes)\s+$' }
+    see: kind:ManagementEndpoint
+    related: [me, bmc, asset, host]
+    def: >-
+      The kind for one BMC. The operator makes it from an Asset and the ledger,
+      and keeps in it what the BMC reports.
+
+  - id: me
+    term: ME
+    abbr: ManagementEndpoint
+    kind: abbr
+    domain: k8s
+    forms: [ME]
+    see: kind:ManagementEndpoint
+    related: [managementendpoint]
+    def: >-
+      Short name for ManagementEndpoint. The kubectl short name is mep.
+
+  - id: host
+    term: Host
+    kind: api-kind
+    domain: k8s
+    forms: [Host, Hosts]
+    see: kind:Host
+    related: [asset, hostclaim, managementendpoint]
+    def: >-
+      The kind for one physical machine as the operator found it through its
+      BMC. The operator makes it and names it after the serial number.
+
+  - id: hostclaim
+    term: HostClaim
+    kind: api-kind
+    domain: k8s
+    forms: [HostClaim, HostClaims, claim, claims]
+    see: kind:HostClaim
+    related: [host, release, hold, hand-off-record]
+    def: >-
+      The kind that takes one Host for your use. With spec.os it is an install
+      order. When you delete it, the operator releases the machine.
+
+  - id: hostoperation
+    term: HostOperation
+    kind: api-kind
+    domain: k8s
+    forms: [HostOperation, HostOperations, operation, operations]
+    see: kind:HostOperation
+    related: [action, proposal, approval, baseline]
+    def: >-
+      The kind for one change to one machine: a list of actions that run in
+      sequence after one approval. The operator proposes it. A person approves
+      it.
+
+  - id: action
+    term: action
+    kind: noun
+    domain: k8s
+    forms: [action, actions]
+    see: act:index
+    related: [hostoperation]
+    def: >-
+      One step of a HostOperation, for example a power cycle, a media insert or
+      a Talos upgrade. Each action has one goal, and the operator checks that the
+      machine reaches it.
+
+  - id: endpointprofile
+    term: EndpointProfile
+    kind: api-kind
+    domain: k8s
+    forms: [EndpointProfile, EndpointProfiles]
+    see: kind:EndpointProfile
+    related: [managementendpoint, credential-rotation]
+    def: >-
+      The kind that sets the configuration of the BMCs themselves: users, time
+      sources and certificates. It applies to the endpoints that its selector
+      selects, without an approval.
+
+  - id: biosprofile
+    term: BiosProfile
+    kind: api-kind
+    domain: k8s
+    forms: [BiosProfile, BiosProfiles]
+    see: kind:BiosProfile
+    related: [biossettings, biosschema, convergence]
+    def: >-
+      The kind that sets BIOS settings for a group of Hosts. More than one
+      profile can apply to one Host. The result is its BiosSettings.
+
+  - id: biossettings
+    term: BiosSettings
+    kind: api-kind
+    domain: k8s
+    forms: [BiosSettings]
+    see: kind:BiosSettings
+    related: [biosprofile, biosschema]
+    def: >-
+      The kind that holds the BIOS state of one Host: the wanted values, the
+      actual values and the source profile of each value.
+
+  - id: biosschema
+    term: BIOS schema
+    kind: api-kind
+    domain: k8s
+    forms: [BiosSchema, BiosSchemas, BIOS schema]
+    see: kind:BiosSchema
+    related: [biosprofile, biossettings]
+    def: >-
+      The list of BIOS attributes that one machine has, with the values that
+      each attribute accepts. The operator reads it from the machine. A
+      BiosProfile can ask only for these attributes.
+
+  - id: firmwareprofile
+    term: FirmwareProfile
+    kind: api-kind
+    domain: k8s
+    forms: [FirmwareProfile, FirmwareProfiles, firmware profile, firmware profiles]
+    see: kind:FirmwareProfile
+    related: [firmware, convergence]
+    def: >-
+      The kind that sets the firmware versions for a group of Hosts. If a
+      machine has a different version, the operator proposes a HostOperation
+      to flash it.
+
+  - id: bootasset
+    term: BootAsset
+    kind: api-kind
+    domain: k8s
+    forms: [BootAsset, BootAssets]
+    see: kind:BootAsset
+    related: [installer-image, embedded-installer, media-store]
+    def: >-
+      The kind for one boot image. It is a config ISO, an image from the image
+      factory, or an installer with the config inside.
+
+  - id: maintenancewindow
+    term: maintenance window
+    kind: api-kind
+    domain: ops
+    forms: [MaintenanceWindow, MaintenanceWindows, maintenance window, maintenance windows]
+    see: kind:MaintenanceWindow
+    related: [approval, host-maintenance]
+    def: >-
+      A MaintenanceWindow object says when approved work can start on a set of
+      machines. It never approves work. A step that runs does not stop when the
+      window closes.
+
+  - id: lane
+    term: lane
+    kind: noun
+    domain: k8s
+    forms: [lane, lanes]
+    see: ctrl:index
+    related: [controller, manager]
+    def: >-
+      A group of controllers that the manager starts together, in a fixed
+      order. A lane has one main controller and can have helper controllers.
+
+  - id: leader-election
+    term: leader election
+    kind: noun
+    domain: k8s
+    forms: [leader election]
+    see: ctrl:manager
+    related: [manager]
+    def: >-
+      With the --leader-elect flag, only one manager pod runs the controllers.
+      That pod holds a Lease. The other pods wait until the Lease is free.
+
+  - id: field-manager
+    term: field manager
+    kind: noun
+    domain: k8s
+    forms: [field manager, field managers]
+    see: ctrl:index
+    related: [server-side-apply, controller]
+    def: >-
+      The name of the writer that the API server records for each field that
+      the writer sets. Two writers of one object use two field managers.
+
+  - id: server-side-apply
+    term: server-side apply
+    kind: noun
+    domain: k8s
+    forms: [server-side apply, SSA]
+    see: ctrl:index
+    related: [field-manager]
+    def: >-
+      A write in which the writer sends only the fields that it owns. The API
+      server merges them, so that two writers do not overwrite the fields of
+      the other.
+
+  # --- Talos and nodes ---------------------------------------------------------
+
+  - id: talos
+    term: Talos
+    kind: noun
+    domain: talos
+    forms: [Talos, Talos Linux]
+    see: concept:talos-rendering
+    related: [talosctl, machine-config, talos-api]
+    def: >-
+      Talos Linux, the operating system that pk-metal installs. It has no
+      shell and no SSH. You control it through its API with talosctl.
+
+  - id: talosctl
+    term: talosctl
+    kind: tool
+    domain: talos
+    forms: [talosctl]
+    see: concept:talos-rendering
+    related: [talos, talosconfig, talos-api]
+    def: >-
+      The command-line client of the Talos API. Use it to read logs, services
+      and disks of a node.
+
+  - id: talosconfig
+    term: talosconfig
+    kind: noun
+    domain: talos
+    forms: [talosconfig, talosconfigs]
+    see: kind:TalosCluster
+    related: [talosctl, kubeconfig, secrets-bundle]
+    def: >-
+      A file with a client certificate for the Talos API of one cluster.
+      talosctl reads it. The operator keeps it in a Secret.
+
+  - id: talos-api
+    term: Talos API
+    kind: noun
+    domain: talos
+    forms: [Talos API, machine API]
+    see: concept:talos-rendering
+    related: [talosctl, check-in]
+    def: >-
+      The gRPC API of a Talos node on TCP port 50000. It replaces SSH and the
+      shell. The operator uses it to reboot, upgrade and reset nodes.
+
+  - id: taloscluster
+    term: TalosCluster
+    kind: api-kind
+    domain: talos
+    forms: [TalosCluster, TalosClusters]
+    see: kind:TalosCluster
+    related: [talosnode, machine-config, schematic]
+    def: >-
+      The kind for one Talos cluster: what all its nodes share, for example the
+      versions, the cluster endpoint and the config patches.
+
+  - id: talosnode
+    term: TalosNode
+    kind: api-kind
+    domain: talos
+    forms: [TalosNode, TalosNodes]
+    see: kind:TalosNode
+    related: [taloscluster, machine-config, install-disk]
+    def: >-
+      The kind for one member of a TalosCluster. It holds the config of one
+      machine, for example its address, role and install disk.
+
+  - id: node
+    term: node
+    kind: noun
+    domain: talos
+    forms: [node, nodes]
+    see: kind:TalosNode
+    related: [talosnode, host]
+    def: >-
+      A Kubernetes member that runs Talos. A node runs on a Host. Do not use
+      "node" for the hardware.
+
+  - id: control-plane
+    term: control plane
+    kind: noun
+    domain: talos
+    forms: [control plane, control planes, control-plane]
+    see: concept:talos-rendering
+    related: [worker, etcd, cluster-guard]
+    def: >-
+      A node that runs the Kubernetes API server and an etcd member. A cluster
+      needs a majority of its control planes to work.
+
+  - id: worker
+    term: worker
+    kind: noun
+    domain: talos
+    forms: [worker, workers]
+    see: concept:talos-rendering
+    related: [control-plane]
+    def: >-
+      A node that runs only workloads. It runs no etcd member.
+
+  - id: machine-config
+    term: machine config
+    kind: noun
+    domain: talos
+    forms: [machine config, machine configs]
+    see: concept:talos-rendering
+    related: [render, taloscluster, talosnode]
+    def: >-
+      The YAML document that configures one Talos node completely. The operator
+      renders it from the TalosCluster and the TalosNode, and keeps it in a
+      Secret.
+
+  - id: render
+    term: render
+    kind: verb
+    domain: talos
+    forms: [render, renders, rendered]
+    see: concept:talos-rendering
+    related: [machine-config]
+    def: >-
+      To make the machine config of a node from its TalosCluster and its
+      TalosNode. A render changes no machine.
+
+  - id: secrets-bundle
+    term: secrets bundle
+    kind: noun
+    domain: talos
+    forms: [secrets bundle, secrets bundles]
+    see: kind:TalosCluster
+    related: [talosconfig, machine-config]
+    def: >-
+      The keys and tokens of one Talos cluster, from talosctl gen secrets.
+      Every machine config of the cluster contains parts of it.
+
+  - id: schematic
+    term: schematic
+    kind: noun
+    domain: talos
+    forms: [schematic, schematics]
+    see: kind:TalosCluster
+    related: [image-factory, system-extension, installer-image]
+    def: >-
+      The list of system extensions and kernel arguments of a Talos image. The
+      image factory names each image by the ID of its schematic.
+
+  - id: system-extension
+    term: system extension
+    kind: noun
+    domain: talos
+    forms: [system extension, system extensions]
+    see: kind:TalosCluster
+    related: [schematic]
+    def: >-
+      An addition to the Talos image, for example a driver or firmware. You
+      cannot install packages on a node. You add extensions to the schematic.
+
+  - id: image-factory
+    term: image factory
+    kind: noun
+    domain: talos
+    forms: [image factory, Image Factory]
+    see: howto:air-gapped-site
+    related: [schematic, installer-image]
+    def: >-
+      The Talos service that builds boot images and installer images from a
+      schematic. The default is factory.talos.dev. You can run your own.
+
+  - id: installer-image
+    term: installer image
+    kind: noun
+    domain: talos
+    forms: [installer image, installer images, installer]
+    see: kind:BootAsset
+    related: [image-factory, bootasset, embedded-installer]
+    def: >-
+      The Talos image that installs Talos on the install disk. The machine
+      boots it from virtual media, or a node pulls it for an upgrade.
+
+  - id: embedded-installer
+    term: embedded installer
+    kind: noun
+    domain: talos
+    forms: [embedded installer, embedded installers]
+    see: concept:one-slot-bmc
+    related: [one-slot-bmc, imager, bootasset]
+    def: >-
+      An installer ISO with the machine config of one node inside. The
+      operator builds it for a blank machine behind a one-slot BMC.
+
+  - id: imager
+    term: imager
+    kind: noun
+    domain: talos
+    forms: [imager, Talos imager]
+    see: concept:one-slot-bmc
+    related: [embedded-installer, media-store]
+    def: >-
+      The Talos tool that builds an ISO. The operator runs it as a Kubernetes
+      Job to build embedded installers.
+
+  - id: media-store
+    term: media store
+    kind: noun
+    domain: talos
+    forms: [media store]
+    see: concept:one-slot-bmc
+    related: [embedded-installer, media-service]
+    def: >-
+      A volume of the operator that keeps the embedded installers. The files
+      contain machine configs in plain text. Use an encrypted StorageClass for
+      it.
+
+  - id: talos-maintenance-mode
+    term: maintenance mode
+    kind: noun
+    domain: talos
+    forms: [maintenance mode]
+    see: concept:virtual-media-boot
+    related: [talos, check-in]
+    def: >-
+      The state of a Talos machine that has booted without a machine config.
+      In this state, Talos accepts a config from any client. The operator
+      never sends a config to it.
+
+  - id: check-in
+    term: check-in
+    kind: noun
+    domain: talos
+    forms: [check-in, check-ins, checks in, checked in]
+    see: act:AwaitCheckIn
+    related: [hand-off-record, talos-api]
+    def: >-
+      The moment when a booted machine answers on the Talos API with the config
+      of its node. After the check-in, the operator ejects the boot media.
+
+  - id: install
+    term: install
+    kind: noun
+    domain: talos
+    forms: [install, installs]
+    see: howto:install-hosts
+    related: [hostclaim, install-disk, hand-off-record]
+    def: >-
+      The boot operation that puts Talos and the node config on the install
+      disk of a machine. A HostClaim with spec.os starts it, after approval.
+
+  - id: etcd
+    term: etcd
+    kind: noun
+    domain: talos
+    forms: [etcd]
+    see: concept:talos-rendering
+    related: [etcd-member, quorum, learner, etcdsnapshot]
+    def: >-
+      The database that keeps the state of a Kubernetes cluster. Each control
+      plane runs one etcd member.
+
+  - id: etcd-member
+    term: etcd member
+    kind: noun
+    domain: talos
+    forms: [etcd member, etcd members]
+    see: concept:node-lifecycle
+    related: [etcd, quorum, learner, leader]
+    def: >-
+      One etcd process in the cluster, on one control plane. A member that
+      leaves or goes down changes the quorum.
+
+  - id: quorum
+    term: quorum
+    kind: noun
+    domain: talos
+    forms: [quorum, majority]
+    see: concept:node-lifecycle
+    related: [etcd-member, cluster-guard]
+    def: >-
+      More than half of the etcd members. etcd works only while a quorum is
+      healthy. Three members tolerate one failure. Two members tolerate none.
+
+  - id: learner
+    term: learner
+    kind: noun
+    domain: talos
+    forms: [learner, learners]
+    see: howto:replace-a-node
+    related: [etcd-member, quorum]
+    def: >-
+      A new etcd member that copies the data but does not vote. etcd promotes
+      it when it has the data. The operator adds one control plane at a time.
+
+  - id: leader
+    term: leader
+    kind: noun
+    domain: talos
+    forms: [leader, etcd leader]
+    see: concept:talos-rendering
+    related: [etcd-member]
+    def: >-
+      The etcd member that orders all writes. A rollout updates the leader
+      last, so that etcd elects a new leader only one time.
+
+  - id: voter
+    term: voter
+    kind: noun
+    domain: talos
+    forms: [voter, voters]
+    see: concept:node-lifecycle
+    related: [learner, quorum]
+    def: >-
+      An etcd member that votes and counts for quorum. A new control plane
+      joins as a learner and becomes a voter when it has the data.
+
+  - id: ephemeral-partition
+    term: EPHEMERAL partition
+    kind: noun
+    domain: talos
+    forms: [EPHEMERAL]
+    see: act:TalosReset
+    related: [etcd, talos]
+    def: >-
+      The Talos partition that holds the pod data and the etcd data of a node.
+      A reset of this partition removes the etcd data of the node.
+
+  - id: etcd-recover
+    term: EtcdRecover
+    kind: noun
+    domain: talos
+    forms: [EtcdRecover]
+    see: act:EtcdRecover
+    related: [etcdsnapshot, quorum]
+    def: >-
+      The action that bootstraps etcd again from a snapshot on one control
+      plane. Use it only when etcd has lost its data on all control planes.
+
+  - id: credentials-ttl
+    term: credentials TTL
+    kind: noun
+    domain: talos
+    forms: [credentials TTL]
+    see: concept:credentials
+    related: [talosconfig, kubeconfig]
+    def: >-
+      The lifetime of the admin kubeconfig and talosconfig that the operator
+      publishes. The default is 24 hours. The operator issues new ones when
+      one third of the time remains.
+
+  # --- Approval and safety -----------------------------------------------------
+
+  - id: proposal
+    term: proposal
+    kind: noun
+    domain: safety
+    forms: [proposal, proposals, propose, proposes, proposed]
+    see: concept:approval
+    related: [approval, hostoperation, plan-hash]
+    def: >-
+      A HostOperation or TalosRollout that the operator makes and that waits
+      for a person. A proposal changes no machine.
+
+  - id: approval
+    term: approval
+    kind: noun
+    domain: safety
+    forms: [approval, approvals, approve, approves, approved]
+    see: concept:approval
+    related: [proposal, approver, hold, plan-hash]
+    def: >-
+      The decision of a person that a proposed change can run. You approve with
+      pk-metal approve. You cannot approve your own proposal.
+
+  - id: approver
+    term: approver
+    kind: noun
+    domain: safety
+    forms: [approver, approvers, pk-metal-approver]
+    see: concept:approval
+    related: [approval, admission-policy]
+    def: >-
+      A person who can approve operations and rollouts. Bind the ClusterRole
+      pk-metal-approver to these persons.
+
+  - id: plan-hash
+    term: plan hash
+    kind: noun
+    domain: safety
+    forms: [plan hash, planHash]
+    see: concept:approval
+    related: [approval, proposal, convergence]
+    def: >-
+      A hash of the wanted state that a proposal serves. An approval covers only
+      the plan with this hash. An unchanged hash never makes a second
+      proposal.
+
+  - id: hold
+    term: hold
+    kind: noun
+    domain: safety
+    forms: [hold]
+    # Only the noun: "a hold", "on hold", "the hold". "hold" and "holds" as a verb
+    # ("the claim holds the machine") must not link here.
+    guards:
+      only_after: '(?:\b(?:a|the|no|its|their|this|any|on|of|per|with|without|new)\s+|metal\.pk\.io/)$'
+    see: cli:hold
+    related: [hostclaim, approval]
+    def: >-
+      The metal.pk.io/hold annotation on a HostClaim. While it is there, the
+      operator proposes nothing for the claim. Nothing on the machine changes.
+
+  - id: abort
+    term: abort
+    kind: verb
+    domain: safety
+    forms: [abort, aborts, aborted]
+    see: cli:abort
+    related: [hostoperation, retry]
+    def: >-
+      To stop an operation before its next step. The operator then ejects the
+      media, clears the boot override and uncordons the node.
+
+  - id: retry
+    term: retry
+    kind: verb
+    domain: safety
+    forms: [retry, retries]
+    see: cli:retry
+    related: [abort, hostoperation]
+    def: >-
+      To delete a failed operation, so that the operator proposes it again. A
+      failed operation never runs again without a person.
+
+  - id: baseline
+    term: baseline
+    kind: noun
+    domain: safety
+    forms: [baseline]
+    see: kind:HostOperation
+    related: [hostoperation]
+    def: >-
+      The state of the machine that an operation records before its first
+      step. The operator compares later observations with it.
+
+  - id: self-protection
+    term: self-protection
+    kind: noun
+    domain: safety
+    forms: [self-protection]
+    see: concept:self-protection
+    related: [cluster-guard, pivot]
+    def: >-
+      A rule that stops the operator from a reboot or power-off of the machine
+      that it runs on. The annotation metal.pk.io/allow-self-disruption removes
+      the stop.
+
+  - id: cluster-guard
+    term: cluster guard
+    kind: noun
+    domain: safety
+    forms: [cluster guard]
+    see: concept:self-protection
+    related: [quorum, control-plane, self-protection]
+    def: >-
+      A rule that holds a step that stops a control plane. The step waits while
+      another control plane is down, or while etcd can lose its quorum.
+
+  - id: host-maintenance
+    term: Maintenance (Host)
+    kind: phase
+    domain: safety
+    forms: []
+    see: howto:maintenance-mode
+    related: [maintenancewindow, talos-maintenance-mode]
+    def: >-
+      The phase of a Host with the metal.pk.io/maintenance annotation. The
+      operator proposes nothing for the machine. A step that runs finishes.
+
+  - id: mismatch
+    term: Mismatch
+    kind: phase
+    domain: safety
+    forms: [Mismatch]
+    see: rb:host-mismatch
+    related: [asset, managementendpoint, identity]
+    def: >-
+      The phase of a ManagementEndpoint when the BMC reports another serial
+      number or MAC address than the Asset. The operator does nothing to the
+      machine.
+
+  - id: identity
+    term: identity
+    kind: noun
+    domain: safety
+    forms: [identity]
+    see: concept:identity
+    related: [asset, mismatch]
+    def: >-
+      The facts that name one machine: serial number and BMC MAC address. The
+      operator compares the identity in the Asset with the identity that the
+      BMC reports.
+
+  - id: ack-etcd-risk
+    term: ack-etcd-risk
+    kind: annotation
+    domain: safety
+    forms: [ack-etcd-risk]
+    see: ref:labels-annotations#metal.pk.io/ack-etcd-risk
+    related: [quorum, voter]
+    def: >-
+      The metal.pk.io/ack-etcd-risk annotation on a HostClaim or a TalosNode.
+      Its value is your reason. It lets a removal go on that puts quorum at
+      risk.
+
+  - id: start-gate
+    term: start gate
+    kind: noun
+    domain: safety
+    forms: [start gate, start gates]
+    see: ctrl:hostoperation
+    related: [approval, hold]
+    def: >-
+      A check before the first step of a HostOperation: abort, approval,
+      rollout, actions, queue, locks, maintenance, window and guards. A closed
+      gate makes the operation wait.
+
+  # --- Day-2 operations ---------------------------------------------------------
+
+  - id: day-0
+    term: day 0
+    kind: noun
+    domain: ops
+    forms: [day 0]
+    see: howto:bootstrap-without-operator
+    related: [day-1, relay]
+    def: >-
+      The first machines of a site, before a cluster exists. pk-metal boot and
+      pk-metal bootstrap work without the operator for this.
+
+  - id: day-1
+    term: day 1
+    kind: noun
+    domain: ops
+    forms: [day 1, day-1]
+    see: howto:install-hosts
+    related: [day-2, install]
+    def: >-
+      The install: a machine goes from powered off to a Ready node.
+
+  - id: day-2
+    term: day 2
+    kind: noun
+    domain: ops
+    forms: [day 2, day-2]
+    see: flow:day-2-change
+    related: [day-1, rollout]
+    def: >-
+      All work after the install, while workloads run: reboots, upgrades,
+      config changes, backups and changes to the hardware.
+
+  - id: enrol
+    term: enrol
+    kind: verb
+    domain: ops
+    forms: [enrol, enrols, enrolled]
+    see: howto:enrol-hosts
+    related: [asset, ledger]
+    def: >-
+      To add a machine to the operator: write its Asset and its credentials
+      Secret, and add its BMC to the ledger.
+
+  - id: ledger
+    term: ledger
+    kind: noun
+    domain: ops
+    forms: [ledger]
+    see: concept:ledger
+    related: [asset, bmc, enrol]
+    def: >-
+      A list that gives the address of each BMC for its MAC address. It is the
+      ConfigMap pk-metal-ledger. The operator reads it when it starts.
+
+  - id: convergence
+    term: convergence
+    kind: noun
+    domain: ops
+    forms: [convergence, converge, converges, converged]
+    see: concept:convergence
+    related: [biosprofile, firmwareprofile, endpointprofile, plan-hash, drift]
+    def: >-
+      The process that makes the BIOS, firmware and BMC settings of a machine
+      agree with its profiles. For BIOS and firmware, the operator proposes an
+      operation.
+
+  - id: drift
+    term: drift
+    kind: noun
+    domain: ops
+    forms: [drift, Drifted]
+    see: concept:convergence
+    related: [convergence]
+    def: >-
+      A difference between the wanted state and the machine. A reset that no
+      operation explains sets the Host condition Drifted. This is information,
+      not an error.
+
+  - id: cordon
+    term: cordon
+    kind: verb
+    domain: ops
+    forms: [cordon, cordons, cordoned]
+    see: act:Cordon
+    related: [drain, uncordon]
+    def: >-
+      To mark a Kubernetes node so that no new pods start on it. Pods that run
+      continue to run.
+
+  - id: uncordon
+    term: uncordon
+    kind: verb
+    domain: ops
+    forms: [uncordon, uncordons, uncordoned]
+    see: act:Uncordon
+    related: [cordon]
+    def: >-
+      To let new pods start on a node again.
+
+  - id: drain
+    term: drain
+    kind: verb
+    domain: ops
+    forms: [drain, drains, drained]
+    see: act:Drain
+    related: [cordon, pdb]
+    def: >-
+      To move the pods away from a node through the eviction API. The node is
+      cordoned first. A PodDisruptionBudget can make the drain wait.
+
+  - id: pdb
+    term: PodDisruptionBudget
+    kind: noun
+    domain: ops
+    forms: [PodDisruptionBudget, PodDisruptionBudgets]
+    see: act:Drain
+    related: [drain]
+    def: >-
+      A Kubernetes object that sets how many pods of an application can be
+      down at one time. A drain obeys it.
+
+  - id: rollout
+    term: rollout
+    kind: api-kind
+    domain: ops
+    forms: [TalosRollout, TalosRollouts, rollout, rollouts]
+    see: kind:TalosRollout
+    related: [plan-hash, canary-pause, approval]
+    def: >-
+      A TalosRollout: one change that goes through the nodes of a cluster one
+      at a time. One approval covers the plan. Control planes go first.
+
+  - id: canary-pause
+    term: pause after the first node
+    kind: noun
+    domain: ops
+    forms: [canary pause, CanaryPause]
+    see: kind:TalosRollout
+    related: [rollout]
+    def: >-
+      Each rollout stops after its first node. Examine that node, then continue
+      with pk-metal rollout resume.
+
+  - id: release
+    term: release
+    kind: noun
+    domain: ops
+    forms: [release, releases, released]
+    guards: { not_after: '(Talos|Kubernetes)\s+$' }
+    see: howto:release-a-host
+    related: [hostclaim, wipe, finalizer]
+    def: >-
+      What the operator does when you delete a HostClaim. It drains the node,
+      removes it from etcd, resets its disk and turns the machine off.
+
+  - id: wipe
+    term: wipe
+    kind: verb
+    domain: ops
+    forms: [wipe, wipes, wiped]
+    see: cli:wipe
+    related: [release, disk-not-wiped]
+    def: >-
+      To erase the system disk of a released machine. A wipe is an operation
+      and waits for approval.
+
+  - id: disk-not-wiped
+    term: not wiped
+    kind: noun
+    domain: ops
+    forms: [not wiped, DiskWiped]
+    see: cli:wipe
+    related: [wipe, release]
+    def: >-
+      The state of a Host after a release that could not reset the node. The
+      disk still holds the node. The operator installs nothing on it until a
+      wipe.
+
+  - id: hand-off-record
+    term: hand-off record
+    kind: noun
+    domain: ops
+    forms: [hand-off record, hand-off, handOff]
+    see: kind:HostClaim
+    related: [check-in, install]
+    def: >-
+      The field status.handOff of a HostClaim. It records which machine runs
+      which node, and since when. The operator does not install a machine with
+      a hand-off record again.
+
+  - id: credential-rotation
+    term: credential rotation
+    kind: noun
+    domain: ops
+    forms: [credential rotation, password rotation]
+    see: flow:credential-rotation
+    related: [endpointprofile, credentialsref]
+    def: >-
+      The change of the BMC password to a new value that the operator manages.
+      An EndpointProfile asks for it. The factory login stays as a way back in.
+
+  - id: etcdbackuppolicy
+    term: EtcdBackupPolicy
+    kind: api-kind
+    domain: ops
+    forms: [EtcdBackupPolicy, EtcdBackupPolicies, backup policy]
+    see: kind:EtcdBackupPolicy
+    related: [etcdsnapshot, sink]
+    def: >-
+      The kind that takes encrypted etcd snapshots of one TalosCluster on a
+      schedule. A snapshot changes no machine, so it needs no approval.
+
+  - id: etcdsnapshot
+    term: EtcdSnapshot
+    kind: api-kind
+    domain: ops
+    forms: [EtcdSnapshot, EtcdSnapshots, snapshot, snapshots]
+    see: kind:EtcdSnapshot
+    related: [etcdbackuppolicy, sink, age-identity]
+    def: >-
+      The kind for one encrypted etcd snapshot of a cluster. A restore from a
+      snapshot is an operation that waits for approval.
+
+  - id: sink
+    term: sink
+    kind: noun
+    domain: ops
+    forms: [sink, sinks]
+    see: kind:EtcdBackupPolicy
+    related: [etcdbackuppolicy]
+    def: >-
+      The place where the operator stores etcd snapshots: an S3 bucket or a
+      PersistentVolumeClaim.
+
+  - id: age-identity
+    term: age identity
+    kind: noun
+    domain: ops
+    forms: [age identity, age identities]
+    see: cli:backup
+    related: [etcdsnapshot]
+    def: >-
+      The private key that decrypts an etcd snapshot. The operator has only
+      the public keys. Keep the identities away from the cluster.
+
+  - id: pivot
+    term: pivot
+    kind: noun
+    domain: ops
+    forms: [pivot]
+    see: concept:pivot-model
+    related: [management-cluster, self-protection]
+    def: >-
+      The move of the operator and its objects to another management cluster.
+      For example, the operator moves from kind onto the Talos cluster that it
+      built.
+
+  - id: relay
+    term: relay
+    kind: noun
+    domain: ops
+    forms: [relay]
+    see: concept:relay
+    related: [day-0, media-service]
+    def: >-
+      A pk-metal process on a host that can reach the BMCs. It sends boot
+      media and Redfish traffic between the BMCs and pk-metal boot.
+
+  - id: health-gate
+    term: health gate
+    kind: noun
+    domain: ops
+    forms: [health gate, health gates]
+    see: concept:rollouts
+    related: [rollout, quorum]
+    def: >-
+      The checks before each node of a rollout. etcd has a leader, no member
+      has an error or is a learner, and the Kubernetes nodes are Ready.
+
+  # --- Virtual lab --------------------------------------------------------------
+
+  - id: virtual-lab
+    term: virtual lab
+    kind: noun
+    domain: lab
+    forms: [virtual lab, lab]
+    see: lab:page/index
+    related: [simulated-bmc, kind-tool, qemu]
+    def: >-
+      A complete site on one workstation: a kind cluster with the operator,
+      simulated BMCs and QEMU machines. The lab simulates only the hardware.
+
+  - id: kind-tool
+    term: kind (the tool)
+    abbr: Kubernetes in Docker
+    kind: tool
+    domain: lab
+    forms: [kind cluster, kind clusters]
+    see: lab:page/index
+    related: [management-cluster, virtual-lab]
+    def: >-
+      A tool that runs a Kubernetes cluster in containers. The lab uses a kind
+      cluster as the first management cluster.
+
+  - id: simulated-bmc
+    term: simulated BMC
+    kind: noun
+    domain: lab
+    forms: [simulated BMC, simulated BMCs]
+    see: lab:page/simulated-bmc
+    related: [fleet, redfish]
+    def: >-
+      A Redfish server from pk-metal sim that acts as a BMC. It controls a QEMU
+      machine or a Talos container.
+
+  - id: fleet
+    term: fleet
+    kind: noun
+    domain: lab
+    forms: [fleet]
+    see: lab:page/simulated-bmc
+    related: [simulated-bmc]
+    def: >-
+      A group of simulated BMCs from one file, with pk-metal sim fleet. Each
+      BMC has a machine behind it.
+
+  - id: qemu
+    term: QEMU
+    kind: tool
+    domain: lab
+    forms: [QEMU]
+    see: lab:page/prerequisites
+    related: [ovmf, virtual-lab]
+    def: >-
+      The machine emulator that runs the virtual machines of the lab, with
+      KVM.
+
+  - id: ovmf
+    term: OVMF
+    abbr: Open Virtual Machine Firmware
+    kind: abbr
+    domain: lab
+    forms: [OVMF]
+    see: lab:page/prerequisites
+    related: [uefi, qemu]
+    def: >-
+      The UEFI firmware for QEMU virtual machines. The lab machines boot with
+      it.
+
+  - id: lab-yaml
+    term: lab.yaml
+    kind: noun
+    domain: lab
+    forms: [lab.yaml]
+    see: lab:page/lab-yaml
+    related: [virtual-lab]
+    def: >-
+      The one file that describes the virtual lab: the cluster, the machines and
+      their addresses. PK_LAB_NODES sets its size.
+
+  - id: lab-bridge
+    term: lab bridge
+    kind: noun
+    domain: lab
+    forms: [lab bridge, pkbr0]
+    see: lab:page/network
+    related: [virtual-lab]
+    def: >-
+      The Linux network bridge of the lab. The lab machines and the BMCs
+      connect to it. Only the network script needs root.
+
+  - id: mise
+    term: mise
+    kind: tool
+    domain: lab
+    forms: [mise]
+    see: lab:page/tasks
+    related: [virtual-lab]
+    def: >-
+      The tool that installs the pinned tools of the project and runs its
+      tasks, for example mise run lab:up.
+
+  - id: personality
+    term: personality
+    kind: noun
+    domain: lab
+    forms: [personality, personalities]
+    see: lab:page/simulated-bmc
+    related: [simulated-bmc, dialect]
+    def: >-
+      A fixture file of a simulated BMC. It gives the facts that the BMC
+      serves and the Redfish dialect that it speaks.
+
+  - id: state-endpoint
+    term: state endpoint
+    kind: noun
+    domain: lab
+    forms: [state endpoint]
+    see: lab:page/simulated-bmc#state-endpoint
+    related: [fleet, simulated-bmc]
+    def: >-
+      A read-only HTTP endpoint of the simulated fleet. It shows the power,
+      boot and media state of each simulated BMC.
+
+  - id: firmware-hang-guard
+    term: firmware-hang guard
+    kind: noun
+    domain: lab
+    forms: [firmware-hang guard]
+    see: lab:page/simulated-bmc#firmware-hang-guard
+    related: [ovmf, fleet]
+    def: >-
+      A check of the simulated fleet. When OVMF stops after a power-on, before
+      a boot, the fleet power cycles the virtual machine one time.
+
+  - id: lab-spec
+    term: lab spec
+    kind: noun
+    domain: lab
+    forms: [lab spec]
+    see: lab:page/lab-yaml
+    related: [lab-yaml, virtual-lab]
+    def: >-
+      The file lab/lab.yaml. It gives the cluster name, the versions, the size
+      and the shape of the lab machines.

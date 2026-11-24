@@ -18,6 +18,8 @@ kind = "0.32"
 golangci-lint = "2"
 jq = "1"
 yq = "4"
+# Vale lints the documentation site against the STE style in docs/styles.
+vale = "3.28"
 
 [env]
 GOTOOLCHAIN = "local"
@@ -120,6 +122,17 @@ if [ -n "$drift" ]; then
   exit 1
 fi
 echo "generate:check: clean"
+'''
+
+[tasks."docs:lint:glossary"]
+description = "Check the glossary definitions (docs/src/data/glossary.yaml) against the STE Vale style"
+# Vale reads Markdown, not YAML: write each definition under its term as a
+# heading into a scratch file, so a finding names the term it is in.
+run = '''
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+yq -r '.terms[] | "## " + .term + "\n\n" + .def + "\n"' docs/src/data/glossary.yaml > "$tmp/glossary.md"
+vale --config docs/.vale.ini "$tmp/glossary.md"
 '''
 
 [tasks."sim:demo"]
@@ -236,3 +249,8 @@ run = "lab/lab.sh down"
 [tasks."lab:reset"]
 description = "Wipe the lab machines' disks (the lab must be down)"
 run = "lab/lab.sh reset"
+
+[tasks."docs:lint"]
+description = "Check the prose of the documentation pages with the STE Vale style (docs/.vale.ini)"
+dir = "docs"
+run = "vale --config .vale.ini src/content/docs"

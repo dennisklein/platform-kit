@@ -1,0 +1,15 @@
+# STE rule 3.x: use the active voice. In descriptions the passive is allowed
+# when the doer is not known; in a procedure, write who does it. A past
+# participle used as an adjective ("the node is cordoned") is not passive:
+# that is why this is a warning and not an error.
+extends: existence
+message: "'%s' looks passive. Write who does it, in the active voice."
+level: warning
+# Frontmatter (title, description, type) is page data, not prose to lint.
+scope: ~text.frontmatter
+ignorecase: true
+raw:
+  - \b(?:am|are|is|was|were|be|been|being)\s+
+  - (?:[a-z]+ed|built|chosen|done|drawn|driven|given|held|kept|known|left|made|
+  - put|seen|sent|shown|split|taken|told|thrown|written|undone|understood|
+  - brought|bought|caught|forgotten|found|hidden|lost|meant|paid|sold|spent|won)\b

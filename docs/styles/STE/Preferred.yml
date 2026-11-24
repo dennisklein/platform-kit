@@ -1,0 +1,25 @@
+# STE dictionary: unapproved words that also have a technical use here (a
+# field "required", a "Verified" condition), so they are a warning.
+extends: substitution
+message: "Prefer '%s' to '%s' (STE)."
+link: https://www.asd-ste100.org/
+level: warning
+# Frontmatter (title, description, type) is page data, not prose to lint.
+scope: ~text.frontmatter
+ignorecase: true
+swap:
+  additional: more
+  demonstrate(?:s|d)?: show
+  determine(?:s|d)?: find
+  enable(?:s|d)?: let|make possible
+  ensure(?:s|d)?: make sure
+  frequently: often
+  indicate(?:s|d)?: show
+  inform(?:s|ed)?: tell
+  locate(?:s|d)?: find
+  modif(?:y|ies|ied): change
+  modification(?:s)?: change
+  permit(?:s|ted)?: let
+  provide(?:s|d)?: give|supply
+  regarding: about
+  require(?:s|d)?: need

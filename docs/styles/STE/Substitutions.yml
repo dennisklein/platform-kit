@@ -1,0 +1,65 @@
+# STE dictionary: unapproved words with one clear approved replacement. Each
+# swap here is wrong in every context of this site, so it is an error.
+# Words with valid technical uses (verify, require, display) are in
+# Preferred.yml as warnings.
+extends: substitution
+message: "Use '%s' instead of '%s'."
+link: https://www.asd-ste100.org/
+level: error
+# Frontmatter (title, description, type) is page data, not prose to lint.
+scope: ~text.frontmatter
+ignorecase: true
+swap:
+  a number of: some
+  accomplish(?:es|ed)?: do
+  adequate: enough
+  additionally: also
+  amongst: among
+  approximately: about
+  as well as: and
+  ascertain(?:s|ed)?: find
+  assist(?:s|ed)?: help
+  at this point in time: now
+  attempt(?:s|ed)?: try
+  commence(?:s|d)?: start
+  comprise(?:s|d)?: contain
+  constitute(?:s|d)?: be
+  due to the fact that: because
+  endeavou?r(?:s|ed)?: try
+  facilitate(?:s|d)?: help|make possible
+  furthermore: also
+  in conjunction with: with
+  in order to: to
+  in the event that: if
+  initiate(?:s|d)?: start
+  initially: first
+  insufficient: not sufficient|not enough
+  leverage(?:s|d)?: use
+  moreover: also
+  necessitate(?:s|d)?: need
+  nevertheless: but
+  nonetheless: but
+  numerous: many
+  obtain(?:s|ed)?: get
+  optimal: best
+  perform(?:s|ed)?: do
+  possess(?:es|ed)?: have
+  prior to: before
+  proceed(?:s|ed)?: continue|go to
+  purchase(?:s|d)?: buy
+  remainder: rest
+  reside(?:s|d)?: be
+  retain(?:s|ed)?: keep
+  retrieve(?:s|d)?: get
+  subsequent to: after
+  subsequently: then|after
+  sufficient: enough
+  terminate(?:s|d)?: stop
+  transmit(?:s|ted)?: send
+  utili[sz]ation: use
+  utili[sz]e(?:s|d)?: use
+  whereas: but
+  whether or not: if
+  whilst: while
+  with regard to: about
+  with respect to: about

@@ -1,0 +1,12 @@
+# STE rule 5.3: one instruction in each step. "Do A, then do B" is two steps.
+extends: existence
+message: "Write one instruction in each step. Make '%s' a new step."
+level: warning
+scope: list
+ignorecase: true
+nonword: true
+tokens:
+  - '\band then\b'
+  - ',\s*then\b'
+  - ';\s*then\b'
+  - '\band also\b'

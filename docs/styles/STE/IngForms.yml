@@ -1,0 +1,34 @@
+# STE rule 3.x: do not use -ing forms as verbs or nouns, except in technical
+# names (phase names such as Provisioning are capitalised and not matched).
+extends: existence
+message: "Avoid the -ing form '%s'. Use a simple tense or a noun."
+level: suggestion
+# Frontmatter (title, description, type) is page data, not prose to lint.
+scope: ~text.frontmatter
+ignorecase: false
+tokens:
+  - '[a-z]+ing'
+exceptions:
+  - anything
+  - bring
+  - ceiling
+  - during
+  - everything
+  - king
+  - missing
+  - morning
+  - nothing
+  - pending
+  - ping
+  - ring
+  - something
+  - spring
+  - string
+  - thing
+  - warning
+  - logging
+  - networking
+  - routing
+  - operating
+  - setting
+  - settings

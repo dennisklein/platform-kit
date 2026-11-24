@@ -1,0 +1,9 @@
+# STE rule 5.1: a sentence in a procedure has at most 20 words. Enabled for
+# learn/ and operate/ in .vale.ini.
+extends: occurrence
+message: "Write at most 20 words in a procedure sentence. Split the step."
+link: https://www.asd-ste100.org/
+level: error
+scope: sentence
+max: 20
+token: '[\p{L}\p{N}][\p{L}\p{N}''._/-]*'

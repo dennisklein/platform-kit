@@ -1,0 +1,23 @@
+# STE: say it directly. These words add nothing, or tell the reader that a
+# step is easy when it may not be for them.
+extends: existence
+message: "Delete '%s'. Say it directly."
+level: warning
+# Frontmatter (title, description, type) is page data, not prose to lint.
+scope: ~text.frontmatter
+ignorecase: true
+tokens:
+  - simply
+  - just
+  - easily
+  - obviously
+  - basically
+  - clearly
+  - of course
+  - actually
+  - really
+  - very
+  - quite
+  - merely
+  - fairly
+  - please

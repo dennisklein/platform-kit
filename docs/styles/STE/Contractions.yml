@@ -1,0 +1,29 @@
+# STE rule 9.x: write the full words.
+extends: existence
+message: "Do not use the contraction '%s'. Write the full words."
+level: error
+# Frontmatter (title, description, type) is page data, not prose to lint.
+scope: ~text.frontmatter
+ignorecase: true
+tokens:
+  - \w+n't
+  - it's
+  - that's
+  - there's
+  - here's
+  - what's
+  - let's
+  - you're
+  - we're
+  - they're
+  - I'm
+  - you've
+  - we've
+  - they've
+  - you'll
+  - we'll
+  - it'll
+  - they'll
+  - you'd
+  - we'd
+  - it'd

@@ -1,0 +1,8 @@
+# STE rule 4.4 / 5.1: a descriptive sentence has at most 25 words.
+extends: occurrence
+message: "Write at most 25 words in a sentence. Split it in two."
+link: https://www.asd-ste100.org/
+level: error
+scope: sentence
+max: 25
+token: '[\p{L}\p{N}][\p{L}\p{N}''._/-]*'

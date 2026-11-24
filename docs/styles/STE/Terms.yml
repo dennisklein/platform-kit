@@ -1,0 +1,19 @@
+# One spelling for each name. Case matters, so this rule is case-sensitive.
+extends: substitution
+message: "Write '%s', not '%s'."
+level: warning
+# Frontmatter (title, description, type) is page data, not prose to lint.
+scope: ~text.frontmatter
+ignorecase: false
+swap:
+  '\bkubernetes\b': Kubernetes
+  '\bredfish\b': Redfish
+  '\b(?:Etcd|ETCD)\b': etcd
+  '\b(?:Talosctl|TalosCtl)\b': talosctl
+  '\b(?:Kubectl|KubeCtl)\b': kubectl
+  '\benroll\b': enrol
+  '\benrolls\b': enrols
+  '\benrollment\b': enrolment
+  '\b(?:baseboard management controller|Baseboard management controller)\b': BMC
+  '\bvirtual-media\b': virtual media
+  '\bPk-metal\b': pk-metal

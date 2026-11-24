@@ -1,0 +1,7 @@
+# Spelling, as Vale.Spelling, but not in the frontmatter (page data such as
+# `type: howto`). The words of the project are in config/vocabularies/Metal.
+# Technical names (kinds, fields, flags) are in no dictionary, so warn only.
+extends: spelling
+message: "Did you really mean '%s'?"
+level: warning
+scope: ~text.frontmatter

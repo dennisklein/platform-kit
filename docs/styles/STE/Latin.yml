@@ -1,0 +1,20 @@
+# STE: Latin abbreviations and "via" are not approved.
+extends: substitution
+message: "Use '%s' instead of '%s'."
+level: error
+# Frontmatter (title, description, type) is page data, not prose to lint.
+scope: ~text.frontmatter
+ignorecase: true
+nonword: true
+swap:
+  '\be\.g\.': for example
+  '\bi\.e\.': that is
+  '\betc\.': write the full list
+  '\bvia\b': through|with
+  '\bvs\.': against|or
+  '\bversus\b': against|or
+  '\bper se\b': (delete it)
+  '\bcf\.': see
+  '\bet al\.': and others
+  '\bn\.b\.': NOTE
+  '\ba\.k\.a\.': also called
