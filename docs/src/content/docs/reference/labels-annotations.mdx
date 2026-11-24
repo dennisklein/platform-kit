@@ -44,6 +44,10 @@ Do not set `metal.pk.io/allow-self-disruption` or `metal.pk.io/override-cluster-
 These annotations remove a protection of the cluster that the operator runs in.
 </Callout>
 
+The value of `metal.pk.io/ignore-window` and of `metal.pk.io/override-cluster-guard` is your reason. An empty value does not count: the operator ignores the annotation, and the guard stays. Write the reason, for example `metal.pk.io/ignore-window="CVE fix, agreed with on-call"`.
+
+A holder of `patch` on HostOperations can set these annotations. The [approver role](ref:rbac) has `patch`. So a person who can approve an operation can also lift these guards on it.
+
 ## Labels for selectors
 
 The operator puts these labels on each [](kind:Host) and [](kind:ManagementEndpoint). Use them in the selector of a profile or of a [](kind:MaintenanceWindow).

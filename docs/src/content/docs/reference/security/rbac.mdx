@@ -9,6 +9,7 @@ sources:
   - /repo/metal/config/rbac/role_binding.yaml
   - /repo/metal/config/rbac/approver_role.yaml
   - /repo/metal/config/rbac/backup_role.yaml
+  - /repo/metal/config/rbac/oncall_role.yaml
 ---
 
 import RbacRows from '../../../../components/controllers/RbacRows.astro';
@@ -54,7 +55,9 @@ Kubernetes RBAC does the split. The [admission policies](ref:admission-policies)
   <dt>`pk-metal-manager` (ClusterRole and Role)</dt>
   <dd>Generated from the `+kubebuilder:rbac` markers of the controllers. The ClusterRole holds the kinds. The Role in `pk-metal` holds Secrets, ConfigMaps, Jobs, the lease and certificate requests.</dd>
   <dt>`pk-metal-approver` (ClusterRole)</dt>
-  <dd>Read and patch operations and rollouts. Read Hosts, clusters and nodes. Nothing binds it by default.</dd>
+  <dd>Read and patch operations and rollouts. Read Hosts, clusters and nodes. Nothing binds it by default. A patch can also set annotations on an operation: abort, retry, and the guard overrides `metal.pk.io/ignore-window` and `metal.pk.io/override-cluster-guard`. So an approver can also lift these guards.</dd>
+  <dt>`pk-metal-oncall` (ClusterRole)</dt>
+  <dd>What the [runbooks](rb:index) do. Read each pk-metal kind and the events. Delete operations and rollouts, patch claims, Hosts, Assets and clusters. It has no `patch` on operations or rollouts, so it cannot approve. It holds no Secret. Nothing binds it by default.</dd>
   <dt>`pk-metal-backup` (ClusterRole)</dt>
   <dd>Read backup policies and snapshots, and ask for a snapshot now. It holds no Secret and cannot decrypt a backup. Nothing binds it by default.</dd>
 </dl>
@@ -66,6 +69,10 @@ Kubernetes RBAC does the split. The [admission policies](ref:admission-policies)
 ### pk-metal-backup
 
 <RbacRows role="pk-metal-backup" />
+
+### pk-metal-oncall
+
+<RbacRows role="pk-metal-oncall" />
 
 ### pk-metal-manager, cluster scope
 
@@ -88,7 +95,7 @@ Each controller page shows the rules that its markers ask for. See [](ctrl:index
 | `pk-metal-manager` | ClusterRoleBinding | ClusterRole `pk-metal-manager` | ServiceAccount `pk-metal/pk-metal-manager` |
 | `pk-metal-manager` | RoleBinding in `pk-metal` | Role `pk-metal-manager` | ServiceAccount `pk-metal/pk-metal-manager` |
 
-You bind the approver and backup roles yourself. Bind them to a group, not to single users:
+You bind the approver, backup and on-call roles yourself. Bind them to a group, not to single users:
 
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -117,13 +124,52 @@ subjects:
 | Name the TalosNode that a claim installs | A member of the admin group. | `hostclaim-provisioning` |
 | Set `provisioning.approval: Automatic` on a claim | A member of the admin group. | `hostclaim-provisioning` |
 | Point a claim at another machine ([](cli:replace)) | A member of the admin group. | `hostclaim-provisioning` |
+| Lift a maintenance window or the cluster guard on an operation | A holder of `patch` on operations. | RBAC |
 | Ask for an etcd snapshot now | A holder of `pk-metal-backup`. | RBAC |
+| Create a backup policy, or change its recipients or sink | A member of the admin group. | `etcdbackuppolicy-guard` |
+| Create or change an EndpointProfile | A member of the admin group. | `endpointprofile-guard` |
 | Restore etcd | An approved [](act:EtcdRecover) operation. | The same approval gate |
+
+### What the runbooks do
+
+| Runbook action | Command | Role |
+| --- | --- | --- |
+| Read objects and events | `kubectl get`, `kubectl describe`, [](cli:status) | `pk-metal-oncall` |
+| Delete a failed operation | [](cli:retry) | `pk-metal-oncall` |
+| Mark a failed BIOS or firmware plan for retry | [](cli:retry) | `pk-metal-approver` |
+| Put a claim on hold, or remove the hold | [](cli:hold), [](cli:unhold) | `pk-metal-oncall` |
+| Ask for a wipe, remove the mark `disk-not-wiped` | [](cli:wipe), `kubectl annotate host` | `pk-metal-oncall` |
+| Correct the facts of an Asset | `kubectl apply` | `pk-metal-oncall` |
+| Remove `os.pk.io/restore-pending` | `kubectl annotate taloscluster` | `pk-metal-oncall` |
+| Stop a rollout for good | `kubectl delete talosrollout` | `pk-metal-oncall` |
+| Approve, abort, pause or resume | [](cli:approve), [](cli:abort), [](cli:rollout) | `pk-metal-approver` |
+| Lift a window or the cluster guard | `kubectl annotate hostoperation` | `pk-metal-approver` |
+| Take a snapshot now | [](cli:backup) | `pk-metal-backup` |
+| Restore etcd | [](cli:restore) | A holder of `create` on operations. A second person approves. |
+
+A person on call usually holds `pk-metal-oncall` and `pk-metal-approver`. The admission policies still stop them from approving their own proposal.
+
+## Get into the admin group
 
 The admin group is `pk-metal:admins`. It comes from the ConfigMap `hostoperation-approval` in `pk-metal`.
 
+Kubernetes has no group objects. A ClusterRoleBinding to a group gives permissions to the members of the group. It does not make a person a member.
+The API server takes your groups from your credential:
+
+| Credential | Where the group comes from |
+| --- | --- |
+| Client certificate | Each `O=` of the subject is a group. Issue the certificate with `O=pk-metal:admins`. |
+| OIDC token | The groups claim of your identity provider. Put the person in a group with the name `pk-metal:admins`, or add a prefix and set that name in the ConfigMap. |
+| Impersonation | `kubectl --as=<you> --as-group=pk-metal:admins`. You need the `impersonate` verb on users and groups. The virtual lab uses this: `mise run lab:apply`. |
+
+Read your groups:
+
+```sh
+kubectl auth whoami
+```
+
 <Callout type="caution">
-Cluster admin (`system:masters`) is not a member of the admin group. The policies ask for the group by name. Bind your admins to it.
+Cluster admin (`system:masters`) is not a member of the admin group. The policies ask for the group by name.
 </Callout>
 
 ## Related

@@ -1,6 +1,6 @@
 ---
 title: Admission policies
-description: The three ValidatingAdmissionPolicies that guard approval and provisioning, rule by rule.
+description: The five ValidatingAdmissionPolicies that guard approval, provisioning, backups and BMC settings, rule by rule.
 type: reference
 eyebrow: Reference · security
 xref: { cat: ref, id: admission-policies }
@@ -8,6 +8,8 @@ sources:
   - /repo/metal/config/policy/hostoperation-approval.yaml
   - /repo/metal/config/policy/hostclaim-provisioning.yaml
   - /repo/metal/config/policy/talosrollout-approval.yaml
+  - /repo/metal/config/policy/etcdbackuppolicy-guard.yaml
+  - /repo/metal/config/policy/endpointprofile-guard.yaml
 ---
 
 import Figure from '../../../../components/diagram/Figure.astro';
@@ -16,7 +18,7 @@ import Edge from '../../../../components/diagram/Edge.astro';
 import Callout from '../../../../components/Callout.astro';
 
 RBAC says who may create or patch an object. It cannot see the name that a person writes into a field.
-Three [ValidatingAdmissionPolicies](term:vap) close that gap. They are [CEL](term:cel) in the API server: no webhook, no certificate, no pod.
+Five [ValidatingAdmissionPolicies](term:vap) close that gap. They are [CEL](term:cel) in the API server: no webhook, no certificate, no pod.
 
 ## At a glance
 
@@ -25,8 +27,10 @@ Three [ValidatingAdmissionPolicies](term:vap) close that gap. They are [CEL](ter
 | `hostoperation-approval` | [](kind:HostOperation) | CREATE, UPDATE | The approval gate of one operation. |
 | `talosrollout-approval` | [](kind:TalosRollout) | CREATE, UPDATE | The approval gate of one rollout plan. |
 | `hostclaim-provisioning` | [](kind:HostClaim) | CREATE, UPDATE | Who may choose the OS of a machine, and who may skip the boot approval. |
+| `etcdbackuppolicy-guard` | [](kind:EtcdBackupPolicy) | CREATE, UPDATE | Who may choose who can read the etcd backups, and where they go. |
+| `endpointprofile-guard` | [](kind:EndpointProfile) | CREATE, UPDATE | Who may change what the operator writes to the BMCs. |
 
-All three have these settings:
+All five have these settings:
 
 <dl>
   <dt>`failurePolicy: Fail`</dt>
@@ -80,13 +84,13 @@ The CRD schema freezes the target, the actions, `approval.required` and `propose
 | 3 | Only the operator or an admin creates an operation with `approval.required: false`. | CREATE | only the operator or an admin may create an operation that needs no approval |
 | 4 | An approval, once set, does not change. | UPDATE | approval is write-once |
 | 5 | You approve as yourself: `approvedBy` is your name. | Approval write | you may only approve as yourself |
-| 6 | You do not approve your own proposal. | Approval write | you may not approve your own proposal |
+| 6 | You do not approve your own proposal, and the operator approves nothing. | Approval write | you may not approve your own proposal, and the operator approves nothing |
 
 <dl>
   <dt>Why rule 3</dt>
   <dd>Anybody else could skip the gate. The operator itself creates such operations in three cases. These are the node steps of an approved rollout, an install of a claim with `provisioning.approval: Automatic`, and a release that needs no person.</dd>
-  <dt>Exception in rule 6</dt>
-  <dd>The CEL lets the approver equal the proposer when the proposer is the operator. RBAC stops the operator: it has no `patch` on operations. See [](ref:rbac).</dd>
+  <dt>Why rule 6 names the operator</dt>
+  <dd>The operator proposes most operations. A person must approve them. RBAC also stops the operator: it has no `patch` on operations. See [](ref:rbac). Rule 6 is the second lock. It is the same rule as rule 5 of `talosrollout-approval`.</dd>
 </dl>
 
 Example: the manager proposed an operation. `jo` approves it.
@@ -123,11 +127,34 @@ A claim that names a [](kind:TalosNode) makes the operator mount the config of t
 | 3 | Only an admin points a claim at another machine: a change of `spec.assetRef` or `spec.systemRef`. | UPDATE | only an admin may point a claim at another machine |
 
 - A value that did not change passes. So the finalizers of the operator and edits to other fields need no admin.
-- Each refusal says who you are, your groups, and how to join the admin group.
+- Each refusal says who you are, your groups, and where group membership comes from.
 
 <Callout type="caution">
 Cluster admin (`system:masters`) is not enough. The policy asks for the group `pk-metal:admins` by name.
+A ClusterRoleBinding does not make you a member of a group. Your credential does. See [Get into the admin group](ref:rbac#get-into-the-admin-group).
 </Callout>
+
+## `etcdbackuppolicy-guard`
+
+A snapshot holds each Secret of the cluster. The age recipients decide who can decrypt it. The sink decides where the ciphertext goes. A person who adds a recipient can read each later snapshot. So these changes are an admin decision.
+
+| # | Rule | When | Message |
+| --- | --- | --- | --- |
+| 1 | Only an admin creates a backup policy, or changes `spec.encryption` or `spec.sink`. | CREATE, UPDATE | only an admin may create a backup policy or change its encryption or sink |
+
+- The sink includes the S3 endpoint, the bucket, `credentialsSecretRef` and `caSecretRef`.
+- `spec.interval`, `spec.retention` and `spec.suspend` need no admin.
+- The CRD schema refuses an `http://` S3 endpoint unless [`allowPlainHTTP`](kind:EtcdBackupPolicy#spec.sink.s3.allowPlainHTTP) is `true`. Set it only for a store in a lab.
+
+## `endpointprofile-guard`
+
+An [](kind:EndpointProfile) has no approval of its own. The operator applies it to each BMC that it selects. It makes an Administrator account, sets the NTP servers, and replaces the TLS identity, which restarts the BMC.
+
+| # | Rule | When | Message |
+| --- | --- | --- | --- |
+| 1 | Only an admin creates a profile or changes its `spec`. | CREATE, UPDATE | only an admin may create or change an EndpointProfile |
+
+Labels and annotations of a profile need no admin.
 
 ## Related
 

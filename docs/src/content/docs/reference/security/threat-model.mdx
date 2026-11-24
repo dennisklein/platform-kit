@@ -8,6 +8,9 @@ sources:
   - /repo/metal/internal/asset/grants.go
   - /repo/metal/internal/etcdbackup/pipeline.go
   - /repo/metal/config/policy/hostoperation-approval.yaml
+  - /repo/metal/config/policy/endpointprofile-guard.yaml
+  - /repo/metal/config/policy/etcdbackuppolicy-guard.yaml
+  - /repo/metal/config/manager/services.yaml
 ---
 
 import Figure from '../../../../components/diagram/Figure.astro';
@@ -47,11 +50,12 @@ pk-metal can wipe disks, flash firmware and boot any image on a machine. This pa
 
 | # | Crossing | What crosses | Control |
 | --- | --- | --- | --- |
-| 1 | Person to API server | Approvals | RBAC and the [](ref:admission-policies). One person proposes, another approves. |
-| 2 | Manager to BMC | BMC login, power and boot commands | Redfish over TLS. The CA comes from `--bmc-ca-secret`. |
-| 3 | BMC to media service | The boot medium, maybe with a node config | HTTPS and a grant token in the URL. |
-| 4 | Manager to node | Talos API calls | Mutual TLS with the cluster certificates. |
-| 5 | Manager to sink | Etcd snapshots | Age encryption to public recipients. Only the holder of the age identity can decrypt, on their own machine. |
+| 1 | Person to API server | Approvals | RBAC and the [](ref:admission-policies). One person proposes, another approves. Two identities can skip the second person: the operator service account and a member of the admin group. See [Who can skip the gate](#who-can-skip-the-gate). |
+| 2 | Manager to BMC | BMC login, power and boot commands | Redfish over TLS. Each [](kind:ManagementEndpoint) has its own `spec.tls`, see [BMC certificates](#bmc-certificates). |
+| 3 | BMC to media service | The boot medium, maybe with a node config | HTTPS, a grant token in the URL, and a user and password for each grant. See [Media grants](#media-grants). |
+| 4 | Manager to node | Talos API calls | Mutual TLS with the cluster certificates. To observe a node, the manager can also call the maintenance service without authentication. That call reads the version only. It sends no configuration. |
+| 5 | Manager to sink | Etcd snapshots | Age encryption to public recipients. Only the holder of the age identity can decrypt, on their own machine. Only an admin chooses the recipients and the sink. |
+| 6 | Manager to BMC, from an [](kind:EndpointProfile) | Account, NTP servers, TLS identity | No operation and no approval: the profile is the approval. Only an admin creates or changes a profile (`endpointprofile-guard`). |
 
 ## Assets worth protecting
 
@@ -65,8 +69,22 @@ pk-metal can wipe disks, flash firmware and boot any image on a machine. This pa
   <dt>Etcd snapshots</dt>
   <dd>The full state of a cluster, including its Secrets.</dd>
   <dt>The approval gate</dt>
-  <dd>A bypass would let the operator, or one person, wipe or reboot machines alone.</dd>
+  <dd>A bypass lets one identity wipe or reboot machines alone. The operator service account and the admin group can bypass it by design today. Protect both as you protect the gate.</dd>
+  <dt>The operator service account</dt>
+  <dd>Its token can create an operation with `approval.required: false`, with any actions. The executor runs it with no person. The operator code decides when it does this: the node steps of an approved rollout, an install with `provisioning.approval: Automatic`, and a release that needs no person. Admission does not limit the actions.</dd>
+  <dt>The admin group</dt>
+  <dd>A member can create an operation that needs no approval. A member can also set a claim to `Automatic`, name the TalosNode of a claim, change the backup recipients, and change an EndpointProfile. One member can do these alone. Keep the group small, and audit each create with `approval.required: false` by a person. See [Get into the admin group](ref:rbac#get-into-the-admin-group).</dd>
+  <dt>Data at rest</dt>
+  <dd>Rendered configs, BMC logins, the secrets bundle of each cluster, the published credentials and the S3 keys are Kubernetes Secrets. They are plain text in etcd unless the management cluster encrypts Secrets at rest. Set encryption at rest to on. Embedded installers that carry a node config stay on the volume of the [media store](term:media-service). Use an encrypted StorageClass for it.</dd>
 </dl>
+
+### Who can skip the gate
+
+| Identity | What it can do alone | What checks it |
+| --- | --- | --- |
+| Operator service account | Create an operation that needs no approval. It cannot approve an operation or a rollout. | RBAC (no `patch`) and rule 6 of `hostoperation-approval` |
+| Admin group | Create an operation that needs no approval, and the other admin changes above. | `hostoperation-approval`, `hostclaim-provisioning`, `etcdbackuppolicy-guard`, `endpointprofile-guard` |
+| Holder of `patch` on operations | Lift a maintenance window or the cluster guard on an operation that another person approved. | RBAC only |
 
 ## Controls
 
@@ -75,11 +93,26 @@ pk-metal can wipe disks, flash firmware and boot any image on a machine. This pa
 The BMC downloads boot media from the [media service](term:media-service). The BMC does not check the certificate, so HTTPS gives privacy but no identity.
 
 1. Each download needs a [grant](term:grant): a 128-bit random token in the URL path.
-2. A grant serves one artifact for one operation. The executor checks the artifact digest against the approved digest.
-3. A grant ends after a limited time: 15 minutes plus the power and check-in timeouts of the operation.
-4. The executor revokes the grant when the operation ends or is deleted.
-5. Grants live in memory only. A restart of the manager forgets them, so it fails closed. A mount that runs gets a new grant on retry.
-6. The BMC network must be an isolated L2 island. The confidentiality of a node config rests on the grant and on that island.
+2. Each grant also has its own user and password for HTTP Basic authentication. The media service compares them in constant time.
+3. A grant serves one artifact for one operation. The executor checks the artifact digest against the approved digest.
+4. A grant ends after a limited time: 15 minutes plus the power and check-in timeouts of the operation. That is often 45 minutes or more. Until then, the BMC can download the artifact more than one time.
+5. The executor revokes the grant when the operation ends or is deleted.
+6. Grants live in memory only. A restart of the manager forgets them, so it fails closed. A mount that runs gets a new grant on retry.
+7. The BMC network must be an isolated L2 island. The confidentiality of a node config rests on the grant and on that island.
+
+The media Service is a NodePort (30443). It listens on each node of the management cluster, not only on the BMC island. Limit it with a host firewall or a NetworkPolicy that lets in only the BMC network.
+
+On Huawei iBMC, the user and password of the grant go into the image URL. The BMC stores that URL, so a read-only BMC user can see them until the grant ends.
+
+### BMC certificates
+
+The manager checks the certificate of a BMC with one of three sources:
+
+1. The `spec.tls` of the [](kind:ManagementEndpoint): a CA Secret, or `insecureSkipVerify`. The manager copies its own default into it when it makes the endpoint from an Asset.
+2. The manager default: the CA of `--bmc-ca-secret`, else `--bmc-insecure`, else the system CAs.
+3. An [](kind:EndpointProfile) with `spec.tls` replaces the certificate of the BMC with one from the issuer that it names.
+
+Watch `ManagementEndpoint.spec.tls` and `EndpointProfile.spec.tls`. A change there changes whom the manager trusts, and whom it sends the BMC login to.
 
 ### Relay
 
@@ -97,7 +130,8 @@ The [relay](concept:relay) lets the CLI drive a BMC through a jump host on day 0
 
 ### Credentials
 
-- Published cluster credentials live 24 hours by default. The operator renews them when one third of the time is left.
+- Published cluster credentials live 24 hours by default, and 720 hours at most. The operator renews them when one third of the time is left.
+- [](cli:render) writes credentials that live 24 hours by default, and 720 hours at most.
 - `readerTalosconfig` publishes a talosconfig with the `os:reader` role only.
 - The client certificate for the install check-in lives 10 minutes.
 - The metric `pk_metal_credentials_expiry_timestamp_seconds` shows each expiry.
@@ -110,6 +144,7 @@ The operator refuses actions that would take down the cluster that it runs on, o
 
 - A person with cluster admin can change the policies, the ConfigMap or the RBAC. Watch those objects.
 - A BMC with known default logins. Change them before enrolment.
+- A node that answers on the maintenance service. The manager reports it as `MaintenanceMode`, but a machine on the node network can pose as it. Take `MaintenanceMode` as a hint, not as proof.
 - The firmware that you flash. The operator checks the digest that you approved, not who built the image.
 
 <Callout type="caution">
