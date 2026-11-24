@@ -1,0 +1,129 @@
+---
+title: Git and GitOps
+description: Which objects belong in git, which objects the operator owns, what a prune does, and why the approval stays outside git.
+type: concept
+xref: { cat: concept, id: gitops }
+sidebar:
+  order: 24
+sources:
+  - /repo/metal/config/samples/kustomization.yaml
+  - /repo/metal/config/policy/hostclaim-provisioning.yaml
+  - /repo/metal/config/policy/hostoperation-approval.yaml
+  - /repo/metal/config/policy/talosrollout-approval.yaml
+  - /repo/metal/internal/controller/provisioning.go
+  - /repo/metal/internal/controller/talosnode_finalizer.go
+---
+
+import Callout from '../../../components/Callout.astro';
+
+You write what must be true, and the operator writes what it finds. That split makes git a good place for your part.
+This page says where the line is, for a person who uses `kubectl apply` and for a GitOps tool such as Flux or Argo CD.
+
+<Callout type="note">
+The project has no test with a GitOps tool. The rules on this page come from the admission policies and the controllers.
+</Callout>
+
+## What goes into git
+
+| Kind | In git | Reason |
+| --- | --- | --- |
+| [](kind:Asset) | Yes | Your record of a machine. |
+| [](kind:EndpointProfile), [](kind:BiosProfile), [](kind:FirmwareProfile) | Yes | Your configuration for sets of machines. |
+| [](kind:MaintenanceWindow) | Yes | Your schedule. |
+| [](kind:TalosCluster), [](kind:TalosNode) | Yes | The cluster that you want. |
+| [](kind:HostClaim) | Yes, with care | It gives a machine to a node. To delete it is to release the machine. See [What a deletion does](#what-a-deletion-does). |
+| [](kind:EtcdBackupPolicy) | Yes | Your backup schedule. |
+| [](kind:BootAsset) | Only the ones that you write | The operator makes the others. |
+| The site overlay of the operator | Yes | The image, the flags, the ledger. See [](howto:install-operator). |
+| Secrets that you make: BMC credentials, the Talos secrets bundle, backup credentials | Only encrypted | They are keys. |
+
+`metal/config/samples/kustomization.yaml` shows a directory with these kinds in the order of their dependencies.
+
+## What stays out of git
+
+| Kind | Who writes it | Why not in git |
+| --- | --- | --- |
+| [](kind:ManagementEndpoint), [](kind:Host) | The operator | They are what the operator found. |
+| [](kind:BiosSchema), [](kind:BiosSettings) | The operator | The same. |
+| [](kind:HostOperation) | The operator, or a command | One proposal for one moment. Its name and its plan are new each time. |
+| [](kind:TalosRollout) | The operator, or a person for a reboot | A proposal. `spec.proposedBy` must be the user who creates it. |
+| [](kind:EtcdSnapshot) | The operator, or [](cli:backup) | A record of one snapshot. |
+| Secrets that the operator makes: `<cluster>-kubeconfig`, `<cluster>-talosconfig`, node configs, `endpoint-creds-<endpoint>` | The operator | It renews them. |
+
+Tell your GitOps tool to ignore these kinds. Do not let it prune them.
+
+## The approval stays outside git
+
+A merge is not an approval. The approval is a field that a person writes on a [](kind:HostOperation) or a [](kind:TalosRollout), with that person's own name.
+The API server compares the name with the login, and it refuses a person who approves a proposal of their own. See [](concept:approval).
+
+1. You merge a change, for example a new Talos release on the TalosCluster.
+2. The tool applies it. Nothing changes on a machine.
+3. The operator proposes an operation or a rollout, with a plan.
+4. A person reads the plan and approves it with [](cli:approve) or [](cli:rollout).
+
+- Do not give the GitOps tool the role `pk-metal-approver`. Its approval would not be the decision of a person.
+- A merge can be enough only where the kind says so: an [](kind:EndpointProfile) needs no approval, and a claim with `provisioning.approval: Automatic` installs without one.
+
+## The identity that applies
+
+The admission policy `hostclaim-provisioning` asks for the admin group in three cases:
+
+- A claim names a TalosNode (`spec.os`).
+- A claim sets `provisioning.approval: Automatic`.
+- A claim moves to a different machine.
+
+A GitOps tool applies with a service account. That account is not in the admin group, so the API server refuses these claims.
+The project has not yet decided which setup it recommends. The policies let you use these options today:
+
+| Option | Effect | Cost |
+| --- | --- | --- |
+| Keep claims with `spec.os` out of the tool. An admin applies them by hand from git. | The tool manages all other kinds. | One manual step for each new machine. |
+| Let the tool act as a user in the admin group, for example with impersonation. | The tool applies all kinds. | Each person who can merge decides which OS a machine gets. The second person is then only the approver of the install. |
+| Set `adminGroup` in the ConfigMap `hostoperation-approval` to a group that contains the service account. | The same | The same. A member of the admin group can also make operations that need no approval. Do not do this without a review of [](ref:threat-model). |
+
+For a claim with `Automatic` approval, the second and the third option let a merge install a machine with no further person.
+
+## What a deletion does
+
+A GitOps tool with prune deletes an object when its file goes from git. For some kinds, a deletion changes a machine.
+
+| Kind | What the deletion does | Finalizer or owner | Prune |
+| --- | --- | --- | --- |
+| [](kind:HostClaim) | The operator releases the machine. A machine that runs its node gets a release operation: drain, leave etcd, reset the disk, power off. The operation waits for approval. | Finalizer `metal.pk.io/release` holds the claim until the machine is free. | Off, or with a review of each deletion |
+| [](kind:TalosNode) | The finalizer holds the object until no claim, no operation and no etcd member uses the node. | Finalizer `os.pk.io/member` | Off, or with a review |
+| [](kind:TalosCluster) | The object goes at once. Kubernetes deletes the Secrets that the cluster owns: the kubeconfig, the talosconfig and the record of the applied secrets bundle. The machines continue to run. | Owner of its credential Secrets | Off |
+| [](kind:Asset) | Kubernetes deletes its ManagementEndpoint. The operator keeps the endpoint and the Host while a claim holds the machine. | Owner of the endpoint. Finalizer `metal.pk.io/claim-protection` on the endpoint. | With a review |
+| [](kind:EndpointProfile), [](kind:BiosProfile), [](kind:FirmwareProfile) | The operator stops the work for the profile. It does not undo a setting on a machine. | None | Safe |
+| [](kind:MaintenanceWindow) | The window does not limit operations any more. An approved operation can start at once. | None | With a review |
+| [](kind:EtcdBackupPolicy) | No new snapshots. The snapshots that exist stay. | None | With a review |
+
+<Callout type="warning">
+Do not let a tool prune HostClaims, TalosNodes or TalosClusters without a review by a person.
+A renamed file or a wrong path filter looks like a deletion, and a deleted claim asks for a wipe of the disk.
+</Callout>
+
+The release of an installed machine still waits for an approval. That approval is the last protection, so read the plan of each release.
+
+## Commands that write objects from git
+
+Some commands change the spec of an object that you keep in git. With a GitOps tool, the tool writes the old value back.
+
+| Command | What it writes | With GitOps |
+| --- | --- | --- |
+| [](cli:upgrade) | `spec.talosVersion` or `spec.kubernetesVersion` of the TalosCluster | Change the field in git. Use the command only to read the plan. |
+| [](cli:scale) | Creates and deletes HostClaims | Add or remove the claim files in git. Run the command without `--apply` to see which claims it would change. |
+| [](cli:replace) | `spec.assetRef` of a HostClaim | Change the field in git. |
+| [](cli:hold), [](cli:unhold), [](cli:reinstall) | An annotation on a HostClaim | The command is enough if your tool does not remove annotations that are not in git. |
+| [](cli:approve), [](cli:rollout), [](cli:abort), [](cli:retry) | Objects of the operator | No conflict. These objects are not in git. |
+
+## Wait for a result
+
+A tool that waits for health needs a condition for each kind. [Wait for a kind](kind:index#wait-for-a-kind) has the list.
+Only the Asset has `status.observedGeneration`. For the other kinds, a tool cannot see that the status is as new as the spec.
+
+## Related
+
+- [](concept:assert-vs-observe) explains the two sets of kinds.
+- [](concept:approval) and [](ref:admission-policies) have the rules of the approval.
+- [](kind:index) lists all kinds and who writes each.

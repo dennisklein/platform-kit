@@ -114,13 +114,32 @@ The column BLOCKED of `kubectl get hostclaims -o wide` shows `status.blockedOn`.
 | `HostAlreadyClaimed` | A different claim holds the Host. | Delete that claim, or use a different machine. |
 | `AmbiguousSystem` | The BMC manages more than one machine. | Make a new claim with `spec.systemRef`. |
 | `SystemNotFound` | The BMC has no system with the name in `spec.systemRef`. | Correct `spec.systemRef` in a new claim. |
-| `Approval(Provisioning)` | The install or the release waits for approval. | [](cli:approve) |
+| `Replacing` | You moved the claim to a different machine. The operator removes the node from the old machine first. | Approve the release of the old machine. See [](cli:replace). |
 | `HeldByUser` | The claim has the hold annotation. | [](cli:unhold) |
 | `HostInMaintenance` | The Host has the maintenance annotation. | [](howto:maintenance-mode) |
+| `SelfDisruption` | The install would stop the machine that the operator runs on, or a control plane of its own cluster. | [](concept:self-protection) |
+| `SingleMediumUnsupported` | The BMC holds one medium, and an installer with the config inside cannot help. | [](concept:one-slot-bmc) |
+| `NoBootableMedia` | The BMC shows no media slot that can mount an image, or no boot target for it. | [](rb:media-slot-busy) |
 | `OperationFailed` | The install operation failed. | [](rb:operation-failed) |
 | `ReleaseFailed` | The release operation failed. The machine stays bound. | [](rb:operation-failed) |
 
 An empty `blockedOn` on a Pending claim means that the machine did not appear yet. The operator waits.
+
+### A claim that waits for approval
+
+The claim does not show that its operation waits for a person. Read the Host.
+
+| Object | What it shows while the install waits for approval |
+| --- | --- |
+| HostClaim | Phase `Bound`, `Provisioned=False` with the reason `AwaitingOperation`, and an empty `blockedOn` |
+| [](kind:Host) | Phase `Assigned`, and `blockedOn: Approval(Provisioning)` |
+| [](kind:HostOperation) | Phase `AwaitingApproval` |
+
+```sh
+kubectl get host "$(kubectl -n default get hostclaim node-2 -o jsonpath='{.status.hostRef.name}')" -o wide
+```
+
+[](cli:status) shows the same in one table.
 
 ### Annotations
 

@@ -56,7 +56,7 @@ These kinds describe Talos Linux on the machines. The version is `v1alpha1`. All
 | [](kind:TalosCluster) | You | [cluster](ctrl:taloscluster) | One Talos cluster: the configuration that its nodes share, and its state. |
 | [](kind:TalosNode) | You | [node](ctrl:talosnode) | One node of a cluster: its part of the configuration, and its state. |
 | [](kind:BootAsset) | Operator, or you | [boot asset](ctrl:bootasset) | A boot image or a configuration medium, and where to get it. |
-| [](kind:TalosRollout) | Operator | [rollout](ctrl:talosrollout) | One change that goes through the nodes of a cluster, one node at a time. A person approves it. |
+| [](kind:TalosRollout) | Operator, or you for a reboot | [rollout](ctrl:talosrollout) | One change that goes through the nodes of a cluster, one node at a time. A person approves it. |
 | [](kind:EtcdBackupPolicy) | You | [backup](ctrl:etcdbackuppolicy) | A schedule for encrypted etcd snapshots of one cluster. |
 | [](kind:EtcdSnapshot) | Operator, or `pk-metal backup` | [snapshot](ctrl:etcdsnapshot) | One encrypted etcd snapshot. |
 
@@ -64,7 +64,7 @@ These kinds describe Talos Linux on the machines. The version is `v1alpha1`. All
 
 <dl>
   <dt>You write</dt>
-  <dd>The kinds that say what must be true. Keep them in git. The operator reads their spec and writes only their status.</dd>
+  <dd>The kinds that say what must be true. Keep them in git. The operator reads their spec and writes only their status. See [](concept:gitops).</dd>
   <dt>The operator writes</dt>
   <dd>The kinds that say what the operator found or what it proposes. Read them. Do not edit their spec.</dd>
   <dt>You approve</dt>
@@ -82,6 +82,38 @@ The kinds of `os.pk.io` also have the category `os`.
 - A ManagementEndpoint has the name of its Asset. A Host has the serial number of the machine in lower case.
 - A BiosSchema and a BiosSettings have the name of their Host.
 - The short name of ManagementEndpoint is `mep`.
+
+## Wait for a kind
+
+A script or a GitOps tool must read conditions, not the phase. This table gives the condition that means "done" for each kind that you write.
+
+| Kind | Done when | Command |
+| --- | --- | --- |
+| [](kind:Asset) | `Materialized` is True | `kubectl wait --for=condition=Materialized asset/<name>` |
+| [](kind:TalosNode), before the install | `Rendered` is True | `kubectl wait --for=condition=Rendered talosnode/<name>` |
+| [](kind:HostClaim) without `spec.os` | `Bound` is True | `kubectl wait -n <ns> --for=condition=Bound hostclaim/<name>` |
+| [](kind:HostClaim) with `spec.os` | `Bound` and `Provisioned` are True | `kubectl wait -n <ns> --for=condition=Provisioned hostclaim/<name> --timeout=45m` |
+| [](kind:TalosNode), after the install | `Ready` is True | `kubectl wait --for=condition=Ready talosnode/<name>` |
+| [](kind:TalosCluster) | `Available` is True | `kubectl wait --for=condition=Available taloscluster/<name>` |
+| [](kind:TalosRollout) | `Complete` is True | `kubectl wait --for=condition=Complete talosrollout/<name>` |
+| [](kind:EndpointProfile) | `Configured` is True on each ManagementEndpoint that it selects | `kubectl wait --for=condition=Configured mep --all` |
+
+- A wait does not approve. A claim with `spec.os` stays at `Provisioned=False` until a person approves the install. See [A claim that waits for approval](kind:HostClaim#a-claim-that-waits-for-approval).
+- `Complete=False` on a rollout is an end too: the rollout failed, or someone aborted it. A wait for True then ends with a timeout.
+- Only the Asset has `status.observedGeneration`. For the other kinds, the status can be older than your last change for a short time. Each condition has its own `observedGeneration`.
+- No kind has a `Ready` condition that summarizes the others.
+
+## When you delete an object
+
+| Kind | What the deletion does |
+| --- | --- |
+| [](kind:HostClaim) | The operator releases the machine. A machine that runs its node gets a release operation that wipes the disk. It waits for approval. The finalizer `metal.pk.io/release` holds the claim until the machine is free. |
+| [](kind:TalosNode) | The finalizer `os.pk.io/member` holds the object while a claim, an operation or an etcd member uses the node. |
+| [](kind:TalosCluster) | The object goes at once, and with it the Secrets that it owns: the kubeconfig, the talosconfig and the record of the applied secrets bundle. The machines continue to run. |
+| [](kind:Asset) | Kubernetes deletes the ManagementEndpoint. While a claim holds the machine, the finalizer `metal.pk.io/claim-protection` keeps the endpoint and the Host. |
+| Profiles, [](kind:MaintenanceWindow), [](kind:EtcdBackupPolicy) | The operator stops the work for the object. It does not undo a change on a machine, and it keeps the snapshots. |
+
+[](concept:gitops) says what this means for a tool that prunes.
 
 ## Catalogs
 

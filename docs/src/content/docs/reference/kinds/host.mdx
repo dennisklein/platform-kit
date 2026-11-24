@@ -78,13 +78,21 @@ The operator writes the spec from the claim that binds the machine.
 
 | Condition | True means | Effect on the phase |
 | --- | --- | --- |
+| `Reachable` | At least one BMC of the machine answers Redfish. | Inspecting when True and no inventory exists yet |
 | `Inspected` | The operator has the hardware inventory. | Inspecting until True |
-| `Verified` | The serial number from the BMC agrees with the Asset. | Stays in Inspecting when False |
+| `Verified` | The serial number from the BMC agrees with the Asset. | Stays in Inspecting when False. Sets `blockedOn`. |
 | `Booted` | The machine started the installed system. | Failed when False |
-| `OSReady` | The node reports that it is ready. | Provisioned when True |
+| `OSReady` | The node reports that it is ready. | Provisioned when True. Failed when False. |
+| `FirmwareConverged` | The BMC firmware is the version of the [](kind:FirmwareProfile). Absent without a profile. | None |
+| `SystemFirmwareConverged` | The system firmware is the version of the profiles. Absent without a profile. | None |
+| `BiosConverged` | The BIOS settings agree with the [](kind:BiosSettings) of the machine. | None |
 | `Drifted` | The machine reset and no operation caused it. | None. It is information. |
-| `ApprovalPending` | A proposed operation waits for a person. | Sets `blockedOn` |
+| `ApprovalPending` | A proposed operation waits for a person. | Sets `blockedOn` to `Approval(<domain>)` |
+| `DiskWiped` | False: the disk can still hold an installed node. Absent in all other cases. | Sets `blockedOn` to the reason |
+| `DeletionHeld` | Someone deleted the Host, but a claim holds the machine. The Host stays until the release. | None |
 | `Maintenance` | A person set the maintenance annotation. | Maintenance |
+
+`Verified=False` has priority for `blockedOn`, then `ApprovalPending`, then `DiskWiped`.
 
 [](ref:conditions) lists all conditions and reasons.
 
@@ -98,6 +106,8 @@ NAME                ASSET      SERIAL              VENDOR   PHASE         AGE
 simhw2288v5000397   asset-07   SIMHW2288V5000397   Huawei   Provisioned   3d
 simhw2288v5000398   asset-08   SIMHW2288V5000398   Huawei   Available     3d
 ```
+
+`kubectl get hosts -o wide` adds the columns `BLOCKED` and `CLAIM`.
 
 ## Put a Host in maintenance
 

@@ -111,20 +111,32 @@ If not, the operation fails with `RolloutRefused` and the machine does not chang
 | --- | --- |
 | `Planned` | `PlanReady`, `PlanBlocked`, `NothingToDo` |
 | `Approved` | `AwaitingApproval`, `PlanApproved`, `PlanChanged` |
-| `Progressing` | `NotStarted`, `NodeRunning`, `WaitingForHealth`, `PausedAfterFirstNode`, `PausedByPerson`, `Succeeded`, `RolloutFailed`, `Aborted` |
+| `Progressing` | `NotStarted`, `NodeRunning`, `WaitingForHealth`, `PausedAfterFirstNode`, `PausedByPerson`, `Succeeded`, `RolloutFailed`, `Aborted`, `PlanChanged` |
 | `Paused` | `PausedAfterFirstNode`, `PausedByPerson`, `NotPaused` |
 | `Complete` | `Succeeded`, `NothingToDo`, `RolloutFailed`, `Aborted`, `PlanChanged` |
 
 Each step in `status.steps` is `Pending`, `Running`, `Succeeded`, `Failed` or `Skipped`.
+
+`PlanChanged` means that the plan changed after a person approved it. Nothing ran. The rollout ends, and the operator proposes a new one.
 
 ## Example
 
 ```console
 $ pk-metal upgrade talos lab v1.14.7
 $ kubectl get talosrollouts
-NAME                        CLUSTER   KIND           APPROVED   PROGRESS   COMPLETE   AGE
-lab-talosupgrade-1a2b3c4d   lab       TalosUpgrade   False      0/5                   1m
+NAME                        CLUSTER   KIND           APPROVED   PROGRESS     COMPLETE   AGE
+lab-talosupgrade-1a2b3c4d   lab       TalosUpgrade              NotStarted              1m
 ```
+
+| Column | Shows |
+| --- | --- |
+| `APPROVED` | The name of the approver. Empty before the approval. |
+| `PROGRESS` | The reason of the condition `Progressing`, for example `NodeRunning`. |
+| `COMPLETE` | The status of the condition `Complete`: empty, `True` or `False`. |
+
+[](cli:rollout) shows the plan and the state of each step.
+
+A reboot of all nodes is a rollout that you write. `metal/config/samples/rollout-reboot.yaml` is an example.
 
 ## Tasks
 
