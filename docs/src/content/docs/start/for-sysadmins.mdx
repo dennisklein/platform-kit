@@ -1,0 +1,89 @@
+---
+title: For system administrators
+description: What you know from PXE, kickstart, Foreman, xCAT and ipmitool, and the pk-metal concept for each.
+type: start
+sidebar:
+  order: 2
+---
+
+import Callout from '../../../components/Callout.astro';
+
+This page is for people who install bare metal with PXE and kickstart, run Foreman or xCAT, and use `ipmitool` every day.
+It maps what you know to the objects of pk-metal.
+
+## In short
+
+- pk-metal is a Kubernetes operator. You write YAML objects, and it changes the machines to agree with them. See [](concept:architecture).
+- It uses Redfish over HTTPS. It does not use PXE, TFTP or DHCP for the install. See [](concept:virtual-media-boot).
+- It installs Talos Linux: no shell, no SSH, no package manager. You use `talosctl`.
+- A person approves each change to a machine. See [](concept:approval).
+
+## Translation table
+
+| You know | In pk-metal |
+| --- | --- |
+| Inventory row, xCAT node table, CMDB entry | [](kind:Asset): serial, BMC MAC, asset tag, credentials |
+| dhcpd or dnsmasq reservations for the BMCs | The [ledger](concept:ledger): BMC MAC to `https://<address>` |
+| BMC passwords in a vault | A Secret named by the Asset `credentialsRef`. See [](flow:credential-rotation). |
+| Output of `ipmitool fru` or `lshw` | [](kind:ManagementEndpoint) and [](kind:Host), written by the operator |
+| Kickstart file of one host | [](kind:TalosNode): address, install disk, links, role |
+| `%include`, `group_vars` | [](kind:TalosCluster): versions, endpoint, patches |
+| Foreman "Build" flag | [](kind:HostClaim) with `spec.os` |
+| `ipmitool chassis bootdev cdrom` and `power cycle` | One [](kind:HostOperation) with virtual media |
+| Change ticket approval | [](cli:approve) |
+| Foreman or xCAT node state | Host phase and conditions. See [](concept:phases-and-conditions). |
+| SOL, iKVM, serial console | The serial console of the BMC, as before |
+| `ssh root@node` | `talosctl -n <address>` |
+| `yum install` on the node | System extensions in the schematic of the TalosCluster |
+| Run the playbook again | Edit the TalosNode or TalosCluster. A rollout applies it. See [](concept:drift). |
+| Rolling reboot with a script | A TalosRollout of kind `Reboot`. See [](flow:day-2-change). |
+| `etcdctl snapshot save` in cron | [](kind:EtcdBackupPolicy). See [](concept:etcd-backup). |
+| Maintenance calendar | [](kind:MaintenanceWindow). See [](concept:maintenance-windows). |
+
+## Where the state lives
+
+All state is API objects in the management cluster. No other database exists.
+
+<dl>
+  <dt>What you assert</dt>
+  <dd>Asset, credentials Secret, TalosCluster, TalosNode, HostClaim, profiles. Keep them in git.</dd>
+  <dt>What the operator found or did</dt>
+  <dd>ManagementEndpoint, Host, HostOperation, and the status of each object.</dd>
+</dl>
+
+If the two disagree, the operator stops and tells you. See [](concept:assert-vs-observe).
+
+## Which name is which
+
+| Object | Example name | Comes from |
+| --- | --- | --- |
+| Asset | `node-1` | You |
+| ManagementEndpoint | `node-1` | The name of the Asset |
+| Host | `simhw2288v5000398` | The serial, in lower case |
+| TalosNode | `node-1` | You. It is also the host name. |
+| HostClaim | `default/node-1` | You. Claims have a namespace. |
+| Boot operation | `pk-metal/provision-simhw2288v5000398-<hash>` | The operator |
+
+HostOperations are in the namespace `pk-metal`. Give `-n pk-metal` to `kubectl`.
+
+## What changes a machine
+
+| You do | What happens to the machine |
+| --- | --- |
+| Write an Asset | Nothing. The operator reads the BMC. |
+| Write a claim without `spec.os` | Nothing. The Host phase is Assigned. |
+| Write a claim with `spec.os` | The operator proposes a boot. After approval, **it overwrites the install disk**. |
+| Approve an operation | It runs. |
+| Delete a claim | The operator drains the node, removes it from etcd and wipes it. Then it stops the machine. See [](flow:release-and-reuse). |
+| Edit a TalosNode or TalosCluster | The operator renders a new config. A rollout applies it after approval. |
+| Use `ipmitool` or the BMC web interface | Allowed. The Host gets `Drifted=True`, as information. |
+
+<Callout type="warning">
+Do not delete a claim to remove a machine from the inventory.
+A GitOps tool that prunes a deleted file does the same. The release wipes the node.
+</Callout>
+
+## Next
+
+- Follow one machine from the rack to a node: [](flow:rack-to-node).
+- Try all of it on one workstation: [](tut:lab-first-cluster).

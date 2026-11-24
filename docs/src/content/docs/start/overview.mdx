@@ -1,0 +1,34 @@
+---
+title: Overview
+description: What pk-metal does, which objects it uses, and who writes each object.
+type: start
+sidebar:
+  order: 1
+---
+
+pk-metal is a Kubernetes operator. It runs in a small management cluster.
+It reads the objects that you write, and it changes the machines to agree with them.
+
+## What it does
+
+1. It finds each BMC from the MAC address in your Asset.
+2. It reads the machine through Redfish and makes a [](kind:Host).
+3. It compares the serial number from the BMC with the serial number in your Asset.
+4. When you claim a Host, it proposes an install. You approve the install.
+5. It boots the installer from virtual media and installs Talos Linux.
+
+## Who writes what
+
+| Object | Written by | Read [](concept:assert-vs-observe) |
+| --- | --- | --- |
+| Asset, credentials Secret | You | What you assert |
+| [](kind:HostClaim), [](kind:TalosNode) | You | What you assert |
+| [](kind:ManagementEndpoint), [](kind:Host) | The operator | What it finds |
+| [](kind:HostOperation) | The operator; you approve it | What it plans |
+
+## Next
+
+- Make a cluster in the lab: [](tut:lab-first-cluster).
+- Follow one machine from the rack to a node: [](flow:rack-to-node).
+- Install machines: [](howto:day-1).
+- Operate the cluster: [](howto:day-2). If something fails, start at the [](rb:index).

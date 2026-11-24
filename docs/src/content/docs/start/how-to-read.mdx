@@ -1,0 +1,42 @@
+---
+title: How to read this site
+description: The link categories, the page types and the writing rules of this site.
+type: start
+sidebar:
+  order: 2
+---
+
+import LinkLegend from '../../../components/LinkLegend.astro';
+
+This site has two layers. The reference describes each object on one page.
+The guides (tutorials, how-tos and runbooks) are short and link to the reference.
+
+## Link categories
+
+The colour and the icon of a link tell you the type of page that it opens.
+Hold the pointer on a link to see a summary of the target.
+
+<LinkLegend />
+
+A dotted underline marks a glossary term. Hold the pointer on it to read the definition. The [](ref:glossary) lists all terms.
+The first use of a term in each section has the link.
+
+## Page types
+
+<dl>
+  <dt>Reference</dt>
+  <dd>One page for each kind, controller, command and lab task. Each page has a fixed set of sections.</dd>
+  <dt>Concept</dt>
+  <dd>Why the operator works as it does. A concept page has no procedures.</dd>
+  <dt>How-to</dt>
+  <dd>The steps for one task on day 1 (install) or on day 2 (operation).</dd>
+  <dt>Runbook</dt>
+  <dd>What to do when something fails: symptoms, diagnosis, fix and verification.</dd>
+  <dt>Tutorial</dt>
+  <dd>A guided lesson in the virtual lab, from start to end.</dd>
+</dl>
+
+## Writing rules
+
+The text follows ASD-STE100 Simplified Technical English.
+Sentences are short. Each step has one instruction. Procedures use the imperative.
