@@ -25,6 +25,12 @@ import (
 // only when it is not: the credential is re-derivable from the bundle at any
 // time, but it is not re-derived on every reconcile.
 
+// MaxCredentialTTL bounds the lifetime of a minted admin credential. The
+// certificates cannot be revoked short of a CA rotation, so a copy that
+// leaks stays good until it expires. TalosCluster.spec.credentials.ttl has
+// the same bound in its CEL.
+const MaxCredentialTTL = 720 * time.Hour
+
 // Talosconfig mints an admin talosconfig for the cluster: a client
 // certificate signed by the bundle's Talos CA with the os:admin role, valid
 // for ttl, and the given endpoints.

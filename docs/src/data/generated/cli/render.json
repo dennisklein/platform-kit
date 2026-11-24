@@ -12,6 +12,13 @@
   "exitStatus": [],
   "flags": [
     {
+      "name": "credentials-ttl",
+      "type": "duration",
+      "default": "24h0m0s",
+      "usage": "lifetime of the admin talosconfig and kubeconfig (at most 720h); they cannot be revoked short of a CA rotation",
+      "global": false
+    },
+    {
       "name": "dir",
       "type": "string",
       "default": "",
@@ -23,6 +30,13 @@
       "type": "string",
       "default": "factory.talos.dev",
       "usage": "image factory host the installer image is named on",
+      "global": false
+    },
+    {
+      "name": "no-credentials",
+      "type": "bool",
+      "default": "",
+      "usage": "write the node configs only, no admin talosconfig or kubeconfig",
       "global": false
     },
     {

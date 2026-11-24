@@ -26,9 +26,15 @@ func renderCmd(args []string) {
 	out := fs.String("out", "clusterconfig", "output directory: <node>.yaml per node, talosconfig, kubeconfig")
 	factoryHost := fs.String("image-factory", render.PublicFactory, "image factory host the installer image is named on")
 	register := fs.Bool("register", false, "tell the image factory about each schematic (needs network); off computes ids offline")
+	credsTTL := fs.Duration("credentials-ttl", 24*time.Hour,
+		"lifetime of the admin talosconfig and kubeconfig (at most 720h); they cannot be revoked short of a CA rotation")
+	noCreds := fs.Bool("no-credentials", false, "write the node configs only, no admin talosconfig or kubeconfig")
 	parseFlags(fs, args)
 	if fs.NArg() != 0 || *dir == "" || *secretsFile == "" {
 		badUsage(fs, "--dir and --secrets are required, and render takes no other arguments")
+	}
+	if !*noCreds && (*credsTTL <= 0 || *credsTTL > render.MaxCredentialTTL) {
+		badUsage(fs, fmt.Sprintf("--credentials-ttl must be more than 0 and at most %s", render.MaxCredentialTTL))
 	}
 
 	m, bundle := loadInputs(*dir, *secretsFile)
@@ -36,13 +42,28 @@ func renderCmd(args []string) {
 	if err != nil {
 		die(err)
 	}
-	if err := os.MkdirAll(*out, 0o700); err != nil {
+	files := map[string][]byte{}
+	for name, cfg := range configs {
+		files[name+".yaml"] = cfg
+	}
+	what := fmt.Sprintf("%d node configs", len(configs))
+	if !*noCreds {
+		tc, kc, err := adminCredentials(m, bundle, *credsTTL)
+		if err != nil {
+			die(err)
+		}
+		files["talosconfig"], files["kubeconfig"] = tc, kc
+		what += fmt.Sprintf(", talosconfig and kubeconfig (valid %s)", *credsTTL)
+	}
+	if err := writeSecretFiles(*out, files); err != nil {
 		die(err)
 	}
-	for name, cfg := range configs {
-		writeSecretFile(filepath.Join(*out, name+".yaml"), cfg)
-	}
+	fmt.Printf("rendered %s for %s into %s\n", what, m.Cluster.Name, *out)
+}
 
+// adminCredentials mints the cluster's admin talosconfig (for the control
+// planes' addresses) and kubeconfig, both valid for ttl.
+func adminCredentials(m *render.Manifests, bundle *secrets.Bundle, ttl time.Duration) (talosconfig, kubeconfig []byte, err error) {
 	var endpoints []string
 	for _, n := range m.Nodes {
 		if n.Spec.Role == osv1alpha1.RoleControlPlane {
@@ -51,17 +72,13 @@ func renderCmd(args []string) {
 			}
 		}
 	}
-	tc, err := render.Talosconfig(bundle, m.Cluster.Name, endpoints, 365*24*time.Hour)
-	if err != nil {
-		die(err)
+	if talosconfig, err = render.Talosconfig(bundle, m.Cluster.Name, endpoints, ttl); err != nil {
+		return nil, nil, err
 	}
-	writeSecretFile(filepath.Join(*out, "talosconfig"), tc)
-	kc, err := render.Kubeconfig(bundle, m.Cluster.Name, m.Cluster.Spec.Endpoint, 365*24*time.Hour)
-	if err != nil {
-		die(err)
+	if kubeconfig, err = render.Kubeconfig(bundle, m.Cluster.Name, m.Cluster.Spec.Endpoint, ttl); err != nil {
+		return nil, nil, err
 	}
-	writeSecretFile(filepath.Join(*out, "kubeconfig"), kc)
-	fmt.Printf("rendered %d node configs, talosconfig and kubeconfig for %s into %s\n", len(configs), m.Cluster.Name, *out)
+	return talosconfig, kubeconfig, nil
 }
 
 // loadInputs reads the manifests and the secrets bundle, or exits.
@@ -122,9 +139,25 @@ func renderAll(ctx context.Context, m *render.Manifests, bundle *secrets.Bundle,
 	return out, nil
 }
 
-// writeSecretFile writes owner-only: every output here carries key material.
-func writeSecretFile(path string, data []byte) {
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		die(err)
+// writeSecretFiles writes files (name to content) into dir, owner-only:
+// every output here carries key material. Modes are set after the write, so
+// a directory or file that already existed with wider permissions is
+// narrowed too (MkdirAll and WriteFile keep an existing mode).
+func writeSecretFiles(dir string, files map[string][]byte) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
 	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return err
+	}
+	for name, data := range files {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			return err
+		}
+		if err := os.Chmod(path, 0o600); err != nil {
+			return err
+		}
+	}
+	return nil
 }
