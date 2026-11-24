@@ -5,6 +5,19 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// AnnotationRetry on a failed convergence proposal (spec.reason
+// BiosConvergence or FirmwareConvergence) asks the operator for the same plan
+// again: it deletes the failed operation and proposes a new one, which waits
+// for approval like the first. pk-metal retry sets it. Deleting such an
+// operation instead is not a retry: deletion is how a proposal is refused.
+const AnnotationRetry = "metal.pk.io/retry"
+
+// Spec reasons of the operations the convergence lane proposes.
+const (
+	OperationReasonBiosConvergence     = "BiosConvergence"
+	OperationReasonFirmwareConvergence = "FirmwareConvergence"
+)
+
 // OperationPhase summarizes an operation's conditions. Proposed means it exists
 // but has not been approved; AwaitingApproval that it is waiting on a human;
 // Running that steps are executing; Succeeded and Failed are terminal. A failed
@@ -73,8 +86,10 @@ type HostOperationSpec struct {
 	// +optional
 	Approval OperationApproval `json:"approval,omitempty"`
 
-	// TTLSecondsAfterFinished garbage-collects a finished operation Job-style.
-	// Unset keeps it forever (human-requested ops stay as their own record);
+	// TTLSecondsAfterFinished garbage-collects a succeeded operation
+	// Job-style. A failed one stays until a person retries or deletes it: it
+	// is the record they decide on. Unset keeps it forever (human-requested
+	// ops stay as their own record);
 	// convergence proposals set it — the plan memory on the proposing object,
 	// not the operation's existence, is what keeps an unchanged planHash from
 	// spawning again.

@@ -412,6 +412,70 @@ func TestConvergence(t *testing.T) {
 		assert.Equal(t, "2000", string(bs.Status.Observed["CorrectableErrorThreshold"].Raw))
 	})
 
+	st.run(t, "retry of a failed proposal proposes the plan again", func(t *testing.T) {
+		baseline := &metalv1alpha1.BiosProfile{}
+		require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: "x12-baseline"}, baseline))
+		baseline.Spec.Attributes["CorrectableErrorThreshold"] = jv(t, 3000)
+		require.NoError(t, cl.Update(ctx, baseline))
+		bs := waitSettings(smcHost, settingsReason(metalv1alpha1.ReasonAwaitingOperation))
+		plan := *bs.Status.Proposed
+		ns, name, _ := strings.Cut(plan.Operation, "/")
+		key := client.ObjectKey{Namespace: ns, Name: name}
+
+		// The operation fails, as the executor records a refused step. The
+		// sim has no fault that refuses a BIOS PATCH the schema admits, so
+		// the verdict is written here; only the convergence lane is under
+		// test.
+		var failed metalv1alpha1.HostOperation
+		require.Eventually(t, func() bool {
+			if err := cl.Get(ctx, key, &failed); err != nil {
+				return false
+			}
+			meta.SetStatusCondition(&failed.Status.Conditions, metav1.Condition{
+				Type: metalv1alpha1.ConditionExecuted, Status: metav1.ConditionFalse,
+				Reason: metalv1alpha1.ReasonStepFailed, Message: "step 1/2 applyBios: refused",
+			})
+			return cl.Status().Update(ctx, &failed) == nil
+		}, waitFor, tick)
+		held := waitSettings(smcHost, settingsReason(metalv1alpha1.ReasonOperationFailed))
+		assert.Contains(t, converged(held).Message, "pk-metal retry "+plan.Operation, "the condition says how to go on")
+		st.settle(t, ctx, &held, 3)
+		assert.Len(t, biosOps(smcHost), 3, "a failure alone proposes nothing")
+
+		// pk-metal retry: an approver marks the failed operation. That is a
+		// patch the approval policy admits; it approves nothing.
+		require.NoError(t, cl.Get(ctx, key, &failed))
+		mark := client.RawPatch(types.MergePatchType,
+			[]byte(`{"metadata":{"annotations":{"`+metalv1alpha1.AnnotationRetry+`":"now"}}}`))
+		require.NoError(t, aliceCl.Patch(ctx, &failed, mark))
+
+		var next metalv1alpha1.HostOperation
+		require.Eventually(t, func() bool {
+			cur := settingsOf(smcHost)
+			if !settingsReason(metalv1alpha1.ReasonAwaitingOperation)(cur) || cur.Status.Proposed == nil {
+				return false
+			}
+			ns, name, _ := strings.Cut(cur.Status.Proposed.Operation, "/")
+			return cl.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &next) == nil && next.UID != failed.UID
+		}, waitFor, tick, "the operator never proposed the plan again")
+		assert.Equal(t, plan.PlanHash, next.Spec.PlanHash, "the same plan")
+		assert.Empty(t, next.Spec.Approval.ApprovedBy, "a new proposal waits for its own approval")
+		assert.NotContains(t, next.Annotations, metalv1alpha1.AnnotationRetry)
+		// The replacement may reuse the name; the failed operation itself is gone.
+		if got := (metalv1alpha1.HostOperation{}); cl.Get(ctx, key, &got) == nil {
+			assert.NotEqual(t, failed.UID, got.UID, "the failed operation is replaced, not kept beside")
+		}
+		assert.Len(t, biosOps(smcHost), 3)
+
+		nextRef := next.Namespace + "/" + next.Name
+		approve(nextRef)
+		waitOpSucceeded(nextRef)
+		waitSettings(smcHost, settingsReason(metalv1alpha1.ReasonInSync))
+		// Keep the record count the later subtests reason about.
+		require.NoError(t, cl.Delete(ctx, &next))
+		require.Eventually(t, func() bool { return len(biosOps(smcHost)) == 2 }, waitFor, tick)
+	})
+
 	st.run(t, "firmware converges before bios", func(t *testing.T) {
 		fw := &metalv1alpha1.FirmwareProfile{
 			ObjectMeta: metav1.ObjectMeta{Name: "x12-fw"},

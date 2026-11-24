@@ -551,10 +551,10 @@ func runExecutorCase(t *testing.T, seed uint64, image func(string) string, media
 	if finished == nil {
 		t.Fatalf("%s: the operation never finished", desc())
 	}
-	if ttl != nil && *ttl == 0 {
-		assert.GreaterOrEqual(t, goneAfter, 0, "%s: a zero TTL removes the finished operation", desc())
+	if ttl != nil && *ttl == 0 && opSucceeded(finished) {
+		assert.GreaterOrEqual(t, goneAfter, 0, "%s: a zero TTL removes the succeeded operation", desc())
 	} else {
-		assert.Less(t, goneAfter, 0, "%s: no TTL, or one not yet run out, keeps the operation", desc())
+		assert.Less(t, goneAfter, 0, "%s: no TTL, one not yet run out, or a failure keeps the operation", desc())
 	}
 
 	switch {

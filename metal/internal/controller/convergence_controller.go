@@ -218,12 +218,15 @@ func (r *ConvergenceReconciler) firmware(ctx context.Context, host *metalv1alpha
 
 	hash := planHash(target)
 	if plan := host.Status.FirmwareProposed; plan != nil && plan.PlanHash == hash {
-		reason, msg, err := r.planVerdict(ctx, plan)
+		reason, msg, again, err := r.planVerdict(ctx, plan)
 		if err != nil {
 			return false, err
 		}
-		setCond(metalv1alpha1.ConditionFirmwareConverged, metav1.ConditionFalse, reason, msg)
-		return false, nil
+		if !again {
+			setCond(metalv1alpha1.ConditionFirmwareConverged, metav1.ConditionFalse, reason, msg)
+			return false, nil
+		}
+		host.Status.FirmwareProposed = nil
 	}
 	if !push {
 		setCond(metalv1alpha1.ConditionFirmwareConverged, metav1.ConditionFalse,
@@ -234,7 +237,7 @@ func (r *ConvergenceReconciler) firmware(ctx context.Context, host *metalv1alpha
 	if err := r.withdrawObsolete(ctx, host.Status.FirmwareProposed); err != nil {
 		return false, err
 	}
-	op := r.proposal(host.Name, "firmware", hash, "FirmwareConvergence", []metalv1alpha1.HostOperationAction{
+	op := r.proposal(host.Name, "firmware", hash, metalv1alpha1.OperationReasonFirmwareConvergence, []metalv1alpha1.HostOperationAction{
 		{FlashFirmware: &metalv1alpha1.FlashFirmwareAction{Image: target.Image, Version: target.Version}},
 	})
 	// Create before recording: a crash between the two re-proposes into
@@ -329,11 +332,15 @@ func (r *ConvergenceReconciler) bios(ctx context.Context, host *metalv1alpha1.Ho
 		}
 		hash := planHash(desired)
 		if plan := settings.Status.Proposed; plan != nil && plan.PlanHash == hash {
+			again := false
 			var err error
-			if reason, msg, err = r.planVerdict(ctx, plan); err != nil {
+			if reason, msg, again, err = r.planVerdict(ctx, plan); err != nil {
 				return false, err
 			}
-			break
+			if !again {
+				break
+			}
+			settings.Status.Proposed = nil
 		}
 		if err := r.withdrawObsolete(ctx, settings.Status.Proposed); err != nil {
 			return false, err
@@ -348,7 +355,7 @@ func (r *ConvergenceReconciler) bios(ctx context.Context, host *metalv1alpha1.Ho
 			msg = "drift on " + strings.Join(drifted, ", ") + "; no BIOS change is proposed: " + guard
 			break
 		}
-		op := r.proposal(host.Name, "bios", hash, "BiosConvergence", []metalv1alpha1.HostOperationAction{
+		op := r.proposal(host.Name, "bios", hash, metalv1alpha1.OperationReasonBiosConvergence, []metalv1alpha1.HostOperationAction{
 			// The attributes travel inside the operation: the approver sees
 			// exactly what will be staged, and a later edit of the settings
 			// cannot change an approved operation.
@@ -400,26 +407,45 @@ func (r *ConvergenceReconciler) withdrawObsolete(ctx context.Context, plan *meta
 
 // planVerdict derives a held plan's condition live from the operation or its
 // absence — the outcome is never remembered, only that the proposal was made.
-func (r *ConvergenceReconciler) planVerdict(ctx context.Context, plan *metalv1alpha1.ProposedPlan) (string, string, error) {
+//
+// again reports that a person asked for the plan once more: the failed
+// operation carries the retry annotation (pk-metal retry). planVerdict then
+// deletes that operation, and the caller forgets the plan so that this pass
+// proposes it anew, as a new operation that waits for approval like the
+// first; nothing runs without one. An operation that is simply gone was
+// deleted by a person, which refuses it, and the plan stays spent until the
+// profile changes. (A failed operation is not expired by its TTL, so a retry
+// stays possible for as long as nobody deletes it.)
+func (r *ConvergenceReconciler) planVerdict(ctx context.Context, plan *metalv1alpha1.ProposedPlan) (reason, msg string, again bool, err error) {
 	ns, name, _ := strings.Cut(plan.Operation, "/")
 	op := &metalv1alpha1.HostOperation{}
 	if err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, op); err != nil {
-		if apierrors.IsNotFound(err) {
-			return metalv1alpha1.ReasonOperationGone,
-				"proposal " + plan.Operation + " no longer exists — change the profile to re-propose", nil
+		if !apierrors.IsNotFound(err) {
+			return "", "", false, err
 		}
-		return "", "", err
+		return metalv1alpha1.ReasonOperationGone,
+			"proposal " + plan.Operation + " no longer exists: deleting a proposal refuses it — change the profile to re-propose", false, nil
 	}
 	c := meta.FindStatusCondition(op.Status.Conditions, metalv1alpha1.ConditionExecuted)
 	switch {
 	case c == nil || c.Status == metav1.ConditionUnknown:
-		return metalv1alpha1.ReasonAwaitingOperation, "operation " + plan.Operation + " in flight", nil
+		return metalv1alpha1.ReasonAwaitingOperation, "operation " + plan.Operation + " in flight", false, nil
 	case c.Status == metav1.ConditionFalse:
+		if _, ok := op.Annotations[metalv1alpha1.AnnotationRetry]; ok {
+			logf.FromContext(ctx).Info("retry requested; replacing the failed proposal", "operation", plan.Operation)
+			// Preconditioned on the object read: a retry mark is honoured
+			// for the failed operation it was set on, never for another
+			// that took its name since.
+			if err := r.Delete(ctx, op, client.Preconditions{UID: &op.UID}); client.IgnoreNotFound(err) != nil {
+				return "", "", false, err
+			}
+			return "", "", true, nil
+		}
 		return metalv1alpha1.ReasonOperationFailed,
-			"operation " + plan.Operation + " failed: " + c.Message, nil
+			"operation " + plan.Operation + " failed: " + c.Message + "; to propose it again: pk-metal retry " + plan.Operation, false, nil
 	}
 	return metalv1alpha1.ReasonConvergenceFailed,
-		"operation " + plan.Operation + " succeeded but the observed state did not converge", nil
+		"operation " + plan.Operation + " succeeded but the observed state did not converge", false, nil
 }
 
 // propose creates the proposal, or adopts it when it already exists. The

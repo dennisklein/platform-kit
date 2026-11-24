@@ -702,7 +702,7 @@ func opSucceeded(op *metalv1alpha1.HostOperation) bool {
 	return meta.IsStatusConditionTrue(op.Status.Conditions, metalv1alpha1.ConditionExecuted)
 }
 
-// expire garbage-collects a finished operation once its TTL elapses,
+// expire garbage-collects a succeeded operation once its TTL elapses,
 // Job-style. No TTL keeps it forever — human-requested ops stay as their own
 // record; convergence proposals set one (their no-respawn guard is the plan
 // memory on the proposing object, not this record).
@@ -711,6 +711,13 @@ func (r *HostOperationReconciler) expire(ctx context.Context, op *metalv1alpha1.
 		return ctrl.Result{}, nil
 	}
 	c := meta.FindStatusCondition(op.Status.Conditions, metalv1alpha1.ConditionExecuted)
+	if c.Status == metav1.ConditionFalse {
+		// A failed operation is where a person decides: they read why,
+		// then retry or delete it. Expiring it would take that decision
+		// away, and a convergence plan whose failure expired could never
+		// be retried (pk-metal retry marks the failed operation).
+		return ctrl.Result{}, nil
+	}
 	expiry := c.LastTransitionTime.Add(time.Duration(*op.Spec.TTLSecondsAfterFinished) * time.Second)
 	if wait := time.Until(expiry); wait > 0 {
 		return ctrl.Result{RequeueAfter: wait}, nil

@@ -74,3 +74,29 @@ func TestHold(t *testing.T) {
 	err := hold(ctx, cl, "pk-metal", "node-1", "", true, &out)
 	assert.ErrorContains(t, err, "it is in namespace default: use default/node-1")
 }
+
+// A failed BIOS proposal is marked, not deleted: deleting a proposal is how a
+// person refuses it, and the operator would never propose it again.
+func TestRetryMarksAConvergenceProposal(t *testing.T) {
+	ctx := context.Background()
+	op := &metalv1alpha1.HostOperation{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "pk-metal", Name: "box-1-bios-0123abcd"},
+		Spec: metalv1alpha1.HostOperationSpec{
+			HostRef: metalv1alpha1.Reference{Name: "box-1"}, Reason: metalv1alpha1.OperationReasonBiosConvergence,
+			Actions: []metalv1alpha1.HostOperationAction{{PowerCycle: &metalv1alpha1.PowerCycleAction{}}},
+		},
+		Status: metalv1alpha1.HostOperationStatus{Conditions: []metav1.Condition{{
+			Type: metalv1alpha1.ConditionExecuted, Status: metav1.ConditionFalse,
+			Reason: metalv1alpha1.ReasonStepFailed, Message: "step 1/2 applyBios: refused",
+		}}},
+	}
+	cl := fakeClient(op)
+	var out bytes.Buffer
+	require.NoError(t, retry(ctx, cl, op.Namespace, op.Name, &out))
+
+	got := &metalv1alpha1.HostOperation{}
+	require.NoError(t, cl.Get(ctx, client.ObjectKeyFromObject(op), got), "the operator, not the CLI, replaces it")
+	assert.Contains(t, got.Annotations, metalv1alpha1.AnnotationRetry)
+	assert.Contains(t, out.String(), "marked pk-metal/box-1-bios-0123abcd for retry")
+	assert.Contains(t, out.String(), "new proposal of the same plan for host box-1")
+}

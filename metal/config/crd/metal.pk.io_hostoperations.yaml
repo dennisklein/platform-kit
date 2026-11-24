@@ -571,7 +571,7 @@ spec:
                     - planHash
                   type: object
                 ttlSecondsAfterFinished:
-                  description: TTLSecondsAfterFinished garbage-collects a finished operation Job-style. Unset keeps it forever (human-requested ops stay as their own record); convergence proposals set it — the plan memory on the proposing object, not the operation's existence, is what keeps an unchanged planHash from spawning again.
+                  description: 'TTLSecondsAfterFinished garbage-collects a succeeded operation Job-style. A failed one stays until a person retries or deletes it: it is the record they decide on. Unset keeps it forever (human-requested ops stay as their own record); convergence proposals set it — the plan memory on the proposing object, not the operation''s existence, is what keeps an unchanged planHash from spawning again.'
                   format: int32
                   minimum: 0
                   type: integer

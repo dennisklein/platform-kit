@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -19,7 +20,9 @@ func init() {
 A failed operation stays in the cluster, so that you can read why it failed
 (pk-metal status shows the reason). The operator does not try again while it
 is there. retry deletes it; the operator then proposes the same plan again,
-and the new operation waits for approval like the first one.
+and the new operation waits for approval like the first one. A BIOS or
+firmware proposal is not deleted by retry but marked for retry: the operator
+itself replaces it, because deleting a proposal is how it is refused.
 
 To stop the operator from proposing it again instead, hold the claim:
   pk-metal hold default/<claim>`
@@ -57,7 +60,18 @@ func retryCmd(args []string) {
 	}
 }
 
-// retry deletes a failed operation after saying what happens next.
+// convergenceProposal reports an operation the convergence lane proposed for
+// a BIOS or firmware plan.
+func convergenceProposal(op *metalv1alpha1.HostOperation) bool {
+	switch op.Spec.Reason {
+	case metalv1alpha1.OperationReasonBiosConvergence, metalv1alpha1.OperationReasonFirmwareConvergence:
+		return true
+	}
+	return false
+}
+
+// retry deletes a failed operation, or marks a failed convergence proposal
+// for retry, after saying what happens next.
 func retry(ctx context.Context, cl client.Client, namespace, name string, w io.Writer) error {
 	op := &metalv1alpha1.HostOperation{}
 	if err := getNamed(ctx, cl, "operation", op, &metalv1alpha1.HostOperationList{}, namespace, name); err != nil {
@@ -70,6 +84,23 @@ func retry(ctx context.Context, cl client.Client, namespace, name string, w io.W
 	}
 	if why := explain(op.Status.Conditions, "", metalv1alpha1.ConditionExecuted); why != "" {
 		fmt.Fprintf(w, "operation %s failed: %s\n", ref, why)
+	}
+	if convergenceProposal(op) {
+		// Deleting a convergence proposal reads as refusing it, so the
+		// operator would never propose it again. The mark asks for the
+		// retry; the operator deletes this operation and proposes anew.
+		patch := client.MergeFrom(op.DeepCopy())
+		if op.Annotations == nil {
+			op.Annotations = map[string]string{}
+		}
+		op.Annotations[metalv1alpha1.AnnotationRetry] = time.Now().UTC().Format(time.RFC3339)
+		if err := cl.Patch(ctx, op, patch); err != nil {
+			return fmt.Errorf("mark %s for retry: %w", ref, err)
+		}
+		fmt.Fprintf(w, "marked %s for retry.\n", ref)
+		fmt.Fprintf(w, "The operator replaces it with a new proposal of the same plan for host %s in a few seconds; "+
+			"it then waits for approval: pk-metal approve\n", op.Spec.HostRef.Name)
+		return nil
 	}
 	claim := ""
 	if n := op.Labels[labelClaimName]; n != "" {
