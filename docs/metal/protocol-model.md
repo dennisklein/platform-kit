@@ -51,8 +51,8 @@ model explores every choice. Writes go to the current world. An update made
 from a stale read is a conflict and changes nothing, as on a real API server.
 Reads that the real code makes through the uncached API reader always see
 the current world: the hosts a deleted claim holds, the check that no boot
-ran before a release unbinds a machine as it is, and the queue check before
-an operation starts.
+ran before a release unbinds a machine as it is, the queue check before an
+operation starts, and the claim and host a boot reads before it starts.
 
 ### Tied to the real code
 
@@ -93,7 +93,7 @@ mirrors. If you change a branch in the controller, change its mirror too.
 | Claims at start | one with approval required, one with approval waived |
 | Cache lag | one turn, per object kind |
 
-At 14 turns the model visits about 430,000 states in about 10 seconds. Set
+At 14 turns the model visits about 460,000 states in about 10 seconds. Set
 `PK_MODEL_DEPTH` to explore further, for example:
 
 ```sh
@@ -101,31 +101,32 @@ cd metal
 PK_MODEL_DEPTH=16 go test -count=1 -run TestProtocolModel -v ./internal/controller
 ```
 
-Depth 16 visits about 870,000 states in about 25 seconds. Memory and time
+Depth 16 visits about 950,000 states in about 25 seconds. Memory and time
 grow fast with each extra turn.
 
-### Known violations
+### Known limit: a hold set right after a deletion
 
-Some invariants fail today for reasons that are known and need a larger
-change. The test reports these as skips with the reason and a
-counterexample. A skip is used only when the counterexample contains the
-known cause, for example a turn labelled `person retries boot`. Any other
-violation of the same invariant fails the test, so a known defect cannot
-hide a new one.
+One invariant fails by design, and the test reports it as a skip with the
+reason and a counterexample. A skip is used only when the counterexample
+contains the known cause, here a turn labelled `person holds the claim`.
+Any other violation of the same invariant fails the test, so the known
+limit cannot hide a new defect.
 
-- `pk-metal retry` deletes a failed boot, and the claim then makes a new
-  one. If the claim is deleted before the new boot starts, nothing records
-  that the failed boot touched the machine: the power-off decision on the
-  host is written only by a release. The release then unbinds the machine
-  without powering it off, possibly with the failed boot's media still
-  mounted. This breaks invariants 4 and 5. A fix needs a record that a boot
-  started which outlives the operation.
-- A hold set within one cache lag of the claim's deletion is not seen by the
-  pass that creates a release that needs no approval. This breaks
-  invariant 7.
+A hold stops a release that waits for approval. It does not stop a release
+that needs no approval (the machine runs no node, or the claim waived
+approval) once that release exists. The window is the time between the
+claim's deletion and the moment the claim controller's cache shows the
+hold, usually well under a second:
 
-When a fix lands, remove the matching `known` text from the invariant. The
-test then fails if the defect comes back.
+1. A person deletes the claim.
+2. A person holds the claim.
+3. The claim controller runs a pass that still reads the claim without the
+   hold, and creates a release that needs no approval.
+4. The executor runs the release: the machine is powered off and its media
+   ejected.
+
+This breaks invariant 7. To keep a machine for sure, hold the claim before
+you delete it.
 
 ### What the model does not cover
 
