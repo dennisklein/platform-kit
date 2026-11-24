@@ -101,6 +101,11 @@ If the BMC of a real machine does not answer, use [](rb:bmc-unreachable).
 
 The simulated BMC downloads two images: the installer from `factory.talos.dev` and the node configuration from the operator.
 
+| Cause | Fix |
+| --- | --- |
+| The factory builds an image on its first request. The build takes longer than the 10 seconds that the simulated BMC waits. | [](lab:up) and [](lab:approve) warm the images before the first approval. If `lab:up` printed `nothing was proposed`, run [](lab:approve) or try the operation again. |
+| The workstation cannot get to the factory or to the media port. | Do the steps below. |
+
 1. Make sure that the workstation can get to `https://factory.talos.dev`.
 2. Make sure that the media port answers. The answer `404` is correct.
 

@@ -132,6 +132,7 @@ A Talos release that replaces `cluster.talosVersion`, for example `v1.14.5`.
 | `PK_LAB_SPEC` | `<repo>/lab/lab.yaml` | The lab spec. |
 | `PK_LAB_KIND_CONFIG` | `<repo>/lab/kind.yaml` | The definition of the kind cluster. |
 | `PK_LAB_MIN_FREE_GIB` | `15` | The free disk that the doctor asks for. |
+| `PK_LAB_WARM_TIMEOUT` | `300` | Seconds that [](lab:up) waits for the first proposed install. Then it warms the factory images. `0` skips the warm-up. |
 | `PK_LAB_WAIT_TIMEOUT` | `2400` | Seconds for [](lab:wait), [](lab:scale), [](lab:pivot) and [](lab:backup-restore). |
 | `PK_LAB_RELEASE_TIMEOUT` | `900` | Seconds for [](lab:release). |
 | `PK_LAB_DAY2_TIMEOUT` | `1200` | Seconds for each reboot in [](lab:day2). |

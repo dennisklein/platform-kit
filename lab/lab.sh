@@ -64,6 +64,8 @@ environment variables:
                         seconds release gives a machine to come back (default: 900)
   PK_LAB_DAY2_TIMEOUT   seconds day2 gives each reboot (default: 1200)
   PK_LAB_MIN_FREE_GIB   free disk doctor asks for under PK_LAB_DIR (default: 15)
+  PK_LAB_WARM_TIMEOUT   seconds up waits for the first proposed install before it warms
+                        the factory images; 0 skips the warm-up (default: 300)
   PK_LAB_TALOS          start the lab on this Talos release instead of the spec's, e.g.
                         v1.14.5, so that upgrade has something to upgrade
   PK_LAB_ROLLOUT_TIMEOUT
@@ -86,6 +88,7 @@ WAIT_TIMEOUT=${PK_LAB_WAIT_TIMEOUT:-2400}
 RELEASE_TIMEOUT=${PK_LAB_RELEASE_TIMEOUT:-900}
 DAY2_TIMEOUT=${PK_LAB_DAY2_TIMEOUT:-1200}
 MIN_FREE_GIB=${PK_LAB_MIN_FREE_GIB:-15}
+WARM_TIMEOUT=${PK_LAB_WARM_TIMEOUT:-300}
 KIND_CONFIG=${PK_LAB_KIND_CONFIG:-$ROOT/lab/kind.yaml}
 ROLLOUT_TIMEOUT=${PK_LAB_ROLLOUT_TIMEOUT:-2400}
 # The spec as committed (or as PK_LAB_SPEC names it): upgrade upgrades to
@@ -751,6 +754,7 @@ rerender_guard() {
 
 up() {
   local root=$1 lab_dir=$2 spec=$3 size=$4 workload=$5 gen=$6 cluster=$7 min_free_gib=$8 kind_config=$9
+  local warm_timeout=${10}
   pivoted_guard "$lab_dir"
   doctor "$root" "$lab_dir" "$spec" "$size" "$workload" "$min_free_gib" "$kind_config"
   rerender_guard "$root" "$lab_dir" "$spec" "$size" "$workload"
@@ -760,6 +764,7 @@ up() {
   deploy "$root" "$lab_dir" "$gen" "$cluster"
   fleet_up "$root" "$lab_dir" "$gen/fleet.yaml"
   manifests_apply "$gen"
+  warm_when_proposed "$lab_dir" "$warm_timeout"
   cat >&2 <<EOF
 
 The lab is up. The operator now enrolls the machines and proposes to boot them.
@@ -824,6 +829,30 @@ factory_warm() {
       echo "  the factory did not serve $url; a mount of it will fail the same way" >&2
     fi
   done < <(kubectl get bootassets --output json 2>/dev/null | jq -r '.items[].status.url // empty' | sort -u)
+}
+
+# Waits until the operator proposes its first install, then warms the factory
+# images, so that the first approval mounts a warm image also when a person
+# approves in lab:top or with pk-metal approve, which do not warm. An install
+# is proposed only once its BootAssets have a URL, so the proposal is the
+# moment the URLs are known. The wait is bounded: a lab without claims, or an
+# operator that proposes nothing, must not hold up. Approving through
+# lab:approve or lab:wait warms again for images that appear later.
+warm_when_proposed() {
+  local lab_dir=$1 timeout=$2 waited=0
+  [[ $timeout =~ ^[0-9]+$ ]] || die "PK_LAB_WARM_TIMEOUT is not a number of seconds: $timeout. Set e.g.: PK_LAB_WARM_TIMEOUT=300"
+  (( timeout > 0 )) || return 0
+  [[ -n $(kubectl get hostclaims --all-namespaces --output name 2>/dev/null) ]] || return 0
+  step "factory images (waiting up to ${timeout}s for the first proposed install)"
+  until [[ -n $(pending_operations 2>/dev/null) ]]; do
+    if (( waited >= timeout )); then
+      echo "  nothing was proposed within ${timeout}s; the images are warmed when you run: mise run lab:approve" >&2
+      return 0
+    fi
+    sleep 5
+    waited=$((waited + 5))
+  done
+  factory_warm "$lab_dir"
 }
 
 # Approves every pending operation as the kubeconfig's user and prints how many
@@ -2108,7 +2137,7 @@ main() {
   case "$verb" in
     doctor) doctor "$ROOT" "$LAB_DIR" "$SPEC" "$SIZE" "$WORKLOAD" "$MIN_FREE_GIB" "$KIND_CONFIG" ;;
     render) render "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN" ;;
-    up) up "$ROOT" "$LAB_DIR" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN" "$CLUSTER" "$MIN_FREE_GIB" "$KIND_CONFIG" ;;
+    up) up "$ROOT" "$LAB_DIR" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN" "$CLUSTER" "$MIN_FREE_GIB" "$KIND_CONFIG" "$WARM_TIMEOUT" ;;
     network)
       require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
       network_up "$ROOT" "$GEN"
