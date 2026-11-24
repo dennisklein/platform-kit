@@ -66,8 +66,12 @@ Check it with your network team before you answer yes.
 
 The BMCs fetch media from the address in the manager's `--media-url`. In the
 bootstrap cluster this is usually the workstation's address. Give the new
-address with `--media-url https://<node or VIP address>:30443`. If you do not,
-the move keeps the old one and warns you.
+address with `--media-url https://<node address>:30443`. Use a node address,
+not the control-plane VIP: kube-proxy answers a NodePort on the nodes' own
+addresses, and the BMCs are refused on the VIP. For a site that must survive
+the loss of that node, put a load balancer address in front of the NodePort and
+give that. If you do not give `--media-url`, the move keeps the old one and
+warns you.
 
 ## What moves, in which order
 

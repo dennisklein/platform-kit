@@ -1038,11 +1038,6 @@ image_push() {
   echo "$registry/$name"
 }
 
-# Prints the VIP of the cluster a rendered Talos file describes.
-cluster_vip() {
-  yq -r 'select(.kind == "TalosCluster") | .spec.controlPlane.vip' "$1"
-}
-
 # The pivot round. The operator moves from kind onto the first Talos cluster
 # with pk-metal pivot, kind is deleted, and from its new place the operator
 # installs the second cluster. Rerun after a failure, it goes on from where it
@@ -1050,7 +1045,7 @@ cluster_vip() {
 # cluster is left to do.
 pivot() {
   local root=$1 lab_dir=$2 gen=$3 cluster=$4 timeout=$5
-  local first second registry ref vip want_hosts want_nodes line failed last="" deadline=$((SECONDS + timeout))
+  local first second registry ref media_node want_hosts want_nodes line failed last="" deadline=$((SECONDS + timeout))
   require_cluster "$lab_dir"
   [[ -n $(lab_value_or "$gen" WORKLOAD_CLUSTER "") ]] || die "the lab has no second cluster to install after the move.
   Bring it up with one: mise run lab:down && PK_LAB_WORKLOAD=1cp+0w mise run lab:up && mise run lab:wait"
@@ -1064,12 +1059,17 @@ pivot() {
   Install it first: mise run lab:wait"
     registry_up "$registry"
     ref=$(image_push "$root" "$registry")
-    vip=$(cluster_vip "$gen/manifests/20-talos.yaml")
+    # kube-proxy answers a NodePort on the node addresses, not on the VIP
+    # (the first run was refused on 10.77.0.10:30443), so the BMCs fetch from
+    # the first control-plane node.
+    media_node=$(kubectl --kubeconfig "$lab_dir/workload.kubeconfig" get nodes \
+      --selector node-role.kubernetes.io/control-plane --output json \
+      | jq -r '[.items[].status.addresses[] | select(.type == "InternalIP") | .address][0] // empty')
+    [[ -n $media_node ]] || die "TalosCluster $first lists no control-plane node address, so the BMCs would have no media address.
+  Look at it: kubectl --kubeconfig $lab_dir/workload.kubeconfig get nodes -o wide"
     step "pk-metal pivot to TalosCluster $first"
-    # The BMCs fetch boot media from the media service's NodePort; on the
-    # Talos cluster it answers on the VIP as on every node.
     "$root/metal/bin/pk-metal" pivot --to "$lab_dir/workload.kubeconfig" --image "$ref" \
-      --media-url "https://$vip:30443" --timeout 600s --yes >&2 \
+      --media-url "https://$media_node:30443" --timeout 600s --yes >&2 \
       || die "the move did not finish. Its message above says what to do; rerun it with: mise run lab:pivot"
     step "deleting the kind cluster $cluster"
     kind delete cluster --name "$cluster" >&2
