@@ -331,6 +331,19 @@ depends = ["docs:build"]
 env = { ASTRO_TELEMETRY_DISABLED = "1" }
 run = "node scripts/shots.mjs"
 
+[tasks."docs:lint:generated"]
+description = "Check the generated reference text (Go doc comments, command help) with the STE Vale style; reports only, does not fail yet"
+dir = "docs"
+# The text comes from metal/api and metal/cmd: fix a finding there, then run docs:gen.
+# Warnings only for now: the text has long sentences that the owners of the Go
+# files rewrite step by step. Make it fail (drop --no-exit) when the count is 0.
+run = '''
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+node scripts/generated-text.mjs "$tmp"
+vale --config .vale.ini --no-exit "$tmp"
+'''
+
 [tasks."docs:lint:actions"]
 description = "Check that the actions page (reference/actions.mdx) has each action and field of the API (docs/src/data/generated/actions.json)"
 dir = "docs"

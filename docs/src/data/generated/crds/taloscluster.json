@@ -249,7 +249,7 @@
       "depth": 3,
       "type": "string",
       "required": true,
-      "description": ""
+      "description": "The key in the object's data."
     },
     {
       "path": "spec.patches[].configMapRef.name",
@@ -258,7 +258,7 @@
       "depth": 3,
       "type": "string",
       "required": true,
-      "description": ""
+      "description": "The name of the object."
     },
     {
       "path": "spec.patches[].configMapRef.namespace",
@@ -267,7 +267,7 @@
       "depth": 3,
       "type": "string",
       "required": true,
-      "description": ""
+      "description": "The namespace of the object."
     },
     {
       "path": "spec.patches[].inline",
@@ -372,7 +372,7 @@
       "depth": 2,
       "type": "string",
       "required": true,
-      "description": ""
+      "description": "The name of the object."
     },
     {
       "path": "spec.secretsRef.namespace",
@@ -381,7 +381,7 @@
       "depth": 2,
       "type": "string",
       "required": true,
-      "description": ""
+      "description": "The namespace of the object."
     },
     {
       "path": "spec.talosVersion",
@@ -439,7 +439,7 @@
       "type": "string",
       "format": "date-time",
       "required": true,
-      "description": "lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable."
+      "description": "The time of the last change of the status."
     },
     {
       "path": "status.conditions[].message",
@@ -449,7 +449,7 @@
       "type": "string",
       "required": true,
       "maxLength": 32768,
-      "description": "message is a human readable message indicating details about the transition. This may be an empty string."
+      "description": "A message for people about the last change. It can be empty."
     },
     {
       "path": "status.conditions[].observedGeneration",
@@ -460,7 +460,7 @@
       "format": "int64",
       "required": false,
       "minimum": 0,
-      "description": "observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance."
+      "description": "The generation of the object that the condition is for. A lower value than metadata.generation shows an old condition."
     },
     {
       "path": "status.conditions[].reason",
@@ -472,7 +472,7 @@
       "pattern": "^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$",
       "minLength": 1,
       "maxLength": 1024,
-      "description": "reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty."
+      "description": "A word in CamelCase that tells why the condition has its status."
     },
     {
       "path": "status.conditions[].status",
@@ -486,7 +486,7 @@
         "False",
         "Unknown"
       ],
-      "description": "status of the condition, one of True, False, Unknown."
+      "description": "The status of the condition: True, False or Unknown."
     },
     {
       "path": "status.conditions[].type",
@@ -497,7 +497,7 @@
       "required": true,
       "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$",
       "maxLength": 316,
-      "description": "type of condition in CamelCase or in foo.example.com/CamelCase."
+      "description": "The type of the condition."
     },
     {
       "path": "status.controlPlanes",
@@ -535,7 +535,7 @@
       "depth": 2,
       "type": "string",
       "required": true,
-      "description": ""
+      "description": "The name of the object."
     },
     {
       "path": "status.kubeconfigSecretRef.namespace",
@@ -544,7 +544,7 @@
       "depth": 2,
       "type": "string",
       "required": true,
-      "description": ""
+      "description": "The namespace of the object."
     },
     {
       "path": "status.kubernetesVersion",
@@ -571,7 +571,7 @@
       "depth": 2,
       "type": "string",
       "required": true,
-      "description": ""
+      "description": "The name of the object."
     },
     {
       "path": "status.readerTalosconfigSecretRef.namespace",
@@ -580,7 +580,7 @@
       "depth": 2,
       "type": "string",
       "required": true,
-      "description": ""
+      "description": "The namespace of the object."
     },
     {
       "path": "status.readyControlPlanes",
@@ -618,7 +618,7 @@
       "depth": 2,
       "type": "string",
       "required": true,
-      "description": ""
+      "description": "The name of the object."
     },
     {
       "path": "status.talosconfigSecretRef.namespace",
@@ -627,7 +627,7 @@
       "depth": 2,
       "type": "string",
       "required": true,
-      "description": ""
+      "description": "The namespace of the object."
     },
     {
       "path": "status.unassignedNodes",

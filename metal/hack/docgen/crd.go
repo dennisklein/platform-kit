@@ -193,7 +193,7 @@ func walkField(rows []fieldRow, path, parent, name string, depth int, required b
 		ListMapKeys: s.XListMapKeys,
 		Nullable:    s.Nullable,
 		Unknown:     s.XPreserveUnknownFields != nil && *s.XPreserveUnknownFields,
-		Description: s.Description,
+		Description: fieldDescription(parent, name, s.Description),
 		Validations: celRules(s.XValidations),
 	}
 	if s.XListType != nil {

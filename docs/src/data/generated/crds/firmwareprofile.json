@@ -108,7 +108,7 @@
       "type": "[]object",
       "required": false,
       "listType": "atomic",
-      "description": "matchExpressions is a list of label selector requirements. The requirements are ANDed."
+      "description": "Label requirements that the object must meet. All must match."
     },
     {
       "path": "spec.match.matchExpressions[].key",
@@ -117,7 +117,7 @@
       "depth": 3,
       "type": "string",
       "required": true,
-      "description": "key is the label key that the selector applies to."
+      "description": "The label key."
     },
     {
       "path": "spec.match.matchExpressions[].operator",
@@ -126,7 +126,7 @@
       "depth": 3,
       "type": "string",
       "required": true,
-      "description": "operator represents a key's relationship to a set of values. Valid operators are In, NotIn, Exists and DoesNotExist."
+      "description": "In, NotIn, Exists or DoesNotExist."
     },
     {
       "path": "spec.match.matchExpressions[].values",
@@ -136,7 +136,7 @@
       "type": "[]string",
       "required": false,
       "listType": "atomic",
-      "description": "values is an array of string values. If the operator is In or NotIn, the values array must be non-empty. If the operator is Exists or DoesNotExist, the values array must be empty. This array is replaced during a strategic merge patch."
+      "description": "The values for In and NotIn. Exists and DoesNotExist take no values."
     },
     {
       "path": "spec.match.matchLabels",
@@ -145,7 +145,7 @@
       "depth": 2,
       "type": "map[string]string",
       "required": false,
-      "description": "matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels map is equivalent to an element of matchExpressions, whose key field is \"key\", the operator is \"In\", and the values array contains only \"value\". The requirements are ANDed."
+      "description": "Labels that the object must have, as key and value pairs. All must match."
     },
     {
       "path": "spec.system",

@@ -109,7 +109,7 @@
       "depth": 4,
       "type": "string",
       "required": true,
-      "description": ""
+      "description": "The name of the object."
     },
     {
       "path": "spec.labels",

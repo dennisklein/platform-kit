@@ -1,11 +1,11 @@
-// Reads a CRD from metal/config/crd and flattens its schema into table rows.
-// The rows are the same that the generated JSON of metal/hack/docgen holds; when that
-// data exists, FieldTable can read it instead.
+// Reads a kind's fields from the generated CRD data (src/data/generated/crds, written
+// by metal/hack/docgen from metal/config/crd) and shapes them into table rows.
+// docgen has already flattened the schema and rewritten the text that the site must
+// not show as is (the upstream text of object reference fields).
 import { readFileSync, readdirSync } from 'node:fs';
 import { root } from '../../scripts/root.mjs';
-import { parse } from 'yaml';
 
-const crdDir = `${root}/../metal/config/crd/`;
+const dataDir = `${root}/src/data/generated/crds/`;
 
 export interface FieldRow {
   path: string;
@@ -45,15 +45,8 @@ export interface Crd {
   columns: Column[];
 }
 
-/** Types whose fields every Kubernetes user knows: one row, no children. */
-const opaque = new Set(['conditions']);
-
-function typeOf(s: any): string {
-  if (s.type === 'array') return `[]${typeOf(s.items ?? {})}`;
-  if (s.format) return `${s.type} (${s.format})`;
-  if (s['x-kubernetes-int-or-string']) return 'int or string';
-  return s.type ?? 'any';
-}
+/** Fields whose inner fields every Kubernetes user knows: one row, no children. */
+const opaque = ['status.conditions'];
 
 const range = (lo: number | undefined, hi: number | undefined, unit = '') => {
   const u = unit ? ` ${unit}` : '';
@@ -74,21 +67,22 @@ function boundsOf(f: any): string | undefined {
   return parts.length ? parts.join(', ') : undefined;
 }
 
-const messages = (s: any): string[] => (s?.['x-kubernetes-validations'] ?? []).map((v: any) => v.message ?? v.rule);
+const messages = (vs: any[] | undefined): string[] => (vs ?? []).map((v) => v.message || v.rule);
 
-function flatten(s: any, prefix: string, depth: number, required: string[], out: FieldRow[]) {
-  for (const [name, f] of Object.entries<any>(s.properties ?? {})) {
-    const path = prefix ? `${prefix}.${name}` : name;
-    const rules = [...messages(f), ...(f.type === 'array' ? messages(f.items) : [])];
-    out.push({
-      path, depth, type: typeOf(f), required: required.includes(name),
-      enum: f.enum ?? f.items?.enum, default: f.default, description: f.description,
-      bounds: boundsOf(f), pattern: f.pattern ?? f.items?.pattern, rules: rules.length ? rules : undefined,
-    });
-    if (opaque.has(name)) continue;
-    const inner = f.type === 'array' ? f.items : f;
-    if (inner?.properties) flatten(inner, f.type === 'array' ? `${path}[]` : path, depth + 1, inner.required ?? [], out);
-  }
+function rowOf(f: any): FieldRow {
+  const rules = messages(f.validations);
+  return {
+    path: f.path,
+    depth: f.depth - 1,
+    type: f.format && !f.type.startsWith('[]') ? `${f.type} (${f.format})` : f.type,
+    required: f.required,
+    enum: f.enum,
+    default: f.default,
+    description: f.description || undefined,
+    bounds: boundsOf(f),
+    pattern: f.pattern,
+    rules: rules.length ? rules : undefined,
+  };
 }
 
 const cache = new Map<string, Crd>();
@@ -96,25 +90,27 @@ const cache = new Map<string, Crd>();
 export function loadCrd(kind: string): Crd {
   const hit = cache.get(kind);
   if (hit) return hit;
-  for (const file of readdirSync(crdDir)) {
-    if (!file.endsWith('.yaml') || file === 'kustomization.yaml') continue;
-    const doc = parse(readFileSync(crdDir + file, 'utf8'));
-    if (doc?.spec?.names?.kind !== kind) continue;
-    const v = doc.spec.versions.find((x: any) => x.storage) ?? doc.spec.versions[0];
-    const props = v.schema.openAPIV3Schema.properties;
+  for (const file of readdirSync(dataDir)) {
+    if (!file.endsWith('.json')) continue;
+    const doc = JSON.parse(readFileSync(dataDir + file, 'utf8'));
+    if (doc.kind !== kind) continue;
+    const fields: any[] = doc.fields;
+    const part = (p: 'spec' | 'status') =>
+      fields
+        .filter((f) => f.path.startsWith(`${p}.`) && !opaque.some((o) => f.path.startsWith(`${o}.`) || f.path.startsWith(`${o}[]`)))
+        .map(rowOf);
+    const top = (p: string) => messages(fields.find((f) => f.path === p)?.validations);
     const crd: Crd = {
-      kind, group: doc.spec.group, version: v.name, plural: doc.spec.names.plural,
-      scope: doc.spec.scope, file: `metal/config/crd/${file}`, spec: [], status: [],
-      rules: { spec: messages(props.spec), status: messages(props.status) },
-      columns: (v.additionalPrinterColumns ?? []).map((c: any) => ({
-        name: c.name, jsonPath: c.jsonPath, type: c.type, wide: (c.priority ?? 0) > 0, description: c.description,
+      kind, group: doc.group, version: doc.version, plural: doc.plural, scope: doc.scope, file: doc.source,
+      spec: part('spec'),
+      status: part('status'),
+      rules: { spec: [...messages(doc.validations), ...top('spec')], status: top('status') },
+      columns: doc.printerColumns.map((c: any) => ({
+        name: c.name, jsonPath: c.jsonPath, type: c.type, wide: c.priority > 0, description: c.description,
       })),
     };
-    for (const part of ['spec', 'status'] as const) {
-      if (props[part]) flatten(props[part], part, 0, props[part].required ?? [], crd[part]);
-    }
     cache.set(kind, crd);
     return crd;
   }
-  throw new Error(`crd: no CRD for kind "${kind}" in metal/config/crd`);
+  throw new Error(`crd: no generated data for kind "${kind}" in src/data/generated/crds (run mise run docs:gen)`);
 }
