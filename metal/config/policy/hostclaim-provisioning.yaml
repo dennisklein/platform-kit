@@ -67,8 +67,9 @@ spec:
       expression: >-
         '; you are ' + request.userInfo.username + ' (groups: '
         + (has(request.userInfo.groups) ? request.userInfo.groups.join(', ') : 'none')
-        + '). Bind your admins to the group ' + params.data.adminGroup
-        + ' (a ClusterRoleBinding to the group, or a group from your identity provider).'
+        + '). Group membership comes from your credential, not from a binding:'
+        + ' the O= of your client certificate, a groups claim of your OIDC provider,'
+        + ' or --as-group when you impersonate.'
         + ' In the virtual lab, apply as a member: mise run lab:apply <file>'
   validations:
     - expression: "variables.newNode == '' || variables.newNode == variables.oldNode || variables.isAdmin"

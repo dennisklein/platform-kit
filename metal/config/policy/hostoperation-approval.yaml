@@ -13,7 +13,8 @@
 #   - only the operator's own identity, or a member of the admin group, may create an
 #     operation that needs no approval — anyone else would simply skip the gate;
 #   - approval is write-once and stamped as yourself;
-#   - a person never approves their own proposal.
+#   - a person never approves their own proposal, and the operator never
+#     approves anything (the same rule as talosrollout-approval.yaml).
 #
 # Who the operator is and which group administers it are deployment facts, so they
 # come from the ConfigMap below (the binding's params). A missing ConfigMap denies
@@ -83,9 +84,8 @@ spec:
       reason: Forbidden
     - expression: >-
         variables.newApprover == variables.oldApprover
-        || variables.newApprover != variables.proposer
-        || variables.proposer == variables.operator
-      message: you may not approve your own proposal — another person must
+        || (variables.newApprover != variables.proposer && variables.newApprover != variables.operator)
+      message: you may not approve your own proposal, and the operator approves nothing — another person must
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1
