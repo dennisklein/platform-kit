@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"slices"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -13,6 +14,8 @@ import (
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/talos"
+	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
 )
 
 // Self-protection. Once the operator runs on a cluster it built itself (after
@@ -36,8 +39,16 @@ import (
 //
 // On a cluster no TalosNode describes (kind, a cluster built some other way)
 // nothing matches, and the guard allows everything, as before.
+//
+// Which control planes count as up is asked of the machines themselves, at
+// the moment of the verdict (SelfGuard.Dial). The TalosNode's Ready
+// condition is polled only every few minutes once a node is ready, and a
+// power cycle is over as soon as the BMC reports the machine on, long before
+// Talos and etcd run again. Deciding from either would let a second control
+// plane go down while the first one is still in POST.
 
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get
+// +kubebuilder:rbac:groups=metal.pk.io,resources=hostclaims,verbs=get
 
 // SelfGuard decides whether a disruptive step may touch a host, given where
 // the operator itself runs. A nil *SelfGuard allows everything.
@@ -50,7 +61,19 @@ type SelfGuard struct {
 	// NodeName is the Kubernetes node the manager's pod runs on. Empty
 	// means unknown: the guard then allows everything.
 	NodeName string
+	// Dial reaches the Talos API of the other control planes, to ask each
+	// whether it runs and is ready now (see controlPlaneUp). Namespace is
+	// where the cluster's secrets bundle lives, from which the client
+	// certificate for that question is minted. A nil Dial falls back on the
+	// TalosNodes' Ready conditions, which can be minutes old: a test seam,
+	// the manager always wires it.
+	Dial      talos.Dialer
+	Namespace string
 }
+
+// probeTimeout bounds the question to one control plane. A node that does
+// not answer in time counts as down.
+const probeTimeout = 5 * time.Second
 
 // selfLocation is where the operator runs, as far as the guard could tell.
 type selfLocation struct {
@@ -124,20 +147,30 @@ type disruptionInput struct {
 	host  *metalv1alpha1.Host
 	self  selfLocation
 	nodes []osv1alpha1.TalosNode
+	// handedOff: the claim holding the host records that the host was handed
+	// its node (status.handOff). It stays true while the node does not
+	// answer, so a control plane the operator cannot reach for a moment is
+	// still protected.
+	handedOff bool
 	// cluster is the operator's own TalosCluster, nil when not found.
 	cluster *osv1alpha1.TalosCluster
 	hosts   []metalv1alpha1.Host
 	ops     []metalv1alpha1.HostOperation
+	// up says whether a control plane runs and is ready now; nil reads the
+	// TalosNode's Ready condition. Check asks the machine (controlPlaneUp).
+	up func(*osv1alpha1.TalosNode) bool
 }
 
 // disruptionVerdict is the pure decision: "" when the step may go ahead,
 // otherwise the message that says why not and how to allow it. A host is
 // protected when the operator's pod runs on its node, or when it runs a
-// control plane of the operator's own cluster (its node checked in, or the
-// host reports its OS ready). The annotation lifts the first rule; for a
-// control plane two rules stay: no other control plane of the cluster may be
-// in the middle of a power action, and the cluster's observed ready control
-// planes must keep a majority without this one.
+// control plane of the operator's own cluster: one its claim records as
+// handed off, or whose node is checked in now. A control plane never
+// installed (one joining the cluster) is not protected; one installed stays
+// protected while it does not answer. The annotation lifts the first rule;
+// for a control plane two rules stay: no other control plane of the cluster
+// may be in the middle of a power action, and the other control planes that
+// run and are ready right now must be a majority of the cluster.
 func disruptionVerdict(in disruptionInput) string {
 	self := in.self.node
 	if self == nil || in.host.Spec.OS == nil {
@@ -150,7 +183,7 @@ func disruptionVerdict(in disruptionInput) string {
 	}
 	runsManager := node.Name == self.Name
 	ownControlPlane := node.Spec.ClusterRef.Name == own && node.Spec.Role == osv1alpha1.RoleControlPlane &&
-		(nodeCheckedIn(node) || meta.IsStatusConditionTrue(in.host.Status.Conditions, metalv1alpha1.ConditionOSReady))
+		(in.handedOff || nodeCheckedIn(node) || meta.IsStatusConditionTrue(in.host.Status.Conditions, metalv1alpha1.ConditionOSReady))
 	if !runsManager && !ownControlPlane {
 		return ""
 	}
@@ -196,21 +229,39 @@ func disruptionVerdict(in disruptionInput) string {
 		}
 	}
 
-	// etcd's majority, from the cluster's own observation.
+	// etcd's majority, counted over the other control planes that answer
+	// now. One whose operation finished a moment ago is still booting, and
+	// does not count until Talos says it runs and is ready again.
 	if in.cluster == nil {
 		return fmt.Sprintf("%s. It is allowed by annotation, but TalosCluster %s is not found, so nothing says etcd keeps its majority without it",
 			what, own)
 	}
-	total, ready := int(in.cluster.Status.ControlPlanes), int(in.cluster.Status.ReadyControlPlanes)
-	left := ready
-	if nodeReady(node) {
-		left--
+	up := in.up
+	if up == nil {
+		up = nodeReady
 	}
-	if need := total/2 + 1; total == 0 || left < need {
-		return fmt.Sprintf("%s. It is allowed by annotation, but cluster %s has %d of %d control planes ready; without this one %d are left "+
-			"and etcd needs %d. The operator does not take etcd below its majority. Wait until the other control planes are ready, "+
-			"or move the operator to another cluster first (pk-metal pivot)",
-			what, own, ready, total, max(left, 0), need)
+	members, left := 1, 0
+	var down []string
+	for i := range in.nodes {
+		n := &in.nodes[i]
+		if n.Name == node.Name || n.Spec.ClusterRef.Name != own || n.Spec.Role != osv1alpha1.RoleControlPlane {
+			continue
+		}
+		members++
+		if up(n) {
+			left++
+		} else {
+			down = append(down, n.Name)
+		}
+	}
+	total := max(int(in.cluster.Status.ControlPlanes), members)
+	if need := total/2 + 1; left < need {
+		msg := fmt.Sprintf("%s. It is allowed by annotation, but without it %d of the %d control planes of cluster %s run and are ready now, "+
+			"and etcd needs %d. The operator does not take etcd below its majority.", what, left, total, own, need)
+		if len(down) > 0 {
+			msg += " Not running or not ready: " + strings.Join(down, ", ") + "."
+		}
+		return msg + " Wait until the other control planes are ready, or move the operator to another cluster first (pk-metal pivot)"
 	}
 	return ""
 }
@@ -269,10 +320,17 @@ func (g *SelfGuard) Check(ctx context.Context, host *metalv1alpha1.Host) (string
 	if in.self.node == nil {
 		return "", nil
 	}
+	var err error
+	if in.handedOff, err = g.handedOff(ctx, host); err != nil {
+		return "", err
+	}
 	cluster := &osv1alpha1.TalosCluster{}
 	switch err := g.Reader.Get(ctx, client.ObjectKey{Name: in.self.node.Spec.ClusterRef.Name}, cluster); {
 	case err == nil:
 		in.cluster = cluster
+		if g.Dial != nil {
+			in.up = g.controlPlaneUp(ctx, cluster)
+		}
 	case client.IgnoreNotFound(err) != nil:
 		return "", err
 	}
@@ -286,4 +344,49 @@ func (g *SelfGuard) Check(ctx context.Context, host *metalv1alpha1.Host) (string
 	}
 	in.hosts, in.ops = hosts.Items, ops.Items
 	return disruptionVerdict(in), nil
+}
+
+// handedOff reads whether the claim holding host records the hand-off of the
+// node the host runs.
+func (g *SelfGuard) handedOff(ctx context.Context, host *metalv1alpha1.Host) (bool, error) {
+	ref := host.Spec.ClaimRef
+	if ref == nil || host.Spec.OS == nil {
+		return false, nil
+	}
+	claim := &metalv1alpha1.HostClaim{}
+	if err := g.Reader.Get(ctx, client.ObjectKey{Namespace: ref.Namespace, Name: ref.Name}, claim); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	h := claim.Status.HandOff
+	return h != nil && h.Host == host.Name && h.Node == host.Spec.OS.NodeRef.Name, nil
+}
+
+// controlPlaneUp asks a control plane over its Talos API whether it runs and
+// is ready: stage running, every readiness condition met, which on a control
+// plane includes a healthy etcd service. The answer is the machine's, now. A
+// node that cannot be asked (no address, no credentials, no answer within
+// probeTimeout) counts as down, so what is not known never adds to the
+// majority. Each node is asked at most once per verdict.
+func (g *SelfGuard) controlPlaneUp(ctx context.Context, cluster *osv1alpha1.TalosCluster) func(*osv1alpha1.TalosNode) bool {
+	bundle, bundleErr := loadBundle(ctx, g.Reader, g.Namespace, cluster)
+	asked := map[string]bool{}
+	return func(n *osv1alpha1.TalosNode) bool {
+		if up, ok := asked[n.Name]; ok {
+			return up
+		}
+		up := false
+		if endpoint := render.NodeAddress(n); bundleErr == nil && endpoint != "" {
+			if tcfg, err := render.Talosconfig(bundle, cluster.Name, []string{endpoint}, checkinCertTTL); err == nil {
+				pctx, cancel := context.WithTimeout(ctx, probeTimeout)
+				_ = talos.With(pctx, g.Dial, talos.Target{Endpoint: endpoint, Talosconfig: tcfg}, func(c talos.Client) error {
+					st, err := c.Status(pctx)
+					up = err == nil && st.Stage == "running" && st.Ready
+					return err
+				})
+				cancel()
+			}
+		}
+		asked[n.Name] = up
+		return up
+	}
 }

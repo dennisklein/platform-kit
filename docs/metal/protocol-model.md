@@ -29,7 +29,8 @@ there.
   whether the machine runs what it booted from that media.
 - Three operation slots: the claim's boot, the claim's release, and a BIOS
   operation that convergence proposes on the same host.
-- Whether the node checked in.
+- Whether the node checked in, and whether an installed node has stopped
+  answering for a while.
 - Whether the host runs a control plane of the cluster the operator itself
   runs in, and whether it carries the `metal.pk.io/allow-self-disruption`
   annotation.
@@ -43,7 +44,9 @@ there.
 - A person: approve, hold and lift the hold, put the host in maintenance and
   give it back, delete the claim, retry a failed operation, allow the
   disruption of the operator's own control plane and take that back.
-- The machine: the node checks in once it booted the operator's media.
+- The machine: the node checks in once it booted the operator's media. Once
+  installed, it can stop answering for a while (a network flap, the Talos
+  API restarting) and answer again.
 - Convergence: it proposes the BIOS operation.
 
 ### Stale reads and conflicts
@@ -86,13 +89,16 @@ mirrors. If you change a branch in the controller, change its mirror too.
    claim waived approval.
 9. The host phase, derived by `internal/phase` from conditions, follows the
    bind and the claim's deletion.
-10. An operation that reboots or powers off a running control plane of the
-    cluster the operator runs in starts only while the host carries the
-    `metal.pk.io/allow-self-disruption` annotation. The boot, the release and
-    the BIOS operation all reboot or power off the machine. In the model the
-    operator runs on one of three control planes, so the annotation is
-    enough; etcd's majority is covered by the unit tests of
-    `disruptionVerdict`.
+10. An operation that reboots or powers off an installed control plane of
+    the cluster the operator runs in starts only while the host carries the
+    `metal.pk.io/allow-self-disruption` annotation. Installed means the node
+    answers now, or the claim records the hand-off: a control plane that
+    stops answering for a while is still protected. The boot, the release
+    and the BIOS operation all reboot or power off the machine. In the model
+    the operator runs on one of three control planes and the other two
+    answer, so the annotation is enough; etcd's majority, counted from what
+    the other control planes answer at the moment of the decision, is
+    covered by the unit tests of `disruptionVerdict` and `SelfGuard.Check`.
 
 ### Bounds
 
@@ -102,10 +108,11 @@ mirrors. If you change a branch in the controller, change its mirror too.
 | Operations | boot, release, one BIOS proposal |
 | Turns | 14 by default, 10 with `go test -short` |
 | Person actions | one hold, one maintenance, one retry, one refused step, one BIOS proposal, one allowance of self-disruption; a hold, a maintenance and the allowance can also be lifted |
+| Machine actions | the node checks in; on the control plane of the operator's own cluster it may also stop answering once and answer again |
 | Claims at start | one with approval required, one with approval waived, one on a control plane of the operator's own cluster |
 | Cache lag | one turn, per object kind |
 
-At 14 turns the model visits about 1,000,000 states in about 25 seconds. Set
+At 14 turns the model visits about 1,100,000 states in about 40 seconds. Set
 `PK_MODEL_DEPTH` to explore further, for example:
 
 ```sh

@@ -31,7 +31,8 @@ import (
 //   - the executor, one pass per operation (gate, queue, baseline, one step),
 //   - a person (approve, hold, unhold, maintenance on and off, delete the
 //     claim, retry a failed operation),
-//   - the machine (a node checks in once it booted the operator's media),
+//   - the machine (a node checks in once it booted the operator's media; an
+//     installed node can stop answering for a while and answer again),
 //   - convergence (proposes the BIOS operation).
 //
 // A reconciler reads through an informer cache, so each pass reads every
@@ -103,11 +104,14 @@ type world struct {
 	BMC       mBMC
 	Ops       [nSlots]mOp
 	NodeReady bool
-	Seq       uint8
+	// Silent: the installed node does not answer for now (a network flap,
+	// apid restarting); its readiness reads not ready.
+	Silent bool
+	Seq    uint8
 	// Ghosts.
 	BootStarted, ReleaseDone bool
 	// Budgets bound what a person and the machine do, so the space is finite.
-	Holds, Maints, Retries, Fails, Proposals, SelfAllows uint8
+	Holds, Maints, Retries, Fails, Proposals, SelfAllows, Flaps uint8
 }
 
 // state is the current world and the one before it: what a stale cache shows.
@@ -246,9 +250,11 @@ func maintenance(h mHost) bool {
 // cluster mgmt with node-c; host-a runs node-a, a third control plane of mgmt
 // when the host is Self and a node of another cluster otherwise. Every model
 // operation reboots or powers off the machine (boot and BIOS cycle it, the
-// release powers it off). SelfGuard.Check reads the host and the nodes from
-// the API server, so the caller passes the current world.
-func selfBlocked(h mHost, nodeReady bool) bool {
+// release powers it off). SelfGuard.Check reads the host, the claim's
+// hand-off record and the nodes from the API server, and asks the other
+// control planes whether they run (both do), so the caller passes the
+// current world.
+func selfBlocked(h mHost, c mClaim, nodeReady bool) bool {
 	node := func(name, cluster string, ready bool) osv1alpha1.TalosNode {
 		n := osv1alpha1.TalosNode{}
 		n.Name, n.Spec.ClusterRef.Name, n.Spec.Role = name, cluster, osv1alpha1.RoleControlPlane
@@ -275,6 +281,8 @@ func selfBlocked(h mHost, nodeReady bool) bool {
 	}
 	return disruptionVerdict(disruptionInput{
 		host: host, self: selfLocation{node: &nodes[1], how: "node name"}, nodes: nodes, cluster: mgmt,
+		handedOff: c.Exists && claimObj(c).Status.HandOff != nil,
+		up:        func(n *osv1alpha1.TalosNode) bool { return n.Name != "node-a" || nodeReady },
 	}) != ""
 }
 
@@ -412,7 +420,7 @@ func (p *pass) provision(v view, claim mClaim, host mHost) {
 		withdraw()
 	case !boot.Exists:
 		// The self guard: an install reboots the machine.
-		if !selfBlocked(p.next.Host, p.next.NodeReady) {
+		if !selfBlocked(p.next.Host, p.next.Claim, p.next.NodeReady) {
 			p.create(slotBoot, !approvalWaived(cl))
 		}
 	}
@@ -466,7 +474,7 @@ func (p *pass) release(v view) {
 					}
 					host.PowerOff = true
 				}
-				if op == nil && selfBlocked(p.next.Host, p.next.NodeReady) {
+				if op == nil && selfBlocked(p.next.Host, p.next.Claim, p.next.NodeReady) {
 					// The self guard: no power-off is proposed.
 					done, keepRecords = false, true
 					break
@@ -550,7 +558,7 @@ func executorPass(s state, v view, mask uint8, i opSlot, fail bool) *pass {
 			return p
 		}
 		// The self guard reads the host and the nodes from the API server.
-		if selfBlocked(p.next.Host, p.next.NodeReady) {
+		if selfBlocked(p.next.Host, p.next.Claim, p.next.NodeReady) {
 			return p
 		}
 		// activePredecessorUncached: hostHolder over the operations as the
@@ -685,7 +693,7 @@ func successors(s state) []*pass {
 	if w.Host.AllowSelf {
 		person("person withdraws the host's self-disruption", func(n *world) { n.Host.AllowSelf = false })
 	}
-	if !w.Ops[slotBios].Exists && w.Proposals > 0 && !selfBlocked(w.Host, w.NodeReady) {
+	if !w.Ops[slotBios].Exists && w.Proposals > 0 && !selfBlocked(w.Host, w.Claim, w.NodeReady) {
 		p := newPass(s, "convergence proposes a BIOS operation")
 		p.next.Proposals--
 		p.create(slotBios, true)
@@ -694,6 +702,17 @@ func successors(s state) []*pass {
 	if w.BMC.On && w.BMC.FromMedia && !w.NodeReady {
 		person("the node checks in", func(n *world) {
 			n.NodeReady, n.Host.OSReady, n.BMC.FromMedia = true, true, false
+		})
+	}
+	if w.NodeReady && w.Flaps > 0 {
+		person("the node stops answering for a while", func(n *world) {
+			n.NodeReady, n.Host.OSReady, n.Silent = false, false, true
+			n.Flaps--
+		})
+	}
+	if w.Silent && w.BMC.On {
+		person("the node answers again", func(n *world) {
+			n.NodeReady, n.Host.OSReady, n.Silent = true, true, false
 		})
 	}
 	return out
@@ -824,11 +843,12 @@ var protocolInvariants = []invariant{
 		},
 	},
 	{
-		name: "a running control plane of the operator's cluster is rebooted only with the host's allowance",
+		name: "an installed control plane of the operator's cluster is rebooted only with the host's allowance",
 		check: func(p *pass) string {
 			w := p.next
-			if p.startedAny && w.Host.Self && (w.Host.OSReady || w.NodeReady) && !w.Host.AllowSelf {
-				return p.started.String() + " started on a running control plane of the operator's own cluster"
+			installed := w.Host.OSReady || w.NodeReady || w.Claim.HandOff
+			if p.startedAny && w.Host.Self && installed && !w.Host.AllowSelf {
+				return p.started.String() + " started on an installed control plane of the operator's own cluster"
 			}
 			return ""
 		},
@@ -965,7 +985,7 @@ func TestProtocolModel(t *testing.T) {
 	self := world{
 		Claim: mClaim{Exists: true},
 		Host:  mHost{Self: true},
-		Holds: 1, Maints: 1, Retries: 1, Fails: 1, Proposals: 1, SelfAllows: 1,
+		Holds: 1, Maints: 1, Retries: 1, Fails: 1, Proposals: 1, SelfAllows: 1, Flaps: 1,
 	}
 	initial = append(initial, state{Cur: self, Prev: self})
 	violations, known, n := explore(t, initial, depth)

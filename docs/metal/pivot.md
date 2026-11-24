@@ -255,8 +255,11 @@ the middle of an operation. So the operator does not propose or run such a
 step by itself:
 
 - A power cycle or power off of the node the manager's pod runs on.
-- A power cycle or power off of a running control plane of the operator's
-  own cluster.
+- A power cycle or power off of an installed control plane of the
+  operator's own cluster: one whose node answers now, or whose claim records
+  that it was handed the node. A control plane that stops answering for a
+  while, for example during a network flap, is still protected. A control
+  plane that is joining the cluster and was never installed is not.
 
 This covers the boot of an install, the power off of a release, a BIOS
 change, and the executor itself. The claim or operation shows the reason
@@ -271,7 +274,15 @@ kubectl annotate host <name> metal.pk.io/allow-self-disruption=true
 
 For a control plane the annotation is not enough on its own. The operator
 also waits until no other control plane of its cluster is being rebooted,
-and until etcd keeps a majority without this one. Remove the annotation
+and until etcd keeps a majority without this one. For the majority it asks
+each other control plane over the Talos API, at that moment, whether it runs
+and is ready, which on a control plane includes a healthy etcd. It does not
+trust the TalosNode's `Ready` condition here: once a node is ready it is
+polled only every two minutes, and a power cycle is finished as soon as the
+BMC reports the machine on, while the machine is still in POST. A control
+plane that does not answer within five seconds counts as down. Every
+control plane TalosNode of the cluster counts towards the size of the
+majority, including one that is still joining. Remove the annotation
 afterwards: `kubectl annotate host <name> metal.pk.io/allow-self-disruption-`.
 
 The operator finds its own node by the name in the environment variable

@@ -1,6 +1,9 @@
 package controller
 
 import (
+	"os"
+	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,6 +18,8 @@ import (
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	talosfake "github.com/dennisklein/platform-kit/metal/internal/talos/fake"
+	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
 )
 
 // selfNode is a TalosNode of cluster "mgmt" at 10.0.0.<n>, checked in.
@@ -96,6 +101,17 @@ func TestDisruptionVerdict(t *testing.T) {
 	other := selfNode("o-1", osv1alpha1.RoleControlPlane, 6)
 	other.Spec.ClusterRef.Name = "work"
 	nodes := []osv1alpha1.TalosNode{cp1, cp2, cp3, w1, fresh, other}
+	// settled is the cluster without the control plane that is joining.
+	settled := []osv1alpha1.TalosNode{cp1, cp2, cp3, w1, other}
+	notCP1 := []osv1alpha1.TalosNode{w1, other}
+	// silent is cp-2 installed and now not answering: no check-in condition.
+	silent := selfNode("cp-2", osv1alpha1.RoleControlPlane, 2)
+	silent.Status.Conditions = nil
+	withSilent := []osv1alpha1.TalosNode{cp1, silent, cp3, w1, other}
+	// downNow answers for the machines, now: the named nodes do not run.
+	downNow := func(names ...string) func(*osv1alpha1.TalosNode) bool {
+		return func(n *osv1alpha1.TalosNode) bool { return !slices.Contains(names, n.Name) }
+	}
 	cluster := func(total, ready int32) *osv1alpha1.TalosCluster {
 		c := &osv1alpha1.TalosCluster{ObjectMeta: metav1.ObjectMeta{Name: "mgmt"}}
 		c.Status.ControlPlanes, c.Status.ReadyControlPlanes = total, ready
@@ -149,16 +165,35 @@ func TestDisruptionVerdict(t *testing.T) {
 			in:   disruptionInput{host: ptr.To(runsNodeHost("h-2", "cp-2")), self: onCP1, nodes: nodes, cluster: cluster(3, 3), hosts: hosts},
 			want: []string{"a control plane of cluster mgmt", "kubectl annotate host h-2"},
 		},
+		"an installed control plane that does not answer now": {
+			in: disruptionInput{host: ptr.To(runsNodeHost("h-2", "cp-2")), self: onCP1, nodes: withSilent, handedOff: true,
+				cluster: cluster(3, 3), hosts: hosts},
+			want: []string{"a control plane of cluster mgmt", "kubectl annotate host h-2"},
+		},
 		"a control plane, allowed, with a majority left": {
-			in: disruptionInput{host: ptr.To(allowed(runsNodeHost("h-2", "cp-2"))), self: onCP1, nodes: nodes, cluster: cluster(3, 3), hosts: hosts},
+			in: disruptionInput{host: ptr.To(allowed(runsNodeHost("h-2", "cp-2"))), self: onCP1, nodes: settled, cluster: cluster(3, 3), hosts: hosts},
 		},
 		"a control plane, allowed, without a majority left": {
-			in:   disruptionInput{host: ptr.To(allowed(runsNodeHost("h-2", "cp-2"))), self: onCP1, nodes: nodes, cluster: cluster(3, 2), hosts: hosts},
-			want: []string{"2 of 3 control planes ready", "1 are left and etcd needs 2"},
+			in: disruptionInput{host: ptr.To(allowed(runsNodeHost("h-2", "cp-2"))), self: onCP1, nodes: settled, cluster: cluster(3, 3), hosts: hosts,
+				up: downNow("cp-3")},
+			want: []string{"without it 1 of the 3 control planes of cluster mgmt run and are ready now", "etcd needs 2",
+				"Not running or not ready: cp-3"},
+		},
+		// Finding: a control plane whose power cycle finished a moment ago
+		// still reads Ready in its TalosNode (the poll is minutes apart),
+		// while the machine is in POST. The machine's own answer decides.
+		"a control plane, allowed, while another one is still booting after its cycle": {
+			in: disruptionInput{host: ptr.To(allowed(runsNodeHost("h-2", "cp-2"))), self: onCP1, nodes: settled, cluster: cluster(3, 3), hosts: hosts,
+				up: downNow("cp-3")},
+			want: []string{"Not running or not ready: cp-3"},
+		},
+		"a control plane, allowed, while another one joins": {
+			in: disruptionInput{host: ptr.To(allowed(runsNodeHost("h-2", "cp-2"))), self: onCP1, nodes: nodes, cluster: cluster(4, 3), hosts: hosts},
+			want: []string{"2 of the 4 control planes", "etcd needs 3", "Not running or not ready: cp-4"},
 		},
 		"the only control plane, allowed": {
-			in:   disruptionInput{host: ptr.To(allowed(runsNodeHost("h-1", "cp-1"))), self: onCP1, nodes: nodes, cluster: cluster(1, 1), hosts: hosts},
-			want: []string{"1 of 1 control planes ready", "etcd needs 1"},
+			in:   disruptionInput{host: ptr.To(allowed(runsNodeHost("h-1", "cp-1"))), self: onCP1, nodes: append(notCP1, cp1), cluster: cluster(1, 1), hosts: hosts},
+			want: []string{"0 of the 1 control planes", "etcd needs 1"},
 		},
 		"a control plane, allowed, while another one is cycled": {
 			in: disruptionInput{host: ptr.To(allowed(runsNodeHost("h-2", "cp-2"))), self: onCP1, nodes: nodes, cluster: cluster(3, 3), hosts: hosts,
@@ -271,4 +306,78 @@ func TestSelfGuardStopsReinstallAndPowerOff(t *testing.T) {
 	require.NoError(t, r.Update(t.Context(), host))
 	releasePass(t, r, claim)
 	assert.Len(t, releaseOps(t, r, claim), 1, "allowed, with a majority left: the power-off is proposed")
+}
+
+// TestSelfGuardAsksTheControlPlanes: the majority is counted from what the
+// other control planes answer now, not from their TalosNodes. cp-3's node
+// still reads Ready (the poll is minutes apart) while the machine is in POST
+// after its power cycle: rebooting cp-2 then would leave etcd one member.
+func TestSelfGuardAsksTheControlPlanes(t *testing.T) {
+	bundle, err := os.ReadFile(filepath.Join("..", "talos", "render", "testdata", "secrets.yaml"))
+	require.NoError(t, err)
+	objs := guardedObjects()
+	for _, o := range objs {
+		if c, ok := o.(*osv1alpha1.TalosCluster); ok {
+			c.Spec.TalosVersion = "v1.14.6"
+			c.Spec.SecretsRef = osv1alpha1.SecretReference{Namespace: "pk-metal", Name: "mgmt-secrets"}
+		}
+	}
+	objs = append(objs, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "pk-metal", Name: "mgmt-secrets"},
+		Data:       map[string][]byte{render.BundleKey: bundle},
+	})
+	cl := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(objs...).Build()
+
+	fleet := talosfake.NewFleet()
+	machine := func(addr string) *talosfake.Machine {
+		m := talosfake.NewMachine("v1.14.6")
+		m.Configure([]byte("machine: {}"))
+		m.SetStage("running", true)
+		fleet.Add(addr, addr, m)
+		return m
+	}
+	machine("10.0.0.1")
+	cp3 := machine("10.0.0.3")
+	cp3.SetUnreachable(true) // in POST
+
+	g := &SelfGuard{Reader: cl, NodeName: "talos-1", Dial: fleet.Dialer(), Namespace: "pk-metal"}
+	host := runsNodeHost("host-a", "cp-2")
+	host.Annotations = map[string]string{metalv1alpha1.AnnotationAllowSelfDisruption: "true"}
+
+	msg, err := g.Check(t.Context(), &host)
+	require.NoError(t, err)
+	assert.Contains(t, msg, "Not running or not ready: cp-3")
+
+	cp3.SetUnreachable(false)
+	cp3.SetStage("running", false, "etcd")
+	msg, err = g.Check(t.Context(), &host)
+	require.NoError(t, err)
+	assert.Contains(t, msg, "Not running or not ready: cp-3", "up but not ready: etcd is not back")
+
+	cp3.SetStage("running", true)
+	msg, err = g.Check(t.Context(), &host)
+	require.NoError(t, err)
+	assert.Empty(t, msg, "both other control planes answer ready: a majority is left")
+}
+
+// TestSelfGuardKeepsAnInstalledControlPlane: the claim's hand-off record
+// keeps a control plane protected while its node does not answer (a flap of
+// the management network, apid restarting).
+func TestSelfGuardKeepsAnInstalledControlPlane(t *testing.T) {
+	claim := testClaim("cp-2")
+	claim.Status.HandOff = &metalv1alpha1.ClaimHandOff{Host: "host-a", Node: "cp-2", At: metav1.Now()}
+	objs := guardedObjects()
+	for _, o := range objs {
+		if n, ok := o.(*osv1alpha1.TalosNode); ok && n.Name == "cp-2" {
+			n.Status.Conditions = nil
+		}
+	}
+	host := boundHost(claim)
+	host.Spec.OS.NodeRef.Name = "cp-2"
+	cl := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(append(objs, claim, host)...).Build()
+	g := &SelfGuard{Reader: cl, NodeName: "talos-1"}
+
+	msg, err := g.Check(t.Context(), host)
+	require.NoError(t, err)
+	assert.Contains(t, msg, "a control plane of cluster mgmt")
 }

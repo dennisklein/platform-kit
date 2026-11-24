@@ -155,7 +155,7 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 	c, scheme := mgr.GetClient(), mgr.GetScheme()
 	var self *SelfGuard
 	if o.NodeName != "" {
-		self = &SelfGuard{Reader: mgr.GetAPIReader(), NodeName: o.NodeName}
+		self = &SelfGuard{Reader: mgr.GetAPIReader(), NodeName: o.NodeName, Dial: o.TalosDial, Namespace: o.CredentialsNamespace}
 	}
 	recorder := func() events.EventRecorder {
 		return mgr.GetEventRecorder(cmp.Or(o.EventSource, "pk-metal"))
