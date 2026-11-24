@@ -151,7 +151,7 @@ func main() {
 			log.Error(err, "media store")
 			os.Exit(1)
 		}
-		if helper == "" {
+		if helper == "" && c.storeClaim != "" {
 			if helper, err = ownImage(restCfg, scheme); err != nil {
 				log.Error(err, "find the manager's own image for the imager Jobs; set --imager-helper-image")
 				os.Exit(1)
@@ -336,7 +336,7 @@ func parseFlags(args []string, output io.Writer) (*config, error) {
 	fs.StringVar(&c.mediaStore, "media-store", "",
 		"directory of the media store, where installers with a node's config built in rest (for BMCs that hold one virtual medium); empty: such machines are not installed")
 	fs.StringVar(&c.storeClaim, "media-store-claim", "",
-		"PersistentVolumeClaim mounted at --media-store; the imager Jobs mount it to write the installers they build")
+		"PersistentVolumeClaim mounted at --media-store; the imager Jobs mount it to write the installers they build. Empty with --media-store: the store is not a claim (an emptyDir) and no installer is built")
 	fs.StringVar(&c.imagerRepo, "imager-repository", controller.DefaultImagerRepository,
 		"where the Talos imager image is pulled from; a mirror must carry the same digests")
 	c.imagerPins = imagerDigests(controller.DefaultImagerDigests())
@@ -374,8 +374,12 @@ func parseFlags(args []string, output io.Writer) (*config, error) {
 	if c.checkIn <= 0 {
 		return nil, fmt.Errorf("--checkin-timeout must be positive, got %s", c.checkIn)
 	}
-	if (c.mediaStore == "") != (c.storeClaim == "") {
-		return nil, errors.New("--media-store and --media-store-claim go together: the directory the manager mounts the claim at, and the claim the imager Jobs mount")
+	// A store without a claim is an emptyDir (pk-metal pivot
+	// --media-store=ephemeral): it serves, and the BootAssets that need a
+	// build say that nothing builds into it. A claim without a store names
+	// a volume the manager does not use.
+	if c.storeClaim != "" && c.mediaStore == "" {
+		return nil, errors.New("--media-store-claim needs --media-store: the directory the manager mounts the claim at, next to the claim the imager Jobs mount")
 	}
 	return c, nil
 }

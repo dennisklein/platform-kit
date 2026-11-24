@@ -91,6 +91,16 @@ func TestStore(t *testing.T) {
 		assert.True(t, s.Has("node-a", "k2"))
 	})
 
+	t.Run("remove deletes one artifact, and nothing is no error", func(t *testing.T) {
+		writeBuild(t, s, "node-d-build-1", iso)
+		_, _, err := s.Import("node-d-build-1", "node-d", "k1")
+		require.NoError(t, err)
+		require.NoError(t, s.Remove("node-d", "k1"))
+		assert.False(t, s.Has("node-d", "k1"))
+		require.NoError(t, s.Remove("node-d", "k1"))
+		assert.Error(t, s.Remove("..", "k1"))
+	})
+
 	t.Run("sweep removes what nothing claims", func(t *testing.T) {
 		writeBuild(t, s, "node-c-build-1", iso)
 		_, _, err := s.Import("node-c-build-1", "node-c", "k1")

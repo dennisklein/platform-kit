@@ -255,6 +255,88 @@ func TestEmbeddedInstallerHolds(t *testing.T) {
 	}
 }
 
+// builtFixture is a fixture whose installer is built and imported.
+func builtFixture(t *testing.T) (*embedFixture, *osv1alpha1.BootAsset) {
+	t.Helper()
+	f := newEmbedFixture(t, "version: v1alpha1")
+	f.reconcile(t)
+	jobs := f.jobs(t)
+	require.Len(t, jobs, 1)
+	f.finish(t, &jobs[0], true, "the installer")
+	ba := f.reconcile(t)
+	require.Equal(t, metav1.ConditionTrue, ready(ba).Status)
+	require.Empty(t, f.jobs(t))
+	return f, ba
+}
+
+// After a move to another cluster the BootAsset's status says Ready, and the
+// store there is a new, empty volume. The asset must not go on naming a file
+// that is not there: it builds again, and names no artifact until then.
+func TestEmbeddedInstallerMissingFromTheStoreIsBuiltAgain(t *testing.T) {
+	f, ba := builtFixture(t)
+	key, built := ba.Status.BuildKey, ba.Status.Digest
+	empty, err := asset.NewStore(t.TempDir())
+	require.NoError(t, err)
+	f.r.Store, f.store = empty, empty
+
+	ba = f.reconcile(t)
+	c := ready(ba)
+	assert.Equal(t, metav1.ConditionFalse, c.Status)
+	assert.Equal(t, osv1alpha1.ReasonBuilding, c.Reason)
+	assert.Contains(t, c.Message, "is not in the media store")
+	assert.Contains(t, c.Message, built)
+	assert.Empty(t, ba.Status.Digest, "no artifact is named while none is there")
+	assert.Empty(t, ba.Status.BuildKey)
+	jobs := f.jobs(t)
+	require.Len(t, jobs, 1, "a new build")
+
+	// The rebuilt image need not be byte for byte the old one.
+	f.finish(t, &jobs[0], true, "the installer, built again")
+	ba = f.reconcile(t)
+	require.Equal(t, metav1.ConditionTrue, ready(ba).Status, "%+v", ready(ba))
+	assert.Equal(t, key, ba.Status.BuildKey)
+	assert.Equal(t, digest.FromString("the installer, built again").String(), ba.Status.Digest)
+
+	ba = f.reconcile(t)
+	assert.Equal(t, metav1.ConditionTrue, ready(ba).Status, "a rebuilt artifact is not taken for a changed one")
+	assert.Empty(t, f.jobs(t))
+}
+
+// A file whose bytes are not the ones built and recorded is nobody's
+// approved artifact: it goes, and the installer is built again.
+func TestEmbeddedInstallerWithAnotherDigestIsBuiltAgain(t *testing.T) {
+	f, ba := builtFixture(t)
+	path := filepath.Join(f.store.Dir, "assets", ba.Name, ba.Status.BuildKey+".iso")
+	require.NoError(t, os.Chmod(path, 0o600))
+	require.NoError(t, os.WriteFile(path, []byte("not the installer"), 0o400))
+
+	ba = f.reconcile(t)
+	c := ready(ba)
+	assert.Equal(t, osv1alpha1.ReasonBuilding, c.Reason)
+	assert.Contains(t, c.Message, "not the "+digest.FromString("the installer").String()+" that was built")
+	assert.Empty(t, ba.Status.Digest)
+	assert.NoFileExists(t, path)
+	assert.Len(t, f.jobs(t), 1)
+}
+
+// A store the imager Jobs cannot mount (an emptyDir after a move with
+// --media-store=ephemeral) builds nothing, and the asset says so.
+func TestEmbeddedInstallerWithoutAClaimSaysSo(t *testing.T) {
+	f, _ := builtFixture(t)
+	empty, err := asset.NewStore(t.TempDir())
+	require.NoError(t, err)
+	f.r.Store, f.store = empty, empty
+	f.r.Imager.StoreClaim = ""
+
+	ba := f.reconcile(t)
+	c := ready(ba)
+	assert.Equal(t, metav1.ConditionFalse, c.Status)
+	assert.Equal(t, osv1alpha1.ReasonBuilderUnavailable, c.Reason)
+	assert.Contains(t, c.Message, "not on a PersistentVolumeClaim")
+	assert.Contains(t, c.Message, "--media-store-claim")
+	assert.Empty(t, f.jobs(t))
+}
+
 // A deleted BootAsset has no owner reference to take its file along; the
 // reconcile of its disappearance does.
 func TestDeletedEmbeddedInstallerLeavesTheStore(t *testing.T) {

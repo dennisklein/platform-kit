@@ -129,6 +129,21 @@ func (s *Store) Has(asset, key string) bool {
 	return err == nil && st.Mode().IsRegular()
 }
 
+// Remove deletes the artifact for the asset's key, if there is one. It is how
+// a file that is not what was built leaves the store before it is built
+// again.
+func (s *Store) Remove(asset, key string) error {
+	for _, e := range []string{asset, key} {
+		if err := checkElem(e); err != nil {
+			return err
+		}
+	}
+	if err := os.Remove(s.path(asset, key)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
 // Digest hashes the artifact: sha256:<hex> and its size.
 func (s *Store) Digest(asset, key string) (string, int64, error) {
 	f, err := s.open(asset, key)

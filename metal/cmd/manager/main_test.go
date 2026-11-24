@@ -51,6 +51,15 @@ func TestImagerDigestFlagAddsAPin(t *testing.T) {
 	assert.Contains(t, c.imagerPins, "v1.14.6", "the built-in pin stays")
 }
 
+// A store without a claim is the emptyDir pk-metal pivot --media-store=ephemeral
+// leaves: the manager starts, and builds nothing into it.
+func TestStoreWithoutClaim(t *testing.T) {
+	c, err := parseFlags([]string{"--ledger=l", "--media-store=/var/lib/pk-metal/media"}, &bytes.Buffer{})
+	require.NoError(t, err)
+	assert.Equal(t, "/var/lib/pk-metal/media", c.mediaStore)
+	assert.Empty(t, c.storeClaim)
+}
+
 func TestParseFlagsRefuses(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -65,8 +74,7 @@ func TestParseFlagsRefuses(t *testing.T) {
 		{"stray argument", []string{"--ledger=l", "ledger.yaml"}, "every setting is a flag"},
 		{"unknown flag", []string{"--ledger=l", "--bmc-insecur"}, "flag provided but not defined"},
 		{"not a duration", []string{"--ledger=l", "--poll-interval=5"}, "invalid value"},
-		{"store without claim", []string{"--ledger=l", "--media-store=/var/lib/pk-metal/media"}, "go together"},
-		{"claim without store", []string{"--ledger=l", "--media-store-claim=c"}, "go together"},
+		{"claim without store", []string{"--ledger=l", "--media-store-claim=c"}, "needs --media-store"},
 		{"imager digest without version", []string{"--ledger=l", "--imager-digest=sha256:" + strings.Repeat("a", 64)}, "want <talos version>="},
 		{"imager digest not a digest", []string{"--ledger=l", "--imager-digest=v1.14.7=latest"}, "want <talos version>="},
 	} {
