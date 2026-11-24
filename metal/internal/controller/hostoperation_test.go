@@ -607,3 +607,84 @@ func startMedia(t *testing.T) *asset.Service {
 	require.NoError(t, err)
 	return media
 }
+
+// A boot that touched the machine and then failed is retried: pk-metal retry
+// deletes it, and the claim makes a new one. A claim deleted before the new
+// boot starts still powers the machine off before it lets the host go. It
+// used to hand the machine back as it was, with the failed boot's medium in
+// the slot: no record said that a boot had run.
+func TestRetriedBootKeepsItsRecord(t *testing.T) {
+	ctx := t.Context()
+	claim := testClaim("node-b")
+	claim.Finalizers = []string{releaseFinalizer}
+	failing := preClearedOp(
+		metalv1alpha1.HostOperationAction{PowerCycle: &metalv1alpha1.PowerCycleAction{}},
+		metalv1alpha1.HostOperationAction{InsertMedia: &metalv1alpha1.InsertMediaAction{
+			MediaID: "VirtualMedia1", ImageURL: "https://images.invalid/installer.iso"}},
+	)
+	failing.Labels = claimLabels(claim, purposeProvision)
+	r, _, rec := executorFor(t, "supermicro-x12", failing, claim)
+	rec.insertErr = fmt.Errorf("the BMC refuses the image")
+	host := &metalv1alpha1.Host{}
+	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: "host-a"}, host))
+	host.Spec.ClaimRef = &metalv1alpha1.ClaimReference{Namespace: claim.Namespace, Name: claim.Name, UID: claim.UID}
+	require.NoError(t, r.Update(ctx, host))
+
+	failed := runOp(t, r)
+	require.False(t, opSucceeded(failed), "precondition: the machine refused a step")
+
+	// pk-metal retry: the failed boot goes, and a new one waits to start.
+	require.NoError(t, r.Delete(ctx, failed))
+	retried := preClearedOp(metalv1alpha1.HostOperationAction{PowerCycle: &metalv1alpha1.PowerCycleAction{}})
+	retried.Name, retried.Labels = "boot-2", claimLabels(claim, purposeProvision)
+	require.NoError(t, r.Create(ctx, retried))
+
+	// The claim is deleted before the new boot starts.
+	require.NoError(t, r.Delete(ctx, claim))
+	require.NoError(t, r.Get(ctx, client.ObjectKeyFromObject(claim), claim))
+	cr := &HostClaimReconciler{Client: r.Client, OperationsNamespace: "pk-metal", Proposer: "operator"}
+	_, err := cr.finishRelease(ctx, claim)
+	require.NoError(t, err)
+
+	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: "host-a"}, host))
+	assert.NotNil(t, host.Spec.ClaimRef, "the machine a boot touched stays bound until a release powered it off")
+	assert.True(t, powerOffDecided(host, claim), "releasing the host powers it off")
+}
+
+// A boot records its start on the host as the API server holds it. A cache
+// that has not yet seen the bind shows the host as free; the record must be
+// written all the same, or a retried boot loses it again.
+func TestBootRecordsItsStartPastAStaleCache(t *testing.T) {
+	ctx := t.Context()
+	claim := testClaim("node-b")
+	boot := preClearedOp(metalv1alpha1.HostOperationAction{PowerCycle: &metalv1alpha1.PowerCycleAction{}})
+	boot.Labels = claimLabels(claim, purposeProvision)
+	r, _, _ := executorFor(t, "supermicro-x12", boot)
+	host := &metalv1alpha1.Host{}
+	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: "host-a"}, host))
+	free := host.DeepCopy()
+	host.Spec.ClaimRef = &metalv1alpha1.ClaimReference{Namespace: claim.Namespace, Name: claim.Name, UID: claim.UID}
+	require.NoError(t, r.Update(ctx, host))
+	r.APIReader = r.Client
+	r.Client = &staleHost{Client: r.Client, host: free}
+
+	got := runOp(t, r)
+	require.True(t, opSucceeded(got), "%+v", got.Status)
+	require.NoError(t, r.APIReader.Get(ctx, client.ObjectKey{Name: "host-a"}, host))
+	assert.True(t, powerOffDecided(host, claim), "the boot's start is on the host")
+}
+
+// staleHost answers reads of the host from a cache that has not seen its
+// latest write; everything else goes to the API server.
+type staleHost struct {
+	client.Client
+	host *metalv1alpha1.Host
+}
+
+func (c *staleHost) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if h, ok := obj.(*metalv1alpha1.Host); ok && key.Name == c.host.Name {
+		c.host.DeepCopyInto(h)
+		return nil
+	}
+	return c.Client.Get(ctx, key, obj, opts...)
+}

@@ -145,7 +145,7 @@ func waitingOn(format string, args ...any) stepState {
 
 // +kubebuilder:rbac:groups=metal.pk.io,resources=hostoperations,verbs=get;list;watch;delete
 // +kubebuilder:rbac:groups=metal.pk.io,resources=hostoperations/status,verbs=update
-// +kubebuilder:rbac:groups=metal.pk.io,resources=hosts,verbs=get;list;watch
+// +kubebuilder:rbac:groups=metal.pk.io,resources=hosts,verbs=get;list;watch;patch
 // +kubebuilder:rbac:groups=metal.pk.io,resources=managementendpoints,verbs=get;list;watch
 // +kubebuilder:rbac:groups=metal.pk.io,resources=biossettings,verbs=get;list;watch
 // +kubebuilder:rbac:groups=os.pk.io,resources=bootassets;talosnodes,verbs=get;list;watch
@@ -263,6 +263,9 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		if hold != "" {
 			setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonNoReachablePath, hold)
 			return ctrl.Result{}, client.IgnoreNotFound(flush())
+		}
+		if err := r.recordBootStart(ctx, op, host); err != nil {
+			return ctrl.Result{}, err
 		}
 		op.Status.Baseline = &metalv1alpha1.OperationBaseline{
 			PowerState: string(obs.PowerState),
@@ -515,6 +518,43 @@ func (r *HostOperationReconciler) expire(ctx context.Context, op *metalv1alpha1.
 	}
 	logf.FromContext(ctx).Info("operation expired", "operation", op.Namespace+"/"+op.Name)
 	return ctrl.Result{}, client.IgnoreNotFound(r.Delete(ctx, op))
+}
+
+// recordBootStart writes, before a boot of a claim captures its baseline,
+// that releasing the host for that claim powers the machine off (see
+// annotationReleasePowerOff). The boot operation is not a lasting record:
+// pk-metal retry deletes a failed one, and a release that then finds only a
+// retried boot that has not started would hand the machine back as the
+// failed one left it.
+//
+// The host is read from the API server: a cache that has not yet seen the
+// bind shows the host as free, and the boot would start with no record. The
+// patch carries the version read, so a host unbound since then is not
+// stamped for a claim it no longer serves.
+func (r *HostOperationReconciler) recordBootStart(ctx context.Context, op *metalv1alpha1.HostOperation, cached *metalv1alpha1.Host) error {
+	uid := op.Labels[labelClaimUID]
+	if op.Labels[labelPurpose] != purposeProvision || uid == "" {
+		return nil
+	}
+	if cached.Annotations[annotationReleasePowerOff] == uid {
+		return nil // already written; the cache shows only what was
+	}
+	host := &metalv1alpha1.Host{}
+	if err := r.reader().Get(ctx, client.ObjectKeyFromObject(cached), host); err != nil {
+		return err
+	}
+	if host.Annotations[annotationReleasePowerOff] == uid {
+		return nil
+	}
+	if ref := host.Spec.ClaimRef; ref == nil || ref.UID != "" && string(ref.UID) != uid {
+		return nil
+	}
+	base := host.DeepCopy()
+	if host.Annotations == nil {
+		host.Annotations = map[string]string{}
+	}
+	host.Annotations[annotationReleasePowerOff] = uid
+	return r.Patch(ctx, host, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
 }
 
 // passTimeout budgets one executor pass by what it runs.

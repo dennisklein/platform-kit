@@ -505,6 +505,13 @@ func executorPass(s state, v view, mask uint8, i opSlot, fail bool) *pass {
 			}
 			return p
 		}
+		// recordBootStart: a boot of the claim stamps the host, read from
+		// the API server, before its baseline.
+		if h := p.next.Host; i == slotBoot && h.Claimed && !powerOffDecided(hostObj(h), claimObj(v.Claim)) {
+			if !p.updateHost(h, func(h *mHost) { h.PowerOff = true }) {
+				return p
+			}
+		}
 		if p.updateOp(i, o, func(m *mOp) { m.Started, m.Queued = true, false }) {
 			p.started, p.startedAny = i, true
 			if i == slotBoot {
@@ -696,12 +703,7 @@ var protocolInvariants = []invariant{
 		},
 	},
 	{
-		name:      "a machine a boot touched is unbound only after a release powered it off",
-		knownWhen: []string{"person retries boot"},
-		known: "a retried boot loses the record that the failed one touched the machine: " +
-			"pk-metal retry deletes the failed boot, the new one has not started when the claim is deleted, " +
-			"and the power-off decision on the host is made only by a release; " +
-			"a fix needs a record that a boot started which outlives the operation",
+		name: "a machine a boot touched is unbound only after a release powered it off",
 		check: func(p *pass) string {
 			if p.unbound && p.next.BootStarted && !p.next.ReleaseDone {
 				return "unbound with no release done"
@@ -710,9 +712,7 @@ var protocolInvariants = []invariant{
 		},
 	},
 	{
-		name:      "an unbound machine runs no operator media and holds none",
-		knownWhen: []string{"person retries boot"},
-		known:     "the same lost record: after a retried boot, the failed boot's media stay mounted on an unbound machine",
+		name: "an unbound machine runs no operator media and holds none",
 		check: func(p *pass) string {
 			b := p.next.BMC
 			if !p.next.Host.Claimed && (b.Media || (b.On && b.FromMedia)) && !anyActive(p.next) {
