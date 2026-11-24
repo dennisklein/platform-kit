@@ -324,6 +324,51 @@ func TestHoldKeepsADeletedClaimsMachine(t *testing.T) {
 	assert.Len(t, release, 1)
 }
 
+// A hold that takes back a release proposal does not lose the record that a
+// boot ran: the boot operations went when the release was made, and the
+// power-off decision on the host is what the passes after the hold read.
+func TestHoldKeepsTheLastRecordOfABoot(t *testing.T) {
+	claim := testClaim("node-b")
+	host := &metalv1alpha1.Host{
+		ObjectMeta: metav1.ObjectMeta{Name: "host-a"},
+		Spec: metalv1alpha1.HostSpec{
+			ClaimRef: &metalv1alpha1.ClaimReference{Namespace: claim.Namespace, Name: claim.Name, UID: claim.UID},
+		},
+	}
+	// The node checked in after the claim was deleted: it runs, so its
+	// release waits for a person, and no hand-off was recorded.
+	host.Status.Conditions = []metav1.Condition{{Type: metalv1alpha1.ConditionOSReady,
+		Status: metav1.ConditionTrue, Reason: "NodeReady", LastTransitionTime: metav1.Now()}}
+	r := claimReconcilerFor(t, host, bootOp("boot", "node-b", false, true))
+
+	// The first pass makes the release and stops the boot.
+	done, err := r.release(t.Context(), claim, []metalv1alpha1.Host{*host})
+	require.NoError(t, err)
+	require.False(t, done)
+	boots, err := r.claimOps(t.Context(), claim, purposeProvision)
+	require.NoError(t, err)
+	require.Empty(t, boots, "precondition: the boot record is gone")
+
+	// A person holds the claim; two passes later the machine is still bound.
+	claim.Annotations = map[string]string{metalv1alpha1.AnnotationHold: ""}
+	got := &metalv1alpha1.Host{}
+	for range 2 {
+		require.NoError(t, r.Get(t.Context(), client.ObjectKeyFromObject(host), got))
+		done, err = r.release(t.Context(), claim, []metalv1alpha1.Host{*got})
+		require.NoError(t, err)
+		assert.False(t, done, "held: the machine is not handed back")
+	}
+	// The hold lifted, the release still powers the machine off first.
+	claim.Annotations = nil
+	require.NoError(t, r.Get(t.Context(), client.ObjectKeyFromObject(host), got))
+	done, err = r.release(t.Context(), claim, []metalv1alpha1.Host{*got})
+	require.NoError(t, err)
+	assert.False(t, done, "the machine goes back only after its power-off")
+	require.NoError(t, r.Get(t.Context(), client.ObjectKeyFromObject(host), got))
+	assert.NotNil(t, got.Spec.ClaimRef, "still bound, waiting for the power-off")
+	assert.True(t, powerOffDecided(got, claim), "the power-off decision outlives the withdrawn proposal")
+}
+
 func TestMaintenanceStopsProposals(t *testing.T) {
 	host := &metalv1alpha1.Host{ObjectMeta: metav1.ObjectMeta{Name: "host-a",
 		Annotations: map[string]string{metalv1alpha1.AnnotationMaintenance: "replacing DIMM B2"}}}
