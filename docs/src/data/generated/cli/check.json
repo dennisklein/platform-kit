@@ -12,10 +12,17 @@
   "exitStatus": [],
   "flags": [
     {
+      "name": "bmc-ca",
+      "type": "string",
+      "default": "",
+      "usage": "PEM file with the CA certificates that the BMC's TLS certificate must chain to",
+      "global": false
+    },
+    {
       "name": "insecure",
       "type": "bool",
       "default": "",
-      "usage": "skip TLS verification",
+      "usage": "skip TLS verification of the BMC (prefer --bmc-ca)",
       "global": false
     },
     {

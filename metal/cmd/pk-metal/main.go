@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -31,22 +33,64 @@ import (
 // and by the image build.
 var version = "dev"
 
-// connectFlags returns the shared endpoint/auth flag set for read-only verbs. The
-// password comes ONLY from PK_METAL_BMC_PASSWORD (never argv, which other users of the machine can read).
-func connectFlags(fs *flag.FlagSet) (user *string, insecure *bool) {
-	user = fs.String("user", "admin", "BMC username (password via PK_METAL_BMC_PASSWORD)")
-	insecure = fs.Bool("insecure", false, "skip TLS verification")
-	return
+// bmcFlags are the shared endpoint, auth and trust flags of the verbs that
+// talk to a BMC. The password comes ONLY from PK_METAL_BMC_PASSWORD (never
+// argv, which other users of the machine can read).
+type bmcFlags struct {
+	user     *string
+	insecure *bool
+	caFile   *string
 }
 
-func mustConnect(endpoint string, user string, insecure, readOnly bool) bmc.Client {
-	c, err := gofishclient.Connect(context.Background(), gofishclient.Config{
+func connectFlags(fs *flag.FlagSet) bmcFlags {
+	return bmcFlags{
+		user:     fs.String("user", "admin", "BMC username (password via PK_METAL_BMC_PASSWORD)"),
+		insecure: fs.Bool("insecure", false, "skip TLS verification of the BMC (prefer --bmc-ca)"),
+		caFile:   fs.String("bmc-ca", "", "PEM file with the CA certificates that the BMC's TLS certificate must chain to"),
+	}
+}
+
+// insecureWarning is printed whenever --insecure is in use.
+const insecureWarning = "warning: --insecure turns off the check of the BMC's TLS certificate. " +
+	"Anyone on the network path can read the BMC password. Give --bmc-ca <file> instead."
+
+// config builds the client configuration. It reads the CA file of
+// --bmc-ca, and it writes insecureWarning to warn when --insecure is set.
+func (f bmcFlags) config(endpoint, password string, readOnly bool, warn io.Writer) (gofishclient.Config, error) {
+	cfg := gofishclient.Config{
 		Endpoint: endpoint,
-		Username: user,
-		Password: os.Getenv("PK_METAL_BMC_PASSWORD"),
-		Insecure: insecure,
+		Username: *f.user,
+		Password: password,
+		Insecure: *f.insecure,
 		ReadOnly: readOnly,
-	})
+	}
+	if *f.caFile != "" {
+		if *f.insecure {
+			return cfg, errors.New("give --bmc-ca or --insecure, not both")
+		}
+		pem, err := os.ReadFile(*f.caFile)
+		if err != nil {
+			return cfg, fmt.Errorf("--bmc-ca: %w", err)
+		}
+		cfg.RootCAs = x509.NewCertPool()
+		if !cfg.RootCAs.AppendCertsFromPEM(pem) {
+			return cfg, fmt.Errorf("--bmc-ca: %s holds no PEM certificate", *f.caFile)
+		}
+	}
+	if *f.insecure {
+		fmt.Fprintln(warn, insecureWarning)
+	}
+	return cfg, nil
+}
+
+// mustConnect opens the BMC session. ctx ends every request of the session
+// when it is cancelled (Ctrl-C); each request is also bounded on its own.
+func mustConnect(ctx context.Context, endpoint string, f bmcFlags, readOnly bool) bmc.Client {
+	cfg, err := f.config(endpoint, os.Getenv("PK_METAL_BMC_PASSWORD"), readOnly, os.Stderr)
+	if err != nil {
+		die(err)
+	}
+	c, err := gofishclient.Connect(ctx, cfg)
 	if err != nil {
 		die(err)
 	}
@@ -57,7 +101,7 @@ func inventoryCmd(args []string) {
 	fs := newFlags("inventory")
 	node := fs.String("node", "", "node name for the fact file (default: derived from the endpoint host)")
 	address := fs.String("address", "", "address label for the fact file (default: endpoint host)")
-	user, insecure := connectFlags(fs)
+	bf := connectFlags(fs)
 	parseFlags(fs, args)
 	if fs.NArg() != 1 {
 		badUsage(fs, "give exactly one BMC URL, for example https://10.0.0.5")
@@ -71,9 +115,11 @@ func inventoryCmd(args []string) {
 		*node = host
 	}
 
-	c := mustConnect(endpoint, *user, *insecure, true) // inventory is read-only by construction
+	ctx, stop := signalContext()
+	defer stop()
+	c := mustConnect(ctx, endpoint, bf, true) // inventory is read-only by construction
 	defer c.Close()
-	facts, err := inventory.Gather(context.Background(), c)
+	facts, err := inventory.Gather(ctx, c)
 	if err != nil {
 		die(err)
 	}
@@ -82,14 +128,15 @@ func inventoryCmd(args []string) {
 
 func checkCmd(args []string) {
 	fs := newFlags("check")
-	user, insecure := connectFlags(fs)
+	bf := connectFlags(fs)
 	parseFlags(fs, args)
 	if fs.NArg() != 1 {
 		badUsage(fs, "give exactly one BMC URL, for example https://10.0.0.5")
 	}
-	c := mustConnect(fs.Arg(0), *user, *insecure, true) // check is read-only by construction
+	ctx, stop := signalContext()
+	defer stop()
+	c := mustConnect(ctx, fs.Arg(0), bf, true) // check is read-only by construction
 	defer c.Close()
-	ctx := context.Background()
 
 	m, err := c.Manager(ctx)
 	if err != nil {

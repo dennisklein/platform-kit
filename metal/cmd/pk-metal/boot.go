@@ -1,12 +1,9 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"log"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/dennisklein/platform-kit/metal/internal/boot"
@@ -55,7 +52,7 @@ func bootCmd(args []string) {
 	yes := fs.Bool("yes", false, "allow a hard reset of a machine that is on")
 	forceRestart := fs.Bool("force-restart", false, "same as --yes")
 	noPower := fs.Bool("no-power", false, "mount the medium and set the next boot only; you restart the machine")
-	user, insecure := connectFlags(fs)
+	bf := connectFlags(fs)
 	parseFlags(fs, args)
 	if fs.NArg() != 1 || *configPath == "" || *node == "" {
 		badUsage(fs, "--config, --node and one BMC URL are required")
@@ -75,7 +72,7 @@ func bootCmd(args []string) {
 		die(err)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signalContext()
 	defer stop()
 
 	var rc *relay.Client
@@ -91,7 +88,7 @@ func bootCmd(args []string) {
 		log.Printf("boot: registered at relay %s, front %s", *relayAddr, rc.FrontAddr())
 	}
 
-	c := mustConnect(fs.Arg(0), *user, *insecure, false) // the ladder mounts, overrides, powers
+	c := mustConnect(ctx, fs.Arg(0), bf, false) // the ladder mounts, overrides, powers
 	defer c.Close()
 
 	res, err := boot.Run(ctx, boot.Options{
