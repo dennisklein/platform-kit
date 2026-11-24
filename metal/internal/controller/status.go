@@ -51,6 +51,97 @@ func isConvergenceHostCondition(c metav1.Condition) bool {
 	return slices.Contains(convergenceHostConditions, c.Type)
 }
 
+// The shares below are what each field manager names when it applies its
+// part of a status. The reconcilers stamp the phase onto their share before
+// they apply it; ApplyStatusShares writes a whole status at once.
+
+// hostProjectedShare is the host reconciler's part of a host's status: all of
+// it but the convergence lane's conditions and plan memory.
+func hostProjectedShare(host *metalv1alpha1.Host) *metalv1alpha1.Host {
+	apply := &metalv1alpha1.Host{
+		ObjectMeta: metav1.ObjectMeta{Name: host.Name},
+		Status:     *host.Status.DeepCopy(),
+	}
+	apply.Status.FirmwareProposed = nil
+	apply.Status.Conditions = slices.DeleteFunc(apply.Status.Conditions, isConvergenceHostCondition)
+	return apply
+}
+
+// hostConvergenceShare is the convergence lane's part: its two conditions and
+// the firmware plan memory.
+func hostConvergenceShare(host *metalv1alpha1.Host) *metalv1alpha1.Host {
+	apply := &metalv1alpha1.Host{
+		ObjectMeta: metav1.ObjectMeta{Name: host.Name},
+	}
+	apply.Status.FirmwareProposed = host.Status.FirmwareProposed
+	for _, t := range convergenceHostConditions {
+		if c := meta.FindStatusCondition(host.Status.Conditions, t); c != nil {
+			apply.Status.Conditions = append(apply.Status.Conditions, *c)
+		}
+	}
+	return apply
+}
+
+// endpointObservedShare is the endpoint observer's part of an endpoint's
+// status: all of it but the Configured condition and the push memory.
+func endpointObservedShare(ep *metalv1alpha1.ManagementEndpoint) *metalv1alpha1.ManagementEndpoint {
+	apply := &metalv1alpha1.ManagementEndpoint{
+		ObjectMeta: metav1.ObjectMeta{Name: ep.Name},
+		Status:     *ep.Status.DeepCopy(),
+	}
+	apply.Status.IdentityPushed = nil
+	apply.Status.Conditions = slices.DeleteFunc(apply.Status.Conditions,
+		func(c metav1.Condition) bool { return c.Type == metalv1alpha1.ConditionConfigured })
+	return apply
+}
+
+// endpointConvergenceShare is the endpoint convergence lane's part: the
+// Configured condition and the push memory.
+func endpointConvergenceShare(ep *metalv1alpha1.ManagementEndpoint) *metalv1alpha1.ManagementEndpoint {
+	apply := &metalv1alpha1.ManagementEndpoint{
+		ObjectMeta: metav1.ObjectMeta{Name: ep.Name},
+	}
+	if c := meta.FindStatusCondition(ep.Status.Conditions, metalv1alpha1.ConditionConfigured); c != nil {
+		apply.Status.Conditions = []metav1.Condition{*c}
+	}
+	apply.Status.IdentityPushed = ep.Status.IdentityPushed
+	return apply
+}
+
+// ApplyStatusShares writes obj's whole status the way the reconcilers write
+// it: one server-side apply per field manager, each naming only its own
+// fields. pk-metal pivot uses it to copy a status onto another cluster, so
+// that the reconcilers there find the field ownership they expect: a field
+// owned by the wrong manager would never be removed when its real owner stops
+// naming it. It reports false, and writes nothing, for a kind whose status
+// has a single writer; such a status is written with an ordinary update.
+func ApplyStatusShares(ctx context.Context, c client.Client, obj client.Object) (bool, error) {
+	type share struct {
+		owner string
+		obj   client.Object
+	}
+	var shares []share
+	switch o := obj.(type) {
+	case *metalv1alpha1.Host:
+		shares = []share{{fieldOwnerHost, hostProjectedShare(o)}, {fieldOwnerHostConvergence, hostConvergenceShare(o)}}
+	case *metalv1alpha1.ManagementEndpoint:
+		shares = []share{{fieldOwnerEndpoint, endpointObservedShare(o)}, {fieldOwnerConvergence, endpointConvergenceShare(o)}}
+		if cond := meta.FindStatusCondition(o.Status.Conditions, metalv1alpha1.ConditionDeletionHeld); cond != nil {
+			held := &metalv1alpha1.ManagementEndpoint{ObjectMeta: metav1.ObjectMeta{Name: o.Name}}
+			held.Status.Conditions = []metav1.Condition{*cond}
+			shares = append(shares, share{fieldOwnerProtection, held})
+		}
+	default:
+		return false, nil
+	}
+	for _, s := range shares {
+		if err := applyOwnedStatus(ctx, c, s.obj, s.owner); err != nil {
+			return true, err
+		}
+	}
+	return true, nil
+}
+
 // setCondition is the one way a reconciler sets a condition. It always stamps
 // the object's generation, so a condition can never claim to describe a spec it
 // did not see.

@@ -125,15 +125,7 @@ func (r *ConvergenceReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 // name is derived from the plan hash, so the second attempt is an AlreadyExists
 // and nothing is done twice.
 func (r *ConvergenceReconciler) applyStatus(ctx context.Context, host *metalv1alpha1.Host, facts phase.HostFacts) error {
-	apply := &metalv1alpha1.Host{
-		ObjectMeta: metav1.ObjectMeta{Name: host.Name},
-	}
-	apply.Status.FirmwareProposed = host.Status.FirmwareProposed
-	for _, t := range convergenceHostConditions {
-		if c := meta.FindStatusCondition(host.Status.Conditions, t); c != nil {
-			apply.Status.Conditions = append(apply.Status.Conditions, *c)
-		}
-	}
+	apply := hostConvergenceShare(host)
 	phase.StampHostOnto(apply, host, facts)
 	return applyOwnedStatus(ctx, r.Client, apply, fieldOwnerHostConvergence)
 }

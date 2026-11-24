@@ -133,13 +133,7 @@ func (r *EndpointConvergenceReconciler) Reconcile(ctx context.Context, req ctrl.
 // no fresh request is generated, and the manager refuses to import one it has
 // already consumed. The lane then wedges on an error no retry can clear.
 func (r *EndpointConvergenceReconciler) applyStatus(ctx context.Context, ep *metalv1alpha1.ManagementEndpoint) error {
-	apply := &metalv1alpha1.ManagementEndpoint{
-		ObjectMeta: metav1.ObjectMeta{Name: ep.Name},
-	}
-	if c := meta.FindStatusCondition(ep.Status.Conditions, metalv1alpha1.ConditionConfigured); c != nil {
-		apply.Status.Conditions = []metav1.Condition{*c}
-	}
-	apply.Status.IdentityPushed = ep.Status.IdentityPushed
+	apply := endpointConvergenceShare(ep)
 	phase.StampEndpointOnto(apply, ep)
 	return applyOwnedStatus(ctx, r.Client, apply, fieldOwnerConvergence)
 }

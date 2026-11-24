@@ -231,12 +231,7 @@ func projectDeletionHold(host *metalv1alpha1.Host) {
 // memory and its two conditions are stripped rather than restated — naming
 // them here would claim them.
 func (r *HostReconciler) applyStatus(ctx context.Context, host *metalv1alpha1.Host, facts phase.HostFacts) error {
-	apply := &metalv1alpha1.Host{
-		ObjectMeta: metav1.ObjectMeta{Name: host.Name},
-		Status:     *host.Status.DeepCopy(),
-	}
-	apply.Status.FirmwareProposed = nil
-	apply.Status.Conditions = slices.DeleteFunc(apply.Status.Conditions, isConvergenceHostCondition)
+	apply := hostProjectedShare(host)
 	phase.StampHostOnto(apply, host, facts)
 	return applyOwnedStatus(ctx, r.Client, apply, fieldOwnerHost)
 }
