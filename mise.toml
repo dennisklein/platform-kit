@@ -60,6 +60,14 @@ promtool check rules "$tmp/rules.yaml"
 promtool test rules "$tmp/rules_test.yaml"
 '''
 
+[tasks."test:hardware"]
+description = "Read-only conformance checks against a real BMC: set PK_METAL_HW_URL and PK_METAL_BMC_PASSWORD"
+dir = "metal"
+run = '''
+[ -n "${PK_METAL_HW_URL:-}" ] || { echo "test:hardware: set PK_METAL_HW_URL to the BMC, for example https://10.0.0.5" >&2; exit 1; }
+go test -count 1 -run 'TestHardware$' -v ./internal/bmc/gofish/
+'''
+
 [tasks.fuzz]
 description = "Run every Go fuzz target for FUZZTIME each (default 10s); a local search, not part of CI"
 dir = "metal"

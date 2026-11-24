@@ -524,6 +524,89 @@ func Run(t *testing.T, c bmc.Client, f *sim.Fixture, readOnly bool) {
 	})
 }
 
+// RunReadOnly checks a BMC whose facts are not known in advance: real
+// hardware, read-only. It asserts the shape of every read, not its values:
+// each read answers, the identity anchors are there, every list is stable
+// across two reads, and the dialects are ones the client knows. Pass a
+// client opened with Config.ReadOnly: nothing here writes, and the rail
+// refuses a write that a bug would make.
+func RunReadOnly(t *testing.T, c bmc.Client) {
+	t.Helper()
+	ctx := context.Background()
+
+	t.Run("manager", func(t *testing.T) {
+		m, err := c.Manager(ctx)
+		require.NoError(t, err)
+		assert.NotEmpty(t, m.FirmwareVersion, "firmware")
+		assert.NotEmpty(t, m.Vendor, "vendor: ServiceRoot.Vendor, the Manager Oem key or the Manufacturer")
+	})
+
+	t.Run("chassis-is-stable", func(t *testing.T) {
+		// A BMC with several chassis must give the same one on every read:
+		// its board serial is an identity anchor.
+		first, err := c.Chassis(ctx)
+		require.NoError(t, err)
+		second, err := c.Chassis(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, first, second)
+	})
+
+	t.Run("systems", func(t *testing.T) {
+		ch, err := c.Chassis(ctx)
+		require.NoError(t, err)
+		first := mustSystems(t, ctx, c)
+		require.NotEmpty(t, first, "an endpoint fronts at least one system")
+		for _, sys := range first {
+			assert.NotEmpty(t, sys.ID)
+			assert.True(t, sys.SerialNumber != "" || ch.BoardSerial != "",
+				"system %s: a system serial or the chassis board serial anchors the machine", sys.ID)
+			assert.Contains(t, []bmc.PowerState{bmc.PowerOn, bmc.PowerOff, bmc.PowerPoweringOn, bmc.PowerPoweringOff},
+				sys.PowerState, "system %s power state", sys.ID)
+			assert.NotEmpty(t, sys.BootTargets, "system %s boot targets", sys.ID)
+		}
+		second := mustSystems(t, ctx, c)
+		require.Len(t, second, len(first))
+		for i := range first {
+			assert.Equal(t, first[i].ID, second[i].ID)
+			assert.Equal(t, first[i].NICs, second[i].NICs, "system %s NICs", first[i].ID)
+			assert.Equal(t, first[i].Drives, second[i].Drives, "system %s drives", first[i].ID)
+		}
+	})
+
+	t.Run("capabilities", func(t *testing.T) {
+		caps, err := c.Capabilities(ctx)
+		require.NoError(t, err)
+		media, err := c.Media(ctx)
+		require.NoError(t, err)
+		for _, m := range media {
+			assert.Contains(t, []bmc.MediaDialect{bmc.DialectStandard, bmc.DialectVmmControl, bmc.DialectNone},
+				caps.MediaDialect[m.ID], "media %s dialect", m.ID)
+		}
+		assert.Contains(t, []bmc.UpdateDialect{bmc.DialectMultipartPush, bmc.DialectSimpleUpdate, bmc.DialectNoUpdate},
+			caps.UpdateDialect)
+		assert.Contains(t, []bmc.IdentityDialect{bmc.DialectCSRNative, bmc.DialectKeyUpload, bmc.DialectNoIdentity},
+			caps.IdentityDialect)
+	})
+
+	t.Run("firmware-inventory", func(t *testing.T) {
+		inv, err := c.FirmwareInventory(ctx)
+		require.NoError(t, err)
+		for _, e := range inv {
+			assert.NotEmpty(t, e.ID)
+		}
+	})
+
+	t.Run("bios-read", func(t *testing.T) {
+		systems := mustSystems(t, ctx, c)
+		require.NotEmpty(t, systems)
+		if _, err := c.Bios(ctx, systems[0].ID); err != nil {
+			t.Skipf("no BIOS resource read: %v", err)
+		}
+		_, err := c.BiosSchema(ctx, systems[0].ID)
+		assert.NoError(t, err, "a served BIOS resource has a readable schema, or none")
+	})
+}
+
 // settles asserts that the system reports want within powerSettle. A real
 // BMC reports PoweringOn or PoweringOff for a while after a reset.
 func settles(t *testing.T, ctx context.Context, c bmc.Client, id string, want bmc.PowerState, msgAndArgs ...any) {
