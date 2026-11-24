@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/siderolabs/talos/pkg/machinery/imager/quirks"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -29,7 +30,9 @@ import (
 // The provisioning lane: a bound claim whose OS intent names a rendered node is
 // proposed ONE boot operation that mounts the installer and the node's config
 // medium, points the next boot at them, powers the machine and holds the media
-// until the node checks in. Deleting the claim releases the machine through an
+// until the node checks in. A BMC that holds one medium gets one installer
+// with the node's config built in instead, on its one slot: the config still
+// travels out of band, over the same granted media path. Deleting the claim releases the machine through an
 // operator-created power-off. Both live on the claim reconciler: the claim is
 // what both decisions hang off, and its status has a single writer.
 const (
@@ -86,6 +89,47 @@ type provisionPlan struct {
 	Slots          []string `json:"slots"`
 	Target         string   `json:"target,omitempty"`
 	Mode           string   `json:"mode,omitempty"`
+	// Embedded: the one medium is an installer with the config built in;
+	// ArtifactDigest is its digest. Omitted when false, so the plans of the
+	// other shapes keep their hashes.
+	Embedded bool `json:"embedded,omitempty"`
+}
+
+// bootShape is the kind of boot an endpoint and a machine allow.
+type bootShape int
+
+const (
+	// shapeTwoMedia: the installer on a boot slot, the config medium on
+	// another slot.
+	shapeTwoMedia bootShape = iota
+	// shapeConfigOnly: one slot, and the machine already runs Talos from its
+	// disk (it answers in maintenance mode): the config medium alone.
+	shapeConfigOnly
+	// shapeEmbedded: one slot and a blank machine: one installer with the
+	// node's config built in.
+	shapeEmbedded
+)
+
+// decideShape picks the boot for an endpoint with the given slots and a
+// machine that does or does not answer. It returns a hold reason and message
+// when no boot this operator can make fits.
+func decideShape(hostName string, v endpointView, reachable bool, talosVersion string) (bootShape, string, string) {
+	_, configSlot := v.mediaSlots()
+	switch {
+	case configSlot != "":
+		return shapeTwoMedia, "", ""
+	case reachable:
+		return shapeConfigOnly, "", ""
+	case len(v.bootSlots) == 0:
+		return 0, metalv1alpha1.ReasonSingleMediumUnsupported, fmt.Sprintf(
+			"host %s can hold one virtual medium only (slots %v), and none of them boots an ISO; a blank machine needs one that does",
+			hostName, v.insertable)
+	case !quirks.New(talosVersion).SupportsEmbeddedConfig():
+		return 0, metalv1alpha1.ReasonSingleMediumUnsupported, fmt.Sprintf(
+			"host %s can hold one virtual medium only (slots %v); a blank machine then needs an installer with its config built in, which Talos %s cannot read (Talos 1.12 or later can)",
+			hostName, v.insertable, talosVersion)
+	}
+	return shapeEmbedded, "", ""
 }
 
 // provision drives the claim's Provisioned condition and, when everything a
@@ -215,27 +259,45 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 		return hold(metalv1alpha1.ReasonNoBootableMedia, fmt.Sprintf("host %s advertises no insertable media slot", hostName))
 	}
 	bootSlot, configSlot := shape.mediaSlots()
-	single := configSlot == ""
-	// One slot can carry the config but not the installer next to it. That
-	// only boots a machine that already runs Talos from its disk (it answers,
-	// blank, in maintenance mode); a fresh one needs an install image with the
-	// config embedded, which this operator does not build.
-	if single && !meta.IsStatusConditionTrue(node.Status.Conditions, osv1alpha1.ConditionMachineReachable) {
-		return hold(metalv1alpha1.ReasonSingleMediumUnsupported, fmt.Sprintf(
-			"host %s cannot mount an installer next to the config (boot slots %v, insertable slots %v) and has no Talos to boot from disk — an embedded-config install image is not supported",
-			hostName, shape.bootSlots, shape.insertable))
+	// One slot cannot carry the installer and the config side by side. A
+	// machine that already runs Talos from its disk (it answers, blank, in
+	// maintenance mode) needs the config medium alone; a blank one gets an
+	// installer with its config built in. Either way the config reaches the
+	// machine through the BMC, never over the machine's own network.
+	kind, why, msg := decideShape(hostName, shape, meta.IsStatusConditionTrue(node.Status.Conditions, osv1alpha1.ConditionMachineReachable),
+		cluster.Spec.TalosVersion)
+	if why != "" {
+		return hold(why, msg)
 	}
 
-	config, err := r.ensureConfigAsset(ctx, node)
-	if err != nil {
-		return err
-	}
-	if msg := configAssetPending(ctx, r.Client, config, node); msg != "" {
-		return hold(metalv1alpha1.ReasonAwaitingBootAsset, msg)
-	}
-	plan := provisionPlan{ConfigDigest: node.Status.ConfigDigest, ArtifactDigest: config.Status.Digest}
-	var installer *osv1alpha1.BootAsset
-	if !single {
+	plan := provisionPlan{ConfigDigest: node.Status.ConfigDigest}
+	var config, installer *osv1alpha1.BootAsset
+	switch kind {
+	case shapeEmbedded:
+		if installer, err = r.ensureEmbeddedAsset(ctx, node, cluster); err != nil {
+			return err
+		}
+		if msg := embeddedAssetPending(installer, node, cluster); msg != "" {
+			return hold(metalv1alpha1.ReasonAwaitingBootAsset, msg)
+		}
+		target, err := boot.PickTarget(shape.targets)
+		if err != nil {
+			return hold(metalv1alpha1.ReasonNoBootableMedia, err.Error())
+		}
+		plan.ArtifactDigest, plan.Embedded = installer.Status.Digest, true
+		plan.Slots, plan.Target, plan.Mode = []string{shape.bootSlots[0]}, target, overrideMode(shape.mode)
+	default:
+		if config, err = r.ensureConfigAsset(ctx, node); err != nil {
+			return err
+		}
+		if msg := configAssetPending(ctx, r.Client, config, node); msg != "" {
+			return hold(metalv1alpha1.ReasonAwaitingBootAsset, msg)
+		}
+		plan.ArtifactDigest = config.Status.Digest
+		if kind == shapeConfigOnly {
+			plan.Slots = shape.insertable[:1]
+			break
+		}
 		if installer, err = r.ensureInstallerAsset(ctx, node, cluster); err != nil {
 			return err
 		}
@@ -248,8 +310,6 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 		}
 		plan.Installer, plan.Slots, plan.Target = installer.Status.URL, []string{bootSlot, configSlot}, target
 		plan.Mode = overrideMode(shape.mode)
-	} else {
-		plan.Slots = shape.insertable[:1]
 	}
 
 	name := fmt.Sprintf("provision-%s-%s", hostName, hash8(planHash(plan)))
@@ -365,22 +425,30 @@ func bootsNode(op *metalv1alpha1.HostOperation, hostName, nodeName string) bool 
 	})
 }
 
-// provisionOp builds the boot operation for a plan.
+// provisionOp builds the boot operation for a plan. config is nil for an
+// embedded plan, installer is nil for a config-only one. The medium that
+// carries the config is pinned to the digest the plan was made from.
 func (r *HostClaimReconciler) provisionOp(claim *metalv1alpha1.HostClaim, hostName, name string, plan provisionPlan,
 	node *osv1alpha1.TalosNode, config, installer *osv1alpha1.BootAsset) *metalv1alpha1.HostOperation {
-	configSlot := plan.Slots[len(plan.Slots)-1]
 	var actions []metalv1alpha1.HostOperationAction
 	for _, s := range plan.Slots {
 		actions = append(actions, metalv1alpha1.HostOperationAction{EjectMedia: &metalv1alpha1.EjectMediaAction{MediaID: s}})
 	}
-	if installer != nil {
+	switch {
+	case plan.Embedded:
 		actions = append(actions, metalv1alpha1.HostOperationAction{InsertMedia: &metalv1alpha1.InsertMediaAction{
-			MediaID: plan.Slots[0], BootAssetRef: &metalv1alpha1.Reference{Name: installer.Name},
+			MediaID: plan.Slots[0], BootAssetRef: &metalv1alpha1.Reference{Name: installer.Name}, Digest: plan.ArtifactDigest,
+		}})
+	default:
+		if installer != nil {
+			actions = append(actions, metalv1alpha1.HostOperationAction{InsertMedia: &metalv1alpha1.InsertMediaAction{
+				MediaID: plan.Slots[0], BootAssetRef: &metalv1alpha1.Reference{Name: installer.Name},
+			}})
+		}
+		actions = append(actions, metalv1alpha1.HostOperationAction{InsertMedia: &metalv1alpha1.InsertMediaAction{
+			MediaID: plan.Slots[len(plan.Slots)-1], BootAssetRef: &metalv1alpha1.Reference{Name: config.Name}, Digest: plan.ArtifactDigest,
 		}})
 	}
-	actions = append(actions, metalv1alpha1.HostOperationAction{InsertMedia: &metalv1alpha1.InsertMediaAction{
-		MediaID: configSlot, BootAssetRef: &metalv1alpha1.Reference{Name: config.Name}, Digest: plan.ArtifactDigest,
-	}})
 	if plan.Target != "" {
 		actions = append(actions, metalv1alpha1.HostOperationAction{SetBootOverride: &metalv1alpha1.SetBootOverrideAction{
 			Target: plan.Target, Once: ptr.To(true), Mode: plan.Mode,
@@ -621,6 +689,78 @@ func (r *HostClaimReconciler) ensureInstallerAsset(ctx context.Context, node *os
 		return nil, err
 	}
 	return a, r.createOrGet(ctx, a)
+}
+
+// ensureEmbeddedAsset finds the node's embeddedInstaller BootAsset, creating
+// one owned by the node when nobody authored it. One the lane created follows
+// the cluster's Talos version and the node's schematic; one a person authored
+// is used as it is.
+func (r *HostClaimReconciler) ensureEmbeddedAsset(ctx context.Context, node *osv1alpha1.TalosNode, cluster *osv1alpha1.TalosCluster) (*osv1alpha1.BootAsset, error) {
+	want := osv1alpha1.BootAssetSpec{
+		Strategy:     osv1alpha1.StrategyEmbeddedInstaller,
+		NodeRef:      &osv1alpha1.Reference{Name: node.Name},
+		TalosVersion: cluster.Spec.TalosVersion,
+		Schematic:    render.EffectiveSchematic(cluster, node),
+	}
+	assets := &osv1alpha1.BootAssetList{}
+	if err := r.List(ctx, assets); err != nil {
+		return nil, err
+	}
+	for i := range assets.Items {
+		a := &assets.Items[i]
+		if a.Spec.Strategy != osv1alpha1.StrategyEmbeddedInstaller || a.Spec.NodeRef == nil || a.Spec.NodeRef.Name != node.Name ||
+			!a.DeletionTimestamp.IsZero() {
+			continue
+		}
+		if a.Labels[labelProvisioning] == "true" && !equality.Semantic.DeepEqual(a.Spec, want) {
+			a.Spec = want
+			if err := r.Update(ctx, a); err != nil {
+				return nil, err
+			}
+			logf.FromContext(ctx).Info("updated embedded installer inputs", "bootAsset", a.Name, "talosVersion", want.TalosVersion)
+		}
+		return a, nil
+	}
+	a := &osv1alpha1.BootAsset{
+		ObjectMeta: metav1.ObjectMeta{Name: embeddedName(node.Name), Labels: map[string]string{labelProvisioning: "true"}},
+		Spec:       want,
+	}
+	if err := controllerutil.SetOwnerReference(node, a, r.Scheme()); err != nil {
+		return nil, err
+	}
+	return a, r.createOrGet(ctx, a)
+}
+
+// embeddedName is <node>-embedded, the node part cut so the name stays a
+// valid object name.
+func embeddedName(node string) string {
+	const maxPrefix = 253 - len("-embedded")
+	if len(node) > maxPrefix {
+		node = strings.TrimRight(node[:maxPrefix], "-.")
+	}
+	return node + "-embedded"
+}
+
+// embeddedAssetPending says why the embedded installer cannot be mounted yet,
+// or "" when it is built from the node's current render and the cluster's
+// Talos version.
+func embeddedAssetPending(a *osv1alpha1.BootAsset, node *osv1alpha1.TalosNode, cluster *osv1alpha1.TalosCluster) string {
+	c := meta.FindStatusCondition(a.Status.Conditions, osv1alpha1.ConditionReady)
+	switch {
+	case c == nil:
+		return fmt.Sprintf("installer %s with the node's config built in is not built yet", a.Name)
+	case c.ObservedGeneration != a.Generation:
+		return fmt.Sprintf("installer %s with the node's config built in: inputs changed, build not started yet", a.Name)
+	case c.Status != metav1.ConditionTrue:
+		return fmt.Sprintf("installer %s with the node's config built in is not ready (%s): %s", a.Name, c.Reason, c.Message)
+	case a.Status.Digest == "" || a.Status.BuildKey == "":
+		return fmt.Sprintf("installer %s with the node's config built in is not built yet", a.Name)
+	case a.Status.ConfigDigest != node.Status.ConfigDigest:
+		return fmt.Sprintf("installer %s carries render %s, node is at %s", a.Name, short(a.Status.ConfigDigest), short(node.Status.ConfigDigest))
+	case a.Spec.TalosVersion != cluster.Spec.TalosVersion:
+		return fmt.Sprintf("installer %s is Talos %s, the cluster runs %s", a.Name, a.Spec.TalosVersion, cluster.Spec.TalosVersion)
+	}
+	return ""
 }
 
 // installerName is <cluster>-installer-<hash>, the cluster part cut so the

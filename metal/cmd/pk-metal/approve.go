@@ -347,6 +347,10 @@ func renderPlan(op *metalv1alpha1.HostOperation, pc planContext) string {
 		fmt.Fprintf(&b, "  %2d. %s\n", i+1, describeAction(a, pc))
 	}
 
+	for _, note := range configCarriers(op, pc) {
+		fmt.Fprintf(&b, "note: %s\n", note)
+	}
+
 	for _, a := range op.Spec.Actions {
 		if a.AwaitCheckIn == nil {
 			continue
@@ -429,8 +433,39 @@ func describeBootAsset(name string, ba *osv1alpha1.BootAsset) string {
 			node = ba.Spec.NodeRef.Name
 		}
 		return fmt.Sprintf("the machine config of TalosNode %s (boot asset %s)", node, name)
+	case osv1alpha1.StrategyEmbeddedInstaller:
+		node := "-"
+		if ba.Spec.NodeRef != nil {
+			node = ba.Spec.NodeRef.Name
+		}
+		return fmt.Sprintf("the Talos %s installer with the machine config of TalosNode %s built in (boot asset %s)",
+			orDash(ba.Spec.TalosVersion), node, name)
 	}
 	return fmt.Sprintf("boot asset %s", name)
+}
+
+// configCarriers explains each mounted installer that carries a node's
+// machine config. Such an installer looks like any other in the step list,
+// but it is a secret: the config holds the node's keys and tokens. The person
+// who approves should see that, and that it is built for one node only.
+func configCarriers(op *metalv1alpha1.HostOperation, pc planContext) []string {
+	var out []string
+	for _, a := range op.Spec.Actions {
+		im := a.InsertMedia
+		if im == nil || im.BootAssetRef == nil {
+			continue
+		}
+		ba := pc.BootAssets[im.BootAssetRef.Name]
+		if ba == nil || ba.Spec.NodeRef == nil || ba.Spec.Strategy != osv1alpha1.StrategyEmbeddedInstaller {
+			continue
+		}
+		out = append(out, fmt.Sprintf(
+			"the installer on slot %s carries the machine config of TalosNode %s, with its keys and tokens. "+
+				"It is built for this node only, the BMC fetches it under a grant made for this boot, "+
+				"and it is ejected when the node reports in",
+			im.MediaID, ba.Spec.NodeRef.Name))
+	}
+	return out
 }
 
 func nodeAddress(n *osv1alpha1.TalosNode) string {

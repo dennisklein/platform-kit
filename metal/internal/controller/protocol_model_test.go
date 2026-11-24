@@ -608,7 +608,7 @@ func executorPass(s state, v view, mask uint8, i opSlot, fail bool) *pass {
 func (p *pass) stepEffect(i opSlot, n uint8) {
 	b := &p.next.BMC
 	switch {
-	case i == slotBoot && n == 0: // the installer and the config are mounted
+	case i == slotBoot && n == 0: // the media are mounted: installer and config, or one installer with the config built in
 		b.Media = true
 		p.mounted, p.mountedBy = true, i
 	case i == slotBoot && n == 1, i == slotBios && n == 1: // power cycle

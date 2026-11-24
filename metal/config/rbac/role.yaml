@@ -97,6 +97,7 @@ rules:
   - create
   - get
   - list
+  - update
   - watch
 - apiGroups:
   - os.pk.io

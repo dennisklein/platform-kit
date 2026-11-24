@@ -3,13 +3,16 @@
 // and the granted config medium on a sim BMC, sets a Once UEFI override and
 // cycles power; a scripted check-in ends the hand-off (media ejected, grants
 // revoked) and the Host reaches Provisioned; deleting the claim powers the
-// machine off and hands it back. Around it: the single-medium hold and its
-// maintenance-mode path with automatic approval, the approval policy's
-// identity rules, and the claim protection that keeps a claimed machine
-// through the deletion of its Asset.
+// machine off and hands it back. Around it: a one-slot BMC, whose blank
+// machine boots an installer with its config built in (the imager Job is
+// played by the test) and whose machine with Talos on disk takes the config
+// medium alone, both with automatic approval; the approval policy's identity
+// rules; and the claim protection that keeps a claimed machine through the
+// deletion of its Asset.
 package envtest_test
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -132,6 +135,8 @@ func TestProvisioning(t *testing.T) {
 
 	imageFactory := render.NewFactory(strings.TrimPrefix(factory.URL, "https://"))
 	imageFactory.HTTPClient = factory.Client()
+	store, err := asset.NewStore(t.TempDir())
+	require.NoError(t, err)
 
 	mgr := st.newManagerAs(t, managerCfg, "default")
 	require.NoError(t, controller.SetupAll(mgr, controller.Options{
@@ -142,8 +147,13 @@ func TestProvisioning(t *testing.T) {
 		TLS:                  &metalv1alpha1.EndpointTLS{InsecureSkipVerify: true},
 		PollInterval:         pollInterval,
 		Media:                media,
-		WaitInterval:         200 * time.Millisecond,
-		Factory:              imageFactory,
+		MediaStore:           store,
+		// The suite's cluster runs v1.14.0; the test pins a stand-in imager
+		// for it, as a site would with --imager-digest.
+		Imager: &controller.Imager{Repository: controller.DefaultImagerRepository,
+			Digests: map[string]string{"v1.14.0": "sha256:" + strings.Repeat("0", 64)}, StoreClaim: "pk-metal-media-store"},
+		WaitInterval: 200 * time.Millisecond,
+		Factory:      imageFactory,
 	}, controller.LaneAsset, controller.LaneEndpoint, controller.LaneHost, controller.LaneHostClaim,
 		controller.LaneProtection, controller.LaneHostOperation, controller.LaneBootAsset))
 	runManager(t, ctx, mgr)
@@ -629,7 +639,7 @@ func TestProvisioning(t *testing.T) {
 		assert.Empty(t, opsFor(dualHost, "provision"), "the boot record leaves with its claim")
 	})
 
-	st.run(t, "a one-slot BMC holds a blank machine", func(t *testing.T) {
+	st.run(t, "a one-slot BMC boots a blank machine from an installer with its config built in", func(t *testing.T) {
 		createAsset("lab-single", singleFix.Systems[0].Serial, singleFix.Manager.MAC)
 		singleHost := hostBehind("lab-single").Name
 		renderedNode("node-single", "lab")
@@ -641,30 +651,48 @@ func TestProvisioning(t *testing.T) {
 				Provisioning: &metalv1alpha1.ClaimProvisioning{Approval: metalv1alpha1.ProvisioningApprovalAutomatic},
 			},
 		}))
-		c := waitClaim("single", provisionedReason(metalv1alpha1.ReasonSingleMediumUnsupported))
-		assert.Equal(t, metalv1alpha1.ReasonSingleMediumUnsupported, c.Status.BlockedOn)
+		// The installer is built per node, by an imager Job the manager
+		// starts under its own role; nothing is proposed before it exists.
+		job := waitImagerJob(t, ctx, cl, "default")
+		waitClaim("single", func(c metalv1alpha1.HostClaim) bool {
+			p := provisioned(c)
+			return p != nil && p.Reason == metalv1alpha1.ReasonAwaitingBootAsset && strings.Contains(p.Message, "config built in")
+		})
 		assert.Empty(t, opsFor(singleHost, "provision"))
 
-		// The machine runs Talos from its disk, blank: the config medium alone
-		// configures it — and the claim waives the gate for its cattle.
-		checkIn("node-single", metav1.Condition{Type: osv1alpha1.ConditionMachineReachable,
-			Status: metav1.ConditionTrue, Reason: osv1alpha1.ReasonMaintenanceMode})
+		iso := bytes.Repeat([]byte("an installer for node-single "), 4096)
+		playImager(t, ctx, cl, store, job, iso)
+
 		var ops []metalv1alpha1.HostOperation
 		require.Eventually(t, func() bool { ops = opsFor(singleHost, "provision"); return len(ops) == 1 }, waitFor, tick)
 		assert.False(t, *ops[0].Spec.Approval.Required, "Automatic: the operator's proposal is pre-cleared")
-		for _, a := range ops[0].Spec.Actions {
-			assert.Nil(t, a.SetBootOverride, "boots from disk, no override")
-		}
 		key := client.ObjectKeyFromObject(&ops[0])
 		waitOp(key, executing("awaitCheckIn"))
+
 		mounted := mediaOf(singleState)
+		require.Len(t, mounted, 1, "one slot, one medium: %v", mounted)
 		require.Contains(t, mounted, "CD")
 		assert.True(t, strings.HasPrefix(stripUserinfo(mounted["CD"]), media.BaseURL+"/grants/"),
-			"the iBMC carries the grant credentials in the URL: %v", mounted)
+			"the installer travels out of band, under a grant: %v", mounted)
+		// The iBMC carries the grant's credentials in the URL; with them the
+		// grant serves exactly the stored installer, without them nothing.
+		insecure := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}} //nolint:gosec
+		resp, err := insecure.Get(mounted["CD"])
+		require.NoError(t, err)
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, iso, body)
+		assert.Equal(t, http.StatusUnauthorized, grantStatus(stripUserinfo(mounted["CD"])))
+		power, err := singleState.Power(ctx, "1")
+		require.NoError(t, err)
+		assert.Equal(t, bmc.PowerOn, power)
 
 		checkIn("node-single", machineAPI...)
 		waitOp(key, succeeded)
-		assert.Empty(t, mediaOf(singleState))
+		assert.Empty(t, mediaOf(singleState), "the installer is ejected after the check-in")
+		assert.Equal(t, http.StatusForbidden, grantStatus(mounted["CD"]), "and its grant revoked")
 		waitClaim("single", provisionedReason(metalv1alpha1.ReasonHandedOff))
 
 		c, err := claimOf("single")
@@ -673,6 +701,62 @@ func TestProvisioning(t *testing.T) {
 		var rel []metalv1alpha1.HostOperation
 		require.Eventually(t, func() bool { rel = opsFor(singleHost, "release"); return len(rel) == 1 }, waitFor, tick)
 		assert.False(t, *rel[0].Spec.Approval.Required, "Automatic: the claim waived the gate for its release too")
+		waitHost(singleHost, func(h metalv1alpha1.Host) bool { return h.Status.Phase == metalv1alpha1.HostAvailable })
+		require.Eventually(t, func() bool {
+			_, err := claimOf("single")
+			return apierrors.IsNotFound(err)
+		}, waitFor, tick, "the claim goes once the machine is back")
+	})
+
+	st.run(t, "a one-slot BMC configures a machine that runs Talos from disk", func(t *testing.T) {
+		singleHost := hostBehind("lab-single").Name
+		renderedNode("node-single-disk", "lab")
+		// The machine runs Talos from its disk, blank: the config medium alone
+		// configures it, and no installer is built.
+		checkIn("node-single-disk", metav1.Condition{Type: osv1alpha1.ConditionMachineReachable,
+			Status: metav1.ConditionTrue, Reason: osv1alpha1.ReasonMaintenanceMode})
+		require.NoError(t, carolCl.Create(ctx, &metalv1alpha1.HostClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: "single-disk", Namespace: "default"},
+			Spec: metalv1alpha1.HostClaimSpec{
+				AssetRef:     metalv1alpha1.Reference{Name: "lab-single"},
+				OS:           &metalv1alpha1.ClaimOS{NodeRef: metalv1alpha1.Reference{Name: "node-single-disk"}},
+				Provisioning: &metalv1alpha1.ClaimProvisioning{Approval: metalv1alpha1.ProvisioningApprovalAutomatic},
+			},
+		}))
+		var ops []metalv1alpha1.HostOperation
+		require.Eventually(t, func() bool {
+			ops = nil
+			for _, op := range opsFor(singleHost, "provision") {
+				if op.Labels["metal.pk.io/claim-name"] == "single-disk" {
+					ops = append(ops, op)
+				}
+			}
+			return len(ops) == 1
+		}, waitFor, tick)
+		for _, a := range ops[0].Spec.Actions {
+			assert.Nil(t, a.SetBootOverride, "boots from disk, no override")
+			if a.InsertMedia != nil {
+				assert.Equal(t, "node-single-disk-config", a.InsertMedia.BootAssetRef.Name)
+			}
+		}
+		ba := &osv1alpha1.BootAsset{}
+		assert.True(t, apierrors.IsNotFound(cl.Get(ctx, client.ObjectKey{Name: "node-single-disk-embedded"}, ba)),
+			"a machine with Talos on disk needs no installer")
+		key := client.ObjectKeyFromObject(&ops[0])
+		waitOp(key, executing("awaitCheckIn"))
+		mounted := mediaOf(singleState)
+		require.Contains(t, mounted, "CD")
+		assert.True(t, strings.HasPrefix(stripUserinfo(mounted["CD"]), media.BaseURL+"/grants/"),
+			"the iBMC carries the grant credentials in the URL: %v", mounted)
+
+		checkIn("node-single-disk", machineAPI...)
+		waitOp(key, succeeded)
+		assert.Empty(t, mediaOf(singleState))
+		waitClaim("single-disk", provisionedReason(metalv1alpha1.ReasonHandedOff))
+
+		c, err := claimOf("single-disk")
+		require.NoError(t, err)
+		require.NoError(t, cl.Delete(ctx, &c))
 		waitHost(singleHost, func(h metalv1alpha1.Host) bool { return h.Status.Phase == metalv1alpha1.HostAvailable })
 	})
 

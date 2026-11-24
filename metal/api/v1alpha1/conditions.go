@@ -191,12 +191,14 @@ const (
 	// ReasonAwaitingRender: the TalosNode (or its cluster) is missing or has
 	// no rendered config yet.
 	ReasonAwaitingRender = "AwaitingRender"
-	// ReasonAwaitingBootAsset: the installer image or the config medium is not
-	// built (Ready) for the current render yet.
+	// ReasonAwaitingBootAsset: the installer image, the config medium or the
+	// installer with the config built in is not built (Ready) for the current
+	// render yet.
 	ReasonAwaitingBootAsset = "AwaitingBootAsset"
 	// ReasonSingleMediumUnsupported: the endpoint can hold one virtual medium
-	// only, the machine has no Talos to boot from disk, and an install image
-	// with the config embedded is not built here — a known limit.
+	// only, the machine has no Talos to boot from disk, and an installer with
+	// the config built in cannot help: the cluster's Talos release cannot read
+	// one (before 1.12), or the one slot does not boot an ISO.
 	ReasonSingleMediumUnsupported = "SingleMediumUnsupported"
 	// ReasonNoBootableMedia: the endpoint advertises no insertable media slot
 	// or no removable-media boot target.
