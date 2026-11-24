@@ -632,7 +632,7 @@ func (r *TalosRolloutReconciler) etcdGate(ctx context.Context, cluster *osv1alph
 	var problems []string
 	for _, n := range cps {
 		addr := render.NodeAddress(&n)
-		tcfg, err := render.Talosconfig(bundle, cluster.Name, []string{addr}, checkinCertTTL)
+		tcfg, err := readerTalosconfig(bundle, cluster.Name, []string{addr})
 		if err != nil {
 			return "", err
 		}
@@ -936,7 +936,7 @@ func (r *TalosRolloutReconciler) etcdLeader(ctx context.Context, cluster *osv1al
 			continue
 		}
 		addr := render.NodeAddress(&n)
-		tcfg, err := render.Talosconfig(bundle, cluster.Name, []string{addr}, checkinCertTTL)
+		tcfg, err := readerTalosconfig(bundle, cluster.Name, []string{addr})
 		if err != nil {
 			return ""
 		}

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
+	"github.com/siderolabs/talos/pkg/machinery/role"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
@@ -39,10 +41,19 @@ type talosAccess struct {
 	talosconfig []byte
 }
 
-// newTalosAccess mints the client config for a cluster's machine API. A nil
-// dialer is a wiring error the caller reports.
+// newTalosAccess mints the admin client config for a cluster's machine API:
+// the executor's, whose steps change machines. A nil dialer is a wiring
+// error the caller reports.
 func newTalosAccess(ctx context.Context, c client.Reader, namespace string, dial talos.Dialer,
 	cluster *osv1alpha1.TalosCluster) (*talosAccess, error) {
+	return newTalosAccessAs(ctx, c, namespace, dial, cluster, role.Admin)
+}
+
+// newTalosAccessAs mints the client config with another role. A caller that
+// only reads (the cluster guard's etcd health) asks for os:reader, so a
+// certificate that leaks from it changes nothing on a machine.
+func newTalosAccessAs(ctx context.Context, c client.Reader, namespace string, dial talos.Dialer,
+	cluster *osv1alpha1.TalosCluster, r role.Role) (*talosAccess, error) {
 	if dial == nil {
 		return nil, errors.New("this operator runs without a Talos client (no machine API access is configured)")
 	}
@@ -51,11 +62,18 @@ func newTalosAccess(ctx context.Context, c client.Reader, namespace string, dial
 		return nil, err
 	}
 	// The endpoint in the config does not matter: every dial names its own.
-	tcfg, err := render.Talosconfig(bundle, cluster.Name, []string{cluster.Spec.Endpoint}, checkinCertTTL)
+	tcfg, err := render.TalosconfigWithRole(bundle, cluster.Name, []string{cluster.Spec.Endpoint}, checkinCertTTL, r)
 	if err != nil {
 		return nil, fmt.Errorf("mint a Talos client certificate for cluster %s: %w", cluster.Name, err)
 	}
 	return &talosAccess{dial: dial, cluster: cluster, talosconfig: tcfg}, nil
+}
+
+// readerTalosconfig mints an os:reader client config for one look at a
+// node: status, version, etcd health. Talos serves those to os:reader, and
+// only the steps and the dry-run drift check need os:admin.
+func readerTalosconfig(bundle *secrets.Bundle, cluster string, endpoints []string) ([]byte, error) {
+	return render.TalosconfigWithRole(bundle, cluster, endpoints, checkinCertTTL, role.Reader)
 }
 
 // with dials endpoint and runs fn on the client.

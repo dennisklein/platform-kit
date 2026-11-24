@@ -247,9 +247,11 @@ func (r *TalosNodeReconciler) checkin(ctx context.Context, node *osv1alpha1.Talo
 		return retry, nil
 	}
 
+	// The check-in reads (os:reader); only the dry-run drift check below
+	// needs os:admin, and its config is minted only when it runs.
 	var tcfg []byte
 	if cluster != nil && bundle != nil {
-		tcfg, _ = render.Talosconfig(bundle, cluster.Name, []string{endpoint}, checkinCertTTL)
+		tcfg, _ = readerTalosconfig(bundle, cluster.Name, []string{endpoint})
 	}
 	st, version, mode, oerr := r.observe(ctx, tcfg, endpoint)
 	switch mode {
@@ -264,7 +266,7 @@ func (r *TalosNodeReconciler) checkin(ctx context.Context, node *osv1alpha1.Talo
 			if err != nil {
 				return ctrl.Result{}, err
 			}
-			r.checkDrift(ctx, node, tcfg, endpoint, rendered, rolling)
+			r.checkDrift(ctx, node, driftTalosconfig(cluster, bundle, endpoint), endpoint, rendered, rolling)
 			if rolling {
 				// The health gates between the nodes of a rollout read
 				// this: a Ready polled two minutes ago is no gate (D7).
@@ -290,6 +292,16 @@ func (r *TalosNodeReconciler) checkin(ctx context.Context, node *osv1alpha1.Talo
 		node.Status.Stage, node.Status.Version = "", ""
 	}
 	return retry, nil
+}
+
+// driftTalosconfig mints the os:admin client config of the dry-run apply,
+// which Talos serves to admins only; nil without a cluster or bundle.
+func driftTalosconfig(cluster *osv1alpha1.TalosCluster, bundle *secrets.Bundle, endpoint string) []byte {
+	if cluster == nil || bundle == nil {
+		return nil
+	}
+	tcfg, _ := render.Talosconfig(bundle, cluster.Name, []string{endpoint}, checkinCertTTL)
+	return tcfg
 }
 
 // observe tries the authenticated machine API, then the maintenance service.
