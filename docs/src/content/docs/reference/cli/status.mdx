@@ -80,9 +80,9 @@ mark={['waits for approval']}
 text={`
     $ pk-metal status
     HOST               ASSET     VENDOR  PHASE        CLAIM         NODE              PATHS  BLOCKED
-    simhw2288v5000397  ci-00397  Huawei  Provisioned  default/cp-1  cp-1 (10.0.0.11)  1/1
-    simhw2288v5000398  ci-00398  Huawei  Assigned     default/cp-2  cp-2 (10.0.0.12)  1/1    Approval(provision-simhw2288v5000398-5e6f7a8b)
-    simhw2288v5000399  ci-00399  Huawei  Available    -             -                 1/1
+    simhw2288v5000397  asset-07  Huawei  Provisioned  default/cp-1  cp-1 (10.0.0.11)  1/1
+    simhw2288v5000398  asset-08  Huawei  Assigned     default/cp-2  cp-2 (10.0.0.12)  1/1    Approval(provision-simhw2288v5000398-5e6f7a8b)
+    simhw2288v5000399  asset-09  Huawei  Available    -             -                 1/1
       simhw2288v5000398: operation provision-simhw2288v5000398-5e6f7a8b waits for approval
 
     OPERATION                                       HOST               PHASE             APPROVED  BLOCKED
@@ -90,9 +90,9 @@ text={`
       pk-metal/provision-simhw2288v5000398-5e6f7a8b: waits for approval; see the plan and approve: pk-metal approve pk-metal/provision-simhw2288v5000398-5e6f7a8b
 
     ENDPOINT  ASSET     VENDOR  PHASE  ADDRESS             BLOCKED
-    ci-00397  ci-00397  Huawei  Ready  https://192.0.2.11
-    ci-00398  ci-00398  Huawei  Ready  https://192.0.2.12
-    ci-00399  ci-00399  Huawei  Ready  https://192.0.2.13
+    asset-07  asset-07  Huawei  Ready  https://192.0.2.11
+    asset-08  asset-08  Huawei  Ready  https://192.0.2.12
+    asset-09  asset-09  Huawei  Ready  https://192.0.2.13
 
     CLUSTER  TALOS WANT/RUN     K8S WANT/RUN       CP   WORKERS  ETCD         BOOTSTRAPPED          BACKUP          AVAILABLE
     lab      v1.14.6 / v1.14.6  v1.36.2 / v1.36.2  1/3  0/0      EtcdRunning  2026-11-24T06:12:40Z  SnapshotRecent  ClusterAvailable

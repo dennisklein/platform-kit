@@ -89,12 +89,12 @@ An Asset, and the Secret with the login of the BMC. The Secret must be in the na
 apiVersion: metal.pk.io/v1alpha1
 kind: Asset
 metadata:
-  name: ci-00397
+  name: asset-07
 spec:
-  cid: "CI-00397"
+  cid: "ASSET-07"
   serial: "SIMHW2288V5000397"
   bmcMac: "02:00:48:0b:74:83"
-  vlan: 1034
+  vlan: 100
   credentialsRef:
     name: ibmc-factory
 ---
@@ -111,7 +111,7 @@ stringData:
 The ledger must have a line for the MAC address:
 
 ```yaml
-"02:00:48:0b:74:83": https://[fd6b:5a2e:1c4d:1034::14]
+"02:00:48:0b:74:83": https://[2001:db8:0:100::14]
 ```
 
 ## Make sure that an Asset has its endpoint
@@ -127,14 +127,14 @@ The ledger must have a line for the MAC address:
    ```console
    $ kubectl get assets
    NAME       CID        SERIAL              BMC MAC             ENDPOINT               AGE
-   ci-00397   CI-00397   SIMHW2288V5000397   02:00:48:0b:74:83   EndpointMaterialized   2m
-   ci-00398   CI-00398   SIMHW2288V5000398   02:00:48:0b:74:84   NoLedgerEntry          2m
+   asset-07   ASSET-07   SIMHW2288V5000397   02:00:48:0b:74:83   EndpointMaterialized   2m
+   asset-08   ASSET-08   SIMHW2288V5000398   02:00:48:0b:74:84   NoLedgerEntry          2m
    ```
 
 3. If the reason is not `EndpointMaterialized`, read the message.
 
    ```sh
-   kubectl describe asset ci-00398
+   kubectl describe asset asset-08
    ```
 
 4. Correct the Asset or the ledger. Then do step 2 again.

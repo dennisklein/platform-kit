@@ -118,9 +118,9 @@ You do not write a ManagementEndpoint. Read it with `kubectl`:
 
 ```console
 $ kubectl get mep -o wide
-NAME       ADDRESS                             VENDOR   PHASE      BLOCKED          AGE
-ci-00397   https://[fd6b:5a2e:1c4d:1034::14]   Huawei   Ready                       3d
-ci-00398   https://[fd6b:5a2e:1c4d:1034::15]   Huawei   Mismatch   SerialMismatch   3d
+NAME       ADDRESS                        VENDOR   PHASE      BLOCKED          AGE
+asset-07   https://[2001:db8:0:100::14]   Huawei   Ready                       3d
+asset-08   https://[2001:db8:0:100::15]   Huawei   Mismatch   SerialMismatch   3d
 ```
 
 ## Find why an endpoint is not Ready
@@ -134,7 +134,7 @@ ci-00398   https://[fd6b:5a2e:1c4d:1034::15]   Huawei   Mismatch   SerialMismatc
 2. Read the conditions of the endpoint. The message of the condition gives the cause.
 
    ```sh
-   kubectl describe mep ci-00398
+   kubectl describe mep asset-08
    ```
 
 3. Use the table to find the next step.

@@ -142,7 +142,7 @@ metadata:
   namespace: default
 spec:
   assetRef:
-    name: ci-00397
+    name: asset-07
   labels:
     role: worker
   os:
@@ -155,8 +155,8 @@ spec:
 ```console
 $ kubectl get hostclaims
 NAME     ASSET      HOST                NODE     PHASE   PROVISIONED         AGE
-node-1   ci-00397   simhw2288v5000397   node-1   Bound   HandedOff           3d
-node-2   ci-00398   simhw2288v5000398   node-2   Bound   AwaitingOperation   4m
+node-1   asset-07   simhw2288v5000397   node-1   Bound   HandedOff           3d
+node-2   asset-08   simhw2288v5000398   node-2   Bound   AwaitingOperation   4m
 ```
 
 ## Stop the proposals for a claim

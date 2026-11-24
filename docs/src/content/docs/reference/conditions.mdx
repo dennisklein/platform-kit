@@ -22,7 +22,7 @@ This page lists each type and each reason. The text of the tables comes from the
 ## How to read a condition
 
 ```console
-$ kubectl get mep ci-00398 -o json | jq '.status.conditions[] | select(.type == "Verified")'
+$ kubectl get mep asset-08 -o json | jq '.status.conditions[] | select(.type == "Verified")'
 {
   "type": "Verified",
   "status": "False",

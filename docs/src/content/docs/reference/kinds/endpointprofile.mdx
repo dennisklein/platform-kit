@@ -116,7 +116,7 @@ metadata:
 spec:
   match:
     matchLabels:
-      metal.pk.io/vlan: "1034"
+      metal.pk.io/vlan: "100"
   credentials:
     username: pk-metal
     maxAge: 2160h
@@ -126,7 +126,7 @@ spec:
     issuerRef:
       name: internal-ca
     subject:
-      country: DE
+      country: XX
       organization: Example Org
       organizationalUnit: Metal
 ```
@@ -145,15 +145,15 @@ The labels that you can select are `metal.pk.io/vendor`, `metal.pk.io/model` and
 
    ```console
    $ kubectl get mep
-   NAME       ADDRESS                             VENDOR   PHASE         AGE
-   ci-00397   https://[fd6b:5a2e:1c4d:1034::14]   Huawei   Ready         3d
-   ci-00398   https://[fd6b:5a2e:1c4d:1034::15]   Huawei   Configuring   3d
+   NAME       ADDRESS                        VENDOR   PHASE         AGE
+   asset-07   https://[2001:db8:0:100::14]   Huawei   Ready         3d
+   asset-08   https://[2001:db8:0:100::15]   Huawei   Configuring   3d
    ```
 
 3. If an endpoint stays in Configuring, read the reason of `Configured`.
 
    ```sh
-   kubectl describe mep ci-00398
+   kubectl describe mep asset-08
    ```
 
 <Callout type="caution">
