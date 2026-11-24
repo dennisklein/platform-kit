@@ -1,0 +1,137 @@
+---
+title: Develop pk-metal
+description: How to build and test the operator, the rules that the code must keep, and the places to change when you add an action.
+type: project
+eyebrow: Project
+xref: { cat: ref, id: develop }
+sidebar:
+  order: 3
+sources:
+  - /repo/mise.toml
+  - /repo/metal/internal/phase/writesites_test.go
+  - /repo/metal/internal/envtest/invariants_test.go
+  - /repo/metal/internal/controller/status.go
+  - /repo/metal/internal/controller/hostoperation_controller.go
+  - /repo/metal/internal/controller/selfprotect.go
+  - /repo/metal/api/v1alpha1/hostoperation_actions.go
+  - /repo/metal/internal/bmc/bmctest/bmctest.go
+---
+
+import Callout from '../../../components/Callout.astro';
+
+This page is for a person who changes the code. [](concept:architecture) shows the parts of the operator.
+[](ctrl:index) has one page for each controller.
+
+## Set up
+
+1. Install [mise](https://mise.jdx.dev/getting-started.html).
+2. In the root of the clone, trust the configuration and install the tools.
+
+   ```sh
+   mise trust && mise install
+   ```
+
+3. Build the tool and the manager into `metal/bin/`.
+
+   ```sh
+   mise run build
+   ```
+
+`mise tasks` lists all tasks. The Go module is in `metal/`.
+
+## The test ladder
+
+Each level is slower than the one before it, and it proves more. Run the lowest level that can fail for your change.
+
+| Level | Command | What it uses | Time | Needs |
+| --- | --- | --- | --- | --- |
+| Unit tests | `mise run test` | Simulated BMCs and a fake Talos API, in the test process | Seconds to minutes | Go |
+| Controller tests | `mise run envtest` | A real Kubernetes API server and etcd, with the admission policies | Minutes | The task downloads the binaries |
+| Race detector | `mise run test:race` | The two levels above, with `-race` | Minutes | A C compiler |
+| Kind tier | `mise run e2e:kind` | The operator against kind, a simulated BMC, Talos in a container | Many minutes | Docker, a kind cluster named `pk-metal` |
+| VM tier | `mise run e2e:qemu` | A simulated BMC with a QEMU machine. A real install from virtual media. | Many minutes | KVM, QEMU, OVMF |
+| Virtual lab | `mise run lab:up`, then `mise run lab:wait` | kind, the operator image, QEMU machines, real Talos and Kubernetes | 15 minutes or more | See [](lab:page/prerequisites) |
+| Fuzz | `mise run fuzz` | Each Go fuzz target for a short time | Minutes | Go |
+
+- [](ref:status) says which levels run in CI, and when.
+- The unattended lab tasks [](lab:day2), [](lab:upgrade), [](lab:scale), [](lab:backup-restore) and [](lab:pivot) are the day-2 levels.
+- No level uses a real BMC. See [](ref:hardware).
+
+## Before you commit
+
+```sh
+mise run lint
+mise run generate:check
+mise run docs:check
+```
+
+| Task | What it checks |
+| --- | --- |
+| `lint:go` | `golangci-lint` with the configuration in `metal/.golangci.yml` |
+| `lint:phase` | The phase rule. See the invariants below. |
+| `lint:shell` | `bash -n` and `shellcheck` for the scripts in `lab/` and `metal/hack/` |
+| `generate` | Writes the deepcopy code, the CRDs, the role of the manager and the reference data of this site |
+| `generate:check` | Fails if a generated file does not agree with its source |
+| `docs:check` | Builds this site and checks each link |
+| `docs:lint` | Checks the text of the pages against the writing rules |
+
+Do not edit a generated file by hand: `metal/config/crd/`, `metal/config/rbac/role.yaml`, `docs/src/data/generated/`, `zz_generated.deepcopy.go`.
+
+## The invariants
+
+These rules keep the operator safe. A change that breaks one of them is wrong, even if the tests pass.
+
+| Rule | Why | What enforces it |
+| --- | --- | --- |
+| Only the package `internal/phase` writes `status.phase` and `status.blockedOn`. No controller reads them. | The conditions are the facts. The phase is a summary for people. See [](concept:phases-and-conditions). | `mise run lint:phase`: a typed check of each write and read in the module. The controller tests also compare each object with its conditions after each subtest. |
+| Each writer of a status has its own field manager, and it applies only its own fields. | Two writers of one field delete the work of each other. | The check after each subtest of the controller tests: each manager owns only its part. See `status.go`. |
+| A change to a machine is a step of a [](kind:HostOperation), and a disruptive operation runs only after an approval. | A person decides before a machine changes. See [](concept:approval). | The admission policies, with tests in `internal/envtest/policy_test.go`. The controllers that only read use a BMC client that refuses each write. |
+| The operator does not invent a fact. An address comes from the ledger, a serial from the BMC, a decision from a person. | A wrong guess installs the wrong machine. See [](concept:assert-vs-observe). | No single check. Review each new default and each fallback for this rule. |
+
+<Callout type="caution">
+Do not write `status.phase` in a controller, also not in a test helper of a controller package.
+Set the condition, and call the function of `internal/phase` for the kind.
+</Callout>
+
+## Add an action
+
+An action is one step type of a [](kind:HostOperation), for example `powerCycle`. [](act:index) lists them.
+The key of an action comes from the JSON name of its field, so the API has no second list.
+These are the places to change. The compiler finds only some of them.
+
+| # | Place | What to do | A miss is found by |
+| --- | --- | --- | --- |
+| 1 | `metal/api/v1alpha1/hostoperation_types.go` | Add the field to `HostOperationAction` and its type, with validation markers and a comment. The comment is the text on the reference page. | |
+| 2 | `mise run generate` | Commit the CRD, the deepcopy code and the site data. | `generate:check` |
+| 3 | `implementedActions` in `hostoperation_controller.go` | Add the key. Without it, the executor refuses the operation. | A unit test over all keys |
+| 4 | The executor (`hostoperation_steps.go`, or `hostoperation_talos_steps.go` for a Talos action) | Write the step: start, observe, done. A step must be safe to run again. | Your tests |
+| 5 | `actionUsesBMC` in `hostoperation_controller.go` | Add the action if the BMC does it. Without it, the operation takes no baseline of the BMC. | Nothing. Check by hand. |
+| 6 | `disruptsAction` in `selfprotect.go` | Add the action if it stops the node or removes its etcd member. Without it, the cluster guard, the self guard and the windows do not hold it. | Nothing. Check by hand. |
+| 7 | `passTimeout` in `hostoperation_controller.go`, `waitStart` and `stepBudget` in `hostoperation_steps.go` | Give the step a time budget if it waits. | Nothing. Check by hand. |
+| 8 | `describeAction` in `cmd/pk-metal/approve.go` | Write the line that the approver reads in the plan. | A unit test over all keys |
+| 9 | The simulated BMC (`metal/internal/bmc/sim`) and the conformance checks (`bmctest`) | For a BMC action: add the behavior of each fixture and a check. | Your tests |
+| 10 | `docs/src/content/docs/reference/actions.mdx` | Add the row and the section. | `docs:check` for the links only |
+| 11 | The proposer | Add the action to the plan that uses it (install, release, rollout, convergence). | Your tests |
+
+Rows 5, 6 and 7 fail without a message. A wrong answer in row 6 lets an action stop a control plane with no guard.
+
+## Add a BMC model
+
+1. Read a real BMC with [](cli:check) and [](cli:inventory). They change nothing.
+2. Write a fixture in `metal/internal/bmc/sim/fixtures/`. Use only synthetic serials, MAC addresses and names.
+3. Run the conformance checks against the fixture: `go test ./internal/bmc/...` in `metal/`.
+4. Change the Redfish client in `metal/internal/bmc/gofish` where the model deviates.
+5. Add the model to [](ref:hardware), with what is proven and what is not.
+
+## Write for this site
+
+- The pages are in `docs/src/content/docs`. [How to read this site](/start/how-to-read/) explains the page types and the writing rules.
+- `mise run docs:dev` serves the site with live reload.
+- A link to a kind, a command or a page uses its category and id: `[](kind:Host)`. A new page declares its id in the frontmatter (`xref`).
+- The reference tables for fields, flags, conditions and phases come from the code. Change the comment in the Go source, then run `mise run generate`.
+
+## Related
+
+- [](concept:architecture)
+- [](ctrl:index)
+- [](ref:status)
