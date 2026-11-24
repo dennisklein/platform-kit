@@ -86,6 +86,11 @@ type Options struct {
 	ProbeKubernetes KubernetesProber
 	CheckInterval   time.Duration
 	ReadyInterval   time.Duration
+
+	// NodeName is the Kubernetes node the manager's pod runs on. When set,
+	// the claim, operation and convergence lanes refuse to reboot the
+	// machines the operator itself runs on (SelfGuard).
+	NodeName string
 }
 
 // reconciler is what every lane's reconciler offers SetupAll.
@@ -125,6 +130,10 @@ func SetupAll(mgr ctrl.Manager, o Options, lanes ...Lane) error {
 // reconciler builds the reconciler of one lane from o.
 func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 	c, scheme := mgr.GetClient(), mgr.GetScheme()
+	var self *SelfGuard
+	if o.NodeName != "" {
+		self = &SelfGuard{Reader: mgr.GetAPIReader(), NodeName: o.NodeName}
+	}
 	recorder := func() events.EventRecorder {
 		return mgr.GetEventRecorder(cmp.Or(o.EventSource, "pk-metal"))
 	}
@@ -146,6 +155,7 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 			Client: c, OperationsNamespace: o.OperationsNamespace, Proposer: o.Proposer,
 			CheckInTimeoutSeconds:  int32(o.CheckInTimeout.Seconds()),
 			ReleaseShutdownTimeout: o.ReleaseShutdownTimeout,
+			Self:                   self,
 		}
 	case LaneProtection:
 		return "protection", &ProtectionReconciler{Client: c}
@@ -153,13 +163,13 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 		return "hostoperation", &HostOperationReconciler{
 			Client: c, CredentialsNamespace: o.CredentialsNamespace,
 			RegistryClient: o.RegistryClient, Media: o.Media,
-			Recorder: recorder(), WaitInterval: o.WaitInterval,
+			Recorder: recorder(), WaitInterval: o.WaitInterval, Self: self,
 		}
 	case LaneConvergence:
 		return "convergence", &ConvergenceReconciler{
 			Client: c, CredentialsNamespace: o.CredentialsNamespace,
 			OperationsNamespace: o.OperationsNamespace, Proposer: o.Proposer,
-			PollInterval: o.PollInterval,
+			PollInterval: o.PollInterval, Self: self,
 		}
 	case LaneEndpointConvergence:
 		return "endpoint convergence", &EndpointConvergenceReconciler{

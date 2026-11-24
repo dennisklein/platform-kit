@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
+	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/phase"
 )
@@ -84,6 +85,10 @@ type mClaim struct {
 type mHost struct {
 	Claimed, Maintenance, OSReady bool
 	PowerOff                      bool // the release's power-off decision, recorded on the host
+	// Self: the host's node is a control plane of the cluster the operator
+	// runs in (see selfBlocked). AllowSelf: it carries the
+	// metal.pk.io/allow-self-disruption annotation.
+	Self, AllowSelf bool
 }
 
 type mBMC struct {
@@ -102,7 +107,7 @@ type world struct {
 	// Ghosts.
 	BootStarted, ReleaseDone bool
 	// Budgets bound what a person and the machine do, so the space is finite.
-	Holds, Maints, Retries, Fails, Proposals uint8
+	Holds, Maints, Retries, Fails, Proposals, SelfAllows uint8
 }
 
 // state is the current world and the one before it: what a stale cache shows.
@@ -215,6 +220,9 @@ func hostObj(h mHost) *metalv1alpha1.Host {
 	if h.PowerOff {
 		host.Annotations[annotationReleasePowerOff] = modelClaimUID
 	}
+	if h.AllowSelf {
+		host.Annotations[metalv1alpha1.AnnotationAllowSelfDisruption] = "true"
+	}
 	setCondition(&host.Status.Conditions, 1, metalv1alpha1.ConditionInspected, metav1.ConditionTrue, "Inspected", "")
 	setCondition(&host.Status.Conditions, 1, metalv1alpha1.ConditionVerified, metav1.ConditionTrue, "Verified", "")
 	if h.OSReady {
@@ -231,6 +239,43 @@ func held(c mClaim) bool {
 func maintenance(h mHost) bool {
 	_, ok := inMaintenance(hostObj(h))
 	return ok
+}
+
+// selfBlocked asks the real disruptionVerdict whether a reboot or power-off
+// of the host must wait. The operator runs on node-b, a control plane of
+// cluster mgmt with node-c; host-a runs node-a, a third control plane of mgmt
+// when the host is Self and a node of another cluster otherwise. Every model
+// operation reboots or powers off the machine (boot and BIOS cycle it, the
+// release powers it off). SelfGuard.Check reads the host and the nodes from
+// the API server, so the caller passes the current world.
+func selfBlocked(h mHost, nodeReady bool) bool {
+	node := func(name, cluster string, ready bool) osv1alpha1.TalosNode {
+		n := osv1alpha1.TalosNode{}
+		n.Name, n.Spec.ClusterRef.Name, n.Spec.Role = name, cluster, osv1alpha1.RoleControlPlane
+		if ready {
+			setCondition(&n.Status.Conditions, 1, osv1alpha1.ConditionReady, metav1.ConditionTrue, osv1alpha1.ReasonNodeReady, "")
+		}
+		return n
+	}
+	cluster := "work"
+	if h.Self {
+		cluster = "mgmt"
+	}
+	nodes := []osv1alpha1.TalosNode{node("node-a", cluster, nodeReady), node("node-b", "mgmt", true), node("node-c", "mgmt", true)}
+	host := hostObj(h)
+	host.Name = "host-a"
+	host.Spec.OS = &metalv1alpha1.HostOS{NodeRef: metalv1alpha1.Reference{Name: "node-a"}}
+	mgmt := &osv1alpha1.TalosCluster{}
+	mgmt.Status.ControlPlanes, mgmt.Status.ReadyControlPlanes = 2, 2
+	if h.Self {
+		mgmt.Status.ControlPlanes = 3
+		if nodeReady {
+			mgmt.Status.ReadyControlPlanes = 3
+		}
+	}
+	return disruptionVerdict(disruptionInput{
+		host: host, self: selfLocation{node: &nodes[1], how: "node name"}, nodes: nodes, cluster: mgmt,
+	}) != ""
 }
 
 // --- transitions ---
@@ -366,7 +411,10 @@ func (p *pass) provision(v view, claim mClaim, host mHost) {
 	case maintenance(host):
 		withdraw()
 	case !boot.Exists:
-		p.create(slotBoot, !approvalWaived(cl))
+		// The self guard: an install reboots the machine.
+		if !selfBlocked(p.next.Host, p.next.NodeReady) {
+			p.create(slotBoot, !approvalWaived(cl))
+		}
 	}
 }
 
@@ -417,6 +465,11 @@ func (p *pass) release(v view) {
 						return
 					}
 					host.PowerOff = true
+				}
+				if op == nil && selfBlocked(p.next.Host, p.next.NodeReady) {
+					// The self guard: no power-off is proposed.
+					done, keepRecords = false, true
+					break
 				}
 				if op == nil {
 					required := runsNode(hostObj(host)) && !approvalWaived(claim)
@@ -494,6 +547,10 @@ func executorPass(s state, v view, mask uint8, i opSlot, fail bool) *pass {
 	}
 	if obj.Status.Baseline == nil {
 		if maintenance(v.Host) {
+			return p
+		}
+		// The self guard reads the host and the nodes from the API server.
+		if selfBlocked(p.next.Host, p.next.NodeReady) {
 			return p
 		}
 		// activePredecessorUncached: hostHolder over the operations as the
@@ -622,7 +679,13 @@ func successors(s state) []*pass {
 			}
 		})
 	}
-	if !w.Ops[slotBios].Exists && w.Proposals > 0 {
+	if !w.Host.AllowSelf && w.SelfAllows > 0 {
+		person("person allows the host's self-disruption", func(n *world) { n.Host.AllowSelf = true; n.SelfAllows-- })
+	}
+	if w.Host.AllowSelf {
+		person("person withdraws the host's self-disruption", func(n *world) { n.Host.AllowSelf = false })
+	}
+	if !w.Ops[slotBios].Exists && w.Proposals > 0 && !selfBlocked(w.Host, w.NodeReady) {
 		p := newPass(s, "convergence proposes a BIOS operation")
 		p.next.Proposals--
 		p.create(slotBios, true)
@@ -761,6 +824,16 @@ var protocolInvariants = []invariant{
 		},
 	},
 	{
+		name: "a running control plane of the operator's cluster is rebooted only with the host's allowance",
+		check: func(p *pass) string {
+			w := p.next
+			if p.startedAny && w.Host.Self && (w.Host.OSReady || w.NodeReady) && !w.Host.AllowSelf {
+				return p.started.String() + " started on a running control plane of the operator's own cluster"
+			}
+			return ""
+		},
+	},
+	{
 		name: "the host phase follows the bind and the claim's deletion",
 		check: func(p *pass) string {
 			w := p.next
@@ -887,6 +960,14 @@ func TestProtocolModel(t *testing.T) {
 		}
 		initial = append(initial, state{Cur: w, Prev: w})
 	}
+	// The host is a control plane of the cluster the operator runs in, and
+	// a person may allow its disruption once.
+	self := world{
+		Claim: mClaim{Exists: true},
+		Host:  mHost{Self: true},
+		Holds: 1, Maints: 1, Retries: 1, Fails: 1, Proposals: 1, SelfAllows: 1,
+	}
+	initial = append(initial, state{Cur: self, Prev: self})
 	violations, known, n := explore(t, initial, depth)
 	require.Positive(t, n)
 	for _, inv := range protocolInvariants {

@@ -48,6 +48,14 @@ spec:
             - --health-probe-bind-address=:8081
             - --metrics-bind-address=:8080
             - --media-listen=:8443
+          env:
+            # The node this pod runs on. The manager will not reboot the
+            # machine under it, nor a control plane of its own cluster,
+            # without a person's say (metal.pk.io/allow-self-disruption).
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
           ports:
             - name: media
               containerPort: 8443

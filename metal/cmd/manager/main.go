@@ -141,6 +141,10 @@ func main() {
 		HealthProbeBindAddress: c.probeAddr,
 		LeaderElection:         c.leaderElect,
 		LeaderElectionID:       "pk-metal.metal.pk.io",
+		// Give the lease back on a clean stop. pk-metal pivot scales this
+		// manager to zero and waits for the lease to be free before another
+		// cluster's manager may act; without this it waits out the lease.
+		LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
 		log.Error(err, "new manager")
@@ -166,6 +170,7 @@ func main() {
 		Media:                  media,
 		Factory:                factory,
 		TalosDial:              machineapi.Dial,
+		NodeName:               c.nodeName,
 	}, controller.AllLanes...); err != nil {
 		log.Error(err, "setup reconcilers")
 		os.Exit(1)
@@ -182,7 +187,7 @@ func main() {
 		}
 	}
 
-	log.Info("starting", "credentialsNamespace", c.credsNS, "pollInterval", c.poll)
+	log.Info("starting", "credentialsNamespace", c.credsNS, "pollInterval", c.poll, "nodeName", c.nodeName)
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		log.Error(err, "manager exited")
 		os.Exit(1)
@@ -236,6 +241,7 @@ type config struct {
 	mediaCert    string
 	checkIn      time.Duration
 	shutdown     time.Duration
+	nodeName     string
 	showVersion  bool
 }
 
@@ -272,6 +278,9 @@ func parseFlags(args []string, output io.Writer) (*config, error) {
 		"how long an install waits for the machine to come up and answer before it fails")
 	fs.DurationVar(&c.shutdown, "release-shutdown-timeout", 5*time.Minute,
 		"when a HostClaim is deleted, how long its machine's OS gets to shut down before the machine is forced off")
+	fs.StringVar(&c.nodeName, "node-name", os.Getenv("NODE_NAME"),
+		"the Kubernetes node this manager runs on (default: $NODE_NAME, which the Deployment sets from the pod's node); "+
+			"the operator will not reboot the machine it runs on, nor a control plane of its own cluster, without the host's metal.pk.io/allow-self-disruption annotation")
 	fs.BoolVar(&c.showVersion, "version", false, "print the build version and exit")
 	if err := fs.Parse(args); err != nil {
 		return nil, err

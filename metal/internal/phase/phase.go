@@ -145,6 +145,7 @@ var provisioningHolds = map[string]bool{
 	metalv1alpha1.ReasonReleaseFailed:           true,
 	metalv1alpha1.ReasonHeldByUser:              true,
 	metalv1alpha1.ReasonHostInMaintenance:       true,
+	metalv1alpha1.ReasonSelfDisruption:          true,
 }
 
 // ForOperation derives the HostOperation phase from Approved + Executed. A

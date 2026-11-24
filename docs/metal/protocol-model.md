@@ -30,6 +30,9 @@ there.
 - Three operation slots: the claim's boot, the claim's release, and a BIOS
   operation that convergence proposes on the same host.
 - Whether the node checked in.
+- Whether the host runs a control plane of the cluster the operator itself
+  runs in, and whether it carries the `metal.pk.io/allow-self-disruption`
+  annotation.
 
 ### Who takes turns
 
@@ -38,7 +41,8 @@ there.
 - The operation executor, one pass per operation: approval gate, queue,
   baseline, then one step.
 - A person: approve, hold and lift the hold, put the host in maintenance and
-  give it back, delete the claim, retry a failed operation.
+  give it back, delete the claim, retry a failed operation, allow the
+  disruption of the operator's own control plane and take that back.
 - The machine: the node checks in once it booted the operator's media.
 - Convergence: it proposes the BIOS operation.
 
@@ -60,6 +64,7 @@ The model does not copy decision logic. It builds real API objects from the
 model state and calls the same helpers the controllers call: `opFinished`,
 `opAwaitsApproval`, `opActive`, `opSucceeded`, `approvalRequired`,
 `hostHolder`, `bootRan`, `handedOff`, `powerOffDecided`, `approvalWaived`,
+`disruptionVerdict`,
 and the phase functions in `internal/phase`. Only the control flow around these helpers is written
 again in the test. Comments name the branch of the real code that each part
 mirrors. If you change a branch in the controller, change its mirror too.
@@ -81,6 +86,13 @@ mirrors. If you change a branch in the controller, change its mirror too.
    claim waived approval.
 9. The host phase, derived by `internal/phase` from conditions, follows the
    bind and the claim's deletion.
+10. An operation that reboots or powers off a running control plane of the
+    cluster the operator runs in starts only while the host carries the
+    `metal.pk.io/allow-self-disruption` annotation. The boot, the release and
+    the BIOS operation all reboot or power off the machine. In the model the
+    operator runs on one of three control planes, so the annotation is
+    enough; etcd's majority is covered by the unit tests of
+    `disruptionVerdict`.
 
 ### Bounds
 
@@ -89,11 +101,11 @@ mirrors. If you change a branch in the controller, change its mirror too.
 | Hosts, claims | 1 each |
 | Operations | boot, release, one BIOS proposal |
 | Turns | 14 by default, 10 with `go test -short` |
-| Person actions | one hold, one maintenance, one retry, one refused step, one BIOS proposal; a hold and a maintenance can also be lifted |
-| Claims at start | one with approval required, one with approval waived |
+| Person actions | one hold, one maintenance, one retry, one refused step, one BIOS proposal, one allowance of self-disruption; a hold, a maintenance and the allowance can also be lifted |
+| Claims at start | one with approval required, one with approval waived, one on a control plane of the operator's own cluster |
 | Cache lag | one turn, per object kind |
 
-At 14 turns the model visits about 460,000 states in about 10 seconds. Set
+At 14 turns the model visits about 1,000,000 states in about 25 seconds. Set
 `PK_MODEL_DEPTH` to explore further, for example:
 
 ```sh
@@ -101,7 +113,7 @@ cd metal
 PK_MODEL_DEPTH=16 go test -count=1 -run TestProtocolModel -v ./internal/controller
 ```
 
-Depth 16 visits about 950,000 states in about 25 seconds. Memory and time
+Depth 16 visits about two million states in about a minute. Memory and time
 grow fast with each extra turn.
 
 ### Known limit: a hold set right after a deletion

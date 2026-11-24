@@ -53,6 +53,9 @@ type ConvergenceReconciler struct {
 	Proposer string
 	// PollInterval is the BIOS re-observation cadence.
 	PollInterval time.Duration
+	// Self keeps the operator from proposing a BIOS change, which reboots
+	// the machine, on a machine it runs on (see SelfGuard); nil allows it.
+	Self *SelfGuard
 }
 
 // +kubebuilder:rbac:groups=metal.pk.io,resources=hosts,verbs=get;list;watch
@@ -342,6 +345,16 @@ func (r *ConvergenceReconciler) bios(ctx context.Context, host *metalv1alpha1.Ho
 		}
 		if err := r.withdrawObsolete(ctx, settings.Status.Proposed); err != nil {
 			return false, err
+		}
+		// The change takes effect at a reboot, which the operation does.
+		guard, err := r.Self.Check(ctx, host)
+		if err != nil {
+			return false, err
+		}
+		if guard != "" {
+			reason = metalv1alpha1.ReasonSelfDisruption
+			msg = "drift on " + strings.Join(drifted, ", ") + "; no BIOS change is proposed: " + guard
+			break
 		}
 		op := r.proposal(host.Name, "bios", hash, "BiosConvergence", []metalv1alpha1.HostOperationAction{
 			// The attributes travel inside the operation: the approver sees

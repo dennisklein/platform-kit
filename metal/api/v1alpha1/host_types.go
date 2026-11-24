@@ -17,6 +17,22 @@ import (
 //	kubectl annotate host <host> metal.pk.io/maintenance-
 const AnnotationMaintenance = "metal.pk.io/maintenance"
 
+// AnnotationAllowSelfDisruption on a Host lets the operator reboot or power
+// off the machine even though the operator runs on it, or the machine runs a
+// control plane of the cluster the operator runs in. Without it the operator
+// proposes no install, release or BIOS change for such a machine and starts
+// no power action on it: the operator would take itself down halfway. With it,
+// a control plane is still taken down only one at a time, and only while the
+// other control planes keep etcd's majority. Any value counts; remove the
+// annotation when the work is done:
+//
+//	kubectl annotate host <host> metal.pk.io/allow-self-disruption=true
+//	kubectl annotate host <host> metal.pk.io/allow-self-disruption-
+//
+// The safer way is to move the operator to another cluster first
+// (pk-metal pivot); the machine is then an ordinary one.
+const AnnotationAllowSelfDisruption = "metal.pk.io/allow-self-disruption"
+
 // HostPhase summarizes a machine's conditions together with whether it is
 // claimed. Enrolling and Inspecting mean the cluster is still finding out what
 // the machine is; Available means it is understood and free; Assigned means

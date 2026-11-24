@@ -216,6 +216,15 @@ const (
 	// maintenance, and on Executed=Unknown of an operation that waits for
 	// the host to come out of maintenance.
 	ReasonHostInMaintenance = "HostInMaintenance"
+	// ReasonSelfDisruption: the step would reboot or power off a machine
+	// that the operator itself depends on: the node its own pod runs on, or
+	// a control plane of the cluster it runs in. Nothing is proposed or
+	// started for it unless the Host carries the
+	// metal.pk.io/allow-self-disruption annotation, and a control plane is
+	// taken down only one at a time and only while etcd keeps a majority.
+	// The reason on Provisioned=False of a claim, on Executed=Unknown of an
+	// operation that waits, and on BiosConverged=False of a host.
+	ReasonSelfDisruption = "SelfDisruption"
 )
 
 // ConditionMaterialized: on an Asset — the operator found the BMC's address in

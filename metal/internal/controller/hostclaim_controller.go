@@ -59,6 +59,9 @@ type HostClaimReconciler struct {
 	// (see finishRelease). Defaults to the manager's API reader in
 	// SetupWithManager.
 	APIReader client.Reader
+	// Self keeps the operator from proposing a reinstall or a power-off of
+	// a machine it runs on (see SelfGuard); nil allows every one.
+	Self *SelfGuard
 }
 
 // reader is the uncached reader when one is wired, the client otherwise.

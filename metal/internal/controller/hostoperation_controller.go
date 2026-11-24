@@ -61,6 +61,10 @@ const (
 	passMargin = 10 * time.Second
 	// passResume paces the next pass after one ran out of budget.
 	passResume = time.Second
+	// selfRecheck paces the next look at an operation held by the self
+	// guard: what it waits for (another control plane coming back, etcd's
+	// majority) is observed on other objects, which do not wake it.
+	selfRecheck = 30 * time.Second
 )
 
 // HostOperationReconciler runs approved disruptive one-shots — the model's ONE
@@ -105,6 +109,9 @@ type HostOperationReconciler struct {
 	// cache, for the queue check before an operation starts. Defaults to the
 	// manager's API reader in SetupWithManager.
 	APIReader client.Reader
+	// Self keeps the operator from starting a power action on a machine it
+	// runs on (see SelfGuard); nil allows every one.
+	Self *SelfGuard
 }
 
 // reader is the uncached reader when one is wired, the client otherwise.
@@ -229,6 +236,19 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonHostInMaintenance,
 				maintenanceNote(host)+"; this operation starts when it is given back: "+endMaintenanceCommand(host))
 			return ctrl.Result{}, client.IgnoreNotFound(flush())
+		}
+		// A power action on a machine the operator itself runs on waits, like
+		// maintenance, until a person allows it. One already running finishes.
+		if disrupts(op) {
+			msg, err := r.Self.Check(ctx, host)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if msg != "" {
+				setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonSelfDisruption,
+					msg+". This operation starts once that is resolved")
+				return ctrl.Result{RequeueAfter: selfRecheck}, client.IgnoreNotFound(flush())
+			}
 		}
 	}
 

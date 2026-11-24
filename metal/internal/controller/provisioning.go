@@ -268,6 +268,13 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 		}
 	}
 	if current == nil {
+		// An install reboots the machine. On one the operator runs on, that
+		// waits for a person (SelfGuard).
+		if msg, err := r.Self.Check(ctx, host); err != nil {
+			return err
+		} else if msg != "" {
+			return hold(metalv1alpha1.ReasonSelfDisruption, "no install is proposed: "+msg)
+		}
 		op := r.provisionOp(claim, hostName, name, plan, node, config, installer)
 		if err := r.Create(ctx, op); err != nil && !apierrors.IsAlreadyExists(err) {
 			return err
@@ -741,6 +748,15 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 				return false, err
 			}
 			if op == nil {
+				// The release powers the machine off. On one the operator
+				// runs on, that waits for a person (SelfGuard).
+				if msg, err := r.Self.Check(ctx, host); err != nil {
+					return false, err
+				} else if msg != "" {
+					set(metalv1alpha1.ReasonSelfDisruption, "the claim is deleted, but the machine is not shut down: "+msg)
+					done, keepRecords = false, true
+					continue
+				}
 				var waiting string
 				if op, waiting, err = r.releaseOp(ctx, claim, host, name); err != nil {
 					return false, err
