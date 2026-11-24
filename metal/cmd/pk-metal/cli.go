@@ -27,6 +27,8 @@ func init() {
 	commands = []command{
 		{name: "status", synopsis: "[-o table|json]", run: statusCmd,
 			summary: "show machines, BMCs, claims and operations, with the reason when something is stuck (reads only)"},
+		{name: "top", synopsis: "[--fleet url] [--workload-kubeconfig file]", run: topCmd, changes: true,
+			summary: "live view of every machine: BMC, phase, operation, node; keys approve, hold and retry like the commands below"},
 		{name: "approve", synopsis: "[-n namespace] [--yes] [<operation> | <namespace>/<operation>]", run: approveCmd, changes: true,
 			summary: "show what a proposed operation will do to a machine, then let it run; without a name, list the operations that wait for approval"},
 		{name: "retry", synopsis: "[-n namespace] [--yes] <operation> | <namespace>/<operation>", run: retryCmd, changes: true,

@@ -72,7 +72,7 @@ func simFleetCmd(args []string) {
 		log.Printf("sim fleet: media directory on %s/", url)
 	}
 	if url := f.StateURL(); url != "" {
-		log.Printf("sim fleet: state of every machine on %s (read-only)", url)
+		log.Printf("sim fleet: state of every machine on %s (read-only; watch it with: pk-metal top --fleet %s)", url, url)
 	}
 
 	var failure error

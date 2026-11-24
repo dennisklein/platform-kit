@@ -1,0 +1,25 @@
+pk-metal top   TalosNodes Ready 1/3   needs a person: 2
+cluster lab: ● Bootstrapped  ✗ Available (NodesNotReady)  control planes 1/1, workers 0/2
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓╭────────────────────────────────────────────────╮
+┃ pk-real-1 QEMU                                 ┃│ pklab0001 QEMU                                 │
+┃ BMC ● ─▶ host ✗ ─▶ node ○                      ┃│ BMC ● ─▶ host ● ─▶ node ●                      │
+┃ BMC   192.0.2.10  Ready                        ┃│ BMC   10.77.0.1:8441  Ready                    │
+┃ host  Assigned                                 ┃│ host  Provisioned                              │
+┃ claim default/real-1  ON HOLD                  ┃│ claim default/node-1                           │
+┃ op    3/9 insertMedia failed, approved by bob  ┃│ op    -                                        │
+┃       pk-metal/bios-real1-9f8e7d6c             ┃│ node  node-1 10.77.0.11                        │
+┃       the BMC answered 500 to the media mount  ┃│       ● Talos ready                            │
+┃ node  -                                        ┃╰────────────────────────────────────────────────╯
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛                                                  
+╭────────────────────────────────────────────────╮╭────────────────────────────────────────────────╮
+│ pklab0002 QEMU                                 ││ pklab0003 QEMU                                 │
+│ BMC ● ─▶ host ◐ ─▶ node ◐                      ││ BMC ● ─▶ host ◐ ─▶ node ◐                      │
+│ BMC   10.77.0.1:8442  Ready                    ││ BMC   10.77.0.1:8443  Ready                    │
+│ host  Provisioning                             ││ host  Assigned · Approval(Provisioning)        │
+│ claim default/node-2                           ││ claim default/node-3                           │
+│ op    7/9 awaitCheckIn, approved by alice      ││ op    1/9 ejectMedia, waits for approval       │
+│       pk-metal/provision-node2-1a2b3c4d        ││       pk-metal/provision-node3-5e6f7a8b        │
+│ node  node-2 10.77.0.12                        ││ node  node-3 10.77.0.13                        │
+│       ◐ Talos MaintenanceMode                  ││       ◐ Talos AwaitingContact                  │
+╰────────────────────────────────────────────────╯╰────────────────────────────────────────────────╯
+tab select  a approve  h hold/unhold  r retry  q quit
