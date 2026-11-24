@@ -201,6 +201,7 @@ func (r *TalosClusterReconciler) reconcile(ctx context.Context, cluster *osv1alp
 	b := bootstrap.Ensure(ctx, r.Dial, talosconfig, members, bootstrap.Observation{
 		KubernetesAnswers: kerr == nil, RequestedAt: requestedAt, Grace: r.BootstrapGrace,
 		BootstrappedAt: rememberedBootstrap(cluster),
+		RestorePending: cluster.Annotations[osv1alpha1.AnnotationRestorePending] != "",
 	})
 	switch {
 	case b.Bootstrapped:

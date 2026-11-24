@@ -86,6 +86,11 @@ type Observation struct {
 	// as the caller recorded it; zero if never. Once set, Ensure only
 	// observes: it never bootstraps the cluster again.
 	BootstrappedAt time.Time
+	// RestorePending says the cluster's etcd is to be restored from a
+	// snapshot (os.pk.io/restore-pending): Ensure never bootstraps it,
+	// even though it was never seen bootstrapped, and waits for the
+	// approved recovery to start etcd.
+	RestorePending bool
 	// Now defaults to time.Now; Grace to RequestGrace.
 	Now   time.Time
 	Grace time.Duration
@@ -131,6 +136,12 @@ func Ensure(ctx context.Context, dial talos.Dialer, talosconfig []byte, members 
 	}
 	if !obs.BootstrappedAt.IsZero() {
 		return lost(obs.BootstrappedAt, silent, holders)
+	}
+	if obs.RestorePending {
+		return Result{Reason: osv1alpha1.ReasonRestorePending, Message: fmt.Sprintf(
+			"the cluster is marked %s: the operator does not bootstrap it, an approved etcdRecover operation "+
+				"restores its etcd from a snapshot (%s); remove the annotation to start an empty cluster instead",
+			osv1alpha1.AnnotationRestorePending, RestoreProcedure)}
 	}
 	if !obs.RequestedAt.IsZero() && now.Sub(obs.RequestedAt) < grace {
 		msg := fmt.Sprintf("bootstrap requested at %s; waiting for etcd on %s",

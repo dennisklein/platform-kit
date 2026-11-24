@@ -6,3 +6,4 @@ resources:
   - role.yaml
   - role_binding.yaml
   - approver_role.yaml
+  - backup_role.yaml
