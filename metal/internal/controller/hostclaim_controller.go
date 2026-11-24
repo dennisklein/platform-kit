@@ -55,7 +55,9 @@ type HostClaimReconciler struct {
 	// cache. A release that finds no boot of the claim in the cache unbinds
 	// the machine as it is; it confirms that with this reader first, because
 	// a cache behind the executor's baseline write would hand back a machine
-	// mid-boot. Defaults to the manager's API reader in SetupWithManager.
+	// mid-boot. The release reads the hosts the claim holds through it too
+	// (see finishRelease). Defaults to the manager's API reader in
+	// SetupWithManager.
 	APIReader client.Reader
 }
 
@@ -103,7 +105,7 @@ func (r *HostClaimReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	if !claim.DeletionTimestamp.IsZero() {
-		return r.finishRelease(ctx, claim, bound)
+		return r.finishRelease(ctx, claim)
 	}
 	if controllerutil.AddFinalizer(claim, releaseFinalizer) {
 		if err := r.Update(ctx, claim); err != nil {
@@ -160,10 +162,17 @@ func (r *HostClaimReconciler) writeStatus(ctx context.Context, orig, claim *meta
 }
 
 // finishRelease runs the release while the finalizer holds the claim, and lets
-// the claim go once every machine it held is back.
-func (r *HostClaimReconciler) finishRelease(ctx context.Context, claim *metalv1alpha1.HostClaim, bound []metalv1alpha1.Host) (ctrl.Result, error) {
+// the claim go once every machine it held is back. It reads the hosts the
+// claim holds from the API server: a cache that has not yet seen a host bound
+// would let the finalizer go while the host still carries the claim, and the
+// host would then be unbound as it is, with no power-off.
+func (r *HostClaimReconciler) finishRelease(ctx context.Context, claim *metalv1alpha1.HostClaim) (ctrl.Result, error) {
 	if !controllerutil.ContainsFinalizer(claim, releaseFinalizer) {
 		return ctrl.Result{}, nil
+	}
+	bound, err := r.liveBoundHosts(ctx, client.ObjectKeyFromObject(claim))
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 	orig := claim.DeepCopy()
 	done, err := r.release(ctx, claim, bound)
@@ -290,6 +299,20 @@ func (r *HostClaimReconciler) boundHosts(ctx context.Context, key types.Namespac
 		return nil, err
 	}
 	return hosts.Items, nil
+}
+
+// liveBoundHosts is boundHosts read from the API server. The API server
+// cannot filter by claimRef, so every host is read and filtered here; only a
+// release does this, once per pass of a deleted claim.
+func (r *HostClaimReconciler) liveBoundHosts(ctx context.Context, key types.NamespacedName) ([]metalv1alpha1.Host, error) {
+	hosts := &metalv1alpha1.HostList{}
+	if err := r.reader().List(ctx, hosts); err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(hosts.Items, func(h metalv1alpha1.Host) bool {
+		ref := h.Spec.ClaimRef
+		return ref == nil || ref.Namespace != key.Namespace || ref.Name != key.Name
+	}), nil
 }
 
 // hostOSFrom maps the claim's OS intent onto the Host's hand-off shape; nil in →

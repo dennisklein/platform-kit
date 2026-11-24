@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -456,6 +457,71 @@ func TestInstallerImageBelongsToOneCluster(t *testing.T) {
 	again, err := r.ensureInstallerAsset(t.Context(), node, a)
 	require.NoError(t, err)
 	assert.Equal(t, fromA.Name, again.Name, "found again, not duplicated")
+}
+
+// A release decides from the API server, not from a cache that lags behind:
+// a boot that has just captured its baseline is seen as started, and a host
+// bound a moment ago is seen as bound. The second used to read the cache, and
+// the finalizer went while the host still carried the claim.
+func TestReleaseReadsPastAStaleCache(t *testing.T) {
+	// stale wires r like the manager does: writes and the API reader go to
+	// the API server (the reconciler's own fake); lists through the client
+	// answer from a cache that shows the objects given here.
+	stale := func(r *HostClaimReconciler, cached ...client.Object) {
+		r.APIReader = r.Client
+		r.Client = &staleLists{Client: r.Client, cache: claimReconcilerFor(t, cached...).Client}
+	}
+	deleting := func() *metalv1alpha1.HostClaim {
+		c := testClaim("node-b")
+		c.Finalizers = []string{releaseFinalizer}
+		c.DeletionTimestamp = ptr.To(metav1.Now())
+		return c
+	}
+	bound := func(c *metalv1alpha1.HostClaim) *metalv1alpha1.Host {
+		return &metalv1alpha1.Host{
+			ObjectMeta: metav1.ObjectMeta{Name: "host-a"},
+			Spec: metalv1alpha1.HostSpec{
+				ClaimRef: &metalv1alpha1.ClaimReference{Namespace: c.Namespace, Name: c.Name, UID: c.UID}},
+		}
+	}
+
+	t.Run("a boot that started is seen", func(t *testing.T) {
+		claim := deleting()
+		host := bound(claim)
+		r := claimReconcilerFor(t, claim, host, bootOp("boot", "node-b", false, true))
+		stale(r, claim, host, bootOp("boot", "node-b", false, false))
+
+		_, err := r.finishRelease(t.Context(), claim)
+		require.NoError(t, err)
+		got := &metalv1alpha1.Host{}
+		require.NoError(t, r.Get(t.Context(), client.ObjectKeyFromObject(host), got))
+		assert.NotNil(t, got.Spec.ClaimRef, "still bound until the power-off ran")
+		assert.True(t, powerOffDecided(got, claim), "the started boot is powered off before the machine goes back")
+	})
+
+	t.Run("a host just bound is seen", func(t *testing.T) {
+		claim := deleting()
+		host := bound(claim)
+		r := claimReconcilerFor(t, claim, host)
+		stale(r, claim, &metalv1alpha1.Host{ObjectMeta: metav1.ObjectMeta{Name: "host-a"}})
+
+		_, err := r.finishRelease(t.Context(), claim)
+		require.NoError(t, err)
+		got := &metalv1alpha1.Host{}
+		require.NoError(t, r.Get(t.Context(), client.ObjectKeyFromObject(host), got))
+		assert.Nil(t, got.Spec.ClaimRef, "the host is handed back before the claim goes")
+	})
+}
+
+// staleLists answers lists from a cache that lags behind the API server;
+// everything else goes to the API server.
+type staleLists struct {
+	client.Client
+	cache client.Client
+}
+
+func (c *staleLists) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	return c.cache.List(ctx, list, opts...)
 }
 
 func TestDroppedIntentStopsARunningBoot(t *testing.T) {
