@@ -75,11 +75,18 @@ spec:
             summary: "The newest verified etcd backup of cluster {{ $labels.cluster }} is older than 12 hours"
             description: "Without a recent backup a lost quorum loses recent cluster state. See docs/metal/disaster-recovery.md."
         - alert: PkMetalCredentialsExpiring
-          # The operator renews its published credentials 30 days before they
-          # expire; one still this close to expiry means renewal is failing.
-          expr: max by (cluster, kind) (pk_metal_credentials_expiry_timestamp_seconds) - time() < 14 * 24 * 3600
+          # The operator mints a published credential again once less than a
+          # third of its lifetime (spec.credentials.ttl, 24h by default) is
+          # left. One with less than a sixth left is halfway from that point
+          # to expiry without having been renewed: renewal is failing. The
+          # lifetime is read from the certificate itself, so the alert holds
+          # for every TTL.
+          expr: |
+            min by (cluster, kind) (pk_metal_credentials_expiry_timestamp_seconds - time())
+              < min by (cluster, kind) (pk_metal_credentials_expiry_timestamp_seconds - pk_metal_credentials_issued_timestamp_seconds) / 6
+          for: 10m
           labels:
             severity: warning
           annotations:
-            summary: "The {{ $labels.kind }} of cluster {{ $labels.cluster }} expires in less than 14 days"
-            description: "The operator should have renewed it 30 days before expiry. Check the operator log and kubectl describe taloscluster {{ $labels.cluster }}."
+            summary: "The {{ $labels.kind }} of cluster {{ $labels.cluster }} has less than a sixth of its lifetime left and was not renewed"
+            description: "The operator renews it when a third of its lifetime is left. Check the operator log and kubectl describe taloscluster {{ $labels.cluster }}."

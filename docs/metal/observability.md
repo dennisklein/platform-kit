@@ -66,6 +66,7 @@ never older than the scrape.
 | `taloscluster_available` | cluster | 1 when the Kubernetes API answers and every node is Ready |
 | `taloscluster_nodes` | cluster, role, ready | node counts |
 | `credentials_expiry_timestamp_seconds` | cluster, kind | when the published admin kubeconfig and talosconfig expire |
+| `credentials_issued_timestamp_seconds` | cluster, kind | when they became valid; with the expiry, their lifetime |
 | `etcd_backup_last_success_timestamp_seconds` | cluster | time of the newest verified etcd snapshot (set by the backup controller) |
 | `rollout_nodes_done`, `rollout_nodes_total` | rollout, cluster | progress of a rollout's approved plan (set by the rollout controller) |
 
@@ -87,7 +88,7 @@ kubectl apply -f metal/config/prometheus/rules.yaml
 | PkMetalNodeNotReady | a node is not Ready for 15 min | `pk-metal status`, `kubectl describe talosnode` |
 | PkMetalClusterUnavailable | a cluster's Kubernetes API does not answer or a node is down for 15 min | `kubectl describe taloscluster` |
 | PkMetalEtcdBackupStale | the newest verified etcd backup is older than 12 hours | see [disaster recovery](disaster-recovery.md) |
-| PkMetalCredentialsExpiring | a published admin credential expires within 14 days | the operator renews them 30 days ahead, so renewal is failing: read the manager log |
+| PkMetalCredentialsExpiring | a published admin credential has less than a sixth of its lifetime left | the operator renews it when a third is left (`spec.credentials.ttl`, 24h by default), so renewal is failing: read the manager log |
 
 The thresholds are starting points. Copy the file and change them to fit your
 site; the metric names are stable.

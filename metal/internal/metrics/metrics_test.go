@@ -145,28 +145,38 @@ pk_metal_taloscluster_nodes{cluster="c",ready="true",role="worker"} 1
 		"pk_metal_talosnode_ready", "pk_metal_talosnode_info", "pk_metal_taloscluster_available",
 		"pk_metal_taloscluster_nodes"))
 
-	// The credential expiry is the certificate's own NotAfter, for both kinds.
+	// The credential expiry and issue time are the certificate's own
+	// NotAfter and NotBefore, for both kinds: the alert reads the lifetime
+	// from the two, so both must be there.
 	mfs, err := reg.Gather()
 	require.NoError(t, err)
-	kinds := map[string]float64{}
+	series := map[string]map[string]float64{}
 	for _, mf := range mfs {
-		if mf.GetName() != "pk_metal_credentials_expiry_timestamp_seconds" {
+		name := mf.GetName()
+		if name != "pk_metal_credentials_expiry_timestamp_seconds" && name != "pk_metal_credentials_issued_timestamp_seconds" {
 			continue
 		}
+		series[name] = map[string]float64{}
 		for _, m := range mf.GetMetric() {
 			for _, l := range m.GetLabel() {
 				if l.GetName() == "kind" {
-					kinds[l.GetValue()] = m.GetGauge().GetValue()
+					series[name][l.GetValue()] = m.GetGauge().GetValue()
 				}
 			}
 		}
 	}
-	require.Len(t, kinds, 2, "both published credentials must report an expiry")
-	exp, ok := kubeconfigExpiry([]byte(kubeconfig))
+	expiry, issued := series["pk_metal_credentials_expiry_timestamp_seconds"], series["pk_metal_credentials_issued_timestamp_seconds"]
+	require.Len(t, expiry, 2, "both published credentials must report an expiry")
+	require.Len(t, issued, 2, "both published credentials must report an issue time")
+	v, ok := kubeconfigValidity([]byte(kubeconfig))
 	require.True(t, ok)
-	assert.InDelta(t, float64(exp.Unix()), kinds["kubeconfig"], 0)
-	assert.InDelta(t, float64(exp.Unix()), kinds["talosconfig"], 0)
-	assert.WithinDuration(t, time.Now().Add(24*time.Hour), exp, time.Hour)
+	for _, kind := range []string{"kubeconfig", "talosconfig"} {
+		assert.InDelta(t, float64(v.NotAfter.Unix()), expiry[kind], 0, kind)
+		assert.InDelta(t, float64(v.NotBefore.Unix()), issued[kind], 0, kind)
+	}
+	assert.WithinDuration(t, time.Now().Add(24*time.Hour), v.NotAfter, time.Hour)
+	assert.True(t, v.NotBefore.Before(v.NotAfter) && !v.NotBefore.After(time.Now()),
+		"the issue time is the certificate's own, before its expiry: %v", v)
 }
 
 func TestHooksFeedTheirSeries(t *testing.T) {

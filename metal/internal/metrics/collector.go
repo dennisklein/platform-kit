@@ -53,6 +53,12 @@ var (
 		"TalosCluster nodes by role and readiness.", "cluster", "role", "ready")
 	descCredentialExpiry = desc("credentials_expiry_timestamp_seconds",
 		"Unix time at which a published admin credential's client certificate expires.", "cluster", "kind")
+	// The issue time is what makes the expiry readable: the operator renews
+	// at a fraction of the lifetime (spec.credentials.ttl), so an alert on a
+	// fixed number of days is wrong for every TTL but one.
+	descCredentialIssued = desc("credentials_issued_timestamp_seconds",
+		"Unix time from which a published admin credential's client certificate is valid (the one that expires first).",
+		"cluster", "kind")
 )
 
 // Collector derives the scrape-time series from the cache on every scrape.
@@ -67,7 +73,7 @@ func (c *Collector) Describe(ch chan<- *prometheus.Desc) {
 	for _, d := range []*prometheus.Desc{
 		descHostPhase, descHostBlocked, descOperations, descOperationFailed, descAwaitingApproval,
 		descOperationBlocked, descBMCReachable, descNodeReady, descNodeVersion, descClusterAvailable,
-		descClusterMembers, descCredentialExpiry,
+		descClusterMembers, descCredentialExpiry, descCredentialIssued,
 	} {
 		ch <- d
 	}
@@ -208,81 +214,87 @@ func (c *Collector) clusters(ctx context.Context, ch chan<- prometheus.Metric) {
 		gauge(ch, descClusterMembers, float64(st.ReadyWorkers), cl.Name, string(osv1alpha1.RoleWorker), "true")
 		gauge(ch, descClusterMembers, float64(st.Workers-st.ReadyWorkers), cl.Name, string(osv1alpha1.RoleWorker), "false")
 		if ref := st.KubeconfigSecretRef; ref != nil {
-			if exp, ok := c.secretExpiry(ctx, ref, "kubeconfig", kubeconfigExpiry); ok {
-				gauge(ch, descCredentialExpiry, float64(exp.Unix()), cl.Name, "kubeconfig")
+			if v, ok := c.secretValidity(ctx, ref, "kubeconfig", kubeconfigValidity); ok {
+				gauge(ch, descCredentialExpiry, float64(v.NotAfter.Unix()), cl.Name, "kubeconfig")
+				gauge(ch, descCredentialIssued, float64(v.NotBefore.Unix()), cl.Name, "kubeconfig")
 			}
 		}
 		if ref := st.TalosconfigSecretRef; ref != nil {
-			if exp, ok := c.secretExpiry(ctx, ref, "talosconfig", talosconfigExpiry); ok {
-				gauge(ch, descCredentialExpiry, float64(exp.Unix()), cl.Name, "talosconfig")
+			if v, ok := c.secretValidity(ctx, ref, "talosconfig", talosconfigValidity); ok {
+				gauge(ch, descCredentialExpiry, float64(v.NotAfter.Unix()), cl.Name, "talosconfig")
+				gauge(ch, descCredentialIssued, float64(v.NotBefore.Unix()), cl.Name, "talosconfig")
 			}
 		}
 	}
 }
 
-// secretExpiry reads one published credential and the expiry of the client
-// certificate inside it. A Secret outside the credentials namespace is not
+// validity is a client certificate's validity period.
+type validity struct{ NotBefore, NotAfter time.Time }
+
+// secretValidity reads one published credential and the validity of the
+// client certificate inside it that expires first. A Secret outside the credentials namespace is not
 // read: the cache does not hold it, and the operator does not publish there.
-func (c *Collector) secretExpiry(ctx context.Context, ref *osv1alpha1.SecretReference, key string,
-	parse func([]byte) (time.Time, bool)) (time.Time, bool) {
+func (c *Collector) secretValidity(ctx context.Context, ref *osv1alpha1.SecretReference, key string,
+	parse func([]byte) (validity, bool)) (validity, bool) {
 	if c.CredentialsNamespace != "" && ref.Namespace != c.CredentialsNamespace {
-		return time.Time{}, false
+		return validity{}, false
 	}
 	s := &corev1.Secret{}
 	if err := c.Reader.Get(ctx, client.ObjectKey{Namespace: ref.Namespace, Name: ref.Name}, s); err != nil {
-		return time.Time{}, false
+		return validity{}, false
 	}
 	return parse(s.Data[key])
 }
 
-// kubeconfigExpiry is the earliest NotAfter of the client certificates in a
-// kubeconfig.
-func kubeconfigExpiry(data []byte) (time.Time, bool) {
+// kubeconfigValidity is the validity of the client certificate in a
+// kubeconfig that expires first.
+func kubeconfigValidity(data []byte) (validity, bool) {
 	cfg, err := clientcmd.Load(data)
 	if err != nil {
-		return time.Time{}, false
+		return validity{}, false
 	}
-	var earliest time.Time
+	var first validity
 	for _, a := range cfg.AuthInfos {
-		if t, ok := certExpiry(a.ClientCertificateData); ok && (earliest.IsZero() || t.Before(earliest)) {
-			earliest = t
-		}
+		first = earlier(first, a.ClientCertificateData)
 	}
-	return earliest, !earliest.IsZero()
+	return first, !first.NotAfter.IsZero()
 }
 
-// talosconfigExpiry is the earliest NotAfter of the client certificates in a
-// talosconfig (contexts.<name>.crt, base64 PEM).
-func talosconfigExpiry(data []byte) (time.Time, bool) {
+// talosconfigValidity is the validity of the client certificate in a
+// talosconfig (contexts.<name>.crt, base64 PEM) that expires first.
+func talosconfigValidity(data []byte) (validity, bool) {
 	var cfg struct {
 		Contexts map[string]struct {
 			Crt string `yaml:"crt"`
 		} `yaml:"contexts"`
 	}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return time.Time{}, false
+		return validity{}, false
 	}
-	var earliest time.Time
+	var first validity
 	for _, ctx := range cfg.Contexts {
 		raw, err := base64.StdEncoding.DecodeString(ctx.Crt)
 		if err != nil {
 			continue
 		}
-		if t, ok := certExpiry(raw); ok && (earliest.IsZero() || t.Before(earliest)) {
-			earliest = t
-		}
+		first = earlier(first, raw)
 	}
-	return earliest, !earliest.IsZero()
+	return first, !first.NotAfter.IsZero()
 }
 
-func certExpiry(pemData []byte) (time.Time, bool) {
+// earlier is whichever of cur and the PEM certificate expires first; cur when
+// the PEM does not parse.
+func earlier(cur validity, pemData []byte) validity {
 	block, _ := pem.Decode(pemData)
 	if block == nil {
-		return time.Time{}, false
+		return cur
 	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		return time.Time{}, false
+		return cur
 	}
-	return cert.NotAfter, true
+	if cur.NotAfter.IsZero() || cert.NotAfter.Before(cur.NotAfter) {
+		return validity{NotBefore: cert.NotBefore, NotAfter: cert.NotAfter}
+	}
+	return cur
 }

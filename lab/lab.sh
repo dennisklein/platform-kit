@@ -1541,7 +1541,8 @@ observe_views() {
   metrics=$(metrics_text) || die "cannot read the operator's metrics through service pk-metal-metrics in namespace $NAMESPACE"
   local series
   for series in pk_metal_host_phase pk_metal_talosnode_ready pk_metal_taloscluster_available \
-    pk_metal_bmc_reachable pk_metal_credentials_expiry_timestamp_seconds; do
+    pk_metal_bmc_reachable pk_metal_credentials_expiry_timestamp_seconds \
+    pk_metal_credentials_issued_timestamp_seconds; do
     grep -q "^$series{" <<<"$metrics" || die "the operator's metrics have no $series"
   done
   grep -q '^pk_metal_taloscluster_available{.*} 1$' <<<"$metrics" \
