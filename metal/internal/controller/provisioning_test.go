@@ -166,6 +166,28 @@ func TestCheckInRecordsTheHandOff(t *testing.T) {
 	assert.Equal(t, "pk-metal/boot", claim.Status.HandOff.Operation)
 }
 
+// TestMovedClaimIsNotHandedOffByAnOldCheckIn: after pk-metal replace the
+// claim's TalosNode still reads Ready for a while, from the machine it left.
+// That is no install on the new machine: the claim must not record one, or
+// nothing would ever boot the node there.
+func TestMovedClaimIsNotHandedOffByAnOldCheckIn(t *testing.T) {
+	host := &metalv1alpha1.Host{ObjectMeta: metav1.ObjectMeta{Name: "host-a"}}
+	node := &osv1alpha1.TalosNode{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-b"},
+		Status: osv1alpha1.TalosNodeStatus{ConfigDigest: "sha256:abc", Conditions: []metav1.Condition{{
+			Type: osv1alpha1.ConditionReady, Status: metav1.ConditionTrue, Reason: osv1alpha1.ReasonNodeReady,
+		}}},
+	}
+	r := claimReconcilerFor(t, host, node)
+	claim := testClaim("node-b")
+	claim.Status.HandOff = &metalv1alpha1.ClaimHandOff{Host: "host-old", Node: "node-b", At: metav1.Now()}
+	require.NoError(t, r.provision(t.Context(), claim, "host-a"))
+	c := meta.FindStatusCondition(claim.Status.Conditions, metalv1alpha1.ConditionProvisioned)
+	require.NotNil(t, c)
+	assert.NotEqual(t, metalv1alpha1.ReasonHandedOff, c.Reason, c.Message)
+	assert.Equal(t, "host-old", claim.Status.HandOff.Host, "the record still names the machine the node ran on")
+}
+
 func TestReleasePowersOffOnlyWhatABootTouched(t *testing.T) {
 	for name, tc := range map[string]struct {
 		executed    bool

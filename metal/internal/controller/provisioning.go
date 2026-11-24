@@ -199,7 +199,12 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 		set(metav1.ConditionTrue, metalv1alpha1.ReasonHandedOff, msg)
 		return r.withdraw(ctx, ops, "")
 	}
-	if nodeCheckedIn(node) && !reinstall {
+	// The node ran for this claim on another machine before the claim was
+	// moved (pk-metal replace): what its status says of a check-in came
+	// from that machine, which the release has wiped since. This one is not
+	// installed until a boot of its own says so.
+	moved := claim.Status.HandOff != nil && claim.Status.HandOff.Node == node.Name && claim.Status.HandOff.Host != hostName
+	if nodeCheckedIn(node) && !reinstall && !moved {
 		// The boot that got it there, if one of ours did: the release reads
 		// it to know whether the operator touched this machine.
 		var booted *metalv1alpha1.HostOperation
@@ -292,7 +297,7 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 	// A machine that replaces an install is reset first: it has no Talos on
 	// disk to take a config medium alone.
 	kind, why, msg := decideShape(hostName, shape,
-		prior == "" && meta.IsStatusConditionTrue(node.Status.Conditions, osv1alpha1.ConditionMachineReachable),
+		prior == "" && !moved && meta.IsStatusConditionTrue(node.Status.Conditions, osv1alpha1.ConditionMachineReachable),
 		cluster.Spec.TalosVersion)
 	if why != "" {
 		return hold(why, msg)
@@ -377,7 +382,9 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 		}
 		op := r.provisionOp(claim, hostName, name, plan, node, config, installer)
 		op.Spec.Actions = append(prefix, op.Spec.Actions...)
-		if prior != "" {
+		if prior != "" || moved {
+			// Either way the node checked in before, from this machine or
+			// the one it left: the boot waits for a check-in after it began.
 			op.Annotations[annotationReinstallOf] = claim.Status.HandOff.At.UTC().Format(time.RFC3339)
 			op.Labels[labelNode] = node.Name
 		}
@@ -395,14 +402,18 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 	ex := meta.FindStatusCondition(current.Status.Conditions, metalv1alpha1.ConditionExecuted)
 	ref := current.Namespace + "/" + current.Name
 	switch {
-	case prior != "" && opSucceeded(current):
+	case (prior != "" || moved) && opSucceeded(current):
 		// The replacing install is the hand-off now. Its new time makes a
 		// reinstall annotation naming the old one ask for nothing.
 		claim.Status.HandOff = &metalv1alpha1.ClaimHandOff{
 			Host: hostName, Node: node.Name, ConfigDigest: plan.ConfigDigest, At: metav1.Now(),
 			Operation: current.Namespace + "/" + current.Name,
 		}
-		set(metav1.ConditionTrue, metalv1alpha1.ReasonHandedOff, fmt.Sprintf("operation %s reinstalled host %s with TalosNode %s", ref, hostName, node.Name))
+		verb := "reinstalled"
+		if moved {
+			verb = "installed"
+		}
+		set(metav1.ConditionTrue, metalv1alpha1.ReasonHandedOff, fmt.Sprintf("operation %s %s host %s with TalosNode %s", ref, verb, hostName, node.Name))
 		return nil
 	case opAwaitsApproval(current):
 		return hold(metalv1alpha1.ReasonAwaitingOperation, awaitsApprovalMessage(claim, current, "boot", "install"))
