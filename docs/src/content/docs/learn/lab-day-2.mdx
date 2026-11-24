@@ -80,8 +80,10 @@ The unattended tasks [](lab:day2) and [](lab:upgrade) do the same changes withou
 
 <Checkpoint>
 `lab:wait` ends with a line that starts with `converged after`.
-`kubectl get talosnodes` shows the release `v1.14.5` for each node.
+`kubectl get talosnodes -o wide` shows the release `v1.14.5` for each node.
 </Checkpoint>
+
+If a step does not give its checkpoint, see [](lab:page/troubleshooting).
 
 ### 2. Reboot a worker
 
@@ -123,7 +125,7 @@ The actions are [](act:Cordon), [](act:Drain), [](act:TalosReboot), [](act:WaitN
 
 <Callout type="note">
 Reboot a worker in this lab, not the control plane.
-With one control plane, the cluster guard holds the reboot until you set an override. [](lab:day2) shows this case.
+With one control plane, the cluster guard holds the reboot until you set an override. Step 4 shows this case for the upgrade.
 </Callout>
 
 <Checkpoint>
@@ -132,12 +134,11 @@ The operation is `Succeeded`. `kubectl --kubeconfig .lab/workload.kubeconfig get
 
 ### 3. Change the configuration without a reboot
 
-1. Add a label to each [](kind:TalosNode). The claim policy asks for the admin group, so you act as a member.
+1. Add a label to each [](kind:TalosNode). No policy guards this change. The rollout that follows needs the approval.
 
    ```sh
    for node in node-1 node-2 node-3; do
      kubectl patch talosnode "$node" --type merge \
-       --as=lab-admin --as-group=pk-metal:admins --as-group=system:authenticated \
        --patch '{"spec":{"labels":{"lab.pk.io/day2":"tutorial"}}}'
    done
    ```
@@ -206,13 +207,30 @@ kubectl --kubeconfig .lab/workload.kubeconfig get nodes -L lab.pk.io/day2
    metal/bin/pk-metal rollout approve <rollout>
    ```
 
-4. After the first node, the rollout pauses. Make sure that all nodes are `Ready`.
+4. Show the operations of the rollout. The first one is for `node-1`, the only control plane.
+
+   ```sh
+   kubectl -n pk-metal get hostoperations -l os.pk.io/rollout=<rollout> -o wide
+   ```
+
+   The column `BLOCKED` shows `ClusterDisruption`. The [cluster guard](concept:cluster-guard) holds the operation, because the cluster has no second control plane.
+
+5. Lift the guard for this operation. The value is your reason. Use the name of the operation from step 4.
+
+   ```sh
+   kubectl -n pk-metal annotate hostoperation <operation> \
+     metal.pk.io/override-cluster-guard='lab: the cluster has one control plane'
+   ```
+
+   The Kubernetes API of the lab cluster does not answer while `node-1` restarts.
+
+6. After the first node, the rollout pauses. Make sure that all nodes are `Ready`.
 
    ```sh
    kubectl --kubeconfig .lab/workload.kubeconfig get nodes
    ```
 
-5. Continue the rollout.
+7. Continue the rollout.
 
    ```sh
    metal/bin/pk-metal rollout resume <rollout>
@@ -220,13 +238,18 @@ kubectl --kubeconfig .lab/workload.kubeconfig get nodes -L lab.pk.io/day2
 
 The rollout does the control plane first, then the workers. The action is [](act:TalosUpgrade). See [](cli:upgrade) and [](howto:upgrade-talos).
 
+<Callout type="warning">
+Use the override only in the lab, or on a cluster that has one control plane by design.
+On a cluster with three control planes, the guard holds an operation only when etcd is at risk.
+</Callout>
+
 <Callout type="caution">
 Do not continue a rollout before you examine the first node.
 The pause is there so that a bad release stops at one node.
 </Callout>
 
 <Checkpoint>
-`kubectl get talosnodes` shows the release `v1.14.6` for each node.
+`kubectl get talosnodes -o wide` shows the release `v1.14.6` for each node.
 `pk-metal rollout list` shows the rollout as complete.
 </Checkpoint>
 
