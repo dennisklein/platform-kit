@@ -638,6 +638,22 @@ _Appears in:_
 | `uid` _[UID](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#uid-types-pkg)_ |  |  | Optional: \{\} <br /> |
 
 
+#### CordonAction
+
+
+
+CordonAction marks a node unschedulable.
+
+
+
+_Appears in:_
+- [HostOperationAction](#hostoperationaction)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `nodeRef` _[Reference](#reference)_ | NodeRef names the TalosNode (os.pk.io); its hostname is the Kubernetes<br />Node's name. |  |  |
+
+
 #### CredentialsPolicy
 
 
@@ -696,6 +712,25 @@ _Appears in:_
 | `lastResetTime` _[MicroTime](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#microtime-v1-meta)_ | LastResetTime as served by the ComputerSystem — the baseline-and-advance<br />observable (X12 serves it, iBMC doesn't). Micro precision so back-to-back<br />resets stay distinguishable. |  | Optional: \{\} <br /> |
 | `bootTargets` _string array_ | BootTargets are the boot override targets the system allows<br />(BootSourceOverrideTarget@Redfish.AllowableValues) — what a proposed<br />boot override picks from, never assumed. |  | Optional: \{\} <br /> |
 | `bootOverrideMode` _string_ | BootOverrideMode is the BootSourceOverrideMode the system serves<br />("UEFI" \| "Legacy"); empty when it serves none. A boot override asks for<br />UEFI only where this says otherwise — the X12 reports Legacy on a<br />machine that boots UEFI, and a system that serves no mode may refuse one. |  | Optional: \{\} <br /> |
+
+
+#### DrainAction
+
+
+
+DrainAction evicts a node's pods, respecting PodDisruptionBudgets.
+
+
+
+_Appears in:_
+- [HostOperationAction](#hostoperationaction)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `nodeRef` _[Reference](#reference)_ | NodeRef names the TalosNode (os.pk.io) to drain. |  |  |
+| `timeoutSeconds` _integer_ | TimeoutSeconds bounds the whole drain, budget waits included. Running<br />out fails the step and leaves the node cordoned. | 900 | Maximum: 86400 <br />Minimum: 30 <br />Optional: \{\} <br /> |
+| `gracePeriodSeconds` _integer_ | GracePeriodSeconds overrides each pod's termination grace period;<br />unset keeps the pod's own. |  | Maximum: 3600 <br />Minimum: 0 <br />Optional: \{\} <br /> |
+| `deleteEmptyDirData` _boolean_ | DeleteEmptyDirData lets the drain evict pods with emptyDir volumes,<br />whose data is lost. Without it such a pod fails the step. |  | Optional: \{\} <br /> |
 
 
 #### EjectMediaAction
@@ -805,6 +840,40 @@ _Appears in:_
 | --- | --- | --- | --- |
 | `caSecretRef` _[LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.36/#localobjectreference-v1-core)_ | CASecretRef names a Secret (operator namespace, key ca.crt) with the<br />CA that signed the BMC's certificate. Wins over insecureSkipVerify. |  | Optional: \{\} <br /> |
 | `insecureSkipVerify` _boolean_ | InsecureSkipVerify accepts any certificate. For simulated BMCs in the<br />lab only. |  | Optional: \{\} <br /> |
+
+
+#### EtcdLeaveAction
+
+
+
+EtcdLeaveAction makes a control plane's etcd member leave the cluster.
+
+
+
+_Appears in:_
+- [HostOperationAction](#hostoperationaction)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `nodeRef` _[Reference](#reference)_ | NodeRef names the control-plane TalosNode (os.pk.io) that leaves. |  |  |
+
+
+#### EtcdRemoveMemberAction
+
+
+
+EtcdRemoveMemberAction removes one etcd member through a peer.
+
+
+
+_Appears in:_
+- [HostOperationAction](#hostoperationaction)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `nodeRef` _[Reference](#reference)_ | NodeRef names the TalosNode (os.pk.io) whose member is removed:<br />provenance for the approver, and how the executor finds the cluster<br />and a peer to ask. |  |  |
+| `memberId` _string_ | MemberID is the etcd member ID in hex, as etcd lists it, fixed at<br />proposal: the executor removes exactly this member, never "whatever<br />carries that hostname now", which after a rejoin is the new member. |  | Pattern: `^[0-9a-f]\{1,16\}$` <br /> |
+| `hostname` _string_ | Hostname is the member's hostname as etcd listed it at proposal, for<br />the approver. |  | Optional: \{\} <br /> |
 
 
 #### FirmwareInventoryItem
@@ -996,6 +1065,18 @@ _Appears in:_
 | `applyBios` _[ApplyBiosAction](#applybiosaction)_ | ApplyBios stages a BiosSettings object's desired attributes into the<br />machine's pending (@Redfish.Settings) object. Staging changes nothing —<br />the world moves at the next system reset, so a convergence operation<br />pairs this with a powerCycle. |  | Optional: \{\} <br /> |
 | `flashFirmware` _[FlashFirmwareAction](#flashfirmwareaction)_ | FlashFirmware pushes a firmware image to the management controller and<br />waits for proof that it took: the controller rebooting, and the expected<br />version reading back afterwards. A reported success is not believed on<br />its own. |  | Optional: \{\} <br /> |
 | `awaitCheckIn` _[AwaitCheckInAction](#awaitcheckinaction)_ | AwaitCheckIn waits, without touching the machine, until the named<br />TalosNode reports that the machine runs its config — the point after<br />which the boot media are no longer needed. It changes nothing; it keeps<br />the operation (and the grants it issued) alive until the hand-off. |  | Optional: \{\} <br /> |
+| `cordon` _[CordonAction](#cordonaction)_ | Cordon marks the node's Kubernetes Node unschedulable. Already<br />cordoned is success. |  | Optional: \{\} <br /> |
+| `drain` _[DrainAction](#drainaction)_ | Drain evicts the pods on the node through the Eviction API, so that<br />PodDisruptionBudgets hold: an eviction a budget refuses is waited out,<br />not forced, until the timeout fails the step. The node stays cordoned<br />either way. A node not yet cordoned is cordoned first. |  | Optional: \{\} <br /> |
+| `uncordon` _[UncordonAction](#uncordonaction)_ | Uncordon marks the node schedulable again. Already schedulable is<br />success. |  | Optional: \{\} <br /> |
+| `talosReboot` _[TalosRebootAction](#talosrebootaction)_ | TalosReboot asks Talos to reboot the node: services stop and<br />filesystems unmount before the kernel restarts, unlike a BMC<br />powerCycle, which cuts the power. |  | Optional: \{\} <br /> |
+| `talosShutdown` _[TalosShutdownAction](#talosshutdownaction)_ | TalosShutdown asks Talos to shut the node down cleanly. |  | Optional: \{\} <br /> |
+| `talosUpgrade` _[TalosUpgradeAction](#talosupgradeaction)_ | TalosUpgrade installs another Talos version from an installer image<br />and reboots into it. |  | Optional: \{\} <br /> |
+| `talosApplyConfig` _[TalosApplyConfigAction](#talosapplyconfigaction)_ | TalosApplyConfig applies a rendered machine config, the bytes pinned<br />by digest at proposal. |  | Optional: \{\} <br /> |
+| `etcdLeave` _[EtcdLeaveAction](#etcdleaveaction)_ | EtcdLeave makes the node's etcd member leave the cluster, asked on the<br />node itself: the orderly removal of a control plane that still<br />answers. |  | Optional: \{\} <br /> |
+| `etcdRemoveMember` _[EtcdRemoveMemberAction](#etcdremovememberaction)_ | EtcdRemoveMember removes one etcd member by its ID, asked through a<br />healthy control-plane peer: the path for a member whose node can no<br />longer leave by itself (wiped, dead, unreachable). |  | Optional: \{\} <br /> |
+| `talosReset` _[TalosResetAction](#talosresetaction)_ | TalosReset wipes the node through Talos, back towards maintenance<br />mode. |  | Optional: \{\} <br /> |
+| `waitNodeReady` _[WaitNodeReadyAction](#waitnodereadyaction)_ | WaitNodeReady waits, changing nothing, until the node runs and is<br />ready: Talos stage running with every readiness condition met, and its<br />Kubernetes Node Ready. |  | Optional: \{\} <br /> |
+| `waitEtcdHealthy` _[WaitEtcdHealthyAction](#waitetcdhealthyaction)_ | WaitEtcdHealthy waits, changing nothing, until the etcd cluster of the<br />node's TalosCluster is healthy: every member answers, none reports an<br />error or alarm, and none is a learner. |  | Optional: \{\} <br /> |
 
 
 #### HostOperationSpec
@@ -1025,6 +1106,7 @@ _Appears in:_
 | `actions` _[HostOperationAction](#hostoperationaction) array_ | Actions run in order; each entry is exactly one action. A failed step fails<br />the operation — disruptive one-shots never auto-retry. At most one power<br />action per operation: the power-cycle proof lives in status once. |  | MaxItems: 32 <br />MaxProperties: 1 <br />MinItems: 1 <br />MinProperties: 1 <br /> |
 | `approval` _[OperationApproval](#operationapproval)_ | Approval is the human gate. Omitted means required — the safe default is<br />a closed gate. | \{ required:true \} | Optional: \{\} <br /> |
 | `ttlSecondsAfterFinished` _integer_ | TTLSecondsAfterFinished garbage-collects a finished operation Job-style.<br />Unset keeps it forever (human-requested ops stay as their own record);<br />convergence proposals set it — the plan memory on the proposing object,<br />not the operation's existence, is what keeps an unchanged planHash from<br />spawning again. |  | Minimum: 0 <br />Optional: \{\} <br /> |
+| `rolloutRef` _[RolloutReference](#rolloutreference)_ | RolloutRef names the rollout (os.pk.io TalosRollout) this operation is<br />one node's part of, and the plan it was created for. The executor<br />refuses an operation whose rollout is gone, not approved, or approved<br />for another planHash: an operation the rollout's approval covers<br />carries no approval of its own, so the binding is what makes that<br />approval mean this operation. Empty for an operation approved on its<br />own. |  | Optional: \{\} <br /> |
 
 
 #### HostOperationStatus
@@ -1476,6 +1558,10 @@ _Appears in:_
 - [ApplyBiosAction](#applybiosaction)
 - [AwaitCheckInAction](#awaitcheckinaction)
 - [ClaimOS](#claimos)
+- [CordonAction](#cordonaction)
+- [DrainAction](#drainaction)
+- [EtcdLeaveAction](#etcdleaveaction)
+- [EtcdRemoveMemberAction](#etcdremovememberaction)
 - [HostClaimSpec](#hostclaimspec)
 - [HostClaimStatus](#hostclaimstatus)
 - [HostOS](#hostos)
@@ -1483,10 +1569,35 @@ _Appears in:_
 - [InsertMediaAction](#insertmediaaction)
 - [ManagementEndpointSpec](#managementendpointspec)
 - [ManagementPath](#managementpath)
+- [TalosApplyConfigAction](#talosapplyconfigaction)
+- [TalosRebootAction](#talosrebootaction)
+- [TalosResetAction](#talosresetaction)
+- [TalosShutdownAction](#talosshutdownaction)
+- [TalosUpgradeAction](#talosupgradeaction)
+- [UncordonAction](#uncordonaction)
+- [WaitEtcdHealthyAction](#waitetcdhealthyaction)
+- [WaitNodeReadyAction](#waitnodereadyaction)
 
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `name` _string_ |  |  |  |
+
+
+#### RolloutReference
+
+
+
+RolloutReference binds an operation to one approved rollout plan.
+
+
+
+_Appears in:_
+- [HostOperationSpec](#hostoperationspec)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `name` _string_ | Name is the TalosRollout's name. |  | MinLength: 1 <br /> |
+| `planHash` _string_ | PlanHash is the rollout's planHash when this operation was created. |  | MinLength: 1 <br /> |
 
 
 #### SetBootOverrideAction
@@ -1505,6 +1616,167 @@ _Appears in:_
 | `target` _string_ | Target is the boot source (UsbCd, Cd, Pxe, …) — validated against the<br />endpoint's discovered AllowableValues at execution, not at admission. |  |  |
 | `once` _boolean_ | Once limits the override to the next boot (the default); false is Continuous. | true | Optional: \{\} <br /> |
 | `mode` _string_ | Mode is the firmware boot mode for the override. Omitted leaves the<br />machine's own setting alone (some firmware rejects the property). |  | Enum: [UEFI Legacy] <br />Optional: \{\} <br /> |
+
+
+#### SystemPartition
+
+_Underlying type:_ _string_
+
+SystemPartition is a Talos system partition label.
+
+_Validation:_
+- Enum: [STATE EPHEMERAL META]
+
+_Appears in:_
+- [TalosResetAction](#talosresetaction)
+
+
+
+#### TalosApplyConfigAction
+
+
+
+TalosApplyConfigAction applies a pinned machine config.
+
+
+
+_Appears in:_
+- [HostOperationAction](#hostoperationaction)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `nodeRef` _[Reference](#reference)_ | NodeRef names the TalosNode (os.pk.io) whose config this is. |  |  |
+| `configSecretRef` _[Reference](#reference)_ | ConfigSecretRef names the Secret, in the operator's namespace, that<br />holds the rendered config. |  |  |
+| `digest` _string_ | Digest pins the config bytes (sha256:<hex>) the approver saw: a Secret<br />whose content no longer hashes to it fails the step instead of<br />applying a config nobody approved. |  | Pattern: `^sha256:[a-f0-9]\{64\}$` <br /> |
+| `mode` _string_ | Mode is how the node takes the config: NoReboot fails when a change<br />needs a reboot, Reboot always reboots, Staged applies at the next<br />boot, Try rolls back after tryTimeoutSeconds unless confirmed, Auto<br />lets the node choose. | NoReboot | Enum: [Auto NoReboot Reboot Staged Try] <br />Optional: \{\} <br /> |
+| `tryTimeoutSeconds` _integer_ | TryTimeoutSeconds bounds Try mode; unset is the node's default. |  | Maximum: 3600 <br />Minimum: 10 <br />Optional: \{\} <br /> |
+
+
+#### TalosRebootAction
+
+
+
+TalosRebootAction reboots a node through Talos.
+
+
+
+_Appears in:_
+- [HostOperationAction](#hostoperationaction)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `nodeRef` _[Reference](#reference)_ | NodeRef names the TalosNode (os.pk.io) to reboot. |  |  |
+| `mode` _string_ | Mode is Default (kexec or a warm reboot) or PowerCycle (a cold start<br />at the end, for firmware that applies only then). | Default | Enum: [Default PowerCycle] <br />Optional: \{\} <br /> |
+
+
+#### TalosResetAction
+
+
+
+TalosResetAction wipes a node through Talos.
+
+
+
+_Appears in:_
+- [HostOperationAction](#hostoperationaction)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `nodeRef` _[Reference](#reference)_ | NodeRef names the TalosNode (os.pk.io) to reset. |  |  |
+| `graceful` _boolean_ | Graceful leaves etcd (on a control plane) and cordons and drains the<br />node before wiping. A node that cannot reach its peers needs false,<br />and its member is then removed by an etcdRemoveMember step. | true | Optional: \{\} <br /> |
+| `reboot` _boolean_ | Reboot boots the node into maintenance mode afterwards; false leaves<br />it powered off. |  | Optional: \{\} <br /> |
+| `mode` _string_ | Mode picks the disks: All (system and user disks), SystemDisk or<br />UserDisks. | All | Enum: [All SystemDisk UserDisks] <br />Optional: \{\} <br /> |
+| `systemPartitions` _[SystemPartition](#systempartition) array_ | SystemPartitions limits the wipe to these system partitions; empty<br />wipes what mode names. STATE holds the machine config and its<br />credentials, EPHEMERAL the pod data and etcd. |  | Enum: [STATE EPHEMERAL META] <br />MaxItems: 3 <br />Optional: \{\} <br /> |
+
+
+#### TalosShutdownAction
+
+
+
+TalosShutdownAction shuts a node down through Talos.
+
+
+
+_Appears in:_
+- [HostOperationAction](#hostoperationaction)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `nodeRef` _[Reference](#reference)_ | NodeRef names the TalosNode (os.pk.io) to shut down. |  |  |
+| `force` _boolean_ | Force shuts down even when the node cannot cordon and drain itself<br />first (its Kubernetes API is down). |  | Optional: \{\} <br /> |
+
+
+#### TalosUpgradeAction
+
+
+
+TalosUpgradeAction upgrades a node's Talos.
+
+
+
+_Appears in:_
+- [HostOperationAction](#hostoperationaction)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `nodeRef` _[Reference](#reference)_ | NodeRef names the TalosNode (os.pk.io) to upgrade. |  |  |
+| `image` _string_ | Image is the installer image, pinned by digest: what the approver saw<br />is what is installed. |  | Pattern: `@sha256:[a-f0-9]\{64\}$` <br /> |
+| `version` _string_ | Version is the Talos version expected to read back afterwards, the<br />step's goal: a node that already reports it is not upgraded again. |  | Pattern: `^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$` <br /> |
+| `stage` _boolean_ | Stage writes the new image and upgrades at the next reboot, for a node<br />whose open files would block an upgrade in place. |  | Optional: \{\} <br /> |
+| `preserve` _boolean_ | Preserve keeps the EPHEMERAL partition (pod data, etcd). Talos 1.8<br />and later always preserve it; the field is passed through for older<br />nodes. | true | Optional: \{\} <br /> |
+| `force` _boolean_ | Force skips the etcd health check Talos runs before upgrading a<br />control plane. |  | Optional: \{\} <br /> |
+| `rebootMode` _string_ | RebootMode is how the reboot into the new image ends. | Default | Enum: [Default PowerCycle] <br />Optional: \{\} <br /> |
+
+
+#### UncordonAction
+
+
+
+UncordonAction marks a node schedulable.
+
+
+
+_Appears in:_
+- [HostOperationAction](#hostoperationaction)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `nodeRef` _[Reference](#reference)_ | NodeRef names the TalosNode (os.pk.io). |  |  |
+
+
+#### WaitEtcdHealthyAction
+
+
+
+WaitEtcdHealthyAction waits for a cluster's etcd to be healthy.
+
+
+
+_Appears in:_
+- [HostOperationAction](#hostoperationaction)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `nodeRef` _[Reference](#reference)_ | NodeRef names a control-plane TalosNode (os.pk.io) of the cluster.<br />Its own member must be listed too, as a voting member: after a join<br />or a reboot, that is the member the wait is for. |  |  |
+| `timeoutSeconds` _integer_ | TimeoutSeconds bounds the wait, counted from the previous step's end. | 900 | Maximum: 86400 <br />Minimum: 60 <br />Optional: \{\} <br /> |
+
+
+#### WaitNodeReadyAction
+
+
+
+WaitNodeReadyAction waits for a node to run and be ready.
+
+
+
+_Appears in:_
+- [HostOperationAction](#hostoperationaction)
+
+| Field | Description | Default | Validation |
+| --- | --- | --- | --- |
+| `nodeRef` _[Reference](#reference)_ | NodeRef names the TalosNode (os.pk.io) to wait for. |  |  |
+| `version` _string_ | Version, when set, is also waited for: the Talos version the node must<br />report, the proof an upgrade took. |  | Pattern: `^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$` <br />Optional: \{\} <br /> |
+| `timeoutSeconds` _integer_ | TimeoutSeconds bounds the wait, counted from the previous step's end. | 1800 | Maximum: 86400 <br />Minimum: 60 <br />Optional: \{\} <br /> |
 
 
 

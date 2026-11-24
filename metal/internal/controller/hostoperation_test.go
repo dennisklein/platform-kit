@@ -737,3 +737,28 @@ func TestBootOfAReleasedClaimDoesNotStart(t *testing.T) {
 		})
 	}
 }
+
+// An operation that names an action the executor does not run yet fails
+// before it starts: no baseline, no call to the BMC, even for the BMC
+// actions in front of it, and the step message says why.
+func TestUnimplementedActionFailsBeforeAnythingRuns(t *testing.T) {
+	op := preClearedOp(
+		metalv1alpha1.HostOperationAction{PowerCycle: &metalv1alpha1.PowerCycleAction{}},
+		metalv1alpha1.HostOperationAction{TalosReboot: &metalv1alpha1.TalosRebootAction{NodeRef: metalv1alpha1.Reference{Name: "node-a"}}},
+	)
+	r, _, rec := executorFor(t, "huawei-2288h-v5", op)
+
+	got := runOp(t, r)
+	ex := meta.FindStatusCondition(got.Status.Conditions, metalv1alpha1.ConditionExecuted)
+	require.NotNil(t, ex)
+	assert.Equal(t, metav1.ConditionFalse, ex.Status)
+	assert.Equal(t, metalv1alpha1.ReasonStepFailed, ex.Reason)
+	assert.Contains(t, ex.Message, "step 2/2 talosReboot")
+	require.Len(t, got.Status.Steps, 1)
+	assert.Equal(t, "talosReboot", got.Status.Steps[0].Action)
+	assert.Equal(t, "Failed", got.Status.Steps[0].Phase)
+	assert.Contains(t, got.Status.Steps[0].Message, "not implemented by this operator version yet")
+	assert.Nil(t, got.Status.Baseline, "the operation never started")
+	assert.Empty(t, rec.powers, "nothing was done to the machine")
+	assert.Equal(t, metalv1alpha1.OperationFailed, got.Status.Phase)
+}

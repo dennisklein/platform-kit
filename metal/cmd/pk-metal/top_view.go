@@ -455,25 +455,7 @@ func currentOp(ops []metalv1alpha1.HostOperation, host string) *opLine {
 // actionKey is the union key of an action, the name the operator records
 // its steps under.
 func actionKey(a metalv1alpha1.HostOperationAction) string {
-	switch {
-	case a.PowerCycle != nil:
-		return "powerCycle"
-	case a.PowerOff != nil:
-		return "powerOff"
-	case a.SetBootOverride != nil:
-		return "setBootOverride"
-	case a.InsertMedia != nil:
-		return "insertMedia"
-	case a.EjectMedia != nil:
-		return "ejectMedia"
-	case a.ApplyBios != nil:
-		return "applyBios"
-	case a.FlashFirmware != nil:
-		return "flashFirmware"
-	case a.AwaitCheckIn != nil:
-		return "awaitCheckIn"
-	}
-	return "unknown"
+	return a.Key()
 }
 
 // hostState is how the Host reads: bad when it, or its operation, failed or

@@ -504,6 +504,11 @@ func describeAction(a metalv1alpha1.HostOperationAction, pc planContext) string 
 		}
 		return fmt.Sprintf("wait up to %s for TalosNode %s to report in%s", shortDuration(timeout), node, where)
 	}
+	if key := a.Key(); key != "unknown" {
+		// An action the API defines but this renderer does not describe
+		// yet: name it, so the approver knows to read spec.actions.
+		return key + " (not described by this pk-metal; read it in spec.actions)"
+	}
 	return "unknown step (this pk-metal is older than the operator; update it)"
 }
 

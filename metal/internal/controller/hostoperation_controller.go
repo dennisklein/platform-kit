@@ -228,6 +228,24 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			metalv1alpha1.ReasonApprovalNotRequired, "proposed by "+op.Spec.ProposedBy)
 	}
 
+	// An action this executor does not run yet fails the operation before it
+	// starts: before the queue, the baseline and any call to the machine, so
+	// the failure costs nothing and says exactly why. Running the actions in
+	// front of it and stopping at it would leave a machine half-changed.
+	if op.Status.Baseline == nil {
+		if i, key := unimplementedAction(op); key != "" {
+			msg := fmt.Sprintf("action %s is not implemented by this operator version yet; nothing was done to the machine", key)
+			op.Status.Steps = append(op.Status.Steps, metalv1alpha1.OperationStep{
+				Action: key, Phase: "Failed", Message: msg, FinishedAt: ptrTime(metav1.Now()),
+			})
+			setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionFalse,
+				metalv1alpha1.ReasonStepFailed, fmt.Sprintf("step %d/%d %s: %s", i+1, len(op.Spec.Actions), key, msg))
+			r.Recorder.Eventf(op, nil, corev1.EventTypeWarning, metalv1alpha1.ReasonStepFailed,
+				"Execute", "step %s failed: %s", key, msg)
+			return ctrl.Result{}, client.IgnoreNotFound(flush())
+		}
+	}
+
 	// One active operation per Host (see hostHolder): the holder runs, the rest
 	// queue and re-enter through the sibling watch when it finishes.
 	if pred, err := r.activePredecessor(ctx, op); err != nil {
@@ -950,27 +968,28 @@ type pathClient struct {
 	systemID string
 }
 
+// implementedActions are the action keys step runs. The API defines more
+// (the Talos and Kubernetes actions arrive before their executor does); an
+// operation that names one of the others is refused by unimplementedAction.
+var implementedActions = map[string]bool{
+	"powerCycle": true, "powerOff": true, "setBootOverride": true, "insertMedia": true,
+	"ejectMedia": true, "applyBios": true, "flashFirmware": true, "awaitCheckIn": true,
+}
+
+// unimplementedAction returns the index and key of the first action step
+// cannot run, or "" when it can run them all.
+func unimplementedAction(op *metalv1alpha1.HostOperation) (int, string) {
+	for i, a := range op.Spec.Actions {
+		if key := a.Key(); !implementedActions[key] {
+			return i, key
+		}
+	}
+	return 0, ""
+}
+
 // actionName is the union key of one action — the step name in status.
 func actionName(a metalv1alpha1.HostOperationAction) string {
-	switch {
-	case a.PowerCycle != nil:
-		return "powerCycle"
-	case a.PowerOff != nil:
-		return "powerOff"
-	case a.SetBootOverride != nil:
-		return "setBootOverride"
-	case a.InsertMedia != nil:
-		return "insertMedia"
-	case a.EjectMedia != nil:
-		return "ejectMedia"
-	case a.ApplyBios != nil:
-		return "applyBios"
-	case a.FlashFirmware != nil:
-		return "flashFirmware"
-	case a.AwaitCheckIn != nil:
-		return "awaitCheckIn"
-	}
-	return "unknown"
+	return a.Key()
 }
 
 // approvalDomain names what the Host is blocked on while this operation awaits

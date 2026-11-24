@@ -114,6 +114,50 @@ spec:
                         required:
                           - nodeRef
                         type: object
+                      cordon:
+                        description: Cordon marks the node's Kubernetes Node unschedulable. Already cordoned is success.
+                        properties:
+                          nodeRef:
+                            description: NodeRef names the TalosNode (os.pk.io); its hostname is the Kubernetes Node's name.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                        required:
+                          - nodeRef
+                        type: object
+                      drain:
+                        description: 'Drain evicts the pods on the node through the Eviction API, so that PodDisruptionBudgets hold: an eviction a budget refuses is waited out, not forced, until the timeout fails the step. The node stays cordoned either way. A node not yet cordoned is cordoned first.'
+                        properties:
+                          deleteEmptyDirData:
+                            description: DeleteEmptyDirData lets the drain evict pods with emptyDir volumes, whose data is lost. Without it such a pod fails the step.
+                            type: boolean
+                          gracePeriodSeconds:
+                            description: GracePeriodSeconds overrides each pod's termination grace period; unset keeps the pod's own.
+                            format: int32
+                            maximum: 3600
+                            minimum: 0
+                            type: integer
+                          nodeRef:
+                            description: NodeRef names the TalosNode (os.pk.io) to drain.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                          timeoutSeconds:
+                            default: 900
+                            description: TimeoutSeconds bounds the whole drain, budget waits included. Running out fails the step and leaves the node cordoned.
+                            format: int32
+                            maximum: 86400
+                            minimum: 30
+                            type: integer
+                        required:
+                          - nodeRef
+                        type: object
                       ejectMedia:
                         description: EjectMedia unmounts a virtual-media slot.
                         properties:
@@ -122,6 +166,42 @@ spec:
                             type: string
                         required:
                           - mediaId
+                        type: object
+                      etcdLeave:
+                        description: 'EtcdLeave makes the node''s etcd member leave the cluster, asked on the node itself: the orderly removal of a control plane that still answers.'
+                        properties:
+                          nodeRef:
+                            description: NodeRef names the control-plane TalosNode (os.pk.io) that leaves.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                        required:
+                          - nodeRef
+                        type: object
+                      etcdRemoveMember:
+                        description: 'EtcdRemoveMember removes one etcd member by its ID, asked through a healthy control-plane peer: the path for a member whose node can no longer leave by itself (wiped, dead, unreachable).'
+                        properties:
+                          hostname:
+                            description: Hostname is the member's hostname as etcd listed it at proposal, for the approver.
+                            type: string
+                          memberId:
+                            description: 'MemberID is the etcd member ID in hex, as etcd lists it, fixed at proposal: the executor removes exactly this member, never "whatever carries that hostname now", which after a rejoin is the new member.'
+                            pattern: ^[0-9a-f]{1,16}$
+                            type: string
+                          nodeRef:
+                            description: 'NodeRef names the TalosNode (os.pk.io) whose member is removed: provenance for the approver, and how the executor finds the cluster and a peer to ask.'
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                        required:
+                          - memberId
+                          - nodeRef
                         type: object
                       flashFirmware:
                         description: 'FlashFirmware pushes a firmware image to the management controller and waits for proof that it took: the controller rebooting, and the expected version reading back afterwards. A reported success is not believed on its own.'
@@ -199,6 +279,233 @@ spec:
                         required:
                           - target
                         type: object
+                      talosApplyConfig:
+                        description: TalosApplyConfig applies a rendered machine config, the bytes pinned by digest at proposal.
+                        properties:
+                          configSecretRef:
+                            description: ConfigSecretRef names the Secret, in the operator's namespace, that holds the rendered config.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                          digest:
+                            description: 'Digest pins the config bytes (sha256:<hex>) the approver saw: a Secret whose content no longer hashes to it fails the step instead of applying a config nobody approved.'
+                            pattern: ^sha256:[a-f0-9]{64}$
+                            type: string
+                          mode:
+                            default: NoReboot
+                            description: 'Mode is how the node takes the config: NoReboot fails when a change needs a reboot, Reboot always reboots, Staged applies at the next boot, Try rolls back after tryTimeoutSeconds unless confirmed, Auto lets the node choose.'
+                            enum:
+                              - Auto
+                              - NoReboot
+                              - Reboot
+                              - Staged
+                              - Try
+                            type: string
+                          nodeRef:
+                            description: NodeRef names the TalosNode (os.pk.io) whose config this is.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                          tryTimeoutSeconds:
+                            description: TryTimeoutSeconds bounds Try mode; unset is the node's default.
+                            format: int32
+                            maximum: 3600
+                            minimum: 10
+                            type: integer
+                        required:
+                          - configSecretRef
+                          - digest
+                          - nodeRef
+                        type: object
+                      talosReboot:
+                        description: 'TalosReboot asks Talos to reboot the node: services stop and filesystems unmount before the kernel restarts, unlike a BMC powerCycle, which cuts the power.'
+                        properties:
+                          mode:
+                            default: Default
+                            description: Mode is Default (kexec or a warm reboot) or PowerCycle (a cold start at the end, for firmware that applies only then).
+                            enum:
+                              - Default
+                              - PowerCycle
+                            type: string
+                          nodeRef:
+                            description: NodeRef names the TalosNode (os.pk.io) to reboot.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                        required:
+                          - nodeRef
+                        type: object
+                      talosReset:
+                        description: TalosReset wipes the node through Talos, back towards maintenance mode.
+                        properties:
+                          graceful:
+                            default: true
+                            description: Graceful leaves etcd (on a control plane) and cordons and drains the node before wiping. A node that cannot reach its peers needs false, and its member is then removed by an etcdRemoveMember step.
+                            type: boolean
+                          mode:
+                            default: All
+                            description: 'Mode picks the disks: All (system and user disks), SystemDisk or UserDisks.'
+                            enum:
+                              - All
+                              - SystemDisk
+                              - UserDisks
+                            type: string
+                          nodeRef:
+                            description: NodeRef names the TalosNode (os.pk.io) to reset.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                          reboot:
+                            description: Reboot boots the node into maintenance mode afterwards; false leaves it powered off.
+                            type: boolean
+                          systemPartitions:
+                            description: SystemPartitions limits the wipe to these system partitions; empty wipes what mode names. STATE holds the machine config and its credentials, EPHEMERAL the pod data and etcd.
+                            items:
+                              description: SystemPartition is a Talos system partition label.
+                              enum:
+                                - STATE
+                                - EPHEMERAL
+                                - META
+                              type: string
+                            maxItems: 3
+                            type: array
+                            x-kubernetes-list-type: set
+                        required:
+                          - nodeRef
+                        type: object
+                        x-kubernetes-validations:
+                          - message: systemPartitions do not apply to mode UserDisks
+                            rule: '!has(self.systemPartitions) || !has(self.mode) || self.mode != ''UserDisks'''
+                      talosShutdown:
+                        description: TalosShutdown asks Talos to shut the node down cleanly.
+                        properties:
+                          force:
+                            description: Force shuts down even when the node cannot cordon and drain itself first (its Kubernetes API is down).
+                            type: boolean
+                          nodeRef:
+                            description: NodeRef names the TalosNode (os.pk.io) to shut down.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                        required:
+                          - nodeRef
+                        type: object
+                      talosUpgrade:
+                        description: TalosUpgrade installs another Talos version from an installer image and reboots into it.
+                        properties:
+                          force:
+                            description: Force skips the etcd health check Talos runs before upgrading a control plane.
+                            type: boolean
+                          image:
+                            description: 'Image is the installer image, pinned by digest: what the approver saw is what is installed.'
+                            pattern: '@sha256:[a-f0-9]{64}$'
+                            type: string
+                          nodeRef:
+                            description: NodeRef names the TalosNode (os.pk.io) to upgrade.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                          preserve:
+                            default: true
+                            description: Preserve keeps the EPHEMERAL partition (pod data, etcd). Talos 1.8 and later always preserve it; the field is passed through for older nodes.
+                            type: boolean
+                          rebootMode:
+                            default: Default
+                            description: RebootMode is how the reboot into the new image ends.
+                            enum:
+                              - Default
+                              - PowerCycle
+                            type: string
+                          stage:
+                            description: Stage writes the new image and upgrades at the next reboot, for a node whose open files would block an upgrade in place.
+                            type: boolean
+                          version:
+                            description: 'Version is the Talos version expected to read back afterwards, the step''s goal: a node that already reports it is not upgraded again.'
+                            pattern: ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$
+                            type: string
+                        required:
+                          - image
+                          - nodeRef
+                          - version
+                        type: object
+                      uncordon:
+                        description: Uncordon marks the node schedulable again. Already schedulable is success.
+                        properties:
+                          nodeRef:
+                            description: NodeRef names the TalosNode (os.pk.io).
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                        required:
+                          - nodeRef
+                        type: object
+                      waitEtcdHealthy:
+                        description: 'WaitEtcdHealthy waits, changing nothing, until the etcd cluster of the node''s TalosCluster is healthy: every member answers, none reports an error or alarm, and none is a learner.'
+                        properties:
+                          nodeRef:
+                            description: 'NodeRef names a control-plane TalosNode (os.pk.io) of the cluster. Its own member must be listed too, as a voting member: after a join or a reboot, that is the member the wait is for.'
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                          timeoutSeconds:
+                            default: 900
+                            description: TimeoutSeconds bounds the wait, counted from the previous step's end.
+                            format: int32
+                            maximum: 86400
+                            minimum: 60
+                            type: integer
+                        required:
+                          - nodeRef
+                        type: object
+                      waitNodeReady:
+                        description: 'WaitNodeReady waits, changing nothing, until the node runs and is ready: Talos stage running with every readiness condition met, and its Kubernetes Node Ready.'
+                        properties:
+                          nodeRef:
+                            description: NodeRef names the TalosNode (os.pk.io) to wait for.
+                            properties:
+                              name:
+                                type: string
+                            required:
+                              - name
+                            type: object
+                          timeoutSeconds:
+                            default: 1800
+                            description: TimeoutSeconds bounds the wait, counted from the previous step's end.
+                            format: int32
+                            maximum: 86400
+                            minimum: 60
+                            type: integer
+                          version:
+                            description: 'Version, when set, is also waited for: the Talos version the node must report, the proof an upgrade took.'
+                            pattern: ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$
+                            type: string
+                        required:
+                          - nodeRef
+                        type: object
                     type: object
                   maxItems: 32
                   minItems: 1
@@ -248,6 +555,21 @@ spec:
                   maxLength: 128
                   pattern: ^[A-Za-z][A-Za-z0-9]*$
                   type: string
+                rolloutRef:
+                  description: 'RolloutRef names the rollout (os.pk.io TalosRollout) this operation is one node''s part of, and the plan it was created for. The executor refuses an operation whose rollout is gone, not approved, or approved for another planHash: an operation the rollout''s approval covers carries no approval of its own, so the binding is what makes that approval mean this operation. Empty for an operation approved on its own.'
+                  properties:
+                    name:
+                      description: Name is the TalosRollout's name.
+                      minLength: 1
+                      type: string
+                    planHash:
+                      description: PlanHash is the rollout's planHash when this operation was created.
+                      minLength: 1
+                      type: string
+                  required:
+                    - name
+                    - planHash
+                  type: object
                 ttlSecondsAfterFinished:
                   description: TTLSecondsAfterFinished garbage-collects a finished operation Job-style. Unset keeps it forever (human-requested ops stay as their own record); convergence proposals set it — the plan memory on the proposing object, not the operation's existence, is what keeps an unchanged planHash from spawning again.
                   format: int32
@@ -261,6 +583,8 @@ spec:
               x-kubernetes-validations:
                 - message: proposedBy is frozen after creation
                   rule: '!has(oldSelf.proposedBy) || (has(self.proposedBy) && self.proposedBy == oldSelf.proposedBy)'
+                - message: rolloutRef is frozen after creation
+                  rule: has(self.rolloutRef) == has(oldSelf.rolloutRef) && (!has(self.rolloutRef) || self.rolloutRef == oldSelf.rolloutRef)
             status:
               description: 'HostOperationStatus is what happened: which steps ran and how they ended, plus the observations that prove the machine really did what was asked.'
               properties:

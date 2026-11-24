@@ -30,6 +30,7 @@ const (
 // person who proposed the operation.
 //
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.proposedBy) || (has(self.proposedBy) && self.proposedBy == oldSelf.proposedBy)",message="proposedBy is frozen after creation"
+// +kubebuilder:validation:XValidation:rule="has(self.rolloutRef) == has(oldSelf.rolloutRef) && (!has(self.rolloutRef) || self.rolloutRef == oldSelf.rolloutRef)",message="rolloutRef is frozen after creation"
 type HostOperationSpec struct {
 	// HostRef names the Host this operation acts on.
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="hostRef is frozen after creation"
@@ -80,6 +81,27 @@ type HostOperationSpec struct {
 	// +kubebuilder:validation:Minimum=0
 	// +optional
 	TTLSecondsAfterFinished *int32 `json:"ttlSecondsAfterFinished,omitempty"`
+
+	// RolloutRef names the rollout (os.pk.io TalosRollout) this operation is
+	// one node's part of, and the plan it was created for. The executor
+	// refuses an operation whose rollout is gone, not approved, or approved
+	// for another planHash: an operation the rollout's approval covers
+	// carries no approval of its own, so the binding is what makes that
+	// approval mean this operation. Empty for an operation approved on its
+	// own.
+	// +optional
+	RolloutRef *RolloutReference `json:"rolloutRef,omitempty"`
+}
+
+// RolloutReference binds an operation to one approved rollout plan.
+type RolloutReference struct {
+	// Name is the TalosRollout's name.
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+
+	// PlanHash is the rollout's planHash when this operation was created.
+	// +kubebuilder:validation:MinLength=1
+	PlanHash string `json:"planHash"`
 }
 
 // HostOperationAction is a one-of union: exactly one action per entry.
@@ -135,6 +157,78 @@ type HostOperationAction struct {
 	// the operation (and the grants it issued) alive until the hand-off.
 	// +optional
 	AwaitCheckIn *AwaitCheckInAction `json:"awaitCheckIn,omitempty"`
+
+	// The actions below act through the node's Talos API or its cluster's
+	// Kubernetes API, never through the BMC. Each names the TalosNode it acts
+	// on (nodeRef), which must be the node the Host runs (Host
+	// spec.os.nodeRef): the name is fixed at proposal, so the approver sees
+	// which node, and an operation cannot be pointed at another node later.
+
+	// Cordon marks the node's Kubernetes Node unschedulable. Already
+	// cordoned is success.
+	// +optional
+	Cordon *CordonAction `json:"cordon,omitempty"`
+
+	// Drain evicts the pods on the node through the Eviction API, so that
+	// PodDisruptionBudgets hold: an eviction a budget refuses is waited out,
+	// not forced, until the timeout fails the step. The node stays cordoned
+	// either way. A node not yet cordoned is cordoned first.
+	// +optional
+	Drain *DrainAction `json:"drain,omitempty"`
+
+	// Uncordon marks the node schedulable again. Already schedulable is
+	// success.
+	// +optional
+	Uncordon *UncordonAction `json:"uncordon,omitempty"`
+
+	// TalosReboot asks Talos to reboot the node: services stop and
+	// filesystems unmount before the kernel restarts, unlike a BMC
+	// powerCycle, which cuts the power.
+	// +optional
+	TalosReboot *TalosRebootAction `json:"talosReboot,omitempty"`
+
+	// TalosShutdown asks Talos to shut the node down cleanly.
+	// +optional
+	TalosShutdown *TalosShutdownAction `json:"talosShutdown,omitempty"`
+
+	// TalosUpgrade installs another Talos version from an installer image
+	// and reboots into it.
+	// +optional
+	TalosUpgrade *TalosUpgradeAction `json:"talosUpgrade,omitempty"`
+
+	// TalosApplyConfig applies a rendered machine config, the bytes pinned
+	// by digest at proposal.
+	// +optional
+	TalosApplyConfig *TalosApplyConfigAction `json:"talosApplyConfig,omitempty"`
+
+	// EtcdLeave makes the node's etcd member leave the cluster, asked on the
+	// node itself: the orderly removal of a control plane that still
+	// answers.
+	// +optional
+	EtcdLeave *EtcdLeaveAction `json:"etcdLeave,omitempty"`
+
+	// EtcdRemoveMember removes one etcd member by its ID, asked through a
+	// healthy control-plane peer: the path for a member whose node can no
+	// longer leave by itself (wiped, dead, unreachable).
+	// +optional
+	EtcdRemoveMember *EtcdRemoveMemberAction `json:"etcdRemoveMember,omitempty"`
+
+	// TalosReset wipes the node through Talos, back towards maintenance
+	// mode.
+	// +optional
+	TalosReset *TalosResetAction `json:"talosReset,omitempty"`
+
+	// WaitNodeReady waits, changing nothing, until the node runs and is
+	// ready: Talos stage running with every readiness condition met, and its
+	// Kubernetes Node Ready.
+	// +optional
+	WaitNodeReady *WaitNodeReadyAction `json:"waitNodeReady,omitempty"`
+
+	// WaitEtcdHealthy waits, changing nothing, until the etcd cluster of the
+	// node's TalosCluster is healthy: every member answers, none reports an
+	// error or alarm, and none is a learner.
+	// +optional
+	WaitEtcdHealthy *WaitEtcdHealthyAction `json:"waitEtcdHealthy,omitempty"`
 }
 
 // PowerCycleAction restarts the machine. It takes no fields: there is only one
@@ -260,6 +354,237 @@ type FlashFirmwareAction struct {
 	// convergence goal: a manager already serving it makes this step a no-op.
 	// +kubebuilder:validation:MinLength=1
 	Version string `json:"version"`
+}
+
+// CordonAction marks a node unschedulable.
+type CordonAction struct {
+	// NodeRef names the TalosNode (os.pk.io); its hostname is the Kubernetes
+	// Node's name.
+	NodeRef Reference `json:"nodeRef"`
+}
+
+// DrainAction evicts a node's pods, respecting PodDisruptionBudgets.
+type DrainAction struct {
+	// NodeRef names the TalosNode (os.pk.io) to drain.
+	NodeRef Reference `json:"nodeRef"`
+
+	// TimeoutSeconds bounds the whole drain, budget waits included. Running
+	// out fails the step and leaves the node cordoned.
+	// +kubebuilder:validation:Minimum=30
+	// +kubebuilder:validation:Maximum=86400
+	// +kubebuilder:default=900
+	// +optional
+	TimeoutSeconds int32 `json:"timeoutSeconds,omitempty"`
+
+	// GracePeriodSeconds overrides each pod's termination grace period;
+	// unset keeps the pod's own.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=3600
+	// +optional
+	GracePeriodSeconds *int32 `json:"gracePeriodSeconds,omitempty"`
+
+	// DeleteEmptyDirData lets the drain evict pods with emptyDir volumes,
+	// whose data is lost. Without it such a pod fails the step.
+	// +optional
+	DeleteEmptyDirData bool `json:"deleteEmptyDirData,omitempty"`
+}
+
+// UncordonAction marks a node schedulable.
+type UncordonAction struct {
+	// NodeRef names the TalosNode (os.pk.io).
+	NodeRef Reference `json:"nodeRef"`
+}
+
+// TalosRebootAction reboots a node through Talos.
+type TalosRebootAction struct {
+	// NodeRef names the TalosNode (os.pk.io) to reboot.
+	NodeRef Reference `json:"nodeRef"`
+
+	// Mode is Default (kexec or a warm reboot) or PowerCycle (a cold start
+	// at the end, for firmware that applies only then).
+	// +kubebuilder:validation:Enum=Default;PowerCycle
+	// +kubebuilder:default=Default
+	// +optional
+	Mode string `json:"mode,omitempty"`
+}
+
+// TalosShutdownAction shuts a node down through Talos.
+type TalosShutdownAction struct {
+	// NodeRef names the TalosNode (os.pk.io) to shut down.
+	NodeRef Reference `json:"nodeRef"`
+
+	// Force shuts down even when the node cannot cordon and drain itself
+	// first (its Kubernetes API is down).
+	// +optional
+	Force bool `json:"force,omitempty"`
+}
+
+// TalosUpgradeAction upgrades a node's Talos.
+type TalosUpgradeAction struct {
+	// NodeRef names the TalosNode (os.pk.io) to upgrade.
+	NodeRef Reference `json:"nodeRef"`
+
+	// Image is the installer image, pinned by digest: what the approver saw
+	// is what is installed.
+	// +kubebuilder:validation:Pattern=`@sha256:[a-f0-9]{64}$`
+	Image string `json:"image"`
+
+	// Version is the Talos version expected to read back afterwards, the
+	// step's goal: a node that already reports it is not upgraded again.
+	// +kubebuilder:validation:Pattern=`^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`
+	Version string `json:"version"`
+
+	// Stage writes the new image and upgrades at the next reboot, for a node
+	// whose open files would block an upgrade in place.
+	// +optional
+	Stage bool `json:"stage,omitempty"`
+
+	// Preserve keeps the EPHEMERAL partition (pod data, etcd). Talos 1.8
+	// and later always preserve it; the field is passed through for older
+	// nodes.
+	// +kubebuilder:default=true
+	// +optional
+	Preserve *bool `json:"preserve,omitempty"`
+
+	// Force skips the etcd health check Talos runs before upgrading a
+	// control plane.
+	// +optional
+	Force bool `json:"force,omitempty"`
+
+	// RebootMode is how the reboot into the new image ends.
+	// +kubebuilder:validation:Enum=Default;PowerCycle
+	// +kubebuilder:default=Default
+	// +optional
+	RebootMode string `json:"rebootMode,omitempty"`
+}
+
+// TalosApplyConfigAction applies a pinned machine config.
+type TalosApplyConfigAction struct {
+	// NodeRef names the TalosNode (os.pk.io) whose config this is.
+	NodeRef Reference `json:"nodeRef"`
+
+	// ConfigSecretRef names the Secret, in the operator's namespace, that
+	// holds the rendered config.
+	ConfigSecretRef Reference `json:"configSecretRef"`
+
+	// Digest pins the config bytes (sha256:<hex>) the approver saw: a Secret
+	// whose content no longer hashes to it fails the step instead of
+	// applying a config nobody approved.
+	// +kubebuilder:validation:Pattern=`^sha256:[a-f0-9]{64}$`
+	Digest string `json:"digest"`
+
+	// Mode is how the node takes the config: NoReboot fails when a change
+	// needs a reboot, Reboot always reboots, Staged applies at the next
+	// boot, Try rolls back after tryTimeoutSeconds unless confirmed, Auto
+	// lets the node choose.
+	// +kubebuilder:validation:Enum=Auto;NoReboot;Reboot;Staged;Try
+	// +kubebuilder:default=NoReboot
+	// +optional
+	Mode string `json:"mode,omitempty"`
+
+	// TryTimeoutSeconds bounds Try mode; unset is the node's default.
+	// +kubebuilder:validation:Minimum=10
+	// +kubebuilder:validation:Maximum=3600
+	// +optional
+	TryTimeoutSeconds int32 `json:"tryTimeoutSeconds,omitempty"`
+}
+
+// EtcdLeaveAction makes a control plane's etcd member leave the cluster.
+type EtcdLeaveAction struct {
+	// NodeRef names the control-plane TalosNode (os.pk.io) that leaves.
+	NodeRef Reference `json:"nodeRef"`
+}
+
+// EtcdRemoveMemberAction removes one etcd member through a peer.
+type EtcdRemoveMemberAction struct {
+	// NodeRef names the TalosNode (os.pk.io) whose member is removed:
+	// provenance for the approver, and how the executor finds the cluster
+	// and a peer to ask.
+	NodeRef Reference `json:"nodeRef"`
+
+	// MemberID is the etcd member ID in hex, as etcd lists it, fixed at
+	// proposal: the executor removes exactly this member, never "whatever
+	// carries that hostname now", which after a rejoin is the new member.
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{1,16}$`
+	MemberID string `json:"memberId"`
+
+	// Hostname is the member's hostname as etcd listed it at proposal, for
+	// the approver.
+	// +optional
+	Hostname string `json:"hostname,omitempty"`
+}
+
+// TalosResetAction wipes a node through Talos.
+//
+// +kubebuilder:validation:XValidation:rule="!has(self.systemPartitions) || !has(self.mode) || self.mode != 'UserDisks'",message="systemPartitions do not apply to mode UserDisks"
+type TalosResetAction struct {
+	// NodeRef names the TalosNode (os.pk.io) to reset.
+	NodeRef Reference `json:"nodeRef"`
+
+	// Graceful leaves etcd (on a control plane) and cordons and drains the
+	// node before wiping. A node that cannot reach its peers needs false,
+	// and its member is then removed by an etcdRemoveMember step.
+	// +kubebuilder:default=true
+	// +optional
+	Graceful *bool `json:"graceful,omitempty"`
+
+	// Reboot boots the node into maintenance mode afterwards; false leaves
+	// it powered off.
+	// +optional
+	Reboot bool `json:"reboot,omitempty"`
+
+	// Mode picks the disks: All (system and user disks), SystemDisk or
+	// UserDisks.
+	// +kubebuilder:validation:Enum=All;SystemDisk;UserDisks
+	// +kubebuilder:default=All
+	// +optional
+	Mode string `json:"mode,omitempty"`
+
+	// SystemPartitions limits the wipe to these system partitions; empty
+	// wipes what mode names. STATE holds the machine config and its
+	// credentials, EPHEMERAL the pod data and etcd.
+	// +kubebuilder:validation:MaxItems=3
+	// +listType=set
+	// +optional
+	SystemPartitions []SystemPartition `json:"systemPartitions,omitempty"`
+}
+
+// SystemPartition is a Talos system partition label.
+// +kubebuilder:validation:Enum=STATE;EPHEMERAL;META
+type SystemPartition string
+
+// WaitNodeReadyAction waits for a node to run and be ready.
+type WaitNodeReadyAction struct {
+	// NodeRef names the TalosNode (os.pk.io) to wait for.
+	NodeRef Reference `json:"nodeRef"`
+
+	// Version, when set, is also waited for: the Talos version the node must
+	// report, the proof an upgrade took.
+	// +kubebuilder:validation:Pattern=`^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`
+	// +optional
+	Version string `json:"version,omitempty"`
+
+	// TimeoutSeconds bounds the wait, counted from the previous step's end.
+	// +kubebuilder:validation:Minimum=60
+	// +kubebuilder:validation:Maximum=86400
+	// +kubebuilder:default=1800
+	// +optional
+	TimeoutSeconds int32 `json:"timeoutSeconds,omitempty"`
+}
+
+// WaitEtcdHealthyAction waits for a cluster's etcd to be healthy.
+type WaitEtcdHealthyAction struct {
+	// NodeRef names a control-plane TalosNode (os.pk.io) of the cluster.
+	// Its own member must be listed too, as a voting member: after a join
+	// or a reboot, that is the member the wait is for.
+	NodeRef Reference `json:"nodeRef"`
+
+	// TimeoutSeconds bounds the wait, counted from the previous step's end.
+	// +kubebuilder:validation:Minimum=60
+	// +kubebuilder:validation:Maximum=86400
+	// +kubebuilder:default=900
+	// +optional
+	TimeoutSeconds int32 `json:"timeoutSeconds,omitempty"`
 }
 
 // OperationApproval is the CEL-guarded human gate (a field, not a subresource).

@@ -51,6 +51,9 @@ require (
 	// test that keeps Phase and BlockedOn written only by internal/phase.
 	golang.org/x/tools v0.51.0
 	google.golang.org/grpc v1.83.2
+	// Already linked through machinery's generated API; durationpb carries the try-mode
+	// timeout of an apply-config request.
+	google.golang.org/protobuf v1.36.12
 	k8s.io/api v0.36.2
 	k8s.io/apiextensions-apiserver v0.36.0
 	k8s.io/apimachinery v0.36.2
@@ -181,7 +184,6 @@ require (
 	gomodules.xyz/jsonpatch/v2 v2.4.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260810153831-ec0a7760b754 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260810153831-ec0a7760b754 // indirect
-	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect

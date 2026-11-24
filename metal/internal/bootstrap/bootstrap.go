@@ -129,7 +129,7 @@ func Ensure(ctx context.Context, dial talos.Dialer, talosconfig []byte, members 
 		return Result{Reason: osv1alpha1.ReasonAwaitingControlPlane, Message: err.Error()}
 	}
 	defer func() { _ = c.Close() }()
-	switch err := c.Bootstrap(ctx); {
+	switch err := c.Bootstrap(ctx, talos.BootstrapOptions{}); {
 	case errors.Is(err, talos.ErrAlreadyBootstrapped):
 		return Result{Bootstrapped: true, Reason: osv1alpha1.ReasonEtcdRunning,
 			Message: first.Name + " already holds etcd data"}
@@ -153,7 +153,11 @@ func etcdMembers(ctx context.Context, dial talos.Dialer, talosconfig []byte, end
 		if _, err := c.Version(ctx); err != nil {
 			return err
 		}
-		members, etcdErr = c.EtcdMembers(ctx)
+		var listed []talos.EtcdMember
+		listed, etcdErr = c.EtcdMembers(ctx)
+		for _, m := range listed {
+			members = append(members, m.Hostname)
+		}
 		return nil
 	}); err != nil {
 		return nil, fmt.Errorf("%w: %w", errUnreachable, err)
@@ -272,7 +276,8 @@ func (o *Options) applyInsecure(ctx context.Context, n Node, poll time.Duration,
 			if _, err := c.Version(ctx); err != nil {
 				return err
 			}
-			return c.ApplyConfiguration(ctx, n.MachineConfig)
+			_, err := c.ApplyConfiguration(ctx, n.MachineConfig, talos.ApplyOptions{})
+			return err
 		})
 	}); err != nil {
 		return fmt.Errorf("bootstrap: maintenance service of %s never took the config: %w", n.Name, err)

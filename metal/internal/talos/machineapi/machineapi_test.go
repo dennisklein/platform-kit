@@ -41,3 +41,13 @@ func TestCallsEndOnASilentMachine(t *testing.T) {
 	require.Error(t, err)
 	assert.Less(t, time.Since(start), 5*time.Second, "the call ended near CallTimeout")
 }
+
+// Every mode the seam names maps to a machine-API mode and back, so the
+// result's Mode reads in the seam's own words.
+func TestApplyModesRoundTrip(t *testing.T) {
+	for _, mode := range []talos.ApplyMode{talos.ApplyAuto, talos.ApplyNoReboot, talos.ApplyReboot, talos.ApplyStaged, talos.ApplyTry} {
+		wire, ok := applyModes[mode]
+		require.True(t, ok, "mode %q has a wire value", mode)
+		assert.Equal(t, mode, applyModeOf(wire))
+	}
+}
