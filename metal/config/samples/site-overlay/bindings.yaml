@@ -1,0 +1,39 @@
+# Who may do what at this site. Replace the example group names with groups
+# from your identity provider or from the O= field of your client certificates.
+#
+# A binding gives rights to a group. It does not make a person a member: the
+# API server learns the groups of a person from the login.
+#
+# The admin group. The admission policies ask for it by name (ConfigMap
+# hostoperation-approval, key adminGroup, default pk-metal:admins): only its
+# members can make a claim that installs an OS, set automatic approval, or
+# move a claim to a different machine. Membership passes the policies; this
+# binding gives the members the RBAC rights for the objects. cluster-admin is
+# the simplest choice; a narrower role of your own is better.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pk-metal-admins
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: pk-metal:admins
+---
+# The approvers: the persons who can approve an operation or a rollout that
+# they did not propose. The role pk-metal-approver comes with the base.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pk-metal-approvers
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: pk-metal-approver
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: example:platform-approvers

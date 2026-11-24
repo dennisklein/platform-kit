@@ -1,0 +1,6 @@
+# BMC MAC address (lower case) -> the https URL of that BMC. One line for each
+# machine. The operator joins the bmcMac of an Asset against this file. It does
+# not find addresses by itself.
+"0c:c4:7a:12:34:56": https://192.0.2.21
+"0c:c4:7a:12:34:57": https://192.0.2.22
+"0c:c4:7a:12:34:58": https://192.0.2.23

@@ -1,0 +1,16 @@
+# What this site adds to the command line of the manager. All flags are on the
+# manager page of the documentation site (reference/controllers/manager).
+#
+# --media-url: the address at which the BMCs reach the media service. It must
+#   lead to NodePort 30443 of the Service pk-metal-media: a node address, a
+#   load balancer, or the workstation address that kind publishes the port on.
+#   Without this flag the manager serves no media and installs nothing.
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --media-url=https://192.0.2.10:30443
+# --bmc-ca-secret: the Secret (key ca.crt) with the CA of the BMC certificates.
+#   Without it the manager trusts only the system CAs, and a BMC with a
+#   certificate from your own CA or a self-signed one shows as Unreachable.
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --bmc-ca-secret=bmc-ca

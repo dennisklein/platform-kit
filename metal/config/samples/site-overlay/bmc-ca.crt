@@ -1,0 +1,4 @@
+Replace this file with the certificate of the CA that signed the HTTPS
+certificates of your BMCs, in PEM format. More than one certificate is allowed.
+While this text is here, the manager finds no certificate in the Secret, and
+each ManagementEndpoint shows the reason CAMissing.

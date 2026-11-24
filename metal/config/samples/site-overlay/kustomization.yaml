@@ -1,0 +1,62 @@
+# A site overlay: the operator for one real site, as a starting point.
+# Copy this directory, then edit the four files next to this one. The values
+# here are examples from the documentation ranges (192.0.2.0/24, example.org).
+#
+#   kubectl kustomize .                  # show what would be applied
+#   kubectl apply --server-side -k .     # apply it
+#
+# Server-side apply is necessary: the CRDs are larger than the annotation that
+# client-side apply writes.
+#
+# The how-to is the page "Install the operator" of the documentation site.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  # The base: CRDs, admission policies, RBAC and the manager. If you copy this
+  # directory out of the repository, change the path, or name the repository:
+  #   - https://github.com/<owner>/<repository>//metal/config/default?ref=<commit>
+  - ../../default
+  - bindings.yaml
+
+# One-slot BMCs (a Huawei iBMC, for example) need the media store. It asks for
+# a 10 GiB PersistentVolumeClaim, so the cluster needs a storage class.
+# components:
+#   - ../../media-store
+
+# The operator image. The base has a placeholder that cannot be pulled, so a
+# missing entry here fails the pull.
+#   kind:      mise run image, then kind load docker-image <reference> --name <cluster>
+#   registry:  PK_IMAGE_NAME=registry.example.org/platform/pk-metal mise run image,
+#              then docker push <reference>
+images:
+  - name: pk-metal
+    newName: registry.example.org/platform/pk-metal
+    newTag: replace-with-the-tag-that-mise-run-image-prints
+
+# The ledger: BMC MAC -> BMC URL. The generated name changes with the content,
+# so an apply of a new ledger restarts the manager.
+configMapGenerator:
+  - name: pk-metal-ledger
+    namespace: pk-metal
+    behavior: replace
+    files:
+      - ledger.yaml
+
+# The CA that signed the HTTPS certificates of your BMCs (manager flag
+# --bmc-ca-secret in manager_args.yaml). A CA certificate is public data.
+secretGenerator:
+  - name: bmc-ca
+    namespace: pk-metal
+    files:
+      - ca.crt=bmc-ca.crt
+    options:
+      # The manager flag names the Secret, and kustomize cannot rewrite a flag.
+      disableNameSuffixHash: true
+
+patches:
+  - path: manager_args.yaml
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: pk-metal-manager
