@@ -70,7 +70,10 @@ func Connect(ctx context.Context, cfg Config) (bmc.Client, error) {
 	// The transport is built here, not left to gofish, so that every
 	// response passes the guard below, gofish's own reads included. It is
 	// cloned from the default transport, as gofish does for its own client,
-	// so a proxy and the dial and handshake timeouts are kept.
+	// so a proxy and the dial and handshake timeouts are kept. Each session
+	// gets its own clone: gofish's own default shares the default transport's
+	// TLS config by pointer and sets InsecureSkipVerify on it, which would
+	// turn off certificate checks process-wide and race between sessions.
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.ForceAttemptHTTP2 = true
 	switch {
