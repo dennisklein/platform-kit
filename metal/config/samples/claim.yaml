@@ -1,0 +1,26 @@
+# A claim: "install the node node-1 on the machine of the Asset asset-07".
+# The names match asset.yaml and talos.yaml. A claim is namespaced; the Asset,
+# the Host and the TalosNode are not.
+#
+# Only a member of the admin group can apply a claim that has spec.os: the
+# claim puts the machine config of that node on the machine. The operator then
+# proposes the install, and a person approves it (provisioning.approval:
+# Required is the default). To delete a claim is to release the machine: the
+# operator proposes a wipe of the disk.
+apiVersion: metal.pk.io/v1alpha1
+kind: HostClaim
+metadata:
+  name: node-1
+  namespace: default
+spec:
+  assetRef:
+    name: asset-07
+  # Copied to the Host while the claim holds it. Profiles and maintenance
+  # windows can select on them.
+  labels:
+    role: controlplane
+  os:
+    nodeRef:
+      name: node-1
+  provisioning:
+    approval: Required

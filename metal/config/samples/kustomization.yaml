@@ -1,0 +1,33 @@
+# The samples that describe a site, in the order of their dependencies. Use it
+# as the pattern for a directory in git:
+#
+#   kubectl kustomize .        # show the objects
+#
+# The order is for the reader. The operator waits for what is missing: a claim
+# before its Asset stays Pending, and nothing breaks.
+#
+#   1. What you have: the machines and how to configure them.
+#   2. What you want to run: the cluster and its nodes.
+#   3. Which machine runs which node: the claims. A person approves each
+#      install that follows.
+#
+# Not in the list:
+#   - ledger.yaml is not an object. It is the content of the ConfigMap
+#     pk-metal-ledger (site-overlay/ shows how to supply it).
+#   - Secrets (BMC credentials, the Talos secrets bundle, backup credentials).
+#     Keep them out of git, or encrypt them.
+#   - rollout-reboot.yaml is a one-time request by a person, not site state.
+#   - bootasset.yaml and etcdbackup.yaml are optional parts. Add them when
+#     you need them.
+#   - site-overlay/ installs the operator itself. Apply it first.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  # 1. Machines and profiles.
+  - asset.yaml
+  - profiles.yaml
+  - window.yaml
+  # 2. The cluster and its nodes.
+  - talos.yaml
+  # 3. The claims. They need the admin group.
+  - claim.yaml

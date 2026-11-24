@@ -1,0 +1,20 @@
+# A maintenance window: when approved operations on the selected machines can
+# start. Without a window that selects a machine, an approved operation starts
+# at once. A window does not replace the approval.
+apiVersion: metal.pk.io/v1alpha1
+kind: MaintenanceWindow
+metadata:
+  name: workers-weekend
+spec:
+  # The Hosts that carry this label. The label comes from the claim (claim.yaml
+  # sets role on its Host).
+  hostSelector:
+    matchLabels:
+      role: worker
+  # Only for the nodes of these clusters.
+  clusters: [lab]
+  timeZone: Europe/Berlin
+  weekly:
+    - days: [Sat]
+      start: "22:00"
+      duration: 6h

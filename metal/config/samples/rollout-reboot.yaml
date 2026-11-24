@@ -1,0 +1,24 @@
+# A rollout that you write: reboot the nodes of the cluster lab, one at a time,
+# each one drained first. The operator proposes the other kinds of rollout
+# (Config, TalosUpgrade, KubernetesUpgrade) by itself; a Reboot is always a
+# person's request.
+#
+# This file is a request, not a description of the site. Do not keep it in a
+# directory that a GitOps tool applies continuously:
+#   - proposedBy must be the username that applies the file (the admission
+#     policy compares them). kubectl auth whoami prints yours.
+#   - A second person approves the plan: pk-metal rollout approve reboot-lab
+#   - A finished rollout stays as a record. Use a new name for the next one.
+apiVersion: os.pk.io/v1alpha1
+kind: TalosRollout
+metadata:
+  name: reboot-lab
+spec:
+  clusterRef:
+    name: lab
+  kind: Reboot
+  # Empty means all nodes of the cluster.
+  nodes: [node-2, node-3]
+  maxUnavailableWorkers: 1
+  drainTimeoutSeconds: 900
+  proposedBy: replace-with-your-username
