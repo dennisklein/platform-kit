@@ -1,0 +1,50 @@
+# Daily etcd snapshots of the virtual lab's cluster, kept for two weeks on the
+# operator's backup volume (the config/etcd-backup component). The lab cluster
+# is managed from kind, so a pvc sink is allowed; for the cluster the operator
+# runs on, use the s3 sink below instead.
+#
+# The recipients are age public keys (age-keygen -y keys.txt prints one). The
+# two here are synthetic: replace them with yours, or nobody can decrypt the
+# snapshots. The operator holds no identity and cannot either.
+apiVersion: os.pk.io/v1alpha1
+kind: EtcdBackupPolicy
+metadata:
+  name: lab-daily
+spec:
+  clusterRef:
+    name: lab
+  interval: 24h
+  retention:
+    count: 14
+    maxAge: 336h
+  sink:
+    pvc: {}
+  encryption:
+    ageRecipients:
+      - age17qp3x9p2c3y60573c4z7yvdt0m26t6gja9pyvf8x5w0kvjyjg9kstypzca
+      - age1zajaum8h7wswjkape2mz3f898s88zjwjhpkh75d8mfmmadn39uusukmz06
+---
+# The same with an S3-compatible store off the cluster. The Secret
+# etcd-backup-s3 in pk-metal holds accessKeyID and secretAccessKey; the bucket
+# must exist.
+apiVersion: os.pk.io/v1alpha1
+kind: EtcdBackupPolicy
+metadata:
+  name: lab-offsite
+spec:
+  clusterRef:
+    name: lab
+  interval: 6h
+  retention:
+    count: 28
+  sink:
+    s3:
+      endpoint: https://s3.example.org
+      bucket: etcd-backups
+      prefix: metal/
+      pathStyle: true
+      credentialsSecretRef:
+        name: etcd-backup-s3
+  encryption:
+    ageRecipients:
+      - age17qp3x9p2c3y60573c4z7yvdt0m26t6gja9pyvf8x5w0kvjyjg9kstypzca

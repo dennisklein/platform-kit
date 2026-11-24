@@ -1,0 +1,25 @@
+# The etcd backup volume: where EtcdBackupPolicies with a pvc sink keep their
+# snapshots. Every snapshot is encrypted to the policy's age recipients before
+# it reaches the volume, so the volume holds no plaintext; the manager cannot
+# read back what it wrote either.
+#
+# A pvc sink is for the clusters this operator manages from outside. The
+# operator refuses it for the cluster it runs on: a backup kept inside the
+# cluster it would restore is lost with it. Use an s3 sink for that one, or
+# for every cluster when an object store is at hand.
+#
+# Add it to an overlay with:
+#
+#   components:
+#     - ../etcd-backup
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - pvc.yaml
+patches:
+  - path: manager.yaml
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: pk-metal-manager
