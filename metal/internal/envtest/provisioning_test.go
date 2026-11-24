@@ -17,10 +17,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -32,11 +33,13 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
@@ -44,6 +47,7 @@ import (
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc/sim"
 	"github.com/dennisklein/platform-kit/metal/internal/controller"
+	talosfake "github.com/dennisklein/platform-kit/metal/internal/talos/fake"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
 )
 
@@ -138,9 +142,30 @@ func TestProvisioning(t *testing.T) {
 	store, err := asset.NewStore(t.TempDir())
 	require.NoError(t, err)
 
+	// A released node that answers leaves through Talos: drained, reset,
+	// its Kubernetes Node deleted. The nodes' machine API is a fake fleet at
+	// the address every TalosNode here has, and their cluster's Kubernetes
+	// API is this apiserver, reached with an admin kubeconfig as the
+	// TalosCluster reconciler would publish it.
+	fleet := talosfake.NewFleet()
+	runningMachine := func(node string) *talosfake.Machine {
+		m := talosfake.NewMachine("v1.14.0")
+		m.Configure([]byte("machine: {}"))
+		m.SetStage("running", true)
+		fleet.Add("192.0.2.11", node, m)
+		return m
+	}
+	workloadNode := func(name string) {
+		require.NoError(t, cl.Create(ctx, &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: name}}))
+	}
+	nodeGone := func(name string) bool {
+		return apierrors.IsNotFound(cl.Get(ctx, client.ObjectKey{Name: name}, &corev1.Node{}))
+	}
+
 	mgr := st.newManagerAs(t, managerCfg, "default")
 	require.NoError(t, controller.SetupAll(mgr, controller.Options{
 		CredentialsNamespace: "default",
+		TalosDial:            fleet.Dialer(),
 		OperationsNamespace:  "default",
 		Proposer:             operator,
 		Ledger:               led,
@@ -350,12 +375,29 @@ func TestProvisioning(t *testing.T) {
 		return strings.Contains(err.Error(), "pre-approved")
 	}, waitFor, tick, "the ValidatingAdmissionPolicy never became enforcing")
 
-	require.NoError(t, cl.Create(ctx, &osv1alpha1.TalosCluster{
+	labCluster := &osv1alpha1.TalosCluster{
 		ObjectMeta: metav1.ObjectMeta{Name: "lab"},
 		Spec: osv1alpha1.TalosClusterSpec{TalosVersion: "v1.14.0", KubernetesVersion: "v1.36.2",
 			Endpoint:   "https://192.0.2.10:6443",
 			SecretsRef: osv1alpha1.SecretReference{Namespace: "default", Name: "lab-secrets"}},
-	}))
+	}
+	require.NoError(t, cl.Create(ctx, labCluster))
+	{
+		workloadAdmin, err := st.env.AddUser(envtest.User{Name: "workload-admin", Groups: []string{"system:masters"}}, nil)
+		require.NoError(t, err)
+		kubeconfig, err := workloadAdmin.KubeConfig()
+		require.NoError(t, err)
+		bundle, err := os.ReadFile(filepath.Join("..", "talos", "render", "testdata", "secrets.yaml"))
+		require.NoError(t, err)
+		for name, data := range map[string]map[string][]byte{
+			"lab-secrets":    {render.BundleKey: bundle},
+			"lab-kubeconfig": {controller.KubeconfigKey: kubeconfig},
+		} {
+			require.NoError(t, cl.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: name}, Data: data}))
+		}
+		labCluster.Status.KubeconfigSecretRef = &osv1alpha1.SecretReference{Namespace: "default", Name: "lab-kubeconfig"}
+		require.NoError(t, cl.Status().Update(ctx, labCluster))
+	}
 
 	st.run(t, "the approval policy holds identities", func(t *testing.T) {
 		op := func(name, proposer string, required bool) *metalv1alpha1.HostOperation {
@@ -601,7 +643,9 @@ func TestProvisioning(t *testing.T) {
 		waitHost(dualHost, func(h metalv1alpha1.Host) bool { return h.Status.Phase == metalv1alpha1.HostProvisioned })
 	})
 
-	st.run(t, "deleting the claim of a running node waits for approval, then shuts it down", func(t *testing.T) {
+	st.run(t, "deleting the claim of a running node waits for approval, then removes and resets it", func(t *testing.T) {
+		machine := runningMachine("node-dual")
+		workloadNode("node-dual")
 		c, err := claimOf("dual")
 		require.NoError(t, err)
 		require.NoError(t, cl.Delete(ctx, &c))
@@ -610,8 +654,14 @@ func TestProvisioning(t *testing.T) {
 		require.Eventually(t, func() bool { rel = opsFor(dualHost, "release"); return len(rel) == 1 }, waitFor, tick)
 		assert.True(t, *rel[0].Spec.Approval.Required, "turning off a running node is a decision for a person")
 		assert.Equal(t, operator, rel[0].Spec.ProposedBy, "admission takes the operator's gated proposal")
-		require.NotNil(t, rel[0].Spec.Actions[0].PowerOff)
-		assert.Positive(t, rel[0].Spec.Actions[0].PowerOff.GracefulTimeoutSeconds, "the OS is asked to shut down first")
+		var keys []string
+		for _, a := range rel[0].Spec.Actions {
+			keys = append(keys, a.Key())
+		}
+		require.GreaterOrEqual(t, len(keys), 5, "%v", keys)
+		assert.Equal(t, []string{"cordon", "drain", "talosReset", "deleteKubernetesNode", "powerOff"}, keys[:5],
+			"a worker that answers is drained, reset through Talos and forgotten by Kubernetes before the power-off")
+		assert.Empty(t, rel[0].Annotations[metalv1alpha1.AnnotationDiskNotWiped], "the reset wipes the disk")
 		waitClaim("dual", func(c metalv1alpha1.HostClaim) bool {
 			p := provisioned(c)
 			return p != nil && strings.Contains(p.Message, "pk-metal approve default/"+rel[0].Name)
@@ -624,8 +674,10 @@ func TestProvisioning(t *testing.T) {
 
 		require.NoError(t, aliceCl.Patch(ctx, &rel[0], client.RawPatch(types.MergePatchType,
 			[]byte(`{"spec":{"approval":{"approvedBy":"alice"}}}`))))
-		op := waitOp(client.ObjectKeyFromObject(&rel[0]), succeeded)
-		assert.NotNil(t, op.Status.ShutdownRequested, "a graceful shutdown was asked for")
+		waitOp(client.ObjectKeyFromObject(&rel[0]), succeeded)
+		require.Len(t, machine.Resets(), 1, "Talos reset the machine")
+		assert.False(t, machine.Resets()[0].Reboot, "and left it off")
+		assert.True(t, nodeGone("node-dual"), "its Kubernetes Node is deleted")
 
 		h := waitHost(dualHost, func(h metalv1alpha1.Host) bool { return h.Status.Phase == metalv1alpha1.HostAvailable })
 		assert.Nil(t, h.Spec.ClaimRef)
@@ -696,6 +748,11 @@ func TestProvisioning(t *testing.T) {
 		assert.Equal(t, http.StatusForbidden, grantStatus(mounted["CD"]), "and its grant revoked")
 		waitClaim("single", provisionedReason(metalv1alpha1.ReasonHandedOff))
 
+		// The node stops answering before its claim goes: nothing can reset
+		// it through Talos, so the release can only power it off.
+		checkIn("node-single",
+			metav1.Condition{Type: osv1alpha1.ConditionMachineReachable, Status: metav1.ConditionFalse, Reason: "Unreachable"},
+			metav1.Condition{Type: osv1alpha1.ConditionReady, Status: metav1.ConditionFalse, Reason: "NotReady"})
 		c, err := claimOf("single")
 		require.NoError(t, err)
 		require.NoError(t, cl.Delete(ctx, &c))
@@ -708,8 +765,7 @@ func TestProvisioning(t *testing.T) {
 			return apierrors.IsNotFound(err)
 		}, waitFor, tick, "the claim goes once the machine is back")
 
-		// This executor runs no Talos reset, so the release could only power
-		// the machine off: its disk keeps node-single, and the host says so.
+		// Its disk keeps node-single, and the host says so.
 		// A person who knows the disk is blank clears the mark; the next
 		// subtest installs on the same machine.
 		h := waitHost(singleHost, func(h metalv1alpha1.Host) bool {
@@ -766,10 +822,15 @@ func TestProvisioning(t *testing.T) {
 		assert.Empty(t, mediaOf(singleState))
 		waitClaim("single-disk", provisionedReason(metalv1alpha1.ReasonHandedOff))
 
+		machine := runningMachine("node-single-disk")
+		workloadNode("node-single-disk")
 		c, err := claimOf("single-disk")
 		require.NoError(t, err)
 		require.NoError(t, cl.Delete(ctx, &c))
-		waitHost(singleHost, func(h metalv1alpha1.Host) bool { return h.Status.Phase == metalv1alpha1.HostAvailable })
+		h := waitHost(singleHost, func(h metalv1alpha1.Host) bool { return h.Status.Phase == metalv1alpha1.HostAvailable })
+		assert.Len(t, machine.Resets(), 1, "the node answered, so Talos reset it")
+		assert.Empty(t, h.Annotations[metalv1alpha1.AnnotationDiskNotWiped], "a reset disk carries no mark")
+		assert.True(t, nodeGone("node-single-disk"))
 	})
 
 	st.run(t, "a claimed host outlives the deletion of its asset", func(t *testing.T) {
