@@ -799,18 +799,51 @@ pending_operations() {
     | "\(.metadata.namespace) \(.metadata.name)"'
 }
 
+# Fetches the head of every factory image a BootAsset addresses, once per lab,
+# so that the factory has built it before a BMC asks. The factory builds an
+# image for a schematic and release on its first request, which takes longer
+# than a BMC waits for the answer to its mount-time fetch (the simulated one
+# waits 10 seconds): a cold image fails the mount and holds
+# the machine until a person retries it. Warming is the lab's stand-in for a
+# site's own factory or mirror, which has its images before it is used. A
+# warm-up that fails is reported and not retried here; the mount then fails
+# with the factory's own answer, which is the evidence worth reading.
+factory_warm() {
+  local lab_dir=$1
+  local warmed=$lab_dir/factory-warmed url
+  touch "$warmed"
+  while IFS= read -r url; do
+    [[ -n $url ]] || continue
+    ! grep -qxF "$url" "$warmed" || continue
+    echo "  warming the factory image $url (it is built on its first request)" >&2
+    # A finite timeout: a factory that never answers must not hold the lab
+    # forever. 15 minutes is well above the few minutes a build takes.
+    if curl --silent --show-error --fail --head --output /dev/null --max-time 900 "$url" >&2; then
+      echo "$url" >>"$warmed"
+    else
+      echo "  the factory did not serve $url; a mount of it will fail the same way" >&2
+    fi
+  done < <(kubectl get bootassets --output json 2>/dev/null | jq -r '.items[].status.url // empty' | sort -u)
+}
+
 # Approves every pending operation as the kubeconfig's user and prints how many
 # that were. An approval that fails is reported by pk-metal and not counted.
+# The operations are listed before the factory images are warmed, so every
+# image one of them mounts is warm by the time it is approved.
 approve_pending() {
-  local root=$1
-  local namespace name count=0
+  local root=$1 lab_dir=$2
+  local namespace name pending count=0
+  # A cluster that does not answer has nothing to approve; the callers poll.
+  pending=$(pending_operations) || pending=""
+  [[ -n $pending ]] || { echo 0; return 0; }
+  factory_warm "$lab_dir"
   while read -r namespace name; do
     [[ -n $name ]] || continue
     # --yes: this is the unattended path; approve would otherwise ask.
     if "$root/metal/bin/pk-metal" approve --yes -n "$namespace" "$name" >&2; then
       count=$((count + 1))
     fi
-  done < <(pending_operations)
+  done <<<"$pending"
   echo "$count"
 }
 
@@ -818,7 +851,7 @@ approve() {
   local root=$1 lab_dir=$2
   local count
   require_cluster "$lab_dir"
-  count=$(approve_pending "$root")
+  count=$(approve_pending "$root" "$lab_dir")
   if (( count == 0 )); then
     echo "no operation waits for approval" >&2
   else
@@ -954,7 +987,7 @@ wait_converged() {
   cluster_name=$(lab_value "$gen" TALOS_CLUSTER)
   step "waiting up to ${timeout}s for $want Provisioned hosts and $want Ready nodes (from $(date '+%F %T %Z'))"
   while true; do
-    approve_pending "$root" >/dev/null || true
+    approve_pending "$root" "$lab_dir" >/dev/null || true
     kubeconfig_fetch "$cluster_name" "$lab_dir/workload.kubeconfig" "$lab_dir/talosconfig" || true
     if converged "$lab_dir" "$want"; then
       echo "converged after $((SECONDS - (deadline - timeout)))s: $(progress "$lab_dir")" >&2
@@ -1009,7 +1042,7 @@ release() {
   step "releasing $claim (Host $host), waiting up to ${timeout}s for the Host to be Available"
   kubectl -n "$namespace" delete hostclaim "$name" --wait=false >&2
   while true; do
-    approve_pending "$root" >/dev/null || true
+    approve_pending "$root" "$lab_dir" >/dev/null || true
     phase=$(host_phase "$host") || phase=""
     if claim_gone "$namespace" "$name" && [[ $phase == Available ]]; then
       echo "released after $((SECONDS - (deadline - timeout)))s: Host $host is Available, $claim is gone" >&2
@@ -1100,7 +1133,7 @@ day2_reboot_node() {
   fi
 
   while true; do
-    approve_pending "$root" >/dev/null || true
+    approve_pending "$root" "$lab_dir" >/dev/null || true
     phase=$(kubectl -n "$namespace" get hostoperation "$name" --output jsonpath='{.status.phase}' 2>/dev/null) || phase=""
     case "$phase" in
       Succeeded)
@@ -1188,7 +1221,7 @@ day2_until() {
   local members learners have total ready failed line last="" deadline=$((SECONDS + timeout))
   step "$what: waiting up to ${timeout}s for $voters etcd voter(s) and $nodes Ready node(s)"
   while true; do
-    approve_pending "$root" >/dev/null || true
+    approve_pending "$root" "$lab_dir" >/dev/null || true
     members=$(etcd_members "$lab_dir") || members=""
     if [[ -n $members ]]; then
       learners=$(awk '$2 == "true"' <<<"$members" | wc -l)
@@ -1690,7 +1723,7 @@ pivot() {
   want_hosts=$(($(lab_value "$gen" NODES) + $(lab_value "$gen" WORKLOAD_NODES)))
   want_nodes=$(lab_value "$gen" WORKLOAD_NODES)
   while true; do
-    approve_pending "$root" >/dev/null || true
+    approve_pending "$root" "$lab_dir" >/dev/null || true
     kubeconfig_fetch "$second" "$lab_dir/second.kubeconfig" "$lab_dir/second.talosconfig" || true
     if cluster_converged "$want_hosts" "$lab_dir/second.kubeconfig" "$want_nodes"; then
       echo "converged after $((SECONDS - (deadline - timeout)))s: $want_hosts Provisioned hosts, $want_nodes Ready nodes in $second" >&2
@@ -1871,7 +1904,7 @@ EOF
 
   step "losing etcd: wiping EPHEMERAL on every control plane of $cluster_name"
   addrs=$(kubectl get talosnodes --output json | jq -r --arg c "$cluster_name" '
-    .items[] | select(.spec.clusterRef.name == $c and .spec.role == "controlplane") | .spec.address // empty')
+    .items[] | select(.spec.clusterRef.name == $c and .spec.role == "controlplane") | .status.address // .spec.address // empty')
   [[ -n $addrs ]] || die "TalosCluster $cluster_name lists no control-plane address. Look at it: kubectl get talosnodes -o wide"
   for addr in $addrs; do
     talosctl --talosconfig "$lab_dir/talosconfig" --endpoints "$addr" --nodes "$addr" \
@@ -1901,16 +1934,16 @@ EOF
     sleep 15
   done
   # The lab's admin approves what lab-restorer proposed: two people.
-  approve_pending "$root" >/dev/null
+  approve_pending "$root" "$lab_dir" >/dev/null
   until "$cli" restore upload "$namespace/$op" --identity "$dir/identity.txt" --from-file "$dir/snapshot.db.age" >&2; do
     (( SECONDS < deadline )) || die "the snapshot upload to $op did not succeed within ${timeout}s; its output above says why"
-    approve_pending "$root" >/dev/null || true
+    approve_pending "$root" "$lab_dir" >/dev/null || true
     sleep 15
   done
 
   step "waiting for $op and for etcd"
   while true; do
-    approve_pending "$root" >/dev/null || true
+    approve_pending "$root" "$lab_dir" >/dev/null || true
     line="$(kubectl -n "$namespace" get hostoperation "$op" --output jsonpath='{.status.phase}' 2>/dev/null): $(
       kubectl -n "$namespace" get hostoperation "$op" \
         --output jsonpath='{.status.conditions[?(@.type=="Executed")].message}' 2>/dev/null)"
@@ -1985,7 +2018,8 @@ down() {
   fi
   registry_down
   rm -f "$lab_dir/kubeconfig" "$lab_dir/workload.kubeconfig" "$lab_dir/talosconfig" \
-    "$lab_dir/second.kubeconfig" "$lab_dir/second.talosconfig" "$lab_dir/$PIVOT_MARK"
+    "$lab_dir/second.kubeconfig" "$lab_dir/second.talosconfig" "$lab_dir/$PIVOT_MARK" \
+    "$lab_dir/factory-warmed"
   "$root/lab/net.sh" down
   echo "kept: the machines' disks, the image cache and the secrets bundle. Wipe the disks with: mise run lab:reset" >&2
 }
