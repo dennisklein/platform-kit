@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/siderolabs/talos/pkg/machinery/role"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
@@ -96,7 +97,8 @@ func (g *ClusterGuard) Check(ctx context.Context, host *metalv1alpha1.Host, op *
 		"control plane): kubectl annotate --overwrite hostoperation -n %s %s %s='<why>' (an empty reason does not count)",
 		op.Namespace, op.Name, metalv1alpha1.AnnotationOverrideClusterGuard)
 
-	acc, err := newTalosAccess(ctx, g.Reader, g.Namespace, g.Dial, cluster)
+	// Etcd health is a read: os:reader serves it.
+	acc, err := newTalosAccessAs(ctx, g.Reader, g.Namespace, g.Dial, cluster, role.Reader)
 	if err != nil {
 		return fmt.Sprintf("%s, and etcd cannot be asked whether it keeps its majority without it: %v.%s", what, err, override), nil
 	}

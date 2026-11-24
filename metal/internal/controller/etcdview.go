@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strconv"
 
+	"github.com/siderolabs/talos/pkg/machinery/role"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
@@ -116,7 +117,7 @@ func clusterEtcd(ctx context.Context, c client.Reader, dial talos.Dialer, namesp
 		return etcdView{}, "", err
 	}
 	cps := controlPlanes(nodes, "")
-	acc, err := newTalosAccess(ctx, c, namespace, dial, cluster)
+	acc, err := newTalosAccessAs(ctx, c, namespace, dial, cluster, role.Reader)
 	if err != nil {
 		if unavailable := (*bundleUnavailable)(nil); errors.As(err, &unavailable) {
 			return etcdView{}, unavailable.msg, nil

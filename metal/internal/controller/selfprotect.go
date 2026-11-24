@@ -392,7 +392,7 @@ func (g *SelfGuard) controlPlaneUp(ctx context.Context, cluster *osv1alpha1.Talo
 		}
 		up := false
 		if endpoint := render.NodeAddress(n); bundleErr == nil && endpoint != "" {
-			if tcfg, err := render.Talosconfig(bundle, cluster.Name, []string{endpoint}, checkinCertTTL); err == nil {
+			if tcfg, err := readerTalosconfig(bundle, cluster.Name, []string{endpoint}); err == nil {
 				pctx, cancel := context.WithTimeout(ctx, probeTimeout)
 				_ = talos.With(pctx, g.Dial, talos.Target{Endpoint: endpoint, Talosconfig: tcfg}, func(c talos.Client) error {
 					st, err := c.Status(pctx)
