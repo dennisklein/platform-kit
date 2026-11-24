@@ -556,9 +556,9 @@ type TalosApplyConfigAction struct {
 
 	// Mode is how the node takes the config: NoReboot fails when a change
 	// needs a reboot, Reboot always reboots, Staged applies at the next
-	// boot, Try applies it and the step confirms it once the node is
-	// healthy (unconfirmed, the node rolls back after tryTimeoutSeconds),
-	// Auto lets the node choose.
+	// boot, Try applies it for tryTimeoutSeconds (when the node is healthy,
+	// the step keeps it by sending it again in NoReboot mode; otherwise the
+	// node rolls it back), Auto lets the node choose.
 	// +kubebuilder:validation:Enum=Auto;NoReboot;Reboot;Staged;Try
 	// +kubebuilder:default=NoReboot
 	// +optional
@@ -742,7 +742,8 @@ type TalosStepProgress struct {
 	// restart shows as a later boot time.
 	// +optional
 	BootTime *metav1.Time `json:"bootTime,omitempty"`
-	// RequestedAt is when the node accepted the request.
+	// RequestedAt is when the node accepted the request. It stays unset
+	// while no answer came back, and the step then asks again.
 	// +optional
 	RequestedAt *metav1.Time `json:"requestedAt,omitempty"`
 	// Mode is how the node said it applies a config (talosApplyConfig):

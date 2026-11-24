@@ -736,7 +736,7 @@
         "Staged",
         "Try"
       ],
-      "description": "Mode is how the node takes the config: NoReboot fails when a change needs a reboot, Reboot always reboots, Staged applies at the next boot, Try applies it and the step confirms it once the node is healthy (unconfirmed, the node rolls back after tryTimeoutSeconds), Auto lets the node choose."
+      "description": "Mode is how the node takes the config: NoReboot fails when a change needs a reboot, Reboot always reboots, Staged applies at the next boot, Try applies it for tryTimeoutSeconds (when the node is healthy, the step keeps it by sending it again in NoReboot mode; otherwise the node rolls it back), Auto lets the node choose."
     },
     {
       "path": "spec.actions[].talosApplyConfig.nodeRef",
@@ -1566,7 +1566,7 @@
       "type": "string",
       "format": "date-time",
       "required": false,
-      "description": "RequestedAt is when the node accepted the request."
+      "description": "RequestedAt is when the node accepted the request. It stays unset while no answer came back, and the step then asks again."
     },
     {
       "path": "status.talosStep.step",
