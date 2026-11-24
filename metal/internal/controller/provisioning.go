@@ -806,6 +806,12 @@ func bootRan(ops []metalv1alpha1.HostOperation, hostName string) bool {
 // bootRanUncached is bootRan over the claim's boot operations as the API
 // server holds them. The executor writes the baseline before its first
 // mutating call, and the cache can lag behind that write.
+//
+// When no boot ran, it also deletes the unfinished boot operations on the
+// host, each only at the version it just read. That fences the executor: an
+// operation that captured its baseline since the read has a newer version,
+// so its delete fails and the pass is retried, and one deleted first can no
+// longer write a baseline, so it never reaches a step that touches the BMC.
 func (r *HostClaimReconciler) bootRanUncached(ctx context.Context, claim *metalv1alpha1.HostClaim, hostName string) (bool, error) {
 	ops := &metalv1alpha1.HostOperationList{}
 	if err := r.reader().List(ctx, ops, client.InNamespace(r.OperationsNamespace), client.MatchingLabels{
@@ -813,7 +819,25 @@ func (r *HostClaimReconciler) bootRanUncached(ctx context.Context, claim *metalv
 	}); err != nil {
 		return false, err
 	}
-	return bootRan(ops.Items, hostName), nil
+	if bootRan(ops.Items, hostName) {
+		return true, nil
+	}
+	for i := range ops.Items {
+		op := &ops.Items[i]
+		if op.Spec.HostRef.Name != hostName || opFinished(op) {
+			continue
+		}
+		uid, rv := op.UID, op.ResourceVersion
+		err := r.Delete(ctx, op, client.Preconditions{UID: &uid, ResourceVersion: &rv})
+		if apierrors.IsConflict(err) {
+			return false, fmt.Errorf("boot operation %s/%s changed while the release read it; reading it again: %w",
+				op.Namespace, op.Name, err)
+		}
+		if client.IgnoreNotFound(err) != nil {
+			return false, err
+		}
+	}
+	return false, nil
 }
 
 // powerOffDecided: an earlier pass decided that releasing the host for this

@@ -102,8 +102,7 @@ type HostOperationReconciler struct {
 	// operation runs. A test seam.
 	PassTimeout time.Duration
 	// APIReader reads straight from the API server, bypassing the informer
-	// cache: for the queue check before an operation starts, and for the
-	// check between steps that the operation still exists. Defaults to the
+	// cache, for the queue check before an operation starts. Defaults to the
 	// manager's API reader in SetupWithManager.
 	APIReader client.Reader
 }

@@ -336,3 +336,67 @@ func TestStaleCacheDoesNotHideABootThatRan(t *testing.T) {
 	assert.True(t, hostBound(t, r), "not unbound mid-boot")
 	assert.Len(t, releaseOps(t, r, claim), 1)
 }
+
+func TestReleaseFencesABootThatStartsWhileItDecides(t *testing.T) {
+	claim := testClaim("node-b")
+	boot := bootOp("boot", "node-b", false, false)
+	live := fake.NewClientBuilder().WithScheme(testScheme(t)).
+		WithStatusSubresource(&metalv1alpha1.HostOperation{}, &metalv1alpha1.HostClaim{}).
+		WithObjects(boundHost(claim), boot).Build()
+	// The executor captures the boot's baseline right after the release's
+	// uncached read saw none.
+	started := false
+	reader := interceptor.NewClient(live, interceptor.Funcs{
+		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			if err := c.List(ctx, list, opts...); err != nil {
+				return err
+			}
+			if _, ok := list.(*metalv1alpha1.HostOperationList); ok && !started {
+				started = true
+				op := &metalv1alpha1.HostOperation{}
+				require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(boot), op))
+				now := metav1.Now()
+				op.Status.Baseline = &metalv1alpha1.OperationBaseline{PowerState: "On", CapturedAt: &now}
+				require.NoError(t, c.Status().Update(ctx, op))
+			}
+			return nil
+		},
+	})
+	r := &HostClaimReconciler{Client: live, APIReader: reader, OperationsNamespace: "pk-metal", Proposer: "operator"}
+
+	host := &metalv1alpha1.Host{}
+	require.NoError(t, r.Get(t.Context(), client.ObjectKey{Name: "host-a"}, host))
+	_, err := r.release(t.Context(), claim, []metalv1alpha1.Host{*host})
+	require.Error(t, err, "the boot changed under the decision: the pass is retried")
+	assert.True(t, hostBound(t, r), "not unbound while the boot runs")
+
+	// The next pass sees the boot that ran and powers the machine off.
+	require.False(t, releasePass(t, r, claim))
+	assert.True(t, hostBound(t, r))
+	assert.Len(t, releaseOps(t, r, claim), 1)
+}
+
+func TestReleaseDeletesAnUnstartedBootBeforeItUnbinds(t *testing.T) {
+	claim := testClaim("node-b")
+	var writes []string
+	live := fake.NewClientBuilder().WithScheme(testScheme(t)).
+		WithStatusSubresource(&metalv1alpha1.HostOperation{}, &metalv1alpha1.HostClaim{}).
+		WithObjects(boundHost(claim), bootOp("boot", "node-b", false, false)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+				writes = append(writes, "delete "+obj.GetName())
+				return c.Delete(ctx, obj, opts...)
+			},
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				writes = append(writes, "update "+obj.GetName())
+				return c.Update(ctx, obj, opts...)
+			},
+		}).Build()
+	r := &HostClaimReconciler{Client: live, OperationsNamespace: "pk-metal", Proposer: "operator"}
+
+	require.True(t, releasePass(t, r, claim))
+	require.NotEmpty(t, writes)
+	assert.Equal(t, []string{"delete boot", "update host-a"}, writes[:2],
+		"the boot can no longer start once the host is handed back")
+	assert.False(t, hostBound(t, r))
+}
