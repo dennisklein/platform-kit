@@ -45,6 +45,21 @@ description = "Unit tests, and vet of the e2e build tag so the harness cannot ro
 dir = "metal"
 run = ["go test ./...", "go vet -tags e2e ./test/e2e/"]
 
+[tasks."metrics:rules"]
+description = "promtool check and unit-test the alert rules in metal/config/prometheus (needs promtool on PATH)"
+dir = "metal"
+# promtool reads a plain rule file, not a PrometheusRule: the spec is copied out
+# next to the tests, which name it rules.yaml.
+run = '''
+command -v promtool >/dev/null || { echo "metrics:rules: promtool is not on PATH; install it: mise use promtool@3" >&2; exit 1; }
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+yq '.spec' config/prometheus/rules.yaml > "$tmp/rules.yaml"
+cp internal/metrics/testdata/rules_test.yaml "$tmp/"
+promtool check rules "$tmp/rules.yaml"
+promtool test rules "$tmp/rules_test.yaml"
+'''
+
 [tasks.fuzz]
 description = "Run every Go fuzz target for FUZZTIME each (default 10s); a local search, not part of CI"
 dir = "metal"

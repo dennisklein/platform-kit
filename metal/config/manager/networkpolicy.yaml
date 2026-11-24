@@ -1,0 +1,45 @@
+# Who may open a connection to the manager's pod. Not part of the base
+# (kustomization.yaml leaves it out): the address range of your BMCs and the
+# namespace of your Prometheus are known only on site, and a wrong value here
+# stops installs without an error anywhere. Edit the two marked values, then
+# apply it on its own or add it to your overlay:
+#
+#   kubectl apply -f metal/config/manager/networkpolicy.yaml
+#
+# Your CNI must enforce NetworkPolicy; with one that does not, this does
+# nothing.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pk-metal-manager
+  namespace: pk-metal
+  labels:
+    app.kubernetes.io/name: pk-metal
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: pk-metal
+      app.kubernetes.io/component: manager
+  policyTypes: ["Ingress"]
+  ingress:
+    # The media service: BMCs fetch granted media through the NodePort.
+    # Depending on the CNI and externalTrafficPolicy the source is the BMC or
+    # the node that took the connection; list both ranges.
+    - ports:
+        - port: media
+      from:
+        - ipBlock:
+            cidr: 192.0.2.0/24 # EDIT: the BMC network
+        - ipBlock:
+            cidr: 198.51.100.0/24 # EDIT: the node network
+    # Metrics: only from the namespace Prometheus runs in. The token check
+    # in the manager still applies on top.
+    - ports:
+        - port: metrics
+      from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring # EDIT: your Prometheus namespace
+    # Health probes come from the kubelet on the node.
+    - ports:
+        - port: health

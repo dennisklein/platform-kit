@@ -1,0 +1,31 @@
+# Who may read the manager's /metrics. The manager asks the API server about
+# every caller (a TokenReview, then a SubjectAccessReview for get on the
+# non-resource URL /metrics), so a scraper needs this role bound to its
+# service account.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pk-metal-metrics-reader
+  labels:
+    app.kubernetes.io/name: pk-metal
+rules:
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+---
+# The subject is the service account of kube-prometheus (prometheus-k8s in
+# namespace monitoring). Change it to the one your Prometheus runs as, for
+# example <release>-kube-prometheus-prometheus with kube-prometheus-stack.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pk-metal-metrics-reader
+  labels:
+    app.kubernetes.io/name: pk-metal
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: pk-metal-metrics-reader
+subjects:
+  - kind: ServiceAccount
+    name: prometheus-k8s
+    namespace: monitoring

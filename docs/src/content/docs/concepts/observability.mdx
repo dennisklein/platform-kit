@@ -9,6 +9,7 @@ sources:
   - /repo/metal/cmd/pk-metal/status.go
   - /repo/metal/internal/metrics
   - /repo/metal/config/prometheus/rules.yaml
+  - /repo/metal/config/prometheus/servicemonitor.yaml
 ---
 
 import Figure from '../../../components/diagram/Figure.astro';
@@ -33,16 +34,17 @@ Most metrics are read from the cluster state at each scrape, so a value is never
 
 ## pk-metal status
 
-One table for each kind of thing: HOST, OPERATION, ENDPOINT, CLAIM, CLUSTER, NODE.
+One table for each kind of thing: HOST, OPERATION, ENDPOINT, CLAIM, CLUSTER, NODE, ROLLOUT.
 Under each table, one line for each row that needs a person, with the reason.
 
 | Exit status | Meaning |
 | --- | --- |
 | `0` | Nothing needs a person. |
 | `1` | The command could not read the cluster. |
-| `2` | Something needs a person: an approval, a failed operation, an unhealthy etcd, a stale backup, a node that is not Ready. |
+| `2` | Something needs a person: an approval, a failed operation, an unhealthy etcd, a stale backup, a node that is not Ready. A rollout that waits for approval or a resume also counts. |
 
 An operation that waits for its window or for another operation on the same Host does not count. That is the plan at work.
+A rollout that runs a node or waits for health between nodes does not count either. An alert pages when that wait is too long.
 
 ## Metrics
 
@@ -57,8 +59,12 @@ All metric names start with `pk_metal_`. Some examples:
   <dd>Approved operations that did not start, with the reason, for example `OutsideMaintenanceWindow`.</dd>
   <dt>`bmc_reachable`, `talosnode_ready`, `taloscluster_available`</dt>
   <dd>The health of BMCs, nodes and clusters.</dd>
-  <dt>`etcd_backup_last_success_timestamp_seconds`</dt>
-  <dd>The time of the newest Verified snapshot.</dd>
+  <dt>`talosnode_expected_ready`, `taloscluster_expected_available`</dt>
+  <dd>Which nodes and clusters must be healthy. The rule is the same as in pk-metal status: a node of a bootstrapped cluster that answered before.</dd>
+  <dt>`etcd_backup_last_success_timestamp_seconds`, `etcd_backup_interval_seconds`</dt>
+  <dd>The time of the newest Verified snapshot, and the backup interval. Both come from the EtcdBackupPolicies, so they go when the policies go.</dd>
+  <dt>`rollout_condition`</dt>
+  <dd>Where each unfinished rollout stands, with the same reason as the `ROLLOUT` table.</dd>
   <dt>`credentials_expiry_timestamp_seconds`, `credentials_issued_timestamp_seconds`</dt>
   <dd>When the published admin credentials expire, and when they became valid. The difference is their lifetime.</dd>
   <dt>`rollout_nodes_done`, `rollout_nodes_total`</dt>
@@ -67,17 +73,10 @@ All metric names start with `pk_metal_`. Some examples:
 
 ## Alerts
 
-The file `metal/config/prometheus/rules.yaml` holds a PrometheusRule. Apply it where the Prometheus Operator runs.
+The directory `metal/config/prometheus` holds a PrometheusRule, a ServiceMonitor and the role that lets Prometheus read the metrics. Apply it where the Prometheus Operator runs. Each alert links to its runbook. [](howto:monitor) lists the alerts.
 
-| Alert | Fires when |
-| --- | --- |
-| `PkMetalOperationFailed` | An operation failed, for 5 minutes |
-| `PkMetalApprovalWaiting` | An operation waited more than one day for approval |
-| `PkMetalBMCUnreachable` | A BMC does not answer for 15 minutes |
-| `PkMetalNodeNotReady` | A node is not Ready for 15 minutes |
-| `PkMetalClusterUnavailable` | The API of a cluster does not answer, or a node is down, for 15 minutes |
-| `PkMetalEtcdBackupStale` | The newest Verified snapshot is older than 12 hours |
-| `PkMetalCredentialsExpiring` | A published credential has less than one sixth of its lifetime left, for 10 minutes |
+The alerts follow the same rules as pk-metal status. An install does not page. A rollout that waits for health between nodes does not page.
+One alert, `PkMetalMetricsAbsent`, fires when the metrics are gone. Without it, a stopped manager would look healthy: each other alert resolves.
 
 <Callout type="note">
 The operator issues new credentials when one third of the TTL is left. The default TTL is 24 hours.

@@ -1,0 +1,162 @@
+# promtool unit tests for config/prometheus/rules.yaml. promtool reads a plain
+# rule file, not a PrometheusRule, so `mise run metrics:rules` copies the
+# rule file's spec next to this file as rules.yaml before it runs:
+#
+#   promtool test rules rules_test.yaml
+#
+# Test time starts at the Unix epoch, so time() is the seconds since the
+# start of the test.
+rule_files:
+  - rules.yaml
+evaluation_interval: 1m
+
+tests:
+  # A daily policy: a snapshot 25 hours old is on time, one 49 hours old is
+  # two missed snapshots. A fixed 12-hour threshold paged every afternoon.
+  - interval: 1m
+    input_series:
+      - series: 'pk_metal_etcd_backup_interval_seconds{cluster="c"}'
+        values: '86400x3000'
+      - series: 'pk_metal_etcd_backup_last_success_timestamp_seconds{cluster="c"}'
+        values: '0x3000'
+    alert_rule_test:
+      - eval_time: 25h
+        alertname: PkMetalEtcdBackupStale
+        exp_alerts: []
+      - eval_time: 49h
+        alertname: PkMetalEtcdBackupStale
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              cluster: c
+            exp_annotations:
+              summary: "The newest verified etcd backup of cluster c is older than twice its backup interval"
+              description: "Without a recent backup a lost quorum loses recent cluster state. kubectl get etcdbackuppolicy and kubectl get etcdsnapshot -l os.pk.io/cluster=c show why."
+              runbook_url: https://dennisklein.github.io/platform-kit/operate/runbooks/backup-failing/
+      - eval_time: 49h
+        alertname: PkMetalEtcdBackupMissing
+        exp_alerts: []
+
+  # A policy without any verified snapshot.
+  - interval: 1m
+    input_series:
+      - series: 'pk_metal_etcd_backup_interval_seconds{cluster="new"}'
+        values: '21600x120'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: PkMetalEtcdBackupMissing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              cluster: new
+            exp_annotations:
+              summary: "Cluster new has a backup policy but no verified etcd snapshot"
+              description: "kubectl describe etcdbackuppolicy shows why no snapshot was taken, stored or verified."
+              runbook_url: https://dennisklein.github.io/platform-kit/operate/runbooks/backup-failing/
+
+  # A node still being installed is not Ready and pages nobody; a node of
+  # the running cluster that answered before does.
+  - interval: 1m
+    input_series:
+      - series: 'pk_metal_talosnode_ready{cluster="c",node="w-1",role="worker"}'
+        values: '0x40'
+      - series: 'pk_metal_talosnode_expected_ready{cluster="c",node="w-1",role="worker"}'
+        values: '1x40'
+      - series: 'pk_metal_talosnode_ready{cluster="c",node="w-2",role="worker"}'
+        values: '0x40'
+      - series: 'pk_metal_talosnode_expected_ready{cluster="c",node="w-2",role="worker"}'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: PkMetalNodeNotReady
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              cluster: c
+              node: w-1
+              role: worker
+            exp_annotations:
+              summary: "TalosNode w-1 (worker) in cluster c is not Ready"
+              description: "pk-metal status shows the node table; kubectl describe talosnode w-1 shows why."
+              runbook_url: https://dennisklein.github.io/platform-kit/operate/runbooks/node-not-ready/
+
+  # A cluster that is not yet bootstrapped is being built, not down.
+  - interval: 1m
+    input_series:
+      - series: 'pk_metal_taloscluster_available{cluster="new"}'
+        values: '0x40'
+      - series: 'pk_metal_taloscluster_expected_available{cluster="new"}'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: PkMetalClusterUnavailable
+        exp_alerts: []
+
+  # The dead man's switch: the manager stops answering at minute 11.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="pk-metal-metrics",namespace="pk-metal"}'
+        values: '1x10 0x30'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: PkMetalMetricsAbsent
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: PkMetalMetricsAbsent
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: pk-metal-metrics
+              namespace: pk-metal
+            exp_annotations:
+              summary: "Prometheus has not scraped the pk-metal manager for 10 minutes"
+              description: "No pk-metal alert can fire while this one does. kubectl -n pk-metal get pods,endpoints shows whether the manager runs; if the API server does not answer, the management cluster is lost."
+              runbook_url: https://dennisklein.github.io/platform-kit/operate/runbooks/management-cluster-lost/
+
+  # A rollout that waits for health for more than an hour; one a person
+  # paused is left alone.
+  - interval: 1m
+    input_series:
+      - series: 'pk_metal_rollout_condition{rollout="upgrade",cluster="c",reason="WaitingForHealth"}'
+        values: '1x90'
+      - series: 'pk_metal_rollout_condition{rollout="held",cluster="c",reason="PausedByPerson"}'
+        values: '1x90'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: PkMetalRolloutStalled
+        exp_alerts: []
+      - eval_time: 70m
+        alertname: PkMetalRolloutStalled
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              rollout: upgrade
+              cluster: c
+              reason: WaitingForHealth
+            exp_annotations:
+              summary: "TalosRollout upgrade of cluster c has not moved for an hour: WaitingForHealth"
+              description: "pk-metal status shows the ROLLOUT table; kubectl describe talosrollout upgrade says what it waits for."
+              runbook_url: https://dennisklein.github.io/platform-kit/operate/runbooks/rollout-paused/
+
+  # Waiting for a maintenance window is the plan working; the cluster guard
+  # holding an approved operation for an hour is not.
+  - interval: 1m
+    input_series:
+      - series: 'pk_metal_operation_blocked{namespace="pk-metal",operation="a",host="n1",reason="OutsideMaintenanceWindow"}'
+        values: '1x90'
+      - series: 'pk_metal_operation_blocked{namespace="pk-metal",operation="b",host="n2",reason="ClusterDisruption"}'
+        values: '1x90'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: PkMetalOperationBlocked
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: pk-metal
+              operation: b
+              host: n2
+              reason: ClusterDisruption
+            exp_annotations:
+              summary: "Approved HostOperation pk-metal/b on n2 has not started for an hour: ClusterDisruption"
+              description: "kubectl describe hostoperation -n pk-metal b says what holds it and what to run."
+              runbook_url: https://dennisklein.github.io/platform-kit/operate/runbooks/operation-held/

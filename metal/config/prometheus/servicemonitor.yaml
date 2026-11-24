@@ -1,0 +1,35 @@
+# Makes a Prometheus that the Prometheus Operator runs scrape the manager.
+# Without it the rules in rules.yaml read an empty database and never fire.
+#
+# The manager serves /metrics over HTTPS (--metrics-secure, on by default) and
+# answers only a caller whose token may get the non-resource URL /metrics:
+# metrics_reader.yaml grants that to the Prometheus service account. The
+# certificate is self-signed and made at start, so it is not checked; the
+# token is what keeps the series inside the cluster.
+#
+# A Prometheus picks up only the ServiceMonitors its serviceMonitorSelector
+# matches. If yours selects on a label (kube-prometheus-stack uses
+# release: <name>), add that label under metadata.labels.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: pk-metal
+  namespace: pk-metal
+  labels:
+    app.kubernetes.io/name: pk-metal
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pk-metal
+      app.kubernetes.io/component: metrics
+  namespaceSelector:
+    matchNames:
+      - pk-metal
+  endpoints:
+    - port: metrics
+      path: /metrics
+      scheme: https
+      interval: 30s
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      tlsConfig:
+        insecureSkipVerify: true

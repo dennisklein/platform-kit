@@ -2,13 +2,15 @@
 #
 # A PrometheusRule for the Prometheus Operator. It is not part of
 # config/default: a cluster without the Prometheus Operator has no such kind,
-# and applying it there would fail the whole install. Apply it on its own where
-# the kind exists:
+# and applying it there would fail the whole install. Apply this directory on
+# its own where the kind exists; it also brings the ServiceMonitor, without
+# which these rules read nothing:
 #
-#   kubectl apply -f metal/config/prometheus/rules.yaml
+#   kubectl apply -k metal/config/prometheus
 #
-# The thresholds are starting points; the docs site (concepts/observability) says what
-# each alert means and what to do about it.
+# The thresholds are starting points. Every alert links its runbook
+# (annotations.runbook_url); the docs site (operate/day-2/monitor) lists them.
+# rules_test.yaml holds promtool unit tests: mise run metrics:rules.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -28,6 +30,7 @@ spec:
           labels:
             severity: warning
           annotations:
+            runbook_url: https://dennisklein.github.io/platform-kit/operate/runbooks/operation-failed/
             summary: "HostOperation {{ $labels.namespace }}/{{ $labels.operation }} on {{ $labels.host }} failed"
             description: "Read it with kubectl describe hostoperation -n {{ $labels.namespace }} {{ $labels.operation }}, fix the cause, then pk-metal retry {{ $labels.namespace }}/{{ $labels.operation }}."
         - alert: PkMetalApprovalWaiting
@@ -35,8 +38,32 @@ spec:
           labels:
             severity: info
           annotations:
+            runbook_url: https://dennisklein.github.io/platform-kit/operate/runbooks/operation-held/
             summary: "HostOperation {{ $labels.namespace }}/{{ $labels.operation }} has waited for approval for more than a day"
             description: "pk-metal approve {{ $labels.namespace }}/{{ $labels.operation }} to run it, or delete it to refuse it."
+        - alert: PkMetalOperationBlocked
+          # Queued behind another operation or waiting for a maintenance
+          # window is the plan working. Every other reason waits for a person:
+          # the cluster guard, the manager's own node, a rollout's refusal.
+          expr: max by (namespace, operation, host, reason) (pk_metal_operation_blocked{reason!~"OperationQueued|OutsideMaintenanceWindow"}) == 1
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Approved HostOperation {{ $labels.namespace }}/{{ $labels.operation }} on {{ $labels.host }} has not started for an hour: {{ $labels.reason }}"
+            description: "kubectl describe hostoperation -n {{ $labels.namespace }} {{ $labels.operation }} says what holds it and what to run."
+            runbook_url: https://dennisklein.github.io/platform-kit/operate/runbooks/operation-held/
+        - alert: PkMetalOperationStuck
+          # Each step has its own deadline (check-in, drain, graceful power
+          # off), all well under two hours. A step that runs longer has
+          # stopped making progress.
+          expr: max by (namespace, operation, host, step) (pk_metal_operation_running_seconds) > 2 * 3600
+          labels:
+            severity: warning
+          annotations:
+            summary: "HostOperation {{ $labels.namespace }}/{{ $labels.operation }} on {{ $labels.host }} has been in step {{ $labels.step }} for more than two hours"
+            description: "To stop it safely: pk-metal abort --reason '<why>' {{ $labels.namespace }}/{{ $labels.operation }}. Do not delete it."
+            runbook_url: https://dennisklein.github.io/platform-kit/operate/runbooks/operation-stuck/
     - name: pk-metal.hardware
       rules:
         - alert: PkMetalBMCUnreachable
@@ -45,35 +72,83 @@ spec:
           labels:
             severity: warning
           annotations:
+            runbook_url: https://dennisklein.github.io/platform-kit/operate/runbooks/bmc-unreachable/
             summary: "BMC {{ $labels.endpoint }} does not answer Redfish"
             description: "No operation can reach the machines behind it. kubectl describe managementendpoint {{ $labels.endpoint }} shows the last error."
+    - name: pk-metal.manager
+      rules:
+        - alert: PkMetalMetricsAbsent
+          # The dead man's switch. When the manager stops, or the management
+          # cluster loses etcd, every pk_metal_* series goes and every alert
+          # below resolves: silence would look healthy. The job is the
+          # Service name the ServiceMonitor scrapes. A Prometheus that runs
+          # in the management cluster goes down with it; send this alert to
+          # a receiver outside, or watch from a second Prometheus.
+          expr: absent(up{job="pk-metal-metrics", namespace="pk-metal"} == 1)
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Prometheus has not scraped the pk-metal manager for 10 minutes"
+            description: "No pk-metal alert can fire while this one does. kubectl -n pk-metal get pods,endpoints shows whether the manager runs; if the API server does not answer, the management cluster is lost."
+            runbook_url: https://dennisklein.github.io/platform-kit/operate/runbooks/management-cluster-lost/
     - name: pk-metal.clusters
       rules:
         - alert: PkMetalNodeNotReady
-          expr: max by (cluster, node, role) (pk_metal_talosnode_ready) == 0
+          # Only a node that pk-metal status also flags: its cluster is
+          # bootstrapped and it has answered once. A node still being
+          # installed is not Ready, and that is no page.
+          expr: |
+            max by (cluster, node, role) (pk_metal_talosnode_ready) == 0
+              and on (cluster, node, role) max by (cluster, node, role) (pk_metal_talosnode_expected_ready) == 1
           for: 15m
           labels:
             severity: warning
           annotations:
             summary: "TalosNode {{ $labels.node }} ({{ $labels.role }}) in cluster {{ $labels.cluster }} is not Ready"
             description: "pk-metal status shows the node table; kubectl describe talosnode {{ $labels.node }} shows why."
+            runbook_url: https://dennisklein.github.io/platform-kit/operate/runbooks/node-not-ready/
         - alert: PkMetalClusterUnavailable
-          expr: max by (cluster) (pk_metal_taloscluster_available) == 0
+          # Only a bootstrapped cluster: before that it is being built.
+          expr: |
+            max by (cluster) (pk_metal_taloscluster_available) == 0
+              and on (cluster) max by (cluster) (pk_metal_taloscluster_expected_available) == 1
           for: 15m
           labels:
             severity: critical
           annotations:
             summary: "TalosCluster {{ $labels.cluster }} is not available"
-            description: "Its Kubernetes API does not answer or a node is not Ready. kubectl describe taloscluster {{ $labels.cluster }}."
+            description: "Its Kubernetes API does not answer or a node is not Ready. kubectl describe taloscluster {{ $labels.cluster }} gives the reason."
+            runbook_url: https://dennisklein.github.io/platform-kit/operate/runbooks/cluster-unavailable/
         - alert: PkMetalEtcdBackupStale
-          # Twice the default six-hour schedule: one missed backup is not yet
-          # an alert, two in a row are.
-          expr: time() - max by (cluster) (pk_metal_etcd_backup_last_success_timestamp_seconds) > 12 * 3600
+          # The same rule as the backup controller's BackedUp=False/
+          # BackupTooOld: one missed snapshot is not yet an alert, two in a
+          # row are. The interval is the shortest of the cluster's
+          # policies (spec.interval has no default).
+          expr: |
+            time() - max by (cluster) (pk_metal_etcd_backup_last_success_timestamp_seconds)
+              > 2 * min by (cluster) (pk_metal_etcd_backup_interval_seconds)
+          for: 5m
           labels:
             severity: critical
           annotations:
-            summary: "The newest verified etcd backup of cluster {{ $labels.cluster }} is older than 12 hours"
-            description: "Without a recent backup a lost quorum loses recent cluster state. See https://dennisklein.github.io/platform-kit/operate/day-2/back-up-etcd/."
+            summary: "The newest verified etcd backup of cluster {{ $labels.cluster }} is older than twice its backup interval"
+            description: "Without a recent backup a lost quorum loses recent cluster state. kubectl get etcdbackuppolicy and kubectl get etcdsnapshot -l os.pk.io/cluster={{ $labels.cluster }} show why."
+            runbook_url: https://dennisklein.github.io/platform-kit/operate/runbooks/backup-failing/
+        - alert: PkMetalEtcdBackupMissing
+          # A policy exists but no snapshot of the cluster was ever verified.
+          # A new policy takes its first snapshot at once, so an hour is
+          # enough for it.
+          expr: |
+            min by (cluster) (pk_metal_etcd_backup_interval_seconds)
+              unless on (cluster) pk_metal_etcd_backup_last_success_timestamp_seconds
+          for: 1h
+          labels:
+            severity: critical
+          annotations:
+            summary: "Cluster {{ $labels.cluster }} has a backup policy but no verified etcd snapshot"
+            description: "kubectl describe etcdbackuppolicy shows why no snapshot was taken, stored or verified."
+            runbook_url: https://dennisklein.github.io/platform-kit/operate/runbooks/backup-failing/
         - alert: PkMetalCredentialsExpiring
           # The operator mints a published credential again once less than a
           # third of its lifetime (spec.credentials.ttl, 24h by default) is
@@ -88,5 +163,31 @@ spec:
           labels:
             severity: warning
           annotations:
+            runbook_url: https://dennisklein.github.io/platform-kit/operate/runbooks/credentials-not-renewed/
             summary: "The {{ $labels.kind }} of cluster {{ $labels.cluster }} has less than a sixth of its lifetime left and was not renewed"
             description: "The operator renews it when a third of its lifetime is left. Check the operator log and kubectl describe taloscluster {{ $labels.cluster }}."
+    - name: pk-metal.rollouts
+      rules:
+        - alert: PkMetalRolloutStalled
+          # Waiting for health, a plan that cannot be made, or the pause
+          # after the first node: each is normal for minutes, not for an hour.
+          # A rollout a person paused (PausedByPerson) is not reported.
+          expr: max by (rollout, cluster, reason) (pk_metal_rollout_condition{reason=~"WaitingForHealth|PlanBlocked|PausedAfterFirstNode"}) == 1
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "TalosRollout {{ $labels.rollout }} of cluster {{ $labels.cluster }} has not moved for an hour: {{ $labels.reason }}"
+            description: "pk-metal status shows the ROLLOUT table; kubectl describe talosrollout {{ $labels.rollout }} says what it waits for."
+            runbook_url: https://dennisklein.github.io/platform-kit/operate/runbooks/rollout-paused/
+        - alert: PkMetalRolloutFailed
+          # A failed step or an approval that does not cover the plan ends
+          # the rollout; it never goes on by itself.
+          expr: max by (rollout, cluster, reason) (pk_metal_rollout_condition{reason=~"RolloutFailed|PlanChanged"}) == 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "TalosRollout {{ $labels.rollout }} of cluster {{ $labels.cluster }} ended without finishing: {{ $labels.reason }}"
+            description: "Nodes it already changed stay changed. kubectl describe talosrollout {{ $labels.rollout }} says which step failed."
+            runbook_url: https://dennisklein.github.io/platform-kit/operate/runbooks/rollout-paused/

@@ -1,0 +1,13 @@
+# What a cluster with the Prometheus Operator needs to watch pk-metal: the
+# alert rules, the ServiceMonitor that makes Prometheus scrape the manager,
+# and the role that lets it. Not part of config/default: a cluster without
+# the Prometheus Operator has no PrometheusRule or ServiceMonitor kind, and
+# applying them there would fail the whole install. Apply it on its own:
+#
+#   kubectl apply -k metal/config/prometheus
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - rules.yaml
+  - servicemonitor.yaml
+  - metrics_reader.yaml
