@@ -418,7 +418,9 @@ func (r *HostClaimReconciler) etcdExitGuard(ctx context.Context, claim *metalv1a
 		return nil, "", "", err
 	}
 	reason, msg = removalVerdict(v, why, node.Name, cluster.Name, leaving, ackedEtcdRisk(claim, node))
-	if m := v.member(node.Name); m != nil {
+	// The only member has no peer to leave to: the cluster ends with it, and
+	// the reset that follows wipes its data. No etcd step is planned then.
+	if m := v.member(node.Name); m != nil && len(v.members) > 1 {
 		member = ptr.To(*m)
 	}
 	return member, reason, msg, nil

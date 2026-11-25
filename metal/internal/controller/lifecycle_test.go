@@ -237,6 +237,18 @@ func TestReleaseOfAnsweringControlPlaneLeavesEtcdAndWipes(t *testing.T) {
 	assert.False(t, hostBound(t, lab.r))
 }
 
+func TestReleaseOfTheOnlyControlPlanePlansNoEtcdStep(t *testing.T) {
+	claim, host := claimOn("cp-1")
+	claim.Annotations = map[string]string{metalv1alpha1.AnnotationAckEtcdRisk: "the cluster ends"}
+	lab := newLifecycleLab(t, []string{"cp-1"}, nil, host)
+
+	require.False(t, releasePass(t, lab.r, claim))
+	rel := releaseOps(t, lab.r, claim)
+	require.Len(t, rel, 1)
+	assert.Equal(t, []string{"cordon", "drain", "talosReset", "deleteKubernetesNode", "powerOff"},
+		opActionKeys(&rel[0]), "the only member has no peer to leave to; the reset wipes it")
+}
+
 func TestReleaseOfUnreachableControlPlaneRemovesItsMemberByID(t *testing.T) {
 	claim, host := claimOn("cp-4")
 	lab := newLifecycleLab(t, []string{"cp-1", "cp-2", "cp-3", "cp-4"}, nil, host)
