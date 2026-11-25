@@ -245,8 +245,8 @@ func TestReleaseOfTheOnlyControlPlanePlansNoEtcdStep(t *testing.T) {
 	require.False(t, releasePass(t, lab.r, claim))
 	rel := releaseOps(t, lab.r, claim)
 	require.Len(t, rel, 1)
-	assert.Equal(t, []string{"cordon", "drain", "talosReset", "deleteKubernetesNode", "powerOff"},
-		opActionKeys(&rel[0]), "the only member has no peer to leave to; the reset wipes it")
+	assert.Equal(t, []string{"cordon", "drain", "talosReset", "powerOff"},
+		opActionKeys(&rel[0]), "the only member has no peer to leave to, and once it is wiped no API is left to delete its Node")
 }
 
 func TestReleaseOfUnreachableControlPlaneRemovesItsMemberByID(t *testing.T) {

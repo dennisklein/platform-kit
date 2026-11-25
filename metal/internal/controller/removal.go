@@ -79,10 +79,12 @@ func nodeAnswers(node *osv1alpha1.TalosNode) bool {
 
 // exitSteps are the steps that take node out of its cluster, before any
 // power action. member is its etcd member (nil when it has none or it is a
-// worker). resetMode is the Talos reset's wipe mode. wipes says whether the
+// worker). last says the node is the only etcd member: the cluster ends with
+// it, and no Kubernetes API is left to delete its Node through. resetMode is
+// the Talos reset's wipe mode. wipes says whether the
 // steps reset the machine through Talos; ok is false when the executor runs
 // none of the steps this node needs, and the caller falls back to the BMC.
-func (r *HostClaimReconciler) exitSteps(node *osv1alpha1.TalosNode, member *talos.EtcdMember, resetMode string) (
+func (r *HostClaimReconciler) exitSteps(node *osv1alpha1.TalosNode, member *talos.EtcdMember, last bool, resetMode string) (
 	steps []metalv1alpha1.HostOperationAction, wipes, ok bool) {
 	ref := metalv1alpha1.Reference{Name: node.Name}
 	cp := node.Spec.Role == osv1alpha1.RoleControlPlane && member != nil
@@ -112,8 +114,10 @@ func (r *HostClaimReconciler) exitSteps(node *osv1alpha1.TalosNode, member *talo
 				metalv1alpha1.HostOperationAction{TalosReset: &metalv1alpha1.TalosResetAction{
 					NodeRef: ref, Graceful: ptr.To(false), Reboot: false, Mode: resetMode,
 				}},
-				metalv1alpha1.HostOperationAction{DeleteKubernetesNode: &metalv1alpha1.DeleteKubernetesNodeAction{NodeRef: ref}},
 			)
+			if !last {
+				steps = append(steps, metalv1alpha1.HostOperationAction{DeleteKubernetesNode: &metalv1alpha1.DeleteKubernetesNodeAction{NodeRef: ref}})
+			}
 			return steps, true, true
 		}
 	}
@@ -129,7 +133,9 @@ func (r *HostClaimReconciler) exitSteps(node *osv1alpha1.TalosNode, member *talo
 			NodeRef: ref, MemberID: memberIDHex(member.ID), Hostname: member.Hostname,
 		}})
 	}
-	steps = append(steps, metalv1alpha1.HostOperationAction{DeleteKubernetesNode: &metalv1alpha1.DeleteKubernetesNodeAction{NodeRef: ref}})
+	if !last {
+		steps = append(steps, metalv1alpha1.HostOperationAction{DeleteKubernetesNode: &metalv1alpha1.DeleteKubernetesNodeAction{NodeRef: ref}})
+	}
 	return steps, false, true
 }
 
@@ -394,36 +400,38 @@ func (r *HostClaimReconciler) etcdChangeInFlight(ctx context.Context, cluster, s
 // empty to go ahead. A cluster that is gone or being deleted has no etcd to
 // protect.
 func (r *HostClaimReconciler) etcdExitGuard(ctx context.Context, claim *metalv1alpha1.HostClaim, node *osv1alpha1.TalosNode,
-	skipOp string) (member *talos.EtcdMember, reason, msg string, err error) {
+	skipOp string) (member *talos.EtcdMember, last bool, reason, msg string, err error) {
 	if node.Spec.Role != osv1alpha1.RoleControlPlane || r.Dial == nil {
-		return nil, "", "", nil
+		return nil, false, "", "", nil
 	}
 	cluster, err := r.clusterOf(ctx, node)
 	if err != nil || cluster == nil || !cluster.DeletionTimestamp.IsZero() {
-		return nil, "", "", err
+		return nil, false, "", "", err
 	}
 	if busy, err := r.etcdChangeInFlight(ctx, cluster.Name, skipOp); err != nil {
-		return nil, "", "", err
+		return nil, false, "", "", err
 	} else if busy != "" {
-		return nil, metalv1alpha1.ReasonRemovalWaiting, fmt.Sprintf(
+		return nil, false, metalv1alpha1.ReasonRemovalWaiting, fmt.Sprintf(
 			"control plane %s waits: %s changes the etcd membership of cluster %s now; control planes change one at a time",
 			node.Name, busy, cluster.Name), nil
 	}
 	v, why, err := r.etcdOf(ctx, cluster)
 	if err != nil {
-		return nil, "", "", err
+		return nil, false, "", "", err
 	}
 	leaving, err := r.leavingControlPlanes(ctx, cluster.Name)
 	if err != nil {
-		return nil, "", "", err
+		return nil, false, "", "", err
 	}
 	reason, msg = removalVerdict(v, why, node.Name, cluster.Name, leaving, ackedEtcdRisk(claim, node))
 	// The only member has no peer to leave to: the cluster ends with it, and
 	// the reset that follows wipes its data. No etcd step is planned then.
-	if m := v.member(node.Name); m != nil && len(v.members) > 1 {
+	m := v.member(node.Name)
+	last = m != nil && len(v.members) == 1
+	if m != nil && !last {
 		member = ptr.To(*m)
 	}
-	return member, reason, msg, nil
+	return member, last, reason, msg, nil
 }
 
 // markNotWiped records on the host, in memory, that its disk may still hold

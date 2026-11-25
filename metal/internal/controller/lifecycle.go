@@ -60,7 +60,7 @@ func (r *HostClaimReconciler) bootPrefix(ctx context.Context, claim *metalv1alph
 			}
 		}
 		if old != nil {
-			member, reason, msg, err := r.etcdExitGuard(ctx, claim, old, opName)
+			member, last, reason, msg, err := r.etcdExitGuard(ctx, claim, old, opName)
 			if err != nil || reason != "" {
 				return nil, reason, msg, err
 			}
@@ -68,7 +68,7 @@ func (r *HostClaimReconciler) bootPrefix(ctx context.Context, claim *metalv1alph
 			if old.Name == node.Name {
 				mode = "SystemDisk"
 			}
-			s, _, ok := r.exitSteps(old, member, mode)
+			s, _, ok := r.exitSteps(old, member, last, mode)
 			if !ok && member != nil {
 				return nil, metalv1alpha1.ReasonAwaitingOperation, fmt.Sprintf(
 					"host %s runs control plane %s, whose etcd member has to leave before the machine is installed again, "+
@@ -282,11 +282,11 @@ func (r *HostClaimReconciler) removalOp(ctx context.Context, claim *metalv1alpha
 		return nil, metalv1alpha1.ReasonRemovingNode, fmt.Sprintf("removing TalosNode %s waits until a reachable management path of host %s has read its media slots",
 			node.Name, host.Name), nil
 	}
-	member, reason, msg, err := r.etcdExitGuard(ctx, claim, node, name)
+	member, last, reason, msg, err := r.etcdExitGuard(ctx, claim, node, name)
 	if err != nil || reason != "" {
 		return nil, reason, "TalosNode " + node.Name + " is being deleted, but " + msg, err
 	}
-	steps, wipes, _ := r.exitSteps(node, member, "")
+	steps, wipes, _ := r.exitSteps(node, member, last, "")
 	graceful := int32(r.releaseShutdownTimeout().Seconds())
 	if wipes {
 		graceful = 0

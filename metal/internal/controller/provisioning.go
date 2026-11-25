@@ -1236,11 +1236,11 @@ func (r *HostClaimReconciler) nodeExit(ctx context.Context, claim *metalv1alpha1
 		return nil, false, nodeName, cluster, "", "", client.IgnoreNotFound(err)
 	}
 	cluster = node.Spec.ClusterRef.Name
-	member, reason, msg, err := r.etcdExitGuard(ctx, claim, node, opName)
+	member, last, reason, msg, err := r.etcdExitGuard(ctx, claim, node, opName)
 	if err != nil || reason != "" {
 		return nil, false, nodeName, cluster, reason, msg, err
 	}
-	if s, w, ok := r.exitSteps(node, member, resetMode); ok {
+	if s, w, ok := r.exitSteps(node, member, last, resetMode); ok {
 		steps, wipes = s, w
 	}
 	return steps, wipes, nodeName, cluster, "", "", nil
