@@ -225,7 +225,7 @@
       "depth": 1,
       "type": "[]object",
       "required": false,
-      "description": "Patches apply to every node, in order, after the operator's own rendering and before the node's patches.",
+      "description": "Patches apply to every node, in order, after the operator's own rendering and before the node's patches. A document that Talos allows on control planes only (KubeAuditPolicyConfig, KubeAPIServerConfig) reaches the control planes only: the operator leaves it out of a worker's configuration.",
       "validations": [
         {
           "rule": "has(self.inline) != has(self.configMapRef)",

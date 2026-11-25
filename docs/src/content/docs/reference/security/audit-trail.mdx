@@ -10,6 +10,7 @@ sources:
   - /repo/metal/internal/controller/retention.go
   - /repo/metal/config/policy/guard-lift.yaml
   - /repo/metal/config/policy/hostoperation-approval.yaml
+  - /repo/metal/internal/talos/render/render.go
 ---
 
 import Callout from '../../../../components/Callout.astro';
@@ -20,7 +21,7 @@ Each change to a machine goes through an approved [](kind:HostOperation) or [](k
 | --- | --- | --- | --- |
 | The objects | The current state of each operation and rollout: proposer, approver, guard lifts, steps, result. | The API server of the management cluster. | Until the operator or a person deletes it. See [Retention](#retention). |
 | The operator audit log | One JSON line for each decision: proposed, approved, guard lifted, step, finished, deleted. | The log of the manager pod, and your log store. | As long as your log store keeps it. |
-| The kube-apiserver audit log | Each request to the API server: who sent it, and the body for the pk-metal kinds. | Each control-plane node of the management cluster, and your log store. | As long as the node or your log store keeps it. |
+| The kube-apiserver audit log | Each request to the API server: who sent it. With the [audit policy for Talos](#audit-policy-for-talos), also the body for the pk-metal kinds. | Each control-plane node of the management cluster, and your log store. | As long as the node or your log store keeps it. |
 
 The objects are complete but short-lived. The two logs stay after the object is gone. Send both logs to a log store that you keep for as long as your audit rules ask.
 
@@ -142,7 +143,7 @@ The operator writes a line when its status write records the change. If the API 
 
 ## The kube-apiserver audit log
 
-The API server records each request that its audit policy selects. It shows who sent a request, also through impersonation, and the body that changed an object. Use it to find when a person set an annotation, and who deleted a record.
+The API server records each request that its audit policy selects. It shows who sent a request, also through impersonation. With the policy below, it also shows the body that changed an object. Use it to find when a person set an annotation, and who deleted a record.
 
 Talos writes the log on each control-plane node, in `/var/log/audit/kube/`. Read it with `talosctl`:
 
@@ -155,53 +156,58 @@ Send the log to your log store, because the node rotates the file.
 
 ### Audit policy for Talos
 
-Set the policy in the machine config of each control plane, in `cluster.apiServer.auditPolicy`. The API server uses the first rule that matches.
+Without a policy of your own, Talos records `Metadata` only: who sent a request, never the body. To record the bodies, give the policy as a `KubeAuditPolicyConfig` document in the patches of the [](kind:TalosCluster) of the management cluster. The operator renders it into the configuration of each control plane. Talos allows the document only on control planes, so the operator leaves it out of the configuration of each worker. The API server uses the first rule that matches.
 
-```yaml title="auditpolicy.patch.yaml"
-cluster:
-  apiServer:
-    auditPolicy:
-      apiVersion: audit.k8s.io/v1
-      kind: Policy
-      omitStages:
-        - RequestReceived
-      rules:
-        # Secrets of pk-metal: BMC logins, credentials, backup keys.
-        # Who read or changed them, never the body.
-        - level: Metadata
-          namespaces: ["pk-metal"]
-          resources:
-            - group: ""
-              resources: ["secrets"]
-        # Each change to a pk-metal kind, with the request and the response.
-        - level: RequestResponse
-          verbs: ["create", "update", "patch", "delete", "deletecollection"]
-          resources:
-            - group: metal.pk.io
-            - group: os.pk.io
-        # The site settings: selfApproval, adminGroup and retention.
-        - level: Request
-          verbs: ["create", "update", "patch", "delete"]
-          namespaces: ["pk-metal"]
-          resources:
-            - group: ""
-              resources: ["configmaps"]
-        # The policies and the bindings that guard the approval.
-        - level: Request
-          verbs: ["create", "update", "patch", "delete"]
-          resources:
-            - group: admissionregistration.k8s.io
-            - group: rbac.authorization.k8s.io
-        # Reads of the rest: not recorded.
-        - level: None
-          verbs: ["get", "list", "watch"]
-        # Each other change: who and what, no body.
-        - level: Metadata
+```yaml title="TalosCluster patch: audit policy"
+spec:
+  patches:
+    - inline: |
+        apiVersion: v1alpha1
+        kind: KubeAuditPolicyConfig
+        configuration:
+          apiVersion: audit.k8s.io/v1
+          kind: Policy
+          omitStages:
+            - RequestReceived
+          rules:
+            # Secrets of pk-metal: BMC logins, credentials, backup keys.
+            # Who read or changed them, never the body.
+            - level: Metadata
+              namespaces: ["pk-metal"]
+              resources:
+                - group: ""
+                  resources: ["secrets"]
+            # Each change to a pk-metal kind, with the request and the response.
+            - level: RequestResponse
+              verbs: ["create", "update", "patch", "delete", "deletecollection"]
+              resources:
+                - group: metal.pk.io
+                - group: os.pk.io
+            # The site settings and the Talos config patches.
+            - level: Request
+              verbs: ["create", "update", "patch", "delete"]
+              namespaces: ["pk-metal"]
+              resources:
+                - group: ""
+                  resources: ["configmaps"]
+            # The policies and the bindings that guard the approval.
+            - level: Request
+              verbs: ["create", "update", "patch", "delete"]
+              resources:
+                - group: admissionregistration.k8s.io
+                - group: rbac.authorization.k8s.io
+            # Reads of the rest: not recorded.
+            - level: None
+              verbs: ["get", "list", "watch"]
+            # Each other change: who and what, no body.
+            - level: Metadata
 ```
 
 - The rule for Secrets comes first. A later rule cannot record the body of a Secret.
 - The `Metadata` rule at the end also covers each Secret outside `pk-metal`. That rule records no body.
-- Apply the patch with `talosctl patch machineconfig`, or add it to the machine config of the cluster.
+- Do not use the field `cluster.apiServer.auditPolicy`. Talos 1.14 and later refuse it next to the documents that the operator renders.
+- Do not change the policy with `talosctl patch machineconfig` on a node that pk-metal manages. The operator sees the change as drift, and its next Config rollout removes the policy.
+- The change of the patch makes the operator propose a Config rollout for the control planes. The policy applies when a person approves it. A test of the operator renders this patch with the Talos version that the operator pins, and validates the result.
 
 ## Retention
 

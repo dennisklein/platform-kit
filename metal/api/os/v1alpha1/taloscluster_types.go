@@ -61,7 +61,10 @@ type TalosClusterSpec struct {
 	Schematic *Schematic `json:"schematic,omitempty"`
 
 	// Patches apply to every node, in order, after the operator's own
-	// rendering and before the node's patches.
+	// rendering and before the node's patches. A document that Talos allows
+	// on control planes only (KubeAuditPolicyConfig, KubeAPIServerConfig)
+	// reaches the control planes only: the operator leaves it out of a
+	// worker's configuration.
 	// +optional
 	Patches []Patch `json:"patches,omitempty"`
 

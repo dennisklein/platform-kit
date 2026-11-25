@@ -8,6 +8,7 @@ sidebar:
 sources:
   - /repo/metal/internal/controller/talosnode_controller.go
   - /repo/metal/internal/controller/talos.go
+  - /repo/metal/internal/talos/render/render.go
 ---
 
 import Figure from '../../../components/diagram/Figure.astro';
@@ -48,6 +49,7 @@ The operator renders the config of each node into a Secret.
 2. A running node does not get a new config by itself. A `Config` rollout applies it, see [](concept:rollouts).
 3. If the Talos and Kubernetes versions cannot go together, `Rendered` is `False` with `UnsupportedVersionPair`. The last good config stays.
 4. The operator refuses a TalosNode without an install disk selector.
+5. The patches of the TalosCluster apply to each node. A document that Talos allows on control planes only, for example `KubeAuditPolicyConfig`, goes to the control planes only. In the patches of a worker TalosNode, such a document stops the render.
 
 ## In the reference
 

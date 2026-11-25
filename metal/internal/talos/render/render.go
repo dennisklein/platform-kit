@@ -166,7 +166,35 @@ func Build(in Input) (tconfig.Provider, error) {
 		return nil, err
 	}
 
-	return applyPatches(cfg, in.ClusterPatches, in.NodePatches)
+	patched, err := applyPatches(cfg, in.ClusterPatches)
+	if err != nil {
+		return nil, err
+	}
+	if machineType != machine.TypeControlPlane {
+		if patched, err = dropControlPlaneOnly(patched); err != nil {
+			return nil, err
+		}
+	}
+	return applyPatches(patched, in.NodePatches)
+}
+
+// dropControlPlaneOnly removes from a worker's configuration the documents
+// that Talos allows on control planes only (KubeAuditPolicyConfig,
+// KubeAPIServerConfig and the like). It runs after the cluster's patches,
+// which apply to every node: such a document there is meant for the control
+// planes, and Talos would refuse the worker's configuration with it. A
+// node's own patches come after, so a control-plane document in a worker's
+// patches still fails the render.
+func dropControlPlaneOnly(cfg tconfig.Provider) (tconfig.Provider, error) {
+	docs := cfg.Documents()
+	kept := slices.DeleteFunc(slices.Clone(docs), func(d config.Document) bool {
+		_, only := d.(container.ControlplaneOnlyConfig)
+		return only
+	})
+	if len(kept) == len(docs) {
+		return cfg, nil
+	}
+	return container.New(kept...)
 }
 
 // Contract parses a Talos version into its configuration contract and refuses
@@ -387,7 +415,7 @@ func DiskMatch(s osv1alpha1.DiskSelector) (cel.Expression, error) {
 	return expr, nil
 }
 
-// applyPatches applies the cluster's patches, then the node's. Only strategic
+// applyPatches applies the lists of patches in order. Only strategic
 // merge patches are accepted: a JSON6902 patch addresses one document by path,
 // and a multi-document config is not one document.
 func applyPatches(cfg tconfig.Provider, lists ...[][]byte) (tconfig.Provider, error) {
