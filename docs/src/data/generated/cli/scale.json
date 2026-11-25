@@ -15,7 +15,7 @@
       "name": "ack-etcd-risk",
       "type": "string",
       "default": "",
-      "usage": "reason to accept passing through an even number of control planes",
+      "usage": "reason to accept passing through an even number of control planes; stored on the claim as \"<your username>: <reason>\"",
       "global": false
     },
     {

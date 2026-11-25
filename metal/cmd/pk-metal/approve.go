@@ -554,23 +554,27 @@ var guardEffect = map[string]string{
 }
 
 // liftedGuards lists the annotations on the operation that lift a safety
-// rule, each with its reason and the rule it lifts. The approver must see
-// them: the plan alone does not show that a rule no longer holds. An
-// annotation with an empty value lifts nothing (the operator ignores it),
-// and the plan says so.
+// rule, each with who lifted it, why, and the rule it lifts. The approver
+// must see them: the plan alone does not show that a rule no longer holds.
+// An annotation with an empty value lifts nothing (the operator ignores
+// it), and the plan says so; one whose value names nobody (written before
+// admission asked for "<username>: <reason>") says that too.
 func liftedGuards(op *metalv1alpha1.HostOperation) []string {
 	var out []string
 	for _, key := range metalv1alpha1.GuardAnnotations {
-		why, ok := op.Annotations[key]
+		raw, ok := op.Annotations[key]
 		if !ok {
 			continue
 		}
-		why = strings.TrimSpace(why)
-		if why == "" {
+		if strings.TrimSpace(raw) == "" {
 			out = append(out, key+" (empty: lifts nothing)")
 			continue
 		}
-		out = append(out, fmt.Sprintf("%s (%s): %s", key, why, guardEffect[key]))
+		who, why, named := metalv1alpha1.ParseGuardLift(raw)
+		if !named {
+			who = "nobody named"
+		}
+		out = append(out, fmt.Sprintf("%s, lifted by %s (%s): %s", key, who, why, guardEffect[key]))
 	}
 	return out
 }

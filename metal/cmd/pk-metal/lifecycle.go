@@ -127,7 +127,7 @@ func wipe(ctx context.Context, cl client.Client, name, version string, w io.Writ
 func reinstallCmd(args []string) {
 	fs := newFlags("reinstall")
 	ns := fs.String("n", claimNamespace, "namespace of the claim")
-	ack := fs.String("ack-etcd-risk", "", "reason to accept an even or short etcd membership while a control plane reinstalls")
+	ack := fs.String("ack-etcd-risk", "", "reason to accept an even or short etcd membership while a control plane reinstalls; stored on the claim as \"<your username>: <reason>\"")
 	addGlobalFlags(fs)
 	parseFlags(fs, args)
 	if fs.NArg() != 1 {
@@ -179,6 +179,9 @@ func reinstall(ctx context.Context, cl client.Client, namespace, ref, ack string
 		return fmt.Errorf("claim %s records no install to replace; a claim that never handed off installs on its own", cref)
 	}
 	set := map[string]any{metalv1alpha1.AnnotationReinstall: h.At.UTC().Format(time.RFC3339)}
+	if ack, err = namedLift(ctx, cl, ack); err != nil {
+		return err
+	}
 	if ack != "" {
 		set[metalv1alpha1.AnnotationAckEtcdRisk] = ack
 	}
@@ -196,7 +199,7 @@ func replaceCmd(args []string) {
 	fs := newFlags("replace")
 	ns := fs.String("n", claimNamespace, "namespace of the claim")
 	hostName := fs.String("host", "", "the machine (Host) to move the node to; it must be Available")
-	ack := fs.String("ack-etcd-risk", "", "reason to accept an even or short etcd membership while a control plane moves")
+	ack := fs.String("ack-etcd-risk", "", "reason to accept an even or short etcd membership while a control plane moves; stored on the claim as \"<your username>: <reason>\"")
 	addGlobalFlags(fs)
 	parseFlags(fs, args)
 	if fs.NArg() != 1 || *hostName == "" {
@@ -260,6 +263,9 @@ func replace(ctx context.Context, cl client.Client, namespace, ref, hostName, ac
 		spec["systemRef"] = map[string]any{"name": system}
 	}
 	patch := map[string]any{"spec": spec}
+	if ack, err = namedLift(ctx, cl, ack); err != nil {
+		return err
+	}
 	if ack != "" {
 		patch["metadata"] = map[string]any{"annotations": map[string]any{metalv1alpha1.AnnotationAckEtcdRisk: ack}}
 	}
@@ -295,7 +301,7 @@ func scaleCmd(args []string) {
 	cps := fs.Int("control-planes", -1, "control planes wanted (required)")
 	workers := fs.Int("workers", -1, "workers wanted (required)")
 	apply := fs.Bool("apply", false, "create and delete the claims of the plan")
-	ack := fs.String("ack-etcd-risk", "", "reason to accept passing through an even number of control planes")
+	ack := fs.String("ack-etcd-risk", "", "reason to accept passing through an even number of control planes; stored on the claim as \"<your username>: <reason>\"")
 	addGlobalFlags(fs)
 	parseFlags(fs, args)
 	if fs.NArg() != 1 || *cps < 0 || *workers < 0 {
@@ -515,8 +521,12 @@ func (p *scalePlan) apply(ctx context.Context, cl client.Client, ack string, w i
 	if len(p.problems) > 0 {
 		return fmt.Errorf("the plan cannot be carried out as it is; nothing was changed")
 	}
-	if p.evenStep && ack == "" {
+	if p.evenStep && strings.TrimSpace(ack) == "" {
 		return fmt.Errorf("the plan passes through an even number of control planes; give --ack-etcd-risk \"<reason>\" to accept it")
+	}
+	ack, err := namedLift(ctx, cl, ack)
+	if err != nil {
+		return err
 	}
 	for _, a := range p.add {
 		if err := cl.Create(ctx, a.claim); err != nil {

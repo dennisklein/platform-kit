@@ -15,7 +15,7 @@
       "name": "ack-etcd-risk",
       "type": "string",
       "default": "",
-      "usage": "reason to accept an even or short etcd membership while a control plane reinstalls",
+      "usage": "reason to accept an even or short etcd membership while a control plane reinstalls; stored on the claim as \"<your username>: <reason>\"",
       "global": false
     },
     {

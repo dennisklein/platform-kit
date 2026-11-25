@@ -459,7 +459,10 @@ func resetEphemeral(ref metalv1alpha1.Reference) metalv1alpha1.HostOperationActi
 // stay protected. It also ignores maintenance windows: a cluster without
 // etcd is already down, so waiting for a window only extends the outage.
 func (p *restorePlan) op(host, suffix string, actions []metalv1alpha1.HostOperationAction) *metalv1alpha1.HostOperation {
-	why := "pk-metal restore: etcd of cluster " + p.Cluster + " is broken and this operation is its repair"
+	// The lifts name the person who proposes the repair, the form admission
+	// asks for (config/policy/guard-lift.yaml).
+	why := metalv1alpha1.GuardLiftValue(p.in.User,
+		"pk-metal restore: etcd of cluster "+p.Cluster+" is broken and this operation is its repair")
 	return &metalv1alpha1.HostOperation{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: p.Cluster + "-" + suffix, Namespace: operatorNamespace,

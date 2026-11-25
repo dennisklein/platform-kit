@@ -127,7 +127,7 @@ func TestRenderPlanLiftedGuards(t *testing.T) {
 	restore.Annotations[metalv1alpha1.AnnotationIgnoreWindow] = " "
 	out := renderPlan(restore, pc)
 	assert.Contains(t, out, "guards lifted for this operation:\n"+
-		"  metal.pk.io/override-cluster-guard (pk-metal restore: etcd of cluster lab is broken and this operation is its repair): "+
+		"  metal.pk.io/override-cluster-guard, lifted by carol (pk-metal restore: etcd of cluster lab is broken and this operation is its repair): "+
 		"a control plane may go down although etcd is not fully healthy without it\n"+
 		"  metal.pk.io/ignore-window (empty: lifts nothing)\n"+
 		"steps, in this order:\n")
@@ -136,7 +136,10 @@ func TestRenderPlanLiftedGuards(t *testing.T) {
 	// after the plan was shown makes the approval refuse.
 	shown := renderPlan(op, pc)
 	op.Annotations = map[string]string{metalv1alpha1.AnnotationOverrideClusterGuard: "later"}
-	assert.NotEqual(t, shown, renderPlan(op, pc))
+	later := renderPlan(op, pc)
+	assert.NotEqual(t, shown, later)
+	assert.Contains(t, later, "metal.pk.io/override-cluster-guard, lifted by nobody named (later)",
+		"a value from before admission asked for a name says it names nobody")
 }
 
 // TestRenderPlanMissingObjects: a plan whose host or node is gone still
