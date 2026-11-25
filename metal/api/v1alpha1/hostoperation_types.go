@@ -110,9 +110,11 @@ type HostOperationSpec struct {
 	Approval OperationApproval `json:"approval,omitempty"`
 
 	// TTLSecondsAfterFinished garbage-collects a succeeded operation
-	// Job-style. A failed one stays until a person retries or deletes it: it
-	// is the record they decide on. Unset keeps it forever (human-requested
-	// ops stay as their own record);
+	// Job-style, after this time or the site's retention (key retention in
+	// the ConfigMap hostoperation-approval), whichever is longer. A failed
+	// one stays until a person retries or deletes it: it is the record they
+	// decide on. Unset keeps it forever (human-requested ops stay as their
+	// own record);
 	// convergence proposals set it — the plan memory on the proposing object,
 	// not the operation's existence, is what keeps an unchanged planHash from
 	// spawning again.
