@@ -209,6 +209,19 @@
       "description": ""
     },
     {
+      "path": "status.authentication",
+      "name": "authentication",
+      "parent": "status",
+      "depth": 1,
+      "type": "string",
+      "required": false,
+      "enum": [
+        "Session",
+        "Basic"
+      ],
+      "description": "Authentication is how the operator's requests to this BMC authenticate: Session (a Redfish session; the password crosses the network once per pass, in the login) or Basic (the BMC offers no session, so each request carries the password)."
+    },
+    {
       "path": "status.blockedOn",
       "name": "blockedOn",
       "parent": "status",

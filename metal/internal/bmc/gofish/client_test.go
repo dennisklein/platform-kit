@@ -94,9 +94,8 @@ func TestConformanceOverHTTPWithAccounts(t *testing.T) {
 }
 
 // TestAccountRotationOverHTTP pins the credential lifecycle across the wire:
-// a rotated password kills the old credential on the very next call, the new
-// one works, and a bad credential connects (the service root is public) but
-// fails its first authenticated read.
+// a rotated password kills the old credential's session on the very next
+// call, the new one works, and a login with the old one is refused.
 func TestAccountRotationOverHTTP(t *testing.T) {
 	f, err := sim.LoadFixture("supermicro-x12")
 	require.NoError(t, err)
@@ -132,11 +131,10 @@ func TestAccountRotationOverHTTP(t *testing.T) {
 	_, err = managed.Manager(ctx)
 	require.NoError(t, err, "the new credential works")
 
-	bad, err := connect("pk-metal", "InitialPass0")
-	require.NoError(t, err, "connecting alone proves nothing — the service root is public")
-	defer bad.Close()
-	_, err = bad.Manager(ctx)
-	require.Error(t, err, "the first authenticated read is the oracle")
+	// The session login is the oracle: the old password opens no session.
+	_, err = connect("pk-metal", "InitialPass0")
+	require.Error(t, err, "the old password logs in no more")
+	assert.True(t, gofishclient.LoginRefused(err), "%v", err)
 }
 
 // TestConformanceBehindDeflate runs the suite against a service whose ETag

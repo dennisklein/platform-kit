@@ -23,6 +23,8 @@ protocol:
   # The iBMC names its maker only through the Oem block on the Manager, which
   # is also where its OEM services are linked.
   oem_vendor_key: true
+  # SessionService logins (X-Auth-Token) next to Basic authentication.
+  sessions: true
 layout:
   virtual_media: manager
   drives: chassis

@@ -218,8 +218,13 @@ func RunTree(t *testing.T, baseURL string, f *sim.Fixture) {
 			}
 			return
 		}
-		resp, _ := tr.anonymous(http.MethodPost, sessions, map[string]string{"UserName": tr.user, "Password": "not-the-password"})
-		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode, "a wrong password opens no session")
+		// A fixture that seeds no account enforces no credential: any login
+		// opens a session, and every request passes with or without one.
+		enforced := len(f.Accounts) > 0
+		if enforced {
+			resp, _ := tr.anonymous(http.MethodPost, sessions, map[string]string{"UserName": tr.user, "Password": "not-the-password"})
+			assert.Equal(t, http.StatusUnauthorized, resp.StatusCode, "a wrong password opens no session")
+		}
 
 		resp, body := tr.anonymous(http.MethodPost, sessions, map[string]string{"UserName": tr.user, "Password": tr.pass})
 		require.Equal(t, http.StatusCreated, resp.StatusCode, "login: %v", body)
@@ -233,8 +238,10 @@ func RunTree(t *testing.T, baseURL string, f *sim.Fixture) {
 		assert.Equal(t, http.StatusOK, resp.StatusCode, "the token authenticates")
 		resp, _ = tr.raw(http.MethodDelete, location, nil, byToken, false)
 		assert.Less(t, resp.StatusCode, 300, "logout")
-		resp, _ = tr.raw(http.MethodGet, "/redfish/v1/Systems", nil, byToken, false)
-		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode, "a deleted session's token is dead")
+		if enforced {
+			resp, _ = tr.raw(http.MethodGet, "/redfish/v1/Systems", nil, byToken, false)
+			assert.Equal(t, http.StatusUnauthorized, resp.StatusCode, "a deleted session's token is dead")
+		}
 	})
 }
 

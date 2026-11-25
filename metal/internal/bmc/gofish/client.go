@@ -73,6 +73,8 @@ type client struct {
 	api      *gf.APIClient
 	svc      *gf.Service
 	readOnly bool
+	// auth is how the requests authenticate: AuthSession or AuthBasic.
+	auth string
 
 	// Where the manager, the chassis and the services live does not change
 	// while a session lasts, so each is looked up once per session. The
@@ -116,8 +118,17 @@ func (c *client) root() (rootLinks, error) {
 
 var errReadOnly = fmt.Errorf("bmc: mutating call refused (read-only client)")
 
-// Connect dials the endpoint and returns a bmc.Client. Basic auth — no Redfish
-// sessions, so an aborted run leaks nothing to clean up.
+// Connect dials the endpoint and returns a bmc.Client.
+//
+// The client logs in with a Redfish session where the service offers one:
+// the password crosses the wire once, in the login, and every request after
+// it carries the session token (X-Auth-Token) instead. Close deletes the
+// session. A service that links no Sessions collection, or that refuses the
+// login for another reason than the credentials, gets HTTP Basic on every
+// request instead; Authentication reports which one the client uses, so that
+// the caller can say so. A login that the service refuses for the
+// credentials (401) is returned as such: Basic would only send the same
+// wrong password again.
 //
 // gofish binds ctx to every request of the session, so cancelling ctx ends
 // the request in flight. Each request is also bounded on its own (see
@@ -125,14 +136,6 @@ var errReadOnly = fmt.Errorf("bmc: mutating call refused (read-only client)")
 // requests: a TLS handshake with a BMC costs up to a second, and the small
 // connection tables of some BMCs fill up when every request opens a new one.
 func Connect(ctx context.Context, cfg Config) (bmc.Client, error) {
-	gcfg := gf.ClientConfig{
-		Endpoint:         cfg.Endpoint,
-		Username:         cfg.Username,
-		Password:         cfg.Password,
-		Insecure:         cfg.Insecure,
-		BasicAuth:        true,
-		ReuseConnections: true,
-	}
 	// The transport is built here, not left to gofish, so that every
 	// response passes the guard below, gofish's own reads included. It is
 	// cloned from the default transport, as gofish does for its own client,
@@ -142,31 +145,141 @@ func Connect(ctx context.Context, cfg Config) (bmc.Client, error) {
 	// turn off certificate checks process-wide and race between sessions.
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.ForceAttemptHTTP2 = true
-	switch {
-	case cfg.RootCAs != nil:
-		t.TLSClientConfig = &tls.Config{RootCAs: cfg.RootCAs, MinVersion: tls.VersionTLS12}
-	case cfg.Insecure:
-		// Lab BMCs with self-signed certs, asked for by the caller.
-		t.TLSClientConfig = &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12} //nolint:gosec
+	tlsConfig, err := clientTLS(cfg)
+	if err != nil {
+		return nil, err
 	}
+	t.TLSClientConfig = tlsConfig
 	timeout := cmp.Or(cfg.RequestTimeout, DefaultRequestTimeout)
 	// The header timeout starts after the request body is sent, so it also
 	// holds for an upload.
 	t.ResponseHeaderTimeout = timeout
-	gcfg.Insecure = false
-	gcfg.HTTPClient = &http.Client{Transport: guard{next: t, timeout: timeout}}
-	api, err := gf.ConnectContext(ctx, gcfg)
-	if err != nil {
+	hc := &http.Client{Transport: guard{next: t, timeout: timeout}}
+	fail := func(err error) (bmc.Client, error) {
 		t.CloseIdleConnections()
 		return nil, fmt.Errorf("bmc: connect %s: %w", cfg.Endpoint, err)
 	}
-	return &client{api: api, svc: api.GetService(), readOnly: cfg.ReadOnly}, nil
+
+	// The service root is public: it is read before any credential is sent,
+	// to learn whether the service offers sessions.
+	root, err := readServiceRoot(ctx, hc, cfg.Endpoint)
+	if err != nil {
+		return fail(err)
+	}
+	gcfg := gf.ClientConfig{
+		Endpoint:         cfg.Endpoint,
+		Username:         cfg.Username,
+		Password:         cfg.Password,
+		HTTPClient:       hc,
+		ReuseConnections: true,
+	}
+	auth := AuthNone
+	var api *gf.APIClient
+	if cfg.Username != "" && root.Links.Sessions.ODataID != "" {
+		api, err = gf.ConnectContext(ctx, gcfg)
+		if err == nil {
+			if s, serr := api.GetSession(); serr != nil || s.Token == "" {
+				// A login that answers without a token leaves gofish with
+				// no credential at all: Basic takes over.
+				api.Logout()
+				api = nil
+			} else {
+				auth = AuthSession
+			}
+		} else if LoginRefused(err) || statusOf(err) == 0 {
+			// Refused credentials, or no answer at all: Basic would fare
+			// no better.
+			return fail(err)
+		}
+	}
+	if api == nil {
+		gcfg.BasicAuth = cfg.Username != ""
+		if gcfg.BasicAuth {
+			auth = AuthBasic
+		}
+		if api, err = gf.ConnectContext(ctx, gcfg); err != nil {
+			return fail(err)
+		}
+	}
+	c := &client{api: api, svc: api.GetService(), readOnly: cfg.ReadOnly, auth: auth}
+	c.memo.root = &root.rootLinks
+	return c, nil
+}
+
+// clientTLS is the TLS policy of a session: the pinned CAs, else no check
+// at all where the caller asked for that, else the system's CAs (nil).
+func clientTLS(cfg Config) (*tls.Config, error) {
+	switch {
+	case cfg.RootCAs != nil:
+		return &tls.Config{RootCAs: cfg.RootCAs, MinVersion: tls.VersionTLS12}, nil
+	case cfg.Insecure:
+		// Lab BMCs with self-signed certs, asked for by the caller.
+		return &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}, nil //nolint:gosec
+	}
+	return nil, nil
+}
+
+// Authentication values: how a client authenticates its requests.
+const (
+	// AuthSession: a Redfish session; each request carries its token.
+	AuthSession = "Session"
+	// AuthBasic: HTTP Basic; each request carries the password.
+	AuthBasic = "Basic"
+	// AuthNone: no credential was given.
+	AuthNone = ""
+)
+
+// Authentication reports how a client from Connect authenticates its
+// requests: AuthSession or AuthBasic. It is AuthNone for a client that
+// Connect did not make, or that got no credential.
+func Authentication(cl bmc.Client) string {
+	if c, ok := cl.(*client); ok {
+		return c.auth
+	}
+	return AuthNone
+}
+
+// serviceRoot is the part of the service root Connect reads before it logs
+// in.
+type serviceRoot struct {
+	rootLinks
+	Links struct {
+		Sessions ref `json:"Sessions"`
+	} `json:"Links"`
+}
+
+// readServiceRoot reads the public service root, without credentials.
+func readServiceRoot(ctx context.Context, hc *http.Client, endpoint string) (serviceRoot, error) {
+	var root serviceRoot
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(endpoint, "/")+"/redfish/v1/", nil)
+	if err != nil {
+		return root, err
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := hc.Do(req)
+	if err != nil {
+		return root, err
+	}
+	defer resp.Body.Close()
+	body, err := readBody(resp.Body)
+	if err != nil {
+		return root, err
+	}
+	if resp.StatusCode/100 != 2 {
+		return root, fmt.Errorf("service root: %s", resp.Status)
+	}
+	if err := json.Unmarshal(body, &root); err != nil {
+		return root, fmt.Errorf("service root: %w", err)
+	}
+	return root, nil
 }
 
 // Close logs out and closes the connections the session kept open. Each
 // session has a transport of its own, so nothing else would close them.
 func (c *client) Close() error {
-	c.api.Logout()
+	if c.auth == AuthSession {
+		c.api.Logout()
+	}
 	c.api.HTTPClient.CloseIdleConnections()
 	return nil
 }

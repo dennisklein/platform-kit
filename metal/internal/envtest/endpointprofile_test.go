@@ -129,11 +129,15 @@ func TestEndpointConvergence(t *testing.T) {
 
 	st.run(t, "discovered-labels", func(t *testing.T) {
 		for name, model := range map[string]string{"ci-huawei": "2288H-V5", "ci-smc": "X12DPi-N6"} {
+			// The labels land before the status of the same pass: wait for
+			// both.
 			ep := waitEndpoint(name, func(ep metalv1alpha1.ManagementEndpoint) bool {
-				return ep.Labels[labelVLAN] == "100"
+				return ep.Labels[labelVLAN] == "100" && ep.Status.Authentication != ""
 			})
 			assert.Equal(t, model, ep.Labels["metal.pk.io/model"], name)
 			assert.NotEmpty(t, ep.Labels["metal.pk.io/vendor"], name)
+			assert.Equal(t, "Session", ep.Status.Authentication,
+				"%s: both vendors log in with a Redfish session, not Basic on each request", name)
 		}
 	})
 

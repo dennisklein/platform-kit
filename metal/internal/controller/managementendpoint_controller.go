@@ -67,7 +67,8 @@ func (r *ManagementEndpointReconciler) Reconcile(ctx context.Context, req ctrl.R
 	if err := r.Get(ctx, req.NamespacedName, ep); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	// No finalizer by design: sessions are basic-auth (nothing leaks) and the
+	// No finalizer by design: each pass deletes its Redfish session when it
+	// ends (one that a crash leaves behind times out on the BMC), and the
 	// reconciler owns no external resources.
 	if !ep.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, nil
@@ -139,6 +140,7 @@ func (r *ManagementEndpointReconciler) observe(ctx context.Context, ep *metalv1a
 	}()
 	err = withSession(ctx, r.Dial, cfg, func(ctx context.Context, cl bmc.Client) error {
 		setCond(metalv1alpha1.ConditionReachable, metav1.ConditionTrue, "SessionUp", "")
+		r.noteAuthentication(ctx, ep, gofishclient.Authentication(cl))
 
 		d, err := discover(ctx, cl)
 		if err != nil {
@@ -162,6 +164,16 @@ func (r *ManagementEndpointReconciler) observe(ctx context.Context, ep *metalv1a
 	if err != nil {
 		setCond(metalv1alpha1.ConditionReachable, metav1.ConditionFalse, "DialError", err.Error())
 	}
+}
+
+// noteAuthentication records how the requests authenticate, and says so in
+// the log when a BMC moves to Basic: then each request carries the password.
+func (r *ManagementEndpointReconciler) noteAuthentication(ctx context.Context, ep *metalv1alpha1.ManagementEndpoint, auth string) {
+	if auth == gofishclient.AuthBasic && ep.Status.Authentication != auth {
+		logf.FromContext(ctx).Info("BMC offers no Redfish session: each request carries the password (HTTP Basic)",
+			"endpoint", ep.Name)
+	}
+	ep.Status.Authentication = auth
 }
 
 // connectConfig resolves the read-only observation config (the read-only rail — nothing

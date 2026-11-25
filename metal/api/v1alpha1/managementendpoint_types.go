@@ -225,6 +225,14 @@ type ManagementEndpointStatus struct {
 	// +optional
 	VirtualMedia []DiscoveredMedia `json:"virtualMedia,omitempty"`
 
+	// Authentication is how the operator's requests to this BMC
+	// authenticate: Session (a Redfish session; the password crosses the
+	// network once per pass, in the login) or Basic (the BMC offers no
+	// session, so each request carries the password).
+	// +kubebuilder:validation:Enum=Session;Basic
+	// +optional
+	Authentication string `json:"authentication,omitempty"`
+
 	// Asset caches the last-resolved assertion, so an asset-source outage
 	// degrades to the snapshot rather than failing resolution.
 	// +optional

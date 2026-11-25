@@ -164,9 +164,12 @@ machines:
 	bad, err := gofishclient.Connect(ctx, gofishclient.Config{
 		Endpoint: eps[0].URL, Username: "admin", Password: "admin-pass", Insecure: true,
 	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = bad.Close() })
-	_, err = bad.Systems(ctx)
+	if err == nil {
+		// A service without sessions takes the credential at the first
+		// authenticated read; one with sessions refuses the login itself.
+		t.Cleanup(func() { _ = bad.Close() })
+		_, err = bad.Systems(ctx)
+	}
 	assert.Error(t, err, "node-1 no longer has the factory account")
 
 	// The media directory is mountable, and a mount on one machine is not a

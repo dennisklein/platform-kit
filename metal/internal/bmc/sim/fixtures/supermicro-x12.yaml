@@ -28,6 +28,8 @@ protocol:
   # ServiceRoot.Vendor is served, and the Manager carries an Oem block too.
   oem_vendor_key: true
   root_vendor: true
+  # SessionService logins (X-Auth-Token) next to Basic authentication.
+  sessions: true
 layout:
   virtual_media: manager
   drives: chassis
