@@ -364,6 +364,7 @@ func (m *Mover) adminGroups(ctx context.Context) []string {
 func (m *Mover) ensure(ctx context.Context, so sourceObject, rw *rewriter) (int, error) {
 	want, n, complete := rw.rewrite(so.obj)
 	unstructured.RemoveNestedField(want.Object, "status")
+	lifts := takeLifts(want)
 	isOp := so.kind.gvk.Kind == "HostOperation"
 	approvedBy, _, _ := unstructured.NestedString(want.Object, "spec", "approval", "approvedBy")
 	if isOp {
@@ -392,6 +393,7 @@ func (m *Mover) ensure(ctx context.Context, so sourceObject, rw *rewriter) (int,
 		// rewritten yet: the next pass updates it, and an update now would
 		// write the source's UID over the target's.
 	default:
+		keepLifts(cur, want, lifts)
 		if changed := mergeInto(cur, want, isOp); changed {
 			if err := m.Target.Client.Update(ctx, cur); err != nil {
 				return 0, err
@@ -399,6 +401,9 @@ func (m *Mover) ensure(ctx context.Context, so sourceObject, rw *rewriter) (int,
 		}
 	}
 	rw.uids[so.obj.GetUID()] = cur.GetUID()
+	if err := m.replayLifts(ctx, so, cur, lifts); err != nil {
+		return 0, err
+	}
 
 	if isOp && approvedBy != "" {
 		got, _, _ := unstructured.NestedString(cur.Object, "spec", "approval", "approvedBy")

@@ -115,6 +115,7 @@ func TestPivot(t *testing.T) {
 	operator := whoAmI(t, ctx, managerCl)
 	installApprovalPolicy(t, ctx, cl, operator)
 	installClaimPolicy(t, ctx, cl)
+	installPolicy(t, ctx, cl, "guard-lift.yaml")
 	require.NoError(t, cl.Create(ctx, &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "pk-metal-manager", Namespace: ns}}))
 	deploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: "pk-metal-manager", Namespace: ns},
@@ -306,6 +307,13 @@ func TestPivot(t *testing.T) {
 	}, waitFor, tick, "the boot operation never finished")
 	resetsBefore := bmcState.Resets("1")
 
+	// Guard lifts name the person who set them; the move sets each one
+	// again as that person, because the target's policy lets nobody else.
+	require.NoError(t, carolCl.Patch(ctx, &metalv1alpha1.HostClaim{ObjectMeta: metav1.ObjectMeta{Namespace: claimNS, Name: "worker-1"}},
+		client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"annotations":{"metal.pk.io/ack-etcd-risk":"carol: pivot test"}}}`))))
+	require.NoError(t, aliceCl.Patch(ctx, &boot, client.RawPatch(types.MergePatchType,
+		[]byte(`{"metadata":{"annotations":{"metal.pk.io/ignore-window":"alice: pivot test"}}}`))))
+
 	// --- the move ----------------------------------------------------------
 
 	// The target cluster runs on the machine just provisioned: its Node has
@@ -397,7 +405,10 @@ func TestPivot(t *testing.T) {
 			assert.Equal(t, string(dstClaim.UID), op.Labels["metal.pk.io/claim-uid"], "operation %s", op.Name)
 			assert.Equal(t, "alice", op.Spec.Approval.ApprovedBy, "the approval is replayed by its approver")
 			assert.Equal(t, operator, op.Spec.ProposedBy)
+			assert.Equal(t, "alice: pivot test", op.Annotations[metalv1alpha1.AnnotationIgnoreWindow],
+				"the guard lift is set again by the person it names")
 		}
+		assert.Equal(t, "carol: pivot test", dstClaim.Annotations[metalv1alpha1.AnnotationAckEtcdRisk])
 		require.NotEmpty(t, dstHost.OwnerReferences)
 		for _, ref := range dstHost.OwnerReferences {
 			ep := &metalv1alpha1.ManagementEndpoint{}
