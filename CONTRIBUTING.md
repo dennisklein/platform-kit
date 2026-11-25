@@ -1,7 +1,8 @@
 # Contributing to platform-kit
 
-Read the [project status](README.md#status) first. No license is chosen yet,
-so open an issue before you start a large change.
+Read the [project status](README.md#status) first, and open an issue before
+you start a large change. The code is under the Apache License 2.0
+([LICENSE](LICENSE)). A contribution is under the same license.
 
 The [documentation site](https://dennisklein.github.io/platform-kit/) explains
 the design. Start with the

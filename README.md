@@ -18,8 +18,7 @@ pk-metal is experimental.
   build both from this repository.
 - The automated tests use simulated BMCs, Talos containers and QEMU machines.
   They do not prove that a given server model works.
-- No license is chosen yet. Until a `LICENSE` file is in the repository, no
-  license is granted.
+- The code is under the Apache License 2.0. See [LICENSE](LICENSE).
 
 The [project status page](https://dennisklein.github.io/platform-kit/project/status/)
 has the details.
