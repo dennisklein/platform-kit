@@ -24,6 +24,7 @@ import (
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/audit"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	"github.com/dennisklein/platform-kit/metal/internal/phase"
 )
@@ -48,6 +49,8 @@ const proposalTTL = int32(24 * 60 * 60)
 // second deliberate opening of the read-only rail.
 type ConvergenceReconciler struct {
 	client.Client
+	// Audit writes the audit trail; nil writes none.
+	Audit *audit.Logger
 	// CredentialsNamespace is where credential and CA Secrets live.
 	CredentialsNamespace string
 	// OperationsNamespace is where proposals are created (the operator's own).
@@ -434,7 +437,8 @@ func (r *ConvergenceReconciler) withdrawObsolete(ctx context.Context, plan *meta
 		return nil
 	}
 	logf.FromContext(ctx).Info("withdrew obsolete proposal", "operation", plan.Operation)
-	return client.IgnoreNotFound(r.Delete(ctx, op))
+	return client.IgnoreNotFound(deleteOp(ctx, r.Client, r.Audit, op, audit.DeleteWithdrawn,
+		"the desired state moved on before anyone approved it", client.Preconditions{UID: &op.UID}))
 }
 
 // planVerdict derives a held plan's condition live from the operation or its
@@ -468,7 +472,9 @@ func (r *ConvergenceReconciler) planVerdict(ctx context.Context, plan *metalv1al
 			// Preconditioned on the object read: a retry mark is honoured
 			// for the failed operation it was set on, never for another
 			// that took its name since.
-			if err := r.Delete(ctx, op, client.Preconditions{UID: &op.UID}); client.IgnoreNotFound(err) != nil {
+			if err := deleteOp(ctx, r.Client, r.Audit, op, audit.DeleteRetry,
+				"pk-metal retry marked it at "+op.Annotations[metalv1alpha1.AnnotationRetry]+"; a new proposal replaces it",
+				client.Preconditions{UID: &op.UID}); client.IgnoreNotFound(err) != nil {
 				return "", "", false, err
 			}
 			return "", "", true, nil

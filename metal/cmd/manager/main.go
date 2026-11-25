@@ -38,6 +38,7 @@ import (
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/asset"
+	"github.com/dennisklein/platform-kit/metal/internal/audit"
 	"github.com/dennisklein/platform-kit/metal/internal/controller"
 	"github.com/dennisklein/platform-kit/metal/internal/k8supgrade"
 	"github.com/dennisklein/platform-kit/metal/internal/ledger"
@@ -205,7 +206,10 @@ func main() {
 		CredentialsNamespace: c.credsNS,
 		OperationsNamespace:  c.credsNS,
 		Proposer:             proposer,
-		Ledger:               led,
+		// The audit trail goes to standard error beside the other log
+		// lines; each line carries "logger":"audit" for routing.
+		Audit:  audit.New(os.Stderr, proposer),
+		Ledger: led,
 		// The standard install mounts the ledger from this ConfigMap; the
 		// path is what this process actually read.
 		LedgerSource:           fmt.Sprintf("the ledger (%s, from ledger.yaml in the pk-metal-ledger ConfigMap in namespace %s)", c.ledgerPath, c.credsNS),

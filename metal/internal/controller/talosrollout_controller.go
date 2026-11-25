@@ -27,6 +27,7 @@ import (
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/asset"
+	"github.com/dennisklein/platform-kit/metal/internal/audit"
 	"github.com/dennisklein/platform-kit/metal/internal/k8supgrade"
 	"github.com/dennisklein/platform-kit/metal/internal/metrics"
 	"github.com/dennisklein/platform-kit/metal/internal/talos"
@@ -74,6 +75,8 @@ type TalosRolloutReconciler struct {
 	Workload k8supgrade.Dialer
 	// GateInterval paces re-checks while a gate holds or a step runs.
 	GateInterval time.Duration
+	// Audit writes the audit trail; nil writes none.
+	Audit *audit.Logger
 
 	// resolved caches pinned images by reference for a while, so that an
 	// unapproved rollout re-planned every pass does not ask the registry
@@ -137,6 +140,7 @@ func (r *TalosRolloutReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if err := updateStatusIfChanged(ctx, r.Client, ro, &orig.Status, &ro.Status); err != nil {
 		return ctrl.Result{}, err
 	}
+	auditRollout(r.Audit, orig, ro)
 	return res, nil
 }
 

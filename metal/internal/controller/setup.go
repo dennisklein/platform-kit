@@ -15,6 +15,7 @@ import (
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/asset"
+	"github.com/dennisklein/platform-kit/metal/internal/audit"
 	"github.com/dennisklein/platform-kit/metal/internal/k8supgrade"
 	"github.com/dennisklein/platform-kit/metal/internal/ledger"
 	"github.com/dennisklein/platform-kit/metal/internal/talos"
@@ -69,6 +70,9 @@ type Options struct {
 	Proposer string
 	// EventSource names the event recorder; empty uses "pk-metal".
 	EventSource string
+	// Audit writes the audit trail of the operation, claim, convergence,
+	// node and rollout lanes; nil writes none.
+	Audit *audit.Logger
 
 	// Ledger, LedgerSource, LedgerReload and TLS configure the Asset lane.
 	Ledger       *ledger.Ledger
@@ -210,7 +214,7 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 		return "host", &HostReconciler{Client: c}
 	case LaneHostClaim:
 		claims := &HostClaimReconciler{
-			Client: c, OperationsNamespace: o.OperationsNamespace, Proposer: o.Proposer,
+			Client: c, OperationsNamespace: o.OperationsNamespace, Proposer: o.Proposer, Audit: o.Audit,
 			CheckInTimeoutSeconds:  int32(o.CheckInTimeout.Seconds()),
 			ReleaseShutdownTimeout: o.ReleaseShutdownTimeout,
 			Self:                   self,
@@ -225,7 +229,7 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 			Client: c, CredentialsNamespace: o.CredentialsNamespace,
 			RegistryClient: o.RegistryClient, Media: o.Media, Store: o.MediaStore,
 			Recorder: recorder(), WaitInterval: o.WaitInterval, Self: self,
-			TalosDial: o.TalosDial, GuardInterval: o.GuardInterval,
+			TalosDial: o.TalosDial, GuardInterval: o.GuardInterval, Audit: o.Audit,
 			// The cluster guard holds for every Talos cluster, wherever the
 			// operator runs; SelfGuard adds the rules for its own.
 			Guard: &ClusterGuard{Reader: mgr.GetAPIReader(), Dial: o.TalosDial, Namespace: o.CredentialsNamespace},
@@ -234,7 +238,7 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 		return "convergence", &ConvergenceReconciler{
 			Client: c, CredentialsNamespace: o.CredentialsNamespace,
 			OperationsNamespace: o.OperationsNamespace, Proposer: o.Proposer,
-			PollInterval: o.PollInterval, Self: self,
+			PollInterval: o.PollInterval, Self: self, Audit: o.Audit,
 		}
 	case LaneEndpointConvergence:
 		return "endpoint convergence", &EndpointConvergenceReconciler{
@@ -249,7 +253,7 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 			CheckInterval: o.CheckInterval, ReadyInterval: o.ReadyInterval, DriftInterval: o.DriftInterval,
 		}, &TalosNodeMemberReconciler{
 			Client: c, Dial: o.TalosDial, CredentialsNamespace: o.CredentialsNamespace,
-			OperationsNamespace: o.OperationsNamespace,
+			OperationsNamespace: o.OperationsNamespace, Audit: o.Audit,
 		}}
 	case LaneTalosCluster:
 		return "taloscluster", &TalosClusterReconciler{
@@ -269,7 +273,7 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 				Client: c, Scheme: scheme, Namespace: o.CredentialsNamespace,
 				OperationsNamespace: o.OperationsNamespace, Proposer: o.Proposer,
 				Factory: o.Factory, ResolveImage: o.ResolveImage, Dial: o.TalosDial,
-				Workload: o.Workload, GateInterval: o.GateInterval,
+				Workload: o.Workload, GateInterval: o.GateInterval, Audit: o.Audit,
 			},
 			propose: &RolloutProposer{Client: c, Proposer: o.Proposer},
 		}

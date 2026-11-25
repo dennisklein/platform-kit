@@ -15,6 +15,7 @@ import (
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/audit"
 	"github.com/dennisklein/platform-kit/metal/internal/talos"
 )
 
@@ -46,6 +47,8 @@ type TalosNodeMemberReconciler struct {
 	CredentialsNamespace string
 	// OperationsNamespace holds the operations.
 	OperationsNamespace string
+	// Audit writes the audit trail; nil writes none.
+	Audit *audit.Logger
 }
 
 // +kubebuilder:rbac:groups=os.pk.io,resources=talosnodes,verbs=get;list;watch;update
@@ -87,6 +90,13 @@ func (r *TalosNodeMemberReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	controllerutil.RemoveFinalizer(node, talosNodeMemberFinalizer)
 	if err := r.Update(ctx, node); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	// The acknowledgement lets a control plane go while nothing says
+	// whether etcd still lists it; the trail names it with the release of
+	// the finalizer, which happens once.
+	if v, ok := node.Annotations[metalv1alpha1.AnnotationAckEtcdRisk]; ok && node.Spec.Role == osv1alpha1.RoleControlPlane {
+		r.Audit.GuardLifted(audit.Object{Kind: audit.KindTalosNode, Name: node.Name, UID: node.UID},
+			metalv1alpha1.AnnotationAckEtcdRisk, v, "")
 	}
 	logf.FromContext(ctx).Info("TalosNode left its cluster", "node", node.Name, "cluster", node.Spec.ClusterRef.Name)
 	return ctrl.Result{}, nil

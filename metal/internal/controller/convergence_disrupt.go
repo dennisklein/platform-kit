@@ -13,6 +13,7 @@ import (
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/audit"
 )
 
 // Bounds of the steps a running node's disruptive proposal adds. The approver
@@ -147,7 +148,8 @@ func (r *ConvergenceReconciler) withdrawPlan(ctx context.Context, plan **metalv1
 		return nil
 	}
 	logf.FromContext(ctx).Info("withdrew proposal for a node that is gone", "operation", (*plan).Operation)
-	if err := r.Delete(ctx, op, client.Preconditions{UID: &op.UID}); client.IgnoreNotFound(err) != nil {
+	if err := deleteOp(ctx, r.Client, r.Audit, op, audit.DeleteWithdrawn,
+		"the node it was planned for is gone before anyone approved it", client.Preconditions{UID: &op.UID}); client.IgnoreNotFound(err) != nil {
 		return err
 	}
 	*plan = nil

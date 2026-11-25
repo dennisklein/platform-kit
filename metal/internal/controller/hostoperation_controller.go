@@ -25,6 +25,7 @@ import (
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/asset"
+	"github.com/dennisklein/platform-kit/metal/internal/audit"
 	"github.com/dennisklein/platform-kit/metal/internal/baseline"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	gofishclient "github.com/dennisklein/platform-kit/metal/internal/bmc/gofish"
@@ -139,6 +140,8 @@ type HostOperationReconciler struct {
 	// GuardInterval paces the next look at an operation a guard holds. Zero
 	// defaults to selfRecheck.
 	GuardInterval time.Duration
+	// Audit writes the audit trail; nil writes none.
+	Audit *audit.Logger
 
 	// locks keeps two passes off one host and off one BMC. startMu makes a
 	// guarded start (the self guard's verdict through the baseline write)
@@ -230,11 +233,15 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	setCond := func(t string, s metav1.ConditionStatus, reason, msg string) {
 		setCondition(&op.Status.Conditions, op.Generation, t, s, reason, msg)
 	}
+	// host is the operation's Host once this pass read it; the audit trail
+	// names its self-disruption allowance when the operation starts.
+	var host *metalv1alpha1.Host
 	flush := func() error {
 		phase.StampOperation(op)
 		if err := updateStatusIfChanged(ctx, r.Client, op, &orig.Status, &op.Status); err != nil {
 			return err
 		}
+		r.auditOperation(ctx, orig, op, host)
 		orig = op.DeepCopy()
 		return nil
 	}
@@ -290,8 +297,8 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, client.IgnoreNotFound(flush())
 	}
 
-	host := &metalv1alpha1.Host{}
-	if err := r.Get(ctx, client.ObjectKey{Name: op.Spec.HostRef.Name}, host); err != nil {
+	read := &metalv1alpha1.Host{}
+	if err := r.Get(ctx, client.ObjectKey{Name: op.Spec.HostRef.Name}, read); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
@@ -299,6 +306,7 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			metalv1alpha1.ReasonHostNotFound, fmt.Sprintf("host %s not found", op.Spec.HostRef.Name))
 		return ctrl.Result{}, client.IgnoreNotFound(flush())
 	}
+	host = read
 
 	// Passes run side by side, but never two on one host or on one BMC: the
 	// queue check below and the baseline write are one step only while no
@@ -835,7 +843,8 @@ func opSucceeded(op *metalv1alpha1.HostOperation) bool {
 // expire garbage-collects a succeeded operation once its TTL elapses,
 // Job-style. No TTL keeps it forever — human-requested ops stay as their own
 // record; convergence proposals set one (their no-respawn guard is the plan
-// memory on the proposing object, not this record).
+// memory on the proposing object, not this record). The audit line goes
+// first.
 func (r *HostOperationReconciler) expire(ctx context.Context, op *metalv1alpha1.HostOperation) (ctrl.Result, error) {
 	if op.Spec.TTLSecondsAfterFinished == nil {
 		return ctrl.Result{}, nil
@@ -848,12 +857,15 @@ func (r *HostOperationReconciler) expire(ctx context.Context, op *metalv1alpha1.
 		// be retried (pk-metal retry marks the failed operation).
 		return ctrl.Result{}, nil
 	}
-	expiry := c.LastTransitionTime.Add(time.Duration(*op.Spec.TTLSecondsAfterFinished) * time.Second)
+	ttl := time.Duration(*op.Spec.TTLSecondsAfterFinished) * time.Second
+	expiry := c.LastTransitionTime.Add(ttl)
 	if wait := time.Until(expiry); wait > 0 {
 		return ctrl.Result{RequeueAfter: wait}, nil
 	}
-	logf.FromContext(ctx).Info("operation expired", "operation", op.Namespace+"/"+op.Name)
-	return ctrl.Result{}, client.IgnoreNotFound(r.Delete(ctx, op))
+	why := fmt.Sprintf("succeeded %s ago; spec.ttlSecondsAfterFinished %s",
+		time.Since(c.LastTransitionTime.Time).Round(time.Second), ttl)
+	return ctrl.Result{}, client.IgnoreNotFound(deleteOp(ctx, r.Client, r.Audit, op, audit.DeleteRetentionExpired, why,
+		client.Preconditions{UID: &op.UID}))
 }
 
 // recordBootStart writes, before a boot of a claim captures its baseline,

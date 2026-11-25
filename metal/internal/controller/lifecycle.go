@@ -16,6 +16,7 @@ import (
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/audit"
 )
 
 // The claim's side of the node lifecycle on day 2: removing a node whose
@@ -169,7 +170,8 @@ func (r *HostClaimReconciler) removeNode(ctx context.Context, claim *metalv1alph
 			continue
 		}
 		logf.FromContext(ctx).Info("stopped boot operation of a deleted node", "operation", boots[i].Namespace+"/"+boots[i].Name)
-		if err := r.Delete(ctx, &boots[i]); client.IgnoreNotFound(err) != nil {
+		if err := deleteOp(ctx, r.Client, r.Audit, &boots[i], audit.DeleteStopped,
+			"TalosNode "+node.Name+" is being deleted"); client.IgnoreNotFound(err) != nil {
 			return err
 		}
 	}
@@ -251,12 +253,19 @@ func (r *HostClaimReconciler) removeNode(ctx context.Context, claim *metalv1alph
 				}
 			}
 		}
-		// The install is gone: so are its records.
+		// The install is gone: so are its records. A boot record left
+		// behind would read as a boot of the next node of that name on
+		// this machine, so it is not kept for the site's retention; the
+		// audit trail keeps what it decided.
 		if h != nil && h.Host == host.Name && h.Node == node.Name {
 			claim.Status.HandOff = nil
 		}
 		for i := range boots {
-			if err := r.Delete(ctx, &boots[i]); client.IgnoreNotFound(err) != nil {
+			if !boots[i].DeletionTimestamp.IsZero() {
+				continue
+			}
+			if err := deleteOp(ctx, r.Client, r.Audit, &boots[i], audit.DeleteRecordOfRemoved,
+				"TalosNode "+node.Name+" was removed from host "+host.Name+" by operation "+ref); client.IgnoreNotFound(err) != nil {
 				return err
 			}
 		}

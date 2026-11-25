@@ -22,6 +22,7 @@ import (
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/audit"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	"github.com/dennisklein/platform-kit/metal/internal/boot"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
@@ -162,7 +163,8 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 				continue
 			}
 			logf.FromContext(ctx).Info("stopped boot operation of a dropped OS intent", "operation", ops[i].Namespace+"/"+ops[i].Name)
-			if err := r.Delete(ctx, &ops[i]); client.IgnoreNotFound(err) != nil {
+			if err := deleteOp(ctx, r.Client, r.Audit, &ops[i], audit.DeleteStopped,
+				"claim "+claim.Namespace+"/"+claim.Name+" no longer names an OS"); client.IgnoreNotFound(err) != nil {
 				return err
 			}
 		}
@@ -583,7 +585,8 @@ func (r *HostClaimReconciler) withdraw(ctx context.Context, ops []metalv1alpha1.
 			continue
 		}
 		logf.FromContext(ctx).Info("withdrew obsolete boot proposal", "operation", ops[i].Namespace+"/"+ops[i].Name)
-		if err := r.Delete(ctx, &ops[i]); client.IgnoreNotFound(err) != nil {
+		if err := deleteOp(ctx, r.Client, r.Audit, &ops[i], audit.DeleteWithdrawn,
+			"a newer boot plan replaces it before anyone approved it"); client.IgnoreNotFound(err) != nil {
 			return err
 		}
 	}
@@ -939,7 +942,8 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 			if held && (op == nil || op.AwaitsApproval()) {
 				if op != nil {
 					logf.FromContext(ctx).Info("withdrew release proposal of a held claim", "operation", op.Namespace+"/"+op.Name)
-					if err := r.Delete(ctx, op); client.IgnoreNotFound(err) != nil {
+					if err := deleteOp(ctx, r.Client, r.Audit, op, audit.DeleteWithdrawn,
+						"claim "+claim.Namespace+"/"+claim.Name+" is held before anyone approved its release"); client.IgnoreNotFound(err) != nil {
 						return false, err
 					}
 				}
@@ -1039,7 +1043,8 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 	// failed pass never loses the record that a boot ran.
 	for i := range provisionOps {
 		if !provisionOps[i].Finished() && provisionOps[i].DeletionTimestamp.IsZero() {
-			if err := r.Delete(ctx, &provisionOps[i]); client.IgnoreNotFound(err) != nil {
+			if err := deleteOp(ctx, r.Client, r.Audit, &provisionOps[i], audit.DeleteStopped,
+				"claim "+claim.Namespace+"/"+claim.Name+" is being deleted"); client.IgnoreNotFound(err) != nil {
 				return false, err
 			}
 		}
@@ -1047,9 +1052,16 @@ func (r *HostClaimReconciler) release(ctx context.Context, claim *metalv1alpha1.
 	if !done {
 		return false, nil
 	}
-	// The boot records belong to a claim that no longer exists.
+	// The boot records belong to a claim that no longer exists. They are
+	// the claim's working state, not only its history, so they go with it
+	// and are not kept for the site's retention; the audit trail keeps
+	// what they decided.
 	for i := range provisionOps {
-		if err := r.Delete(ctx, &provisionOps[i]); client.IgnoreNotFound(err) != nil {
+		if !provisionOps[i].DeletionTimestamp.IsZero() {
+			continue
+		}
+		if err := deleteOp(ctx, r.Client, r.Audit, &provisionOps[i], audit.DeleteRecordOfRemoved,
+			"claim "+claim.Namespace+"/"+claim.Name+" is deleted and its machine released"); client.IgnoreNotFound(err) != nil {
 			return false, err
 		}
 	}
@@ -1090,7 +1102,9 @@ func (r *HostClaimReconciler) bootRanUncached(ctx context.Context, claim *metalv
 			continue
 		}
 		uid, rv := op.UID, op.ResourceVersion
-		err := r.Delete(ctx, op, client.Preconditions{UID: &uid, ResourceVersion: &rv})
+		err := deleteOp(ctx, r.Client, r.Audit, op, audit.DeleteStopped,
+			"claim "+claim.Namespace+"/"+claim.Name+" releases host "+hostName+" before this boot started",
+			client.Preconditions{UID: &uid, ResourceVersion: &rv})
 		if apierrors.IsConflict(err) {
 			return false, fmt.Errorf("boot operation %s/%s changed while the release read it; reading it again: %w",
 				op.Namespace, op.Name, err)

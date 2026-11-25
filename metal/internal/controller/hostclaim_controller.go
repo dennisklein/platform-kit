@@ -19,6 +19,7 @@ import (
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/audit"
 	"github.com/dennisklein/platform-kit/metal/internal/identity"
 	"github.com/dennisklein/platform-kit/metal/internal/phase"
 	"github.com/dennisklein/platform-kit/metal/internal/talos"
@@ -41,6 +42,8 @@ const (
 // was handed an OS, then unbound — delete → Releasing → Available.
 type HostClaimReconciler struct {
 	client.Client
+	// Audit writes the audit trail; nil writes none.
+	Audit *audit.Logger
 	// OperationsNamespace is where boot and release operations are created
 	// (the operator's own).
 	OperationsNamespace string
