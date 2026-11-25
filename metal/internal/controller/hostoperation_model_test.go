@@ -436,6 +436,15 @@ func runExecutorCase(t *testing.T, seed uint64, image func(string) string, media
 		ttl = ptr.To(int32(3600))
 	}
 	op.Spec.TTLSecondsAfterFinished = ttl
+	// The site's retention comes from its own source, so that the draws
+	// above and below stay what they were for every seed: the default
+	// (no key), none beyond the TTL ("0s"), or Forever.
+	keep := []string{"", "0s", RetentionForever}[rand.New(rand.NewPCG(7, seed)).IntN(3)]
+	site := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: "pk-metal", Name: siteSettingsConfigMap},
+		Data: map[string]string{}}
+	if keep != "" {
+		site.Data[retentionKey] = keep
+	}
 	node := &osv1alpha1.TalosNode{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}}
 	host := &metalv1alpha1.Host{ObjectMeta: metav1.ObjectMeta{Name: "host-a"}}
 	store := fake.NewClientBuilder().WithScheme(testScheme(t)).
@@ -443,7 +452,7 @@ func runExecutorCase(t *testing.T, seed uint64, image func(string) string, media
 		WithIndex(&metalv1alpha1.HostOperation{}, opHostIndex, func(o client.Object) []string {
 			return []string{o.(*metalv1alpha1.HostOperation).Spec.HostRef.Name}
 		}).
-		WithObjects(op, node, host, artifact, config).Build()
+		WithObjects(op, node, host, artifact, config, site).Build()
 	key := client.ObjectKeyFromObject(op)
 	c.deleteOp = func() {
 		c.deletedAt = c.applied
@@ -476,8 +485,9 @@ func runExecutorCase(t *testing.T, seed uint64, image func(string) string, media
 		// Each pass is a fresh reconciler: whatever the last one held in
 		// memory is gone, as after a restart.
 		rc := &HostOperationReconciler{
-			Client:   api,
-			Recorder: events.NewFakeRecorder(1000),
+			Client:               api,
+			CredentialsNamespace: "pk-metal",
+			Recorder:             events.NewFakeRecorder(1000),
 			Connect: func(context.Context, *metalv1alpha1.Host) (bmc.Client, string, string, string, error) {
 				return rec, "1", "", "", nil
 			},
@@ -551,10 +561,11 @@ func runExecutorCase(t *testing.T, seed uint64, image func(string) string, media
 	if finished == nil {
 		t.Fatalf("%s: the operation never finished", desc())
 	}
-	if ttl != nil && *ttl == 0 && opSucceeded(finished) {
-		assert.GreaterOrEqual(t, goneAfter, 0, "%s: a zero TTL removes the succeeded operation", desc())
+	if ttl != nil && *ttl == 0 && keep == "0s" && opSucceeded(finished) {
+		assert.GreaterOrEqual(t, goneAfter, 0, "%s: a zero TTL with no site retention removes the succeeded operation", desc())
 	} else {
-		assert.Less(t, goneAfter, 0, "%s: no TTL, one not yet run out, or a failure keeps the operation", desc())
+		assert.Less(t, goneAfter, 0, "%s (retention %q): no TTL, one or a retention not yet run out, or a failure keeps the operation",
+			desc(), keep)
 	}
 
 	switch {

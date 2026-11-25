@@ -29,6 +29,7 @@ import (
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/audit"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc/sim"
 	"github.com/dennisklein/platform-kit/metal/internal/controller"
@@ -95,11 +96,13 @@ func TestConvergence(t *testing.T) {
 
 	aliceCl := st.userClient(t, "alice")
 
+	trail := &syncBuffer{}
 	mgr := st.newManager(t)
 	require.NoError(t, controller.SetupAll(mgr, controller.Options{
 		CredentialsNamespace: "default",
 		OperationsNamespace:  "default",
 		Proposer:             operator,
+		Audit:                audit.New(trail, operator),
 		Ledger:               led,
 		TLS:                  &metalv1alpha1.EndpointTLS{CASecretRef: &corev1.LocalObjectReference{Name: "bmc-ca"}},
 		PollInterval:         pollInterval,
@@ -555,7 +558,13 @@ func TestConvergence(t *testing.T) {
 		}
 	})
 
-	st.run(t, "finished operations expire by TTL", func(t *testing.T) {
+	st.run(t, "finished operations expire after the site's retention", func(t *testing.T) {
+		// The site keeps finished records for 2s here: longer than the
+		// operation's own TTL, which is therefore not what decides.
+		require.NoError(t, cl.Create(ctx, &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "hostoperation-approval"},
+			Data:       map[string]string{"retention": "2s"},
+		}))
 		ttl := int32(1)
 		op := &metalv1alpha1.HostOperation{
 			ObjectMeta: metav1.ObjectMeta{Name: "ttl-cycle", Namespace: "default"},
@@ -568,11 +577,27 @@ func TestConvergence(t *testing.T) {
 		}
 		require.NoError(t, cl.Create(ctx, op))
 		approve("default/ttl-cycle")
+		var finishedAt time.Time
 		require.Eventually(t, func() bool {
 			got := metalv1alpha1.HostOperation{}
 			err := cl.Get(ctx, client.ObjectKey{Namespace: "default", Name: "ttl-cycle"}, &got)
-			return err != nil
+			if c := meta.FindStatusCondition(got.Status.Conditions, metalv1alpha1.ConditionExecuted); err == nil &&
+				c != nil && c.Status == metav1.ConditionTrue {
+				finishedAt = c.LastTransitionTime.Time
+			}
+			return apierrors.IsNotFound(err)
 		}, waitFor, tick, "the finished operation never expired")
+		assert.GreaterOrEqual(t, time.Since(finishedAt), 2*time.Second, "kept for the site's retention, not only its TTL")
+
+		// The trail has the operation's whole life, the delete last.
+		var events []string
+		for _, line := range strings.Split(trail.String(), "\n") {
+			var l audit.Line
+			if json.Unmarshal([]byte(line), &l) == nil && l.Name == "ttl-cycle" {
+				events = append(events, string(l.Event))
+			}
+		}
+		assert.Equal(t, []string{"proposed", "approved", "step.started", "step.finished", "finished", "deleted"}, events)
 	})
 	st.run(t, "system firmware is staged and applied at the next reset", func(t *testing.T) {
 		sysCond := func(h metalv1alpha1.Host) *metav1.Condition {

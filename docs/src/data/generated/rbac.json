@@ -469,7 +469,8 @@
             "os.pk.io"
           ],
           "resources": [
-            "etcdsnapshots"
+            "etcdsnapshots",
+            "talosrollouts"
           ],
           "verbs": [
             "create",
@@ -491,20 +492,6 @@
             "list",
             "patch",
             "update",
-            "watch"
-          ]
-        },
-        {
-          "apiGroups": [
-            "os.pk.io"
-          ],
-          "resources": [
-            "talosrollouts"
-          ],
-          "verbs": [
-            "create",
-            "get",
-            "list",
             "watch"
           ]
         }
@@ -1500,6 +1487,20 @@
         },
         {
           "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "configmaps"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ],
+          "namespace": "pk-metal"
+        },
+        {
+          "apiGroups": [
             "events.k8s.io"
           ],
           "resources": [
@@ -2018,7 +2019,8 @@
             "get",
             "list",
             "watch",
-            "create"
+            "create",
+            "delete"
           ]
         },
         {

@@ -9,6 +9,14 @@
 #              change a machine.
 #
 # Any other value counts as Forbidden.
+#
+# How long the operator keeps a finished operation or rollout that it may
+# delete (the operator reads this key, admission does not):
+#
+#   30d        a number of days, or a duration such as 720h. The default.
+#   Forever    nothing finished is deleted; a person deletes old records.
+#
+# A value the operator cannot read keeps every record.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -16,3 +24,4 @@ metadata:
   namespace: pk-metal
 data:
   selfApproval: Allowed
+  retention: 30d

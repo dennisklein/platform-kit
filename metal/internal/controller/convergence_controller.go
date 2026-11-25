@@ -29,9 +29,10 @@ import (
 	"github.com/dennisklein/platform-kit/metal/internal/phase"
 )
 
-// proposalTTL garbage-collects finished convergence proposals. The plan
-// memory on the proposing object, not the operation record, carries the
-// no-respawn guard — so history may leave.
+// proposalTTL marks a convergence proposal as one the operator may delete
+// once it succeeded. The plan memory on the proposing object, not the
+// operation record, carries the no-respawn guard, so the record may leave,
+// but not before the site's retention (retention.go) runs out.
 const proposalTTL = int32(24 * 60 * 60)
 
 // ConvergenceReconciler drives desired state from the profile classes toward

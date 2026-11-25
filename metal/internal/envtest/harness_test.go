@@ -1,6 +1,7 @@
 package envtest_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"encoding/pem"
@@ -228,4 +229,23 @@ func (s *suite) settle(t *testing.T, ctx context.Context, obj client.Object, rou
 	require.True(t, ok)
 	require.NoError(t, s.cl.Get(ctx, client.ObjectKeyFromObject(obj), latest))
 	return written || latest.GetResourceVersion() != obj.GetResourceVersion()
+}
+
+// syncBuffer is a bytes.Buffer that the manager's workers write to and the
+// test reads from at the same time: the audit trail of a suite.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }

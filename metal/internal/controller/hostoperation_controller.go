@@ -205,6 +205,7 @@ func waitingOn(format string, args ...any) stepState {
 // +kubebuilder:rbac:groups=metal.pk.io,resources=biossettings,verbs=get;list;watch
 // +kubebuilder:rbac:groups=os.pk.io,resources=bootassets;talosnodes;talosclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch,namespace=pk-metal
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch,namespace=pk-metal
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconcile runs an approved operation's steps against the BMC. Executing needs
@@ -840,11 +841,13 @@ func opSucceeded(op *metalv1alpha1.HostOperation) bool {
 	return meta.IsStatusConditionTrue(op.Status.Conditions, metalv1alpha1.ConditionExecuted)
 }
 
-// expire garbage-collects a succeeded operation once its TTL elapses,
-// Job-style. No TTL keeps it forever — human-requested ops stay as their own
-// record; convergence proposals set one (their no-respawn guard is the plan
-// memory on the proposing object, not this record). The audit line goes
-// first.
+// expire deletes a succeeded operation once it may go, Job-style. No TTL
+// keeps it forever: human-requested ops stay as their own record;
+// convergence proposals and releases set one (their no-respawn guard is
+// the plan memory on the proposing object, not this record). The TTL is a
+// floor, not the deadline: a finished operation is the record of a change
+// to a machine, and the site's retention (retention.go) keeps it at least
+// that long. The audit line goes first.
 func (r *HostOperationReconciler) expire(ctx context.Context, op *metalv1alpha1.HostOperation) (ctrl.Result, error) {
 	if op.Spec.TTLSecondsAfterFinished == nil {
 		return ctrl.Result{}, nil
@@ -857,13 +860,24 @@ func (r *HostOperationReconciler) expire(ctx context.Context, op *metalv1alpha1.
 		// be retried (pk-metal retry marks the failed operation).
 		return ctrl.Result{}, nil
 	}
-	ttl := time.Duration(*op.Spec.TTLSecondsAfterFinished) * time.Second
-	expiry := c.LastTransitionTime.Add(ttl)
-	if wait := time.Until(expiry); wait > 0 {
-		return ctrl.Result{RequeueAfter: wait}, nil
+	keep, err := siteRetention(ctx, r.Client, r.CredentialsNamespace)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
-	why := fmt.Sprintf("succeeded %s ago; spec.ttlSecondsAfterFinished %s",
-		time.Since(c.LastTransitionTime.Time).Round(time.Second), ttl)
+	if keep.forever {
+		if keep.problem != "" {
+			logf.FromContext(ctx).Info(keep.problem)
+		}
+		return ctrl.Result{RequeueAfter: settingsRecheck}, nil
+	}
+	ttl := time.Duration(*op.Spec.TTLSecondsAfterFinished) * time.Second
+	after := max(ttl, keep.keep)
+	expiry := c.LastTransitionTime.Add(after)
+	if wait := time.Until(expiry); wait > 0 {
+		return ctrl.Result{RequeueAfter: min(wait, settingsRecheck)}, nil
+	}
+	why := fmt.Sprintf("succeeded %s ago; kept for %s (spec.ttlSecondsAfterFinished %s, site retention %s)",
+		time.Since(c.LastTransitionTime.Time).Round(time.Second), after, ttl, keep)
 	return ctrl.Result{}, client.IgnoreNotFound(deleteOp(ctx, r.Client, r.Audit, op, audit.DeleteRetentionExpired, why,
 		client.Preconditions{UID: &op.UID}))
 }

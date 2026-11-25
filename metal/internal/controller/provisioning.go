@@ -71,8 +71,10 @@ const (
 	reasonProvisioning = "Provisioning"
 	reasonRelease      = "Release"
 
-	// releaseTTL keeps a release operation as a record for a day; nothing
-	// guards on its existence once the claim is gone.
+	// releaseTTL marks a release operation as one the operator may delete
+	// once it succeeded: nothing guards on its existence once the claim is
+	// gone. It is the least time the record stays; the site's retention
+	// (retention.go) keeps it longer.
 	releaseTTL = int32(24 * 60 * 60)
 
 	// configDigestOf is the BootAsset artifact annotation naming the render

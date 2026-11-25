@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -237,6 +238,130 @@ func TestRolloutAuditTrail(t *testing.T) {
 	assert.Equal(t, "sha256:abc", lines[1].PlanHash)
 	assert.Equal(t, "Failed", lines[4].Phase)
 	assert.Equal(t, osv1alpha1.ReasonRolloutFailed, lines[4].Reason)
+}
+
+func TestParseRetention(t *testing.T) {
+	for v, want := range map[string]retention{
+		"Forever": {forever: true},
+		"30d":     {keep: 30 * 24 * time.Hour},
+		"0d":      {},
+		"720h":    {keep: 720 * time.Hour},
+		" 90m ":   {keep: 90 * time.Minute},
+	} {
+		assert.Equal(t, want, parseRetention(v), v)
+	}
+	for _, v := range []string{"forever", "-1h", "a month", "1.5d", ""} {
+		got := parseRetention(v)
+		assert.True(t, got.forever, "%q keeps the records", v)
+		assert.Contains(t, got.problem, "is not Forever", v)
+	}
+}
+
+func settings(retention *string) *corev1.ConfigMap {
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: "pk-metal", Name: siteSettingsConfigMap},
+		Data: map[string]string{"selfApproval": "Allowed"}}
+	if retention != nil {
+		cm.Data[retentionKey] = *retention
+	}
+	return cm
+}
+
+// finishedOp is an operation that succeeded ago, with a TTL of ttl.
+func finishedOp(ago time.Duration, ttl int32) *metalv1alpha1.HostOperation {
+	op := preClearedOp(metalv1alpha1.HostOperationAction{PowerCycle: &metalv1alpha1.PowerCycleAction{}})
+	op.Spec.TTLSecondsAfterFinished = ptr.To(ttl)
+	op.Status.Conditions = []metav1.Condition{{Type: metalv1alpha1.ConditionExecuted, Status: metav1.ConditionTrue,
+		Reason: metalv1alpha1.ReasonStepsSucceeded, LastTransitionTime: metav1.NewTime(time.Now().Add(-ago))}}
+	return op
+}
+
+// The operator deletes a finished operation only after the site's
+// retention, whatever its own TTL says, and writes the line first.
+func TestOperationRetention(t *testing.T) {
+	for name, tc := range map[string]struct {
+		retention *string
+		ago       time.Duration
+		ttl       int32
+		gone      bool
+	}{
+		"Forever keeps it":                          {retention: ptr.To("Forever"), ago: 400 * 24 * time.Hour, gone: false},
+		"a TTL shorter than the retention waits":    {retention: ptr.To("7d"), ago: 2 * 24 * time.Hour, ttl: 60, gone: false},
+		"past the retention it goes":                {retention: ptr.To("7d"), ago: 8 * 24 * time.Hour, ttl: 60, gone: true},
+		"a TTL longer than the retention decides":   {retention: ptr.To("1h"), ago: 2 * time.Hour, ttl: 86400, gone: false},
+		"the default keeps it for 30 days":          {ago: 29 * 24 * time.Hour, gone: false},
+		"the default lets it go after 30 days":      {ago: 31 * 24 * time.Hour, gone: true},
+		"a mistyped setting keeps it":               {retention: ptr.To("a month"), ago: 400 * 24 * time.Hour, gone: false},
+		"zero leaves it to the operation's own TTL": {retention: ptr.To("0s"), ago: 2 * time.Minute, ttl: 60, gone: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			op := finishedOp(tc.ago, tc.ttl)
+			r, _, _ := executorFor(t, "huawei-2288h-v5", op, settings(tc.retention))
+			r.CredentialsNamespace = "pk-metal"
+			var b bytes.Buffer
+			r.Audit = audit.New(&b, testOperator)
+			res, err := r.Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(op)})
+			require.NoError(t, err)
+			err = r.Get(t.Context(), client.ObjectKeyFromObject(op), &metalv1alpha1.HostOperation{})
+			lines := trail(t, &b)
+			if !tc.gone {
+				require.NoError(t, err, "the record stays")
+				assert.Empty(t, lines)
+				assert.Positive(t, res.RequeueAfter, "a changed setting is read again")
+				assert.LessOrEqual(t, res.RequeueAfter, settingsRecheck)
+				return
+			}
+			assert.True(t, apierrors.IsNotFound(err), "the record goes: %v", err)
+			require.Len(t, lines, 1)
+			assert.Equal(t, audit.EventDeleted, lines[0].Event)
+			assert.Equal(t, string(audit.DeleteRetentionExpired), lines[0].Reason)
+			assert.Equal(t, testOperator, lines[0].Actor)
+		})
+	}
+}
+
+// A succeeded rollout goes after the site's retention, its operations
+// with it, each with its line first; a failed one stays.
+func TestRolloutRetention(t *testing.T) {
+	for name, tc := range map[string]struct {
+		retention *string
+		status    metav1.ConditionStatus
+		gone      bool
+	}{
+		"Forever keeps a succeeded rollout": {retention: ptr.To("Forever"), status: metav1.ConditionTrue},
+		"a duration lets it go":             {retention: ptr.To("24h"), status: metav1.ConditionTrue, gone: true},
+		"a failed rollout stays":            {retention: ptr.To("24h"), status: metav1.ConditionFalse},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ro := rolloutFixture()
+			ro.Status.Conditions = []metav1.Condition{{Type: osv1alpha1.ConditionComplete, Status: tc.status,
+				Reason: osv1alpha1.ReasonRolloutSucceeded, LastTransitionTime: metav1.NewTime(time.Now().Add(-48 * time.Hour))}}
+			op := preClearedOp(metalv1alpha1.HostOperationAction{PowerCycle: &metalv1alpha1.PowerCycleAction{}})
+			op.Labels = map[string]string{osv1alpha1.LabelRollout: ro.Name}
+			op.OwnerReferences = []metav1.OwnerReference{{APIVersion: osv1alpha1.GroupVersion.String(), Kind: "TalosRollout",
+				Name: ro.Name, UID: ro.UID, Controller: ptr.To(true)}}
+			cl := fake.NewClientBuilder().WithScheme(testScheme(t)).
+				WithStatusSubresource(&osv1alpha1.TalosRollout{}).
+				WithObjects(ro, op, settings(tc.retention)).Build()
+			var b bytes.Buffer
+			r := &TalosRolloutReconciler{Client: cl, Namespace: "pk-metal", OperationsNamespace: "pk-metal",
+				Audit: audit.New(&b, testOperator)}
+			_, err := r.Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(ro)})
+			require.NoError(t, err)
+			err = cl.Get(t.Context(), client.ObjectKeyFromObject(ro), &osv1alpha1.TalosRollout{})
+			lines := trail(t, &b)
+			if !tc.gone {
+				require.NoError(t, err)
+				assert.Empty(t, lines)
+				return
+			}
+			assert.True(t, apierrors.IsNotFound(err), "%v", err)
+			require.Len(t, lines, 2)
+			assert.Equal(t, audit.KindHostOperation, lines[0].Kind)
+			assert.Equal(t, string(audit.DeleteOwnerDeleted), lines[0].Reason)
+			assert.Equal(t, audit.KindTalosRollout, lines[1].Kind)
+			assert.Equal(t, string(audit.DeleteRetentionExpired), lines[1].Reason)
+		})
+	}
 }
 
 // Every place the operator withdraws a proposal writes the line before the

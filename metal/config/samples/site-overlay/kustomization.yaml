@@ -54,7 +54,8 @@ secretGenerator:
       disableNameSuffixHash: true
 
 patches:
-  # Who may approve their own proposal (approval.yaml).
+  # Who may approve their own proposal, and how long finished records stay
+  # (approval.yaml).
   - path: approval.yaml
   - path: manager_args.yaml
     target:

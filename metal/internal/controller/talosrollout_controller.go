@@ -99,7 +99,7 @@ type resolvedImage struct {
 	at  time.Time
 }
 
-// +kubebuilder:rbac:groups=os.pk.io,resources=talosrollouts,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups=os.pk.io,resources=talosrollouts,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups=os.pk.io,resources=talosrollouts/status,verbs=update
 // +kubebuilder:rbac:groups=os.pk.io,resources=talosrollouts/finalizers,verbs=update
 // +kubebuilder:rbac:groups=os.pk.io,resources=talosclusters,verbs=get;list;watch
@@ -123,7 +123,7 @@ func (r *TalosRolloutReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 	if rolloutFinished(ro) {
 		r.reportProgress(ro)
-		return ctrl.Result{}, nil
+		return r.expire(ctx, ro)
 	}
 	orig := ro.DeepCopy()
 	defer r.reportProgress(ro)
@@ -142,6 +142,45 @@ func (r *TalosRolloutReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 	auditRollout(r.Audit, orig, ro)
 	return res, nil
+}
+
+// expire deletes a succeeded rollout once the site's retention
+// (retention.go) has run out since it completed. A rollout that failed, was
+// aborted or whose plan changed under its approval stays until a person
+// deletes it: that is where they decide what next, and the proposer asks
+// again once it is gone. The rollout's operations go with it (they are
+// its dependents); each gets its audit line before the rollout's own.
+func (r *TalosRolloutReconciler) expire(ctx context.Context, ro *osv1alpha1.TalosRollout) (ctrl.Result, error) {
+	c := meta.FindStatusCondition(ro.Status.Conditions, osv1alpha1.ConditionComplete)
+	if c.Status != metav1.ConditionTrue {
+		return ctrl.Result{}, nil
+	}
+	keep, err := siteRetention(ctx, r.Client, r.Namespace)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if keep.forever {
+		if keep.problem != "" {
+			logf.FromContext(ctx).Info(keep.problem)
+		}
+		return ctrl.Result{RequeueAfter: settingsRecheck}, nil
+	}
+	if wait := time.Until(c.LastTransitionTime.Add(keep.keep)); wait > 0 {
+		return ctrl.Result{RequeueAfter: min(wait, settingsRecheck)}, nil
+	}
+	ops := &metalv1alpha1.HostOperationList{}
+	if err := r.List(ctx, ops, client.InNamespace(r.OperationsNamespace),
+		client.MatchingLabels{osv1alpha1.LabelRollout: ro.Name}); err != nil {
+		return ctrl.Result{}, err
+	}
+	for i := range ops.Items {
+		if metav1.IsControlledBy(&ops.Items[i], ro) {
+			r.Audit.Deleted(opObject(&ops.Items[i]), audit.DeleteOwnerDeleted, "rollout "+ro.Name+" is deleted after the site's retention")
+		}
+	}
+	r.Audit.Deleted(rolloutObject(ro), audit.DeleteRetentionExpired, fmt.Sprintf("completed %s ago; site retention %s",
+		time.Since(c.LastTransitionTime.Time).Round(time.Second), keep))
+	return ctrl.Result{}, client.IgnoreNotFound(r.Delete(ctx, ro, client.Preconditions{UID: &ro.UID}))
 }
 
 // reportProgress feeds the rollout progress metric from the status this
