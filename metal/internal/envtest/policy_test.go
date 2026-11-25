@@ -41,6 +41,26 @@ func installApprovalPolicy(t *testing.T, ctx context.Context, cl client.Client, 
 	require.NoError(t, cl.Create(ctx, params))
 }
 
+// installSettings creates the site settings ConfigMap
+// (pk-metal/hostoperation-approval) from the committed one, naming operator
+// as the operator, unless it exists: the policies that take it as params
+// deny everything without it.
+func installSettings(t *testing.T, ctx context.Context, cl client.Client, operator string) {
+	t.Helper()
+	docs := strings.Split(readFile(t, filepath.Join("..", "..", "config", "policy", "hostoperation-approval.yaml")), "\n---")
+	require.Len(t, docs, 3)
+	params := &corev1.ConfigMap{}
+	require.NoError(t, yaml.Unmarshal([]byte(docs[2]), params))
+	params.Data["operator"] = operator
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: params.Namespace}}
+	if err := cl.Create(ctx, ns); err != nil && !apierrors.IsAlreadyExists(err) {
+		require.NoError(t, err)
+	}
+	if err := cl.Create(ctx, params); err != nil && !apierrors.IsAlreadyExists(err) {
+		require.NoError(t, err)
+	}
+}
+
 // installClaimPolicy loads the committed claim provisioning policy; its params
 // are the ones installApprovalPolicy created.
 func installClaimPolicy(t *testing.T, ctx context.Context, cl client.Client) {

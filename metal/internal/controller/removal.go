@@ -446,6 +446,9 @@ func markNotWiped(host *metalv1alpha1.Host, cluster, node string) bool {
 		host.Annotations = map[string]string{}
 	}
 	host.Annotations[metalv1alpha1.AnnotationDiskNotWiped] = cluster + "/" + node
+	// A waiver was about the install that an earlier mark named; this
+	// mark needs a wipe or a waiver of its own.
+	delete(host.Annotations, metalv1alpha1.AnnotationWipeWaived)
 	return true
 }
 

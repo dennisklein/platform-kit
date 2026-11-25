@@ -7,10 +7,9 @@
   ],
   "changes": true,
   "needsCluster": true,
-  "description": "abort asks the operator to stop an operation. An operation that has not\nstarted ends at once; nothing was done to the machine. A running one stops\nbefore its next step. A step that already acted on the machine is finished\nfirst: a reboot that was asked for is waited out, a power cycle that saw\nthe machine off turns it on again. Then the operator undoes what the\noperation left behind:\n\n  - it ejects the virtual media the operation mounted,\n  - it clears the boot override the operation set,\n  - it makes the Kubernetes Node schedulable again if the operation\n    cordoned it (a node someone had cordoned before stays cordoned).\n\nWhat cannot be undone stays: a reboot, an applied config, an upgrade, an\netcd member that left. The operation ends as Aborted and its last step says\nwhat was undone. Deleting an operation also stops it, but undoes nothing.\n\nThe reason is stored on the operation with your user name.",
+  "description": "abort asks the operator to stop an operation. An operation that has not\nstarted ends at once; nothing was done to the machine. A running one stops\nbefore its next step. A step that already acted on the machine is finished\nfirst: a reboot that was asked for is waited out, a power cycle that saw\nthe machine off turns it on again. Then the operator undoes what the\noperation left behind:\n\n  - it ejects the virtual media the operation mounted,\n  - it clears the boot override the operation set,\n  - it makes the Kubernetes Node schedulable again if the operation\n    cordoned it (a node someone had cordoned before stays cordoned).\n\nWhat cannot be undone stays: a reboot, an applied config, an upgrade, an\netcd member that left. The operation ends as Aborted and its last step says\nwhat was undone. Deleting an operation also stops it, but undoes nothing.\n\nThe reason is required. It is stored on the operation with your user name,\nas \"<username>: <reason>\"; admission accepts no other form.",
   "examples": [
-    "pk-metal abort pk-metal/reboot-node-2-x7k2p",
-    "pk-metal abort --reason \"wrong node\" reboot-node-2-x7k2p"
+    "pk-metal abort --reason \"wrong node\" pk-metal/reboot-node-2-x7k2p"
   ],
   "exitStatus": [],
   "flags": [
@@ -39,7 +38,7 @@
       "name": "reason",
       "type": "string",
       "default": "",
-      "usage": "why, for the people who read the operation later",
+      "usage": "why, for the people who read the operation later (required)",
       "global": false
     }
   ],

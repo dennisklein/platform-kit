@@ -73,7 +73,7 @@ Replace one member at a time. Approve the next operation only after the one befo
 3. It decrypts the snapshot with your age identity and makes sure that it is intact.
 4. It compares the SHA-256 with the value that the approver saw in the plan.
 5. It sends the snapshot to the node through the Talos API.
-6. It records the upload in the annotation `metal.pk.io/etcd-snapshot-uploaded` of the operation.
+6. It records the upload in the annotation `metal.pk.io/etcd-snapshot-uploaded` of the operation, as `<user name>: <sha256>`.
 7. The operator starts etcd from the snapshot.
 
 The plaintext goes from your workstation to the node. The operator never has it.

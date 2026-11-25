@@ -180,7 +180,7 @@ func (x *exec) etcdRecover(ctx context.Context, a *metalv1alpha1.EtcdRecoverActi
 		return stepState{}, fmt.Errorf("mint talosconfig for %s: %w", cluster.Name, err)
 	}
 
-	uploaded := x.op.Annotations[metalv1alpha1.AnnotationEtcdSnapshotUploaded] == a.SHA256
+	uploaded := metalv1alpha1.SnapshotUploaded(x.op.Annotations[metalv1alpha1.AnnotationEtcdSnapshotUploaded], a.SHA256)
 	if uploaded && probeEtcd(ctx, r.TalosDial, talosconfig, target) == etcdListening {
 		r.recoveries.Delete(x.op.UID)
 		return stepDone, nil

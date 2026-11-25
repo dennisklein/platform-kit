@@ -19,6 +19,18 @@ package v1alpha1
 //	pk-metal wipe <host>
 const AnnotationDiskNotWiped = "metal.pk.io/disk-not-wiped"
 
+// AnnotationWipeWaived on a Host records who removed AnnotationDiskNotWiped
+// without a wipe, and why: "<username>: <reason>". Admission refuses the
+// removal of the mark by a person unless the same request sets this
+// annotation in that form, with the person's own username
+// (config/policy/guard-lift.yaml). The operator removes it when it marks the
+// machine again or wipes it, and the audit trail names it when an install
+// starts on the machine.
+//
+//	kubectl annotate host <host> metal.pk.io/disk-not-wiped- \
+//	  metal.pk.io/wipe-waived="<you>: <reason>"
+const AnnotationWipeWaived = "metal.pk.io/wipe-waived"
+
 // AnnotationWipe on a Host asks the operator to propose a wipe of a machine
 // that has AnnotationDiskNotWiped. The wipe boots an image that erases the
 // system disk, and stops there. The value is the Talos version of the image

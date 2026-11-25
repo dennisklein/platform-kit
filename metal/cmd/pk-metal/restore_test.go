@@ -219,7 +219,7 @@ func TestRestoreUploadSendsOnlyTheApprovedSnapshot(t *testing.T) {
 		},
 	}
 	cl := fakeClient(append(w.objs, snap, op)...)
-	in := uploadInput{Namespace: operatorNamespace, Name: op.Name, Identity: identityFile(t, id),
+	in := uploadInput{Namespace: operatorNamespace, Name: op.Name, User: "alice", Identity: identityFile(t, id),
 		FromFile: encryptedFile(t, id, plain)}
 	ctx := context.Background()
 
@@ -251,7 +251,8 @@ func TestRestoreUploadSendsOnlyTheApprovedSnapshot(t *testing.T) {
 	require.NoError(t, uploadSnapshot(ctx, cl, w.fleet.Dialer(), in, &out))
 	assert.Equal(t, plain, w.cps["cp-1"].Recovered(), "the node got exactly the snapshot")
 	require.NoError(t, cl.Get(ctx, client.ObjectKeyFromObject(op), got))
-	assert.Equal(t, snap.Status.SHA256, got.Annotations[metalv1alpha1.AnnotationEtcdSnapshotUploaded])
+	assert.Equal(t, "alice: "+snap.Status.SHA256, got.Annotations[metalv1alpha1.AnnotationEtcdSnapshotUploaded],
+		"the record names who uploaded, in the form admission accepts")
 	assert.Contains(t, out.String(), "the operator now starts etcd")
 
 	// Talos refuses an upload to a node whose etcd runs; so does the result.

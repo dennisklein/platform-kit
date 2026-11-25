@@ -533,8 +533,9 @@ func TestPivot(t *testing.T) {
 			return op.Labels["metal.pk.io/purpose"] == "release"
 		}), "no release is proposed")
 
+		allow := metalv1alpha1.GuardLiftValue(whoAmI(t, ctx, dst.cl), "the test releases the operator's own machine")
 		require.NoError(t, dst.cl.Patch(ctx, &metalv1alpha1.Host{ObjectMeta: metav1.ObjectMeta{Name: hostName}},
-			client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"annotations":{"`+metalv1alpha1.AnnotationAllowSelfDisruption+`":"true"}}}`))))
+			client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"annotations":{"`+metalv1alpha1.AnnotationAllowSelfDisruption+`":"`+allow+`"}}}`))))
 		require.Eventually(t, func() bool {
 			return slices.ContainsFunc(opsOf(dst.cl), func(op metalv1alpha1.HostOperation) bool {
 				return op.Labels["metal.pk.io/purpose"] == "release"

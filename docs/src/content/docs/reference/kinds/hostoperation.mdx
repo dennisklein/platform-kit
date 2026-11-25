@@ -136,7 +136,7 @@ Set these annotations on the HostOperation. The value tells who asked and why.
   <dd>
     Stops the operation. If it did not start, it ends at once. If it runs, it stops before the next action.
     An action that already acted finishes first. Then the operator ejects the media, clears the boot override and uncordons the node that this operation cordoned.
-    The phase changes to Aborted. [](cli:abort) sets it.
+    The phase changes to Aborted. The value is `<user name>: <reason>`. [](cli:abort) sets it.
   </dd>
   <dt>`metal.pk.io/retry`</dt>
   <dd>

@@ -156,7 +156,7 @@ func TestDisruptionVerdict(t *testing.T) {
 		},
 		"the machine the operator runs on": {
 			in:   disruptionInput{host: ptr.To(runsNodeHost("h-5", "w-1")), self: onW1, nodes: nodes, cluster: cluster(3, 3)},
-			want: []string{"this operator runs on it (address 10.0.0.4)", "kubectl annotate host h-5 metal.pk.io/allow-self-disruption=true", "pk-metal pivot"},
+			want: []string{"this operator runs on it (address 10.0.0.4)", "kubectl annotate host h-5 metal.pk.io/allow-self-disruption=\"<you>: <reason>\"", "pk-metal pivot"},
 		},
 		"the machine the operator runs on, allowed": {
 			in: disruptionInput{host: ptr.To(allowed(runsNodeHost("h-5", "w-1"))), self: onW1, nodes: nodes, cluster: cluster(3, 3)},

@@ -45,10 +45,11 @@ A machine that did not answer during its release keeps its install. Its Host sho
 
 </Steps>
 
-If you know that the disk is empty (you replaced it, or erased it another way), remove the mark yourself:
+If you know that the disk is empty (you replaced it, or erased it another way), remove the mark yourself. Set `metal.pk.io/wipe-waived` to your user name and the reason in the same request:
 
 ```sh
-kubectl annotate host simhw2288v5000399 metal.pk.io/disk-not-wiped-
+kubectl annotate host simhw2288v5000399 metal.pk.io/disk-not-wiped- \
+  metal.pk.io/wipe-waived="$(kubectl auth whoami -o jsonpath='{.status.userInfo.username}'): disk replaced"
 ```
 
 ## Decommission a machine

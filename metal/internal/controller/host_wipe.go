@@ -76,6 +76,7 @@ func (r *hostWipeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if opSucceeded(op) {
 			delete(host.Annotations, metalv1alpha1.AnnotationWipe)
 			delete(host.Annotations, metalv1alpha1.AnnotationDiskNotWiped)
+			delete(host.Annotations, metalv1alpha1.AnnotationWipeWaived)
 			if err := r.Update(ctx, host); err != nil {
 				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}

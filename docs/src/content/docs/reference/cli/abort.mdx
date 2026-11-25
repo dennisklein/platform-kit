@@ -38,7 +38,7 @@ The operator stops before the next step and then removes the media, the boot ove
 
 1. The command asks the API server for your user name.
 2. It reads the operation. It refuses an operation that has a result.
-3. It sets the annotation `metal.pk.io/abort` to your user name and the reason.
+3. It sets the annotation `metal.pk.io/abort` to `<user name>: <reason>`. The reason is required: the [admission policy](ref:admission-policies#guard-lift) `guard-lift` accepts no other value.
 4. The [](ctrl:hostoperation) stops the operation:
    - An operation that did not start ends immediately. The machine did not change.
    - An operation that runs stops before its next step.

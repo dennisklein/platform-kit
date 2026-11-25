@@ -167,7 +167,7 @@ type Line struct {
 	Action string `json:"action,omitempty"`
 	// step.finished, step.failed
 	Result string `json:"result,omitempty"`
-	// step.failed, finished, deleted
+	// step.failed, finished (the abort), deleted
 	Reason  string `json:"reason,omitempty"`
 	Message string `json:"message,omitempty"`
 	// finished
@@ -299,9 +299,12 @@ func (l *Logger) StepFailed(o Object, step int, action, reason, message string) 
 
 // Finished records the end of an operation or a rollout: its phase, the
 // reason of its outcome, and how long it ran (zero when it never started).
-func (l *Logger) Finished(o Object, phase, reason string, ran time.Duration) {
+// message says who stopped an aborted one and why; empty otherwise.
+func (l *Logger) Finished(o Object, phase, reason, message string, ran time.Duration) {
 	secs := ran.Round(time.Second).Seconds()
-	l.write(o, EventFinished, l.Operator(), func(x *Line) { x.Phase, x.Reason, x.DurationSeconds = phase, reason, &secs })
+	l.write(o, EventFinished, l.Operator(), func(x *Line) {
+		x.Phase, x.Reason, x.Message, x.DurationSeconds = phase, reason, clip(message), &secs
+	})
 }
 
 // Deleted records that the operator is about to delete o. It is written

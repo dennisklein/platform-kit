@@ -32,7 +32,7 @@ Seven [ValidatingAdmissionPolicies](term:vap) close that gap. They are [CEL](ter
 | `etcdbackuppolicy-guard` | [](kind:EtcdBackupPolicy) | CREATE, UPDATE | Who may choose who can read the etcd backups, and where they go. |
 | `endpointprofile-guard` | [](kind:EndpointProfile) | CREATE, UPDATE | Who may change what the operator writes to the BMCs. |
 | `taloscluster-credentials-guard` | [](kind:TalosCluster) | CREATE, UPDATE | Who may make the published admin credentials live longer than 24 hours. |
-| `guard-lift` | HostOperation, HostClaim, [](kind:TalosNode) | CREATE, UPDATE | A guard lift names the person who sets it, and a reason. |
+| `guard-lift` | HostOperation, HostClaim, [](kind:TalosNode), [](kind:Host) | CREATE, UPDATE | A guard lift or a decision names the person who sets it, and a reason. Only the operator removes `disk-not-wiped` without a named waiver. |
 
 All seven have these settings:
 
@@ -190,15 +190,17 @@ Each person who can patch a cluster can make the time shorter, or remove it. The
 
 ## `guard-lift`
 
-Three annotations lift a safety rule of the operator: `metal.pk.io/override-cluster-guard`, `metal.pk.io/ignore-window` and `metal.pk.io/ack-etcd-risk`. RBAC lets each holder of `patch` set them. This policy makes the value name that holder.
+These annotations lift a safety rule of the operator, or decide a step of a change: `metal.pk.io/override-cluster-guard`, `metal.pk.io/ignore-window`, `metal.pk.io/ack-etcd-risk`, `metal.pk.io/allow-self-disruption`, `metal.pk.io/wipe-waived`, `metal.pk.io/abort` and `metal.pk.io/etcd-snapshot-uploaded`. RBAC lets each holder of `patch` set them. This policy makes the value name that holder. See [Named guard lifts](ref:audit-trail#named-guard-lifts).
 
 | # | Rule | When | Message |
 | --- | --- | --- | --- |
 | 1 | A request that sets a lift, or changes its value, gives the value `<username>: <reason>`. The username is the username of the request. The reason is not empty. | CREATE, UPDATE | `a guard lift must name you and say why: set … to "<username>: <reason>"` |
+| 2 | A request that removes `metal.pk.io/disk-not-wiped` from a Host also sets `metal.pk.io/wipe-waived` to `<username>: <reason>`. The operator is exempt: it removes the mark after a wipe. | UPDATE | `the machine may still hold the install of another cluster: wipe it (pk-metal wipe), or waive the wipe in the same request` |
 
 - A request that removes a lift passes. That puts the rule back.
 - A request that leaves the value as it is passes. So the writes of the operator and a value from before the policy pass.
-- The operator sets none of these annotations, so it has no exemption.
+- The operator sets none of these annotations, so it has no exemption from rule 1.
+- The policy takes the ConfigMap `hostoperation-approval` as parameters, to know the operator. Without the ConfigMap, it refuses each create and update of the four kinds.
 - A GitOps controller that applies a lift must name its own identity. The commit names the person.
 - See [](ref:audit-trail) for the records that show the lift.
 

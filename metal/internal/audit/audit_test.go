@@ -112,8 +112,10 @@ func TestSchema(t *testing.T) {
 				`"result":"Failed","reason":"StepFailed","message":"node did not come back"}`,
 		},
 		{
-			name:  "finished",
-			write: func(l *Logger) { l.Finished(op, "Succeeded", "StepsSucceeded", 95*time.Second+400*time.Millisecond) },
+			name: "finished",
+			write: func(l *Logger) {
+				l.Finished(op, "Succeeded", "StepsSucceeded", "", 95*time.Second+400*time.Millisecond)
+			},
 			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"finished","kind":"HostOperation",` +
 				`"namespace":"pk-metal","name":"reboot-node-1","uid":"u-1",` +
 				`"actor":"system:serviceaccount:pk-metal:pk-metal-manager","reason":"StepsSucceeded",` +
@@ -121,11 +123,11 @@ func TestSchema(t *testing.T) {
 		},
 		{
 			name:  "finished without a start",
-			write: func(l *Logger) { l.Finished(op, "Aborted", "Aborted", 0) },
+			write: func(l *Logger) { l.Finished(op, "Aborted", "Aborted", "carol: wrong host", 0) },
 			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"finished","kind":"HostOperation",` +
 				`"namespace":"pk-metal","name":"reboot-node-1","uid":"u-1",` +
 				`"actor":"system:serviceaccount:pk-metal:pk-metal-manager","reason":"Aborted",` +
-				`"phase":"Aborted","durationSeconds":0}`,
+				`"message":"carol: wrong host","phase":"Aborted","durationSeconds":0}`,
 		},
 		{
 			name:  "deleted",
@@ -178,7 +180,7 @@ func TestCommonFields(t *testing.T) {
 	l.StepStarted(op, 0, "x")
 	l.StepFinished(op, 0, "x", "Succeeded")
 	l.StepFailed(op, 0, "x", "r", "m")
-	l.Finished(op, "Failed", "r", time.Second)
+	l.Finished(op, "Failed", "r", "", time.Second)
 	l.Deleted(op, DeleteWithdrawn, "")
 	lines := strings.Split(strings.TrimSuffix(b.String(), "\n"), "\n")
 	require.Len(t, lines, 9, "one line per call")
@@ -200,7 +202,7 @@ func TestSequenceAndPod(t *testing.T) {
 	l.WithPod("pk-metal-manager-5d8f-x2v")
 	l.StepStarted(op, 0, "x")
 	l.StepFinished(op, 0, "x", "Succeeded")
-	l.Finished(op, "Succeeded", "r", time.Second)
+	l.Finished(op, "Succeeded", "r", "", time.Second)
 	lines := strings.Split(strings.TrimSuffix(b.String(), "\n"), "\n")
 	require.Len(t, lines, 3)
 	for i, line := range lines {

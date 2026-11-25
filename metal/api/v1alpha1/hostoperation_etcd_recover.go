@@ -1,14 +1,27 @@
 package v1alpha1
 
 // AnnotationEtcdSnapshotUploaded on a HostOperation with an etcdRecover step
-// records that a person uploaded the snapshot to the node. Its value is the
-// sha256:<hex> of the plaintext that pk-metal restore upload sent. The
+// records that a person uploaded the snapshot to the node. Its value is
+// "<username>: sha256:<hex>": who uploaded, and the sha256 of the plaintext
+// that pk-metal restore upload sent. Admission accepts no other form, and
+// only the caller's own username (config/policy/guard-lift.yaml). The
 // command first checked those bytes against the record of the EtcdSnapshot.
 // The step waits for
 // it, and only then asks Talos to start etcd from the upload. It is the
 // uploader's statement, not proof; Talos checks etcd's own integrity hash
 // of the upload when it recovers.
 const AnnotationEtcdSnapshotUploaded = "metal.pk.io/etcd-snapshot-uploaded"
+
+// SnapshotUploaded reports whether the value of AnnotationEtcdSnapshotUploaded
+// states the upload of sha. A bare sha256 is a value written before
+// admission asked for a name; it still counts.
+func SnapshotUploaded(value, sha string) bool {
+	if value == sha {
+		return true
+	}
+	_, why, named := ParseGuardLift(value)
+	return named && why == sha
+}
 
 // EtcdRecoverAction restores a cluster's etcd from a snapshot onto one
 // control plane, after the cluster lost all of it.

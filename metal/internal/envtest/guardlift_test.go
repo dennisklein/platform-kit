@@ -1,7 +1,9 @@
 // The named guard-lift suite: setting or changing an annotation that lifts a
-// safety rule needs the value "<username>: <reason>", with the username of
-// the request (config/policy/guard-lift.yaml). Removing one, and updates
-// that leave the value alone, stay open.
+// safety rule or decides a step needs the value "<username>: <reason>", with
+// the username of the request (config/policy/guard-lift.yaml). Removing one,
+// and updates that leave the value alone, stay open. Removing the
+// disk-not-wiped mark of a Host needs a named waiver in the same request,
+// unless the operator removes it.
 package envtest_test
 
 import (
@@ -23,9 +25,12 @@ func TestNamedGuardLifts(t *testing.T) {
 	st := startEnv(t)
 	cl := st.cl
 	ctx := t.Context()
+	const operator = "op-gl"
+	installSettings(t, ctx, cl, operator)
 	installPolicy(t, ctx, cl, "guard-lift.yaml")
 	alice := st.userClient(t, "alice")
 	bob := st.userClient(t, "bob")
+	operatorCl := st.userClient(t, operator)
 
 	annotate := func(c client.Client, obj client.Object, key string, value *string) error {
 		v := any(nil)
@@ -58,6 +63,8 @@ func TestNamedGuardLifts(t *testing.T) {
 			Address: "192.0.2.41", InstallDiskSelector: osv1alpha1.DiskSelector{Serial: "disk-1"}},
 	}
 	require.NoError(t, cl.Create(ctx, node))
+	host := &metalv1alpha1.Host{ObjectMeta: metav1.ObjectMeta{Name: "lift-host"}}
+	require.NoError(t, cl.Create(ctx, host))
 
 	// The policy takes a moment to become enforcing after its creation.
 	var last error
@@ -79,6 +86,10 @@ func TestNamedGuardLifts(t *testing.T) {
 		{"HostOperation", op, metalv1alpha1.AnnotationOverrideClusterGuard},
 		{"HostClaim", claim, metalv1alpha1.AnnotationAckEtcdRisk},
 		{"TalosNode", node, metalv1alpha1.AnnotationAckEtcdRisk},
+		{"Host", host, metalv1alpha1.AnnotationAllowSelfDisruption},
+		{"Host", host, metalv1alpha1.AnnotationWipeWaived},
+		{"HostOperation", op, metalv1alpha1.AnnotationAbort},
+		{"HostOperation", op, metalv1alpha1.AnnotationEtcdSnapshotUploaded},
 	} {
 		t.Run(tc.kind+" "+tc.key, func(t *testing.T) {
 			err := annotate(alice, tc.obj, tc.key, str("bob: he said so"))
@@ -123,6 +134,35 @@ func TestNamedGuardLifts(t *testing.T) {
 	})
 
 	t.Run("other annotations are not lifts", func(t *testing.T) {
-		require.NoError(t, annotate(alice, op, metalv1alpha1.AnnotationAbort, str("stop")))
+		require.NoError(t, annotate(alice, op, metalv1alpha1.AnnotationRetry, str("again")))
+	})
+
+	t.Run("the disk-not-wiped mark goes only with a wipe or a named waiver", func(t *testing.T) {
+		mark := func() {
+			require.NoError(t, annotate(operatorCl, host, metalv1alpha1.AnnotationDiskNotWiped, str("fleet/node-1")))
+		}
+		mark()
+		err := annotate(alice, host, metalv1alpha1.AnnotationDiskNotWiped, nil)
+		require.Error(t, err, "a person removes the mark only with a waiver")
+		assert.Contains(t, err.Error(), `waive the wipe in the same request: set metal.pk.io/wipe-waived to "alice: <reason>"`)
+
+		both := func(c client.Client, waiver string) error {
+			raw, err := json.Marshal(map[string]any{"metadata": map[string]any{"annotations": map[string]any{
+				metalv1alpha1.AnnotationDiskNotWiped: nil, metalv1alpha1.AnnotationWipeWaived: waiver}}})
+			require.NoError(t, err)
+			return c.Patch(ctx, host, client.RawPatch(types.MergePatchType, raw))
+		}
+		require.Error(t, both(alice, "bob: disk replaced"), "the waiver names the person who removes the mark")
+		require.NoError(t, both(alice, "alice: disk replaced"))
+
+		// A waiver from before does not cover a new mark.
+		mark()
+		err = annotate(bob, host, metalv1alpha1.AnnotationDiskNotWiped, nil)
+		require.Error(t, err, "an old waiver left on the host does not count")
+		require.NoError(t, both(bob, "bob: wiped by hand"))
+
+		// The operator removes the mark after a wipe.
+		mark()
+		require.NoError(t, annotate(operatorCl, host, metalv1alpha1.AnnotationDiskNotWiped, nil))
 	})
 }

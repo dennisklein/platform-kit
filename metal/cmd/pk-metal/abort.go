@@ -30,17 +30,17 @@ What cannot be undone stays: a reboot, an applied config, an upgrade, an
 etcd member that left. The operation ends as Aborted and its last step says
 what was undone. Deleting an operation also stops it, but undoes nothing.
 
-The reason is stored on the operation with your user name.
+The reason is required. It is stored on the operation with your user name,
+as "<username>: <reason>"; admission accepts no other form.
 
 examples:
-  pk-metal abort pk-metal/reboot-node-2-x7k2p
-  pk-metal abort --reason "wrong node" reboot-node-2-x7k2p`
+  pk-metal abort --reason "wrong node" pk-metal/reboot-node-2-x7k2p`
 }
 
 func abortCmd(args []string) {
 	fs := newFlags("abort")
 	ns := fs.String("n", operatorNamespace, "namespace of the operation")
-	reason := fs.String("reason", "", "why, for the people who read the operation later")
+	reason := fs.String("reason", "", "why, for the people who read the operation later (required)")
 	addGlobalFlags(fs)
 	parseFlags(fs, args)
 	if fs.NArg() != 1 {
@@ -79,10 +79,12 @@ func abort(ctx context.Context, cl client.Client, namespace, name, user, reason 
 		fmt.Fprintf(w, "operation %s is already being aborted (%s)\n", ref, orDash(by))
 		return nil
 	}
-	value := user
-	if reason = strings.TrimSpace(reason); reason != "" {
-		value += ": " + reason
+	// Admission accepts an abort only as "<username>: <reason>", so that the
+	// operation records who stopped it and why.
+	if reason = strings.TrimSpace(reason); reason == "" {
+		return fmt.Errorf("say why: pk-metal abort --reason \"<reason>\" %s", ref)
 	}
+	value := metalv1alpha1.GuardLiftValue(user, reason)
 	patch := client.MergeFrom(op.DeepCopy())
 	if op.Annotations == nil {
 		op.Annotations = map[string]string{}

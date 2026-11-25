@@ -33,7 +33,7 @@ no other control plane of its cluster is being taken down; until then the
 approved operation waits (pk-metal status shows ClusterDisruption).
 
 A drain that a disruption budget holds up waits up to --drain-timeout, then
-fails and leaves the node cordoned. To stop a reboot: pk-metal abort.
+fails and leaves the node cordoned. To stop a reboot: pk-metal abort --reason.
 
 examples:
   pk-metal reboot w-1
@@ -161,6 +161,6 @@ func proposeReboot(ctx context.Context, cl client.Client, o rebootOptions, w io.
 		fmt.Fprintf(w, "It is a control plane of cluster %s: once approved, it waits until every other etcd member is healthy "+
 			"and no other control plane is down.\n", node.Spec.ClusterRef.Name)
 	}
-	fmt.Fprintf(w, "To withdraw it: pk-metal abort %s\n", ref)
+	fmt.Fprintf(w, "To withdraw it: pk-metal abort --reason \"<reason>\" %s\n", ref)
 	return op, nil
 }

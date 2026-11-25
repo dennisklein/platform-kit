@@ -44,7 +44,7 @@ The claim or the operation shows reason `SelfDisruption`.
   <dt>Own node</dt>
   <dd>The node in the environment variable `NODE_NAME` of the manager pod. The operator matches it to a [](kind:TalosNode) by name or address.</dd>
   <dt>allow-self-disruption</dt>
-  <dd>The Host annotation `metal.pk.io/allow-self-disruption`. With it, the operator can take that machine down.</dd>
+  <dd>The Host annotation `metal.pk.io/allow-self-disruption`. With it, the operator can take that machine down. The value is `<user name>: <reason>`. See [Named guard lifts](ref:audit-trail#named-guard-lifts).</dd>
 </dl>
 
 ## With the annotation

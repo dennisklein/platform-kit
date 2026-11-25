@@ -1,26 +1,45 @@
-# Named guard lifts: who lifted a safety rule, and why. Three annotations let a
-# person lift one of the operator's safety rules:
+# Named guard lifts and decisions: who lifted a safety rule or decided a step
+# of a change, and why. These annotations carry such a decision:
 #   - metal.pk.io/override-cluster-guard on a HostOperation: a control plane may
 #     go down although etcd is not fully healthy without it;
 #   - metal.pk.io/ignore-window on a HostOperation: it may start outside every
 #     maintenance window;
 #   - metal.pk.io/ack-etcd-risk on a HostClaim or a TalosNode: a control plane
-#     may leave etcd although that leaves an even count, no majority, or none.
+#     may leave etcd although that leaves an even count, no majority, or none;
+#   - metal.pk.io/allow-self-disruption on a Host: the operator may take down
+#     the machine it runs on, or a control plane of its own cluster;
+#   - metal.pk.io/wipe-waived on a Host: a person removed the disk-not-wiped
+#     mark without a wipe;
+#   - metal.pk.io/abort on a HostOperation: stop it;
+#   - metal.pk.io/etcd-snapshot-uploaded on a HostOperation: the snapshot an
+#     etcdRecover step starts etcd from is on the node (the reason is its
+#     sha256).
 #
 # The rule: a request that sets one of them, or changes its value, must give the
 # value "<username>: <reason>", with the username of the request and a reason
-# that is not empty. So the object itself records who lifted the rule; the
+# that is not empty. So the object itself records who decided; the
 # kube-apiserver audit log and the operator's audit trail add when.
 #
+# One more rule guards metal.pk.io/disk-not-wiped on a Host: the machine may
+# still hold another cluster's install, credentials included, so the operator
+# installs nothing on it until a wipe. Only the operator removes the mark on
+# its own (after the wipe). A person who removes it must set
+# metal.pk.io/wipe-waived in the same request, in the named form.
+#
 # What stays allowed:
-#   - removing the annotation, by anyone who may update the object: that puts
-#     the rule back;
+#   - removing one of the annotations above, by anyone who may update the
+#     object: that puts the rule back;
 #   - any update that leaves the value as it is (the operator's own writes,
 #     a label edit, a value written before this rule existed).
 #
-# The operator itself sets none of these annotations, so it has no exemption.
-# A GitOps controller that applies one must name its own identity: the commit
-# names the person. pk-metal writes the form for its caller.
+# The operator itself sets none of these annotations, so it has no exemption
+# from the named form. A GitOps controller that applies one must name its own
+# identity: the commit names the person. pk-metal writes the form for its
+# caller.
+#
+# The params are the hostoperation-approval ConfigMap: it says who the
+# operator is. A missing ConfigMap denies every create and update of the
+# kinds below: the gate fails closed.
 #
 # CEL note: oldObject is null on CREATE; every reference to it sits behind a
 # lazily-evaluated request.operation ternary (the null-oldObject guard).
@@ -30,12 +49,15 @@ metadata:
   name: guard-lift
 spec:
   failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
   matchConstraints:
     resourceRules:
       - apiGroups: ["metal.pk.io"]
         apiVersions: ["v1alpha1"]
         operations: ["CREATE", "UPDATE"]
-        resources: ["hostoperations", "hostclaims"]
+        resources: ["hostoperations", "hostclaims", "hosts"]
       - apiGroups: ["os.pk.io"]
         apiVersions: ["v1alpha1"]
         operations: ["CREATE", "UPDATE"]
@@ -43,7 +65,9 @@ spec:
   variables:
     - name: lifts
       expression: >-
-        ['metal.pk.io/override-cluster-guard', 'metal.pk.io/ignore-window', 'metal.pk.io/ack-etcd-risk']
+        ['metal.pk.io/override-cluster-guard', 'metal.pk.io/ignore-window', 'metal.pk.io/ack-etcd-risk',
+         'metal.pk.io/allow-self-disruption', 'metal.pk.io/wipe-waived', 'metal.pk.io/abort',
+         'metal.pk.io/etcd-snapshot-uploaded']
     - name: newAnnotations
       expression: "object.metadata.?annotations.orValue({})"
     - name: oldAnnotations
@@ -60,12 +84,28 @@ spec:
       expression: >-
         variables.changed.filter(k, !variables.newAnnotations[k].startsWith(variables.prefix)
           || variables.newAnnotations[k].substring(size(variables.prefix)).trim() == '')
+    - name: isOperator
+      expression: >-
+        has(params.data) && has(params.data.operator) && params.data.operator != ''
+        && request.userInfo.username == params.data.operator
+    # The disk-not-wiped mark is removed in this request.
+    - name: unmarked
+      expression: >-
+        request.kind.kind == 'Host' && 'metal.pk.io/disk-not-wiped' in variables.oldAnnotations
+        && !('metal.pk.io/disk-not-wiped' in variables.newAnnotations)
   validations:
     - expression: "size(variables.unnamed) == 0"
       messageExpression: >-
         'a guard lift must name you and say why: set ' + variables.unnamed.join(', ')
         + ' to "' + variables.prefix + '<reason>" (you are ' + request.userInfo.username
         + '; pk-metal writes this form for you). Removing the annotation is always allowed'
+      reason: Forbidden
+    - expression: >-
+        !variables.unmarked || variables.isOperator
+        || 'metal.pk.io/wipe-waived' in variables.changed
+      messageExpression: >-
+        'the machine may still hold the install of another cluster: wipe it (pk-metal wipe), or waive the wipe'
+        + ' in the same request: set metal.pk.io/wipe-waived to "' + variables.prefix + '<reason>"'
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1
@@ -75,3 +115,7 @@ metadata:
 spec:
   policyName: guard-lift
   validationActions: ["Deny"]
+  paramRef:
+    name: hostoperation-approval
+    namespace: pk-metal
+    parameterNotFoundAction: Deny

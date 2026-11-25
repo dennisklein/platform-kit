@@ -73,7 +73,7 @@ func TestOperationAuditTrail(t *testing.T) {
 	key := client.ObjectKeyFromObject(op)
 	host := &metalv1alpha1.Host{}
 	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: "host-a"}, host))
-	host.Annotations = map[string]string{metalv1alpha1.AnnotationAllowSelfDisruption: "true"}
+	host.Annotations = map[string]string{metalv1alpha1.AnnotationAllowSelfDisruption: "bob: operator moves next week"}
 	require.NoError(t, r.Update(ctx, host))
 
 	for range 3 {
@@ -139,11 +139,53 @@ func TestOperationAuditTrail(t *testing.T) {
 	assert.Equal(t, ptr.To(true), g.Named)
 	assert.Equal(t, audit.KindHost, lines[3].Kind)
 	assert.Equal(t, "pk-metal/op", lines[3].Operation)
-	assert.Equal(t, ptr.To(false), lines[3].Named, "allow-self-disruption takes any value")
+	assert.Equal(t, ptr.To(true), lines[3].Named, "allow-self-disruption names who allowed it")
+	assert.Equal(t, "bob", lines[3].Actor)
 	f := byEvent[audit.EventFinished]
 	assert.Equal(t, "Succeeded", f.Phase)
 	assert.Equal(t, testOperator, f.Actor)
 	require.NotNil(t, f.DurationSeconds)
+}
+
+// The end of an aborted operation names who stopped it and why, and an
+// install on a machine whose wipe a person waived names the waiver.
+func TestOperationAuditAbortAndWaiver(t *testing.T) {
+	t.Run("abort", func(t *testing.T) {
+		op := preClearedOp(metalv1alpha1.HostOperationAction{PowerCycle: &metalv1alpha1.PowerCycleAction{}})
+		op.Annotations = map[string]string{metalv1alpha1.AnnotationAbort: "carol: wrong host"}
+		r, _, _ := executorFor(t, "huawei-2288h-v5", op)
+		var b bytes.Buffer
+		r.Audit = audit.New(&b, testOperator)
+		_, err := r.Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(op)})
+		require.NoError(t, err)
+		lines := trail(t, &b)
+		require.Equal(t, []string{"proposed", "finished"}, eventNames(lines))
+		assert.Equal(t, "Aborted", lines[1].Phase)
+		assert.Equal(t, "carol: wrong host", lines[1].Message)
+	})
+	t.Run("wipe waived", func(t *testing.T) {
+		op := preClearedOp(metalv1alpha1.HostOperationAction{PowerCycle: &metalv1alpha1.PowerCycleAction{}})
+		op.Labels = map[string]string{labelPurpose: purposeProvision}
+		r, _, _ := executorFor(t, "huawei-2288h-v5", op)
+		var b bytes.Buffer
+		r.Audit = audit.New(&b, testOperator)
+		ctx := t.Context()
+		host := &metalv1alpha1.Host{}
+		require.NoError(t, r.Get(ctx, client.ObjectKey{Name: "host-a"}, host))
+		host.Annotations = map[string]string{metalv1alpha1.AnnotationWipeWaived: "dave: the disk was replaced"}
+		require.NoError(t, r.Update(ctx, host))
+		done := runOp(t, r)
+		require.True(t, opSucceeded(done), "%+v", done.Status)
+		lines := trail(t, &b)
+		assert.Contains(t, eventNames(lines), "guard.lifted metal.pk.io/wipe-waived")
+		for _, l := range lines {
+			if l.Annotation == metalv1alpha1.AnnotationWipeWaived {
+				assert.Equal(t, "dave", l.Actor)
+				assert.Equal(t, audit.KindHost, l.Kind)
+				assert.Equal(t, "pk-metal/op", l.Operation)
+			}
+		}
+	})
 }
 
 // A failed step names its reason and message, and the operation's end

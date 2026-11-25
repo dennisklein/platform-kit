@@ -202,7 +202,7 @@ func disruptionVerdict(in disruptionInput) string {
 	if _, allowed := in.host.Annotations[metalv1alpha1.AnnotationAllowSelfDisruption]; !allowed {
 		return what + ". Rebooting or powering it off could stop the operator halfway, so the operator does not do it on its own. " +
 			"Safer: move the operator to another cluster first (pk-metal pivot). To allow it for this host: " +
-			"kubectl annotate host " + in.host.Name + " " + metalv1alpha1.AnnotationAllowSelfDisruption + "=true"
+			"kubectl annotate host " + in.host.Name + " " + metalv1alpha1.AnnotationAllowSelfDisruption + "=\"<you>: <reason>\""
 	}
 	if !ownControlPlane {
 		return ""

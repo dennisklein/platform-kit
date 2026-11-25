@@ -118,6 +118,12 @@ func (r *HostOperationReconciler) auditOperation(ctx context.Context, before, af
 			l.GuardLifted(audit.Object{Kind: audit.KindHost, Name: host.Name, UID: host.UID},
 				metalv1alpha1.AnnotationAllowSelfDisruption, v, ref)
 		}
+		// An install on a machine whose wipe a person waived: the waiver
+		// is what let the operator propose it.
+		if v, ok := hostAnnotation(host, metalv1alpha1.AnnotationWipeWaived); ok && after.Labels[labelPurpose] == purposeProvision {
+			l.GuardLifted(audit.Object{Kind: audit.KindHost, Name: host.Name, UID: host.UID},
+				metalv1alpha1.AnnotationWipeWaived, v, ref)
+		}
 		started(recordedSteps(after))
 	}
 	for j := len(before.Status.Steps); j < len(after.Status.Steps); j++ {
@@ -143,7 +149,12 @@ func (r *HostOperationReconciler) auditOperation(ctx context.Context, before, af
 		// The phase is derived from the conditions, as the phase package
 		// stamps it; a reconciler does not read status.phase.
 		ph, _ := phase.ForOperation(after.Status.Conditions)
-		l.Finished(o, string(ph), c.Reason, ran)
+		// An abort names who asked and why (metal.pk.io/abort).
+		why := ""
+		if ph == metalv1alpha1.OperationAborted {
+			why = after.Annotations[metalv1alpha1.AnnotationAbort]
+		}
+		l.Finished(o, string(ph), c.Reason, why, ran)
 	}
 }
 
@@ -236,7 +247,7 @@ func auditRollout(l *audit.Logger, before, after *osv1alpha1.TalosRollout) {
 		if first != nil {
 			ran = c.LastTransitionTime.Sub(first.Time)
 		}
-		l.Finished(o, rolloutPhase(c), c.Reason, ran)
+		l.Finished(o, rolloutPhase(c), c.Reason, "", ran)
 	}
 }
 

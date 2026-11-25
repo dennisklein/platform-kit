@@ -13,7 +13,9 @@ import (
 const AnnotationRetry = "metal.pk.io/retry"
 
 // AnnotationAbort on a HostOperation asks the executor to stop it. The value
-// says who asked and why (pk-metal abort writes "<user>: <reason>"). An
+// is "<username>: <reason>": who asked and why. Admission accepts no other
+// form, and only the caller's own username (config/policy/guard-lift.yaml);
+// pk-metal abort writes it. An
 // operation that has not started ends at once. A running one stops before
 // its next step: a step that already acted on the machine (a reboot asked
 // for, a power cycle half done) is finished first, then the executor undoes

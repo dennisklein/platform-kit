@@ -74,7 +74,7 @@ text={`
     proposed pk-metal/reboot-cp-2-m4q8z: a clean reboot of TalosNode cp-2 on host simhw2288v5000398 (6 steps).
     Approve it after reading the plan (another person must, if the site forbids self-approval): pk-metal approve pk-metal/reboot-cp-2-m4q8z
     It is a control plane of cluster lab: once approved, it waits until every other etcd member is healthy and no other control plane is down.
-    To withdraw it: pk-metal abort pk-metal/reboot-cp-2-m4q8z
+    To withdraw it: pk-metal abort --reason "<reason>" pk-metal/reboot-cp-2-m4q8z
 `}
 />
 

@@ -31,3 +31,14 @@ func TestParseGuardLift(t *testing.T) {
 		assert.Equal(t, tc.why, why, tc.value)
 	}
 }
+
+// The record of an etcd upload names who uploaded; a bare sha256 from
+// before admission asked for a name still counts, another sha does not.
+func TestSnapshotUploaded(t *testing.T) {
+	const sha = "sha256:0123"
+	assert.True(t, SnapshotUploaded("alice: "+sha, sha))
+	assert.True(t, SnapshotUploaded(sha, sha))
+	assert.False(t, SnapshotUploaded("alice: sha256:9999", sha))
+	assert.False(t, SnapshotUploaded("", sha))
+	assert.False(t, SnapshotUploaded("alice:"+sha, sha), "no separator names nobody")
+}

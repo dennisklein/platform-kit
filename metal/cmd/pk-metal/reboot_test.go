@@ -89,13 +89,25 @@ func TestAbort(t *testing.T) {
 	assert.Contains(t, out.String(), "has not started, so it ends now")
 
 	out.Reset()
-	require.NoError(t, abort(ctx, cl, op.Namespace, op.Name, "bob", "", &out))
+	require.NoError(t, abort(ctx, cl, op.Namespace, op.Name, "bob", "also wrong", &out))
 	assert.Contains(t, out.String(), "already being aborted (alice: wrong host)")
 
 	got.Status.Conditions = []metav1.Condition{{Type: metalv1alpha1.ConditionExecuted, Status: metav1.ConditionTrue,
 		Reason: metalv1alpha1.ReasonStepsSucceeded, LastTransitionTime: metav1.Now()}}
 	done := fakeClient(append([]client.Object{got}, objs[1:]...)...)
-	assert.ErrorContains(t, abort(ctx, done, op.Namespace, op.Name, "alice", "", &out), "has finished (Succeeded)")
+	assert.ErrorContains(t, abort(ctx, done, op.Namespace, op.Name, "alice", "late", &out), "has finished (Succeeded)")
+}
+
+// An abort names who asked and why: admission accepts no other form.
+func TestAbortNeedsAReason(t *testing.T) {
+	ctx := context.Background()
+	op, objs := bootPlan()
+	cl := fakeClient(objs...)
+	var out bytes.Buffer
+	assert.ErrorContains(t, abort(ctx, cl, op.Namespace, op.Name, "alice", "  ", &out), "say why")
+	got := &metalv1alpha1.HostOperation{}
+	require.NoError(t, cl.Get(ctx, client.ObjectKeyFromObject(op), got))
+	assert.NotContains(t, got.Annotations, metalv1alpha1.AnnotationAbort, "nothing was written")
 }
 
 // TestEveryActionIsDescribed: the approver reads every step in plain words;

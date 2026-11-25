@@ -87,7 +87,7 @@ An event adds the fields in the table below. A line never holds a Secret, a cred
 | `step.started` | A step starts. | `step` (from 0), `action` |
 | `step.finished` | A step succeeds. | `step`, `action`, `result` |
 | `step.failed` | A step fails. | `step`, `action`, `result`, `reason`, `message` |
-| `finished` | The operation or rollout ends. | `phase`, `reason`, `durationSeconds` |
+| `finished` | The operation or rollout ends. | `phase`, `reason`, `durationSeconds`, and `message` with the abort |
 | `deleted` | The operator deletes the object. The line comes before the delete request. | `reason`, `message` |
 | `media.fetched` | A BMC fetches through a [media grant](ref:media-store#grants) of the operation for the first time. The grant is now bound to that address. | `grant` (the file name), `source` |
 | `media.refused` | The media service refuses a request with a wrong password, or from an address that is not the bound one. At most ten lines for each grant. | `grant`, `source`, `reason` |
@@ -232,13 +232,17 @@ The operator reads the value again within one hour.
 
 ## Named guard lifts
 
-Three annotations lift a safety rule:
+These annotations lift a safety rule or decide a step of a change:
 
-| Annotation | On | Rule that it lifts |
+| Annotation | On | Rule that it lifts, or decision |
 | --- | --- | --- |
 | `metal.pk.io/override-cluster-guard` | HostOperation | A control plane goes down only while etcd is healthy without it. |
 | `metal.pk.io/ignore-window` | HostOperation | The operation starts only in a [](kind:MaintenanceWindow). |
 | `metal.pk.io/ack-etcd-risk` | HostClaim, TalosNode | A control plane leaves etcd only if etcd keeps an odd size and a majority. |
+| `metal.pk.io/allow-self-disruption` | Host | The operator does not stop the machine that it runs on, or a control plane of its own cluster. |
+| `metal.pk.io/wipe-waived` | Host | The operator installs nothing on a machine with `metal.pk.io/disk-not-wiped`. A person who removes that mark must set this annotation in the same request. |
+| `metal.pk.io/abort` | HostOperation | A person stops the operation. |
+| `metal.pk.io/etcd-snapshot-uploaded` | HostOperation | A person uploaded the etcd snapshot. The reason is the sha256 of the upload. |
 
 The value must be `<username>: <reason>`. The username is the username of the request, and the reason is not empty. The [admission policy](ref:admission-policies#guard-lift) `guard-lift` refuses each other value. So the object records who lifted the rule and why.
 
@@ -247,12 +251,12 @@ kubectl -n pk-metal annotate hostoperation reboot-node-1 \
   metal.pk.io/ignore-window="$(kubectl auth whoami -o jsonpath='{.status.userInfo.username}'): CVE fix"
 ```
 
-- `pk-metal` writes this value for you: [](cli:reinstall), [](cli:replace), [](cli:scale) and [](cli:restore).
+- `pk-metal` writes this value for you: [](cli:reinstall), [](cli:replace), [](cli:scale), [](cli:restore) and [](cli:abort).
 - [](cli:approve) shows the person and the reason of each lift in the plan.
 - A person who may update the object can always remove a lift. That puts the rule back.
 - A value from before the policy stays. The plan and the audit log show it as `nobody named`.
 
-`metal.pk.io/allow-self-disruption` on a [](kind:Host) is not a named lift. The audit log records its use with each operation that it lets stop the node of the operator.
+The audit log records `metal.pk.io/allow-self-disruption` with each operation that it lets stop the node of the operator, and `metal.pk.io/wipe-waived` with each install that starts on the machine. The `finished` line of an aborted operation has the value of `metal.pk.io/abort` in `message`. The operator removes `metal.pk.io/wipe-waived` when it marks the machine again or wipes it.
 
 ## The self-approval marker
 

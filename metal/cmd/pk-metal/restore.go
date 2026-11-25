@@ -126,8 +126,12 @@ func restoreCmd(args []string) {
 			badUsage(fs, err.Error())
 		}
 		cl := mustClient()
+		user, err := whoAmI(ctx, cl)
+		if err != nil {
+			die(err)
+		}
 		if err := uploadSnapshot(ctx, cl, machineapi.Dial, uploadInput{
-			Namespace: namespace, Name: name, Identity: *identity, FromFile: *fromFile,
+			Namespace: namespace, Name: name, User: user, Identity: *identity, FromFile: *fromFile,
 			TalosconfigFile: *talosconfigFile,
 		}, os.Stdout); err != nil {
 			die(err)
@@ -563,6 +567,8 @@ func describeEtcdRecover(a *metalv1alpha1.EtcdRecoverAction) string {
 
 type uploadInput struct {
 	Namespace, Name string
+	// User is who uploads; the record of the upload names them.
+	User            string
 	Identity        string
 	FromFile        string
 	TalosconfigFile string
@@ -593,7 +599,7 @@ func uploadSnapshot(ctx context.Context, cl client.Client, dial talos.Dialer, in
 	if c := meta.FindStatusCondition(op.Status.Conditions, metalv1alpha1.ConditionExecuted); c != nil && c.Status != metav1.ConditionUnknown {
 		return fmt.Errorf("operation %s/%s has finished (%s); propose a new one", op.Namespace, op.Name, c.Reason)
 	}
-	if op.Annotations[metalv1alpha1.AnnotationEtcdSnapshotUploaded] == a.SHA256 {
+	if metalv1alpha1.SnapshotUploaded(op.Annotations[metalv1alpha1.AnnotationEtcdSnapshotUploaded], a.SHA256) {
 		fmt.Fprintln(w, "the snapshot was uploaded already; the operator is starting etcd from it")
 		return nil
 	}
@@ -679,10 +685,13 @@ func uploadSnapshot(ctx context.Context, cl client.Client, dial talos.Dialer, in
 	if op.Annotations == nil {
 		op.Annotations = map[string]string{}
 	}
-	op.Annotations[metalv1alpha1.AnnotationEtcdSnapshotUploaded] = a.SHA256
+	// The statement names who uploaded: admission accepts it only in the
+	// form "<username>: <reason>", with the caller's own username.
+	stated := metalv1alpha1.GuardLiftValue(in.User, a.SHA256)
+	op.Annotations[metalv1alpha1.AnnotationEtcdSnapshotUploaded] = stated
 	if err := cl.Patch(ctx, op, patch); err != nil {
-		return fmt.Errorf("record the upload on %s/%s (the snapshot is on the node; set annotation %s=%s by hand): %w",
-			op.Namespace, op.Name, metalv1alpha1.AnnotationEtcdSnapshotUploaded, a.SHA256, err)
+		return fmt.Errorf("record the upload on %s/%s (the snapshot is on the node; set annotation %s=%q by hand): %w",
+			op.Namespace, op.Name, metalv1alpha1.AnnotationEtcdSnapshotUploaded, stated, err)
 	}
 	fmt.Fprintf(w, "recorded on %s/%s; the operator now starts etcd from it. Follow it with: pk-metal status\n",
 		op.Namespace, op.Name)

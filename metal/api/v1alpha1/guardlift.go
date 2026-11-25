@@ -3,12 +3,19 @@ package v1alpha1
 import "strings"
 
 // NamedGuardLifts are the annotations with which a person lifts a safety
-// rule. Each one names who lifted the rule and why, in the form
-// "<username>: <reason>". Admission (config/policy/guard-lift.yaml) accepts
-// a new or changed value only in that form, and only with the username of
-// the person who sets it, so that the object records who decided. Removing
-// the annotation is always allowed: it puts the rule back.
-var NamedGuardLifts = []string{AnnotationOverrideClusterGuard, AnnotationIgnoreWindow, AnnotationAckEtcdRisk}
+// rule or decides a step of a change. Each one names who decided and why,
+// in the form "<username>: <reason>". Admission
+// (config/policy/guard-lift.yaml) accepts a new or changed value only in
+// that form, and only with the username of the person who sets it, so that
+// the object records who decided. Removing the annotation is always
+// allowed: it puts the rule back.
+//
+// The decisions: an abort says why in its reason; the upload of an etcd
+// snapshot gives the sha256 it uploaded as its reason.
+var NamedGuardLifts = []string{
+	AnnotationOverrideClusterGuard, AnnotationIgnoreWindow, AnnotationAckEtcdRisk,
+	AnnotationAllowSelfDisruption, AnnotationWipeWaived, AnnotationAbort, AnnotationEtcdSnapshotUploaded,
+}
 
 // guardLiftSeparator divides the username from the reason. A username can
 // contain a colon (system:serviceaccount:<ns>:<name>), but not a colon

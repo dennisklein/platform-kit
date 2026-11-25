@@ -24,10 +24,12 @@ const AnnotationMaintenance = "metal.pk.io/maintenance"
 // starts no power action on it, because the operator would stop itself in
 // the middle of the work. With the annotation, the operator still takes down
 // only one control plane at a time. It does so only while the other control
-// planes keep the etcd majority. Any value is correct. Remove the annotation
-// when the work is done:
+// planes keep the etcd majority. The value is "<username>: <reason>": who
+// allowed it and why. Admission accepts no other form, and only the
+// caller's own username (config/policy/guard-lift.yaml). Remove the
+// annotation when the work is done:
 //
-//	kubectl annotate host <host> metal.pk.io/allow-self-disruption=true
+//	kubectl annotate host <host> metal.pk.io/allow-self-disruption="<you>: <reason>"
 //	kubectl annotate host <host> metal.pk.io/allow-self-disruption-
 //
 // The safer way is to move the operator to another cluster first
