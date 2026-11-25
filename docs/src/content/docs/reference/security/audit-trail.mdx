@@ -52,7 +52,13 @@ kubectl -n pk-metal logs deployment/pk-metal-manager --since=24h \
   | jq -cR 'fromjson? | select(.logger == "audit")'
 ```
 
-In a log store, select on the same field. For example, in Loki: `{namespace="pk-metal"} | json | logger="audit"`.
+In a log store, select the manager container of the manager pods, then the field. Other pods in `pk-metal` can write lines that look the same. For example, in Loki with the labels of the Kubernetes service discovery:
+
+```text
+{namespace="pk-metal", app_kubernetes_io_component="manager", container="manager"} | json | logger="audit"
+```
+
+The label names depend on how your log shipper maps the pod labels. Select on the pod label `app.kubernetes.io/component=manager` and the container `manager`.
 
 ### Fields
 
@@ -62,6 +68,8 @@ Each line has these fields:
 | --- | --- |
 | `ts` | The time of the line, RFC 3339 in UTC. |
 | `logger` | Always `audit`. |
+| `seq` | The number of the line in the manager process, from 1. A gap or a repeated number shows a missing or a repeated line. A new process starts again at 1. |
+| `pod` | The name of the manager pod that wrote the line. |
 | `event` | One of the events below. |
 | `kind` | `HostOperation`, `TalosRollout`, `HostClaim`, `TalosNode` or `Host`. |
 | `namespace` | The namespace of the object. It is empty for a cluster-scoped kind. |
@@ -101,16 +109,16 @@ The `reason` of a `deleted` line is one of these:
 The `ts` field is the same in each example. The operator is `system:serviceaccount:pk-metal:pk-metal-manager`, shown as `<operator>`.
 
 ```json
-{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"proposed","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"alice","proposedBy":"alice","target":"host-1","plan":"talosReboot, waitNodeReady","approvalRequired":true}
-{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"approved","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"bob","proposedBy":"alice","approvedBy":"bob","selfApproved":false}
-{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"approved","kind":"TalosRollout","namespace":"","name":"fleet-talosupgrade-1a2b3c4d","uid":"u-2","actor":"alice","proposedBy":"alice","approvedBy":"alice","selfApproved":true,"planHash":"sha256:abc"}
-{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"guard.lifted","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"alice","annotation":"metal.pk.io/ignore-window","value":"alice: CVE fix","named":true}
-{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"guard.lifted","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"bob","annotation":"metal.pk.io/override-cluster-guard","value":"bob: single control plane","named":true,"step":2,"action":"talosReboot"}
-{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"step.started","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"<operator>","step":0,"action":"cordon"}
-{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"step.finished","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"<operator>","step":1,"action":"drain","result":"Succeeded"}
-{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"step.failed","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"<operator>","step":2,"action":"talosReboot","result":"Failed","reason":"StepFailed","message":"node did not come back"}
-{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"finished","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"<operator>","reason":"StepsSucceeded","phase":"Succeeded","durationSeconds":95}
-{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"deleted","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"<operator>","reason":"RetentionExpired","message":"finished 720h0m0s ago"}
+{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"pod":"pk-metal-manager-7c9d5-x2v4q","event":"proposed","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"alice","proposedBy":"alice","target":"host-1","plan":"talosReboot, waitNodeReady","approvalRequired":true}
+{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":2,"pod":"pk-metal-manager-7c9d5-x2v4q","event":"approved","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"bob","proposedBy":"alice","approvedBy":"bob","selfApproved":false}
+{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":3,"pod":"pk-metal-manager-7c9d5-x2v4q","event":"approved","kind":"TalosRollout","namespace":"","name":"fleet-talosupgrade-1a2b3c4d","uid":"u-2","actor":"alice","proposedBy":"alice","approvedBy":"alice","selfApproved":true,"planHash":"sha256:abc"}
+{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":4,"pod":"pk-metal-manager-7c9d5-x2v4q","event":"guard.lifted","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"alice","annotation":"metal.pk.io/ignore-window","value":"alice: CVE fix","named":true}
+{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":5,"pod":"pk-metal-manager-7c9d5-x2v4q","event":"guard.lifted","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"bob","annotation":"metal.pk.io/override-cluster-guard","value":"bob: single control plane","named":true,"step":2,"action":"talosReboot"}
+{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":6,"pod":"pk-metal-manager-7c9d5-x2v4q","event":"step.started","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"<operator>","step":0,"action":"cordon"}
+{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":7,"pod":"pk-metal-manager-7c9d5-x2v4q","event":"step.finished","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"<operator>","step":1,"action":"drain","result":"Succeeded"}
+{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":8,"pod":"pk-metal-manager-7c9d5-x2v4q","event":"step.failed","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"<operator>","step":2,"action":"talosReboot","result":"Failed","reason":"StepFailed","message":"node did not come back"}
+{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":9,"pod":"pk-metal-manager-7c9d5-x2v4q","event":"finished","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"<operator>","reason":"StepsSucceeded","phase":"Succeeded","durationSeconds":95}
+{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":10,"pod":"pk-metal-manager-7c9d5-x2v4q","event":"deleted","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"<operator>","reason":"RetentionExpired","message":"finished 720h0m0s ago"}
 ```
 
 ### One line for each decision
@@ -119,6 +127,7 @@ The operator writes a line when its status write records the change. If the API 
 
 - A `deleted` line can show two times. That occurs if the delete request fails and the operator tries again. Use `uid` and `event` to find a repeated line.
 - A restart of the manager between the status write and the line loses that one line. The object and the kube-apiserver audit log still record the change.
+- Each line has `pod` and `seq`. Sort the lines of one pod by `seq` and look for gaps. The numbers show a lost line. They do not stop a person who can write to your log store from changing a line. Keep the log store outside the cluster, and write-once if your audit rules ask for it.
 - A field change in this schema breaks each site that reads it. The unit tests of `internal/audit` pin each line.
 
 ## The kube-apiserver audit log

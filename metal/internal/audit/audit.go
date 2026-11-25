@@ -3,9 +3,9 @@
 // guard, a step that starts, ends or fails, an operation or rollout that
 // ends, and a record that the operator deletes.
 //
-// Every line has the same fixed fields (ts, logger, event, kind, namespace,
-// name, uid, actor), and each event adds only the fields that its method
-// takes. The call sites cannot add a field or misspell one: the methods are
+// Every line has the same fixed fields (ts, logger, seq, pod, event, kind,
+// namespace, name, uid, actor), and each event adds only the fields that its
+// method takes. The call sites cannot add a field or misspell one: the methods are
 // the whole interface. A line holds names, reasons and plan summaries. It
 // never holds a config, a token or a password: no method takes one, and
 // the free text a method takes (a step's error) is masked with
@@ -18,6 +18,12 @@
 // example to Loki. The lines are not written through the manager's logr
 // logger, because its encoder writes its own ts field, and the schema here
 // must not depend on how the manager encodes its other lines.
+//
+// seq counts the lines of one process from 1, and pod names the process's
+// pod. A reader who has every line of a pod sees a gap or a reordering as a
+// missing or repeated number; a restart starts a new pod name or a new count
+// at 1. The numbers do not make the trail tamper-proof: a site ships the
+// lines to storage that the cluster cannot rewrite.
 //
 // A nil *Logger writes nothing, so a reconciler that a test builds without
 // one runs as before.
@@ -125,8 +131,13 @@ type Object struct {
 // pointer field is a pointer so that false and zero are written where the
 // event has them, and nothing where it does not.
 type Line struct {
-	TS        string `json:"ts"`
-	Logger    string `json:"logger"`
+	TS     string `json:"ts"`
+	Logger string `json:"logger"`
+	// Seq is the number of the line in this process, from 1.
+	Seq uint64 `json:"seq"`
+	// Pod is the pod of the process that wrote the line; empty outside a
+	// pod.
+	Pod       string `json:"pod,omitempty"`
 	Event     Event  `json:"event"`
 	Kind      Kind   `json:"kind"`
 	Namespace string `json:"namespace"`
@@ -189,6 +200,8 @@ type Logger struct {
 	// operator is the operator's username: the actor of what the operator
 	// decides on its own (steps, the end of a run, a delete).
 	operator string
+	pod      string
+	seq      uint64
 	now      func() time.Time
 }
 
@@ -205,6 +218,12 @@ func New(w io.Writer, operator string) *Logger {
 // WithClock replaces the clock; for tests.
 func (l *Logger) WithClock(now func() time.Time) *Logger {
 	l.now = now
+	return l
+}
+
+// WithPod sets the pod name that every line carries.
+func (l *Logger) WithPod(pod string) *Logger {
+	l.pod = pod
 	return l
 }
 
@@ -358,6 +377,8 @@ func (l *Logger) write(o Object, ev Event, actor string, fill func(*Line)) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	x.TS = l.now().UTC().Format(time.RFC3339Nano)
+	l.seq++
+	x.Seq, x.Pod = l.seq, l.pod
 	// A write that fails has nowhere better to go: the writer is the log.
 	_ = l.enc.Encode(&x)
 }

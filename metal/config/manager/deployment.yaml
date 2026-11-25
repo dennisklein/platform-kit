@@ -56,6 +56,17 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            # The pod's own name and namespace: each audit line names the
+            # pod that wrote it, and the media store finds the manager's
+            # image through them.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           ports:
             - name: media
               containerPort: 8443

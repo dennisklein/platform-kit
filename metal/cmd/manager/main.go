@@ -220,8 +220,9 @@ func main() {
 		OperationsNamespace:  c.credsNS,
 		Proposer:             proposer,
 		// The audit trail goes to standard error beside the other log
-		// lines; each line carries "logger":"audit" for routing.
-		Audit:  audit.New(os.Stderr, proposer),
+		// lines; each line carries "logger":"audit" for routing, and the
+		// pod name (POD_NAME, from the Deployment) with its line number.
+		Audit:  audit.New(os.Stderr, proposer).WithPod(os.Getenv("POD_NAME")),
 		Ledger: led,
 		// The standard install mounts the ledger from this ConfigMap; the
 		// path is what this process actually read.
@@ -283,7 +284,7 @@ func main() {
 func ownImage(cfg *rest.Config, scheme *runtime.Scheme) (string, error) {
 	ns, name := os.Getenv("POD_NAMESPACE"), os.Getenv("POD_NAME")
 	if ns == "" || name == "" {
-		return "", errors.New("POD_NAMESPACE and POD_NAME are not set (the media-store component sets them)")
+		return "", errors.New("POD_NAMESPACE and POD_NAME are not set (the Deployment sets them)")
 	}
 	cl, err := client.New(cfg, client.Options{Scheme: scheme})
 	if err != nil {

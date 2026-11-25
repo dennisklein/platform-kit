@@ -34,28 +34,28 @@ func TestSchema(t *testing.T) {
 		{
 			name:  "proposed",
 			write: func(l *Logger) { l.Proposed(op, "alice", "host-1", "talosReboot, waitNodeReady", true) },
-			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"proposed","kind":"HostOperation",` +
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"proposed","kind":"HostOperation",` +
 				`"namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"alice","proposedBy":"alice",` +
 				`"target":"host-1","plan":"talosReboot, waitNodeReady","approvalRequired":true}`,
 		},
 		{
 			name:  "proposed, no approval needed",
 			write: func(l *Logger) { l.Proposed(op, "op", "host-1", "powerOff", false) },
-			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"proposed","kind":"HostOperation",` +
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"proposed","kind":"HostOperation",` +
 				`"namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"op","proposedBy":"op",` +
 				`"target":"host-1","plan":"powerOff","approvalRequired":false}`,
 		},
 		{
 			name:  "approved by another person",
 			write: func(l *Logger) { l.Approved(op, "alice", "bob", "") },
-			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"approved","kind":"HostOperation",` +
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"approved","kind":"HostOperation",` +
 				`"namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"bob","proposedBy":"alice",` +
 				`"approvedBy":"bob","selfApproved":false}`,
 		},
 		{
 			name:  "self-approved rollout",
 			write: func(l *Logger) { l.Approved(ro, "alice", "alice", "sha256:abc") },
-			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"approved","kind":"TalosRollout",` +
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"approved","kind":"TalosRollout",` +
 				`"namespace":"","name":"fleet-talosupgrade-1a2b3c4d","uid":"u-2","actor":"alice","proposedBy":"alice",` +
 				`"approvedBy":"alice","selfApproved":true,"planHash":"sha256:abc"}`,
 		},
@@ -64,7 +64,7 @@ func TestSchema(t *testing.T) {
 			write: func(l *Logger) {
 				l.GuardLifted(op, "metal.pk.io/ignore-window", "alice: CVE fix", "")
 			},
-			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"guard.lifted","kind":"HostOperation",` +
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"guard.lifted","kind":"HostOperation",` +
 				`"namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"alice",` +
 				`"annotation":"metal.pk.io/ignore-window","value":"alice: CVE fix","named":true}`,
 		},
@@ -74,7 +74,7 @@ func TestSchema(t *testing.T) {
 				l.GuardLifted(Object{Kind: KindHostClaim, Namespace: "default", Name: "node-2", UID: "u-3"},
 					"metal.pk.io/ack-etcd-risk", "disk swap", "pk-metal/release-node-2")
 			},
-			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"guard.lifted","kind":"HostClaim",` +
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"guard.lifted","kind":"HostClaim",` +
 				`"namespace":"default","name":"node-2","uid":"u-3","actor":"",` +
 				`"annotation":"metal.pk.io/ack-etcd-risk","value":"disk swap","named":false,` +
 				`"operation":"pk-metal/release-node-2"}`,
@@ -84,7 +84,7 @@ func TestSchema(t *testing.T) {
 			write: func(l *Logger) {
 				l.GuardLiftedAtStep(op, "metal.pk.io/override-cluster-guard", "bob: single control plane", 2, "talosReboot")
 			},
-			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"guard.lifted","kind":"HostOperation",` +
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"guard.lifted","kind":"HostOperation",` +
 				`"namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"bob",` +
 				`"annotation":"metal.pk.io/override-cluster-guard","value":"bob: single control plane","named":true,` +
 				`"step":2,"action":"talosReboot"}`,
@@ -92,21 +92,21 @@ func TestSchema(t *testing.T) {
 		{
 			name:  "step started",
 			write: func(l *Logger) { l.StepStarted(op, 0, "cordon") },
-			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"step.started","kind":"HostOperation",` +
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"step.started","kind":"HostOperation",` +
 				`"namespace":"pk-metal","name":"reboot-node-1","uid":"u-1",` +
 				`"actor":"system:serviceaccount:pk-metal:pk-metal-manager","step":0,"action":"cordon"}`,
 		},
 		{
 			name:  "step finished",
 			write: func(l *Logger) { l.StepFinished(op, 1, "drain", "Succeeded") },
-			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"step.finished","kind":"HostOperation",` +
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"step.finished","kind":"HostOperation",` +
 				`"namespace":"pk-metal","name":"reboot-node-1","uid":"u-1",` +
 				`"actor":"system:serviceaccount:pk-metal:pk-metal-manager","step":1,"action":"drain","result":"Succeeded"}`,
 		},
 		{
 			name:  "step failed",
 			write: func(l *Logger) { l.StepFailed(op, 2, "talosReboot", "StepFailed", "node did not come back") },
-			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"step.failed","kind":"HostOperation",` +
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"step.failed","kind":"HostOperation",` +
 				`"namespace":"pk-metal","name":"reboot-node-1","uid":"u-1",` +
 				`"actor":"system:serviceaccount:pk-metal:pk-metal-manager","step":2,"action":"talosReboot",` +
 				`"result":"Failed","reason":"StepFailed","message":"node did not come back"}`,
@@ -114,7 +114,7 @@ func TestSchema(t *testing.T) {
 		{
 			name:  "finished",
 			write: func(l *Logger) { l.Finished(op, "Succeeded", "StepsSucceeded", 95*time.Second+400*time.Millisecond) },
-			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"finished","kind":"HostOperation",` +
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"finished","kind":"HostOperation",` +
 				`"namespace":"pk-metal","name":"reboot-node-1","uid":"u-1",` +
 				`"actor":"system:serviceaccount:pk-metal:pk-metal-manager","reason":"StepsSucceeded",` +
 				`"phase":"Succeeded","durationSeconds":95}`,
@@ -122,7 +122,7 @@ func TestSchema(t *testing.T) {
 		{
 			name:  "finished without a start",
 			write: func(l *Logger) { l.Finished(op, "Aborted", "Aborted", 0) },
-			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"finished","kind":"HostOperation",` +
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"finished","kind":"HostOperation",` +
 				`"namespace":"pk-metal","name":"reboot-node-1","uid":"u-1",` +
 				`"actor":"system:serviceaccount:pk-metal:pk-metal-manager","reason":"Aborted",` +
 				`"phase":"Aborted","durationSeconds":0}`,
@@ -130,7 +130,7 @@ func TestSchema(t *testing.T) {
 		{
 			name:  "deleted",
 			write: func(l *Logger) { l.Deleted(op, DeleteRetentionExpired, "finished 720h0m0s ago") },
-			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"deleted","kind":"HostOperation",` +
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"deleted","kind":"HostOperation",` +
 				`"namespace":"pk-metal","name":"reboot-node-1","uid":"u-1",` +
 				`"actor":"system:serviceaccount:pk-metal:pk-metal-manager","reason":"RetentionExpired",` +
 				`"message":"finished 720h0m0s ago"}`,
@@ -138,14 +138,14 @@ func TestSchema(t *testing.T) {
 		{
 			name:  "media fetched",
 			write: func(l *Logger) { l.MediaFetched(op, "node-1-config.iso", "192.0.2.10") },
-			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"media.fetched","kind":"HostOperation",` +
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"media.fetched","kind":"HostOperation",` +
 				`"namespace":"pk-metal","name":"reboot-node-1","uid":"u-1",` +
 				`"actor":"system:serviceaccount:pk-metal:pk-metal-manager","grant":"node-1-config.iso","source":"192.0.2.10"}`,
 		},
 		{
 			name:  "media refused",
 			write: func(l *Logger) { l.MediaRefused(op, "node-1-config.iso", "198.51.100.7", "wrong credentials") },
-			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"media.refused","kind":"HostOperation",` +
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"media.refused","kind":"HostOperation",` +
 				`"namespace":"pk-metal","name":"reboot-node-1","uid":"u-1",` +
 				`"actor":"system:serviceaccount:pk-metal:pk-metal-manager","reason":"wrong credentials",` +
 				`"grant":"node-1-config.iso","source":"198.51.100.7"}`,
@@ -153,7 +153,7 @@ func TestSchema(t *testing.T) {
 		{
 			name:  "media grant ended, never fetched",
 			write: func(l *Logger) { l.MediaGrantEnded(op, "node-1-config.iso", "", "expired", 0, 0, 0) },
-			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"media.grantEnded","kind":"HostOperation",` +
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"media.grantEnded","kind":"HostOperation",` +
 				`"namespace":"pk-metal","name":"reboot-node-1","uid":"u-1",` +
 				`"actor":"system:serviceaccount:pk-metal:pk-metal-manager","reason":"expired",` +
 				`"grant":"node-1-config.iso","requests":0,"bytes":0,"refused":0}`,
@@ -185,11 +185,31 @@ func TestCommonFields(t *testing.T) {
 	for _, line := range lines {
 		var m map[string]any
 		require.NoError(t, json.Unmarshal([]byte(line), &m), line)
-		for _, k := range []string{"ts", "logger", "event", "kind", "namespace", "name", "uid", "actor"} {
+		for _, k := range []string{"ts", "logger", "seq", "event", "kind", "namespace", "name", "uid", "actor"} {
 			assert.Contains(t, m, k, line)
 		}
 		assert.Equal(t, LoggerName, m["logger"])
 	}
+}
+
+// TestSequenceAndPod: the lines of one process count up from 1 without a
+// gap, and each names the pod, so a reader sees a missing or a repeated
+// line.
+func TestSequenceAndPod(t *testing.T) {
+	l, b := newTest()
+	l.WithPod("pk-metal-manager-5d8f-x2v")
+	l.StepStarted(op, 0, "x")
+	l.StepFinished(op, 0, "x", "Succeeded")
+	l.Finished(op, "Succeeded", "r", time.Second)
+	lines := strings.Split(strings.TrimSuffix(b.String(), "\n"), "\n")
+	require.Len(t, lines, 3)
+	for i, line := range lines {
+		var got Line
+		require.NoError(t, json.Unmarshal([]byte(line), &got))
+		assert.Equal(t, uint64(i+1), got.Seq, line)
+		assert.Equal(t, "pk-metal-manager-5d8f-x2v", got.Pod, line)
+	}
+	assert.Contains(t, lines[0], `"logger":"audit","seq":1,"pod":"pk-metal-manager-5d8f-x2v","event":"step.started"`)
 }
 
 func TestNilLoggerWritesNothing(t *testing.T) {
