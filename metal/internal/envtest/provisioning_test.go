@@ -15,8 +15,10 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -630,6 +632,17 @@ func TestProvisioning(t *testing.T) {
 		assert.Equal(t, dualHost, c.Status.HandOff.Host)
 		assert.Equal(t, "node-dual", c.Status.HandOff.Node)
 		assert.True(t, strings.HasPrefix(c.Status.HandOff.ConfigDigest, "sha256:"))
+		// The config medium goes with the install; the operation keeps its
+		// digest.
+		require.Eventually(t, func() bool {
+			return apierrors.IsNotFound(cl.Get(ctx, client.ObjectKey{Name: "node-dual-config"}, &osv1alpha1.BootAsset{}))
+		}, waitFor, tick, "the config medium is deleted after the hand-off")
+		pinned := false
+		for _, a := range op.Spec.Actions {
+			pinned = pinned || (a.InsertMedia != nil && a.InsertMedia.BootAssetRef.Name == "node-dual-config" &&
+				strings.HasPrefix(a.InsertMedia.Digest, "sha256:"))
+		}
+		assert.True(t, pinned, "the record keeps the digest of the config medium")
 	})
 
 	st.run(t, "the hand-off outlives its operations", func(t *testing.T) {
@@ -757,6 +770,12 @@ func TestProvisioning(t *testing.T) {
 		assert.Equal(t, http.StatusUnauthorized, grantStatus(mounted["CD"]),
 			"and its grant revoked: even its credentials get the common refusal")
 		waitClaim("single", provisionedReason(metalv1alpha1.ReasonHandedOff))
+		// The installer with the config built in goes with the install, its
+		// file in the store too.
+		require.Eventually(t, func() bool {
+			return apierrors.IsNotFound(cl.Get(ctx, client.ObjectKey{Name: "node-single-embedded"}, &osv1alpha1.BootAsset{})) &&
+				storeAssetGone(store, "node-single-embedded")
+		}, waitFor, tick, "the embedded installer is deleted after the hand-off")
 
 		// The node stops answering before its claim goes: nothing can reset
 		// it through Talos, so the release can only power it off.
@@ -936,4 +955,10 @@ func TestProvisioning(t *testing.T) {
 			return apierrors.IsNotFound(err) && apierrors.IsNotFound(epErr)
 		}, waitFor, tick, "released, the held objects go")
 	})
+}
+
+// storeAssetGone: the media store holds no directory for the asset.
+func storeAssetGone(store *asset.Store, name string) bool {
+	_, err := os.Stat(filepath.Join(store.Dir, "assets", name))
+	return errors.Is(err, fs.ErrNotExist)
 }

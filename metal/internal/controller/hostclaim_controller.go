@@ -97,7 +97,7 @@ const defaultReleaseShutdownTimeout = 5 * time.Minute
 // +kubebuilder:rbac:groups=metal.pk.io,resources=hosts,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=metal.pk.io,resources=hostoperations,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups=os.pk.io,resources=talosclusters;talosnodes,verbs=get;list;watch
-// +kubebuilder:rbac:groups=os.pk.io,resources=bootassets,verbs=get;list;watch;create;update
+// +kubebuilder:rbac:groups=os.pk.io,resources=bootassets,verbs=get;list;watch;create;update;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch,namespace=pk-metal
 
 // Reconcile binds a claim to the Host its Asset resolves to, proposes the

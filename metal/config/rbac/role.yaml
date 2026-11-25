@@ -109,6 +109,7 @@ rules:
   - bootassets
   verbs:
   - create
+  - delete
   - get
   - list
   - update

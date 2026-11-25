@@ -424,6 +424,7 @@
           ],
           "verbs": [
             "create",
+            "delete",
             "get",
             "list",
             "update",
@@ -1358,7 +1359,8 @@
             "list",
             "watch",
             "create",
-            "update"
+            "update",
+            "delete"
           ]
         },
         {

@@ -204,7 +204,10 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 				hostName, node.Name, at)
 		}
 		set(metav1.ConditionTrue, metalv1alpha1.ReasonHandedOff, msg)
-		return r.withdraw(ctx, ops, "")
+		if err := r.withdraw(ctx, ops, ""); err != nil {
+			return err
+		}
+		return r.dropConfigMedia(ctx, node, ops)
 	}
 	// The node ran for this claim on another machine before the claim was
 	// moved (pk-metal replace): what its status says of a check-in came
@@ -222,7 +225,10 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 		}
 		recordHandOff(claim, hostName, node.Name, node.Status.ConfigDigest, booted)
 		set(metav1.ConditionTrue, metalv1alpha1.ReasonHandedOff, fmt.Sprintf("host %s runs TalosNode %s", hostName, node.Name))
-		return r.withdraw(ctx, ops, "")
+		if err := r.withdraw(ctx, ops, ""); err != nil {
+			return err
+		}
+		return r.dropConfigMedia(ctx, node, ops)
 	}
 	// A claim from before the record existed: a succeeded boot operation of
 	// this node onto this host is the hand-off, and becomes the record.
@@ -231,7 +237,7 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 			recordHandOff(claim, hostName, node.Name, ops[i].Annotations[annotationConfigDigest], &ops[i])
 			set(metav1.ConditionTrue, metalv1alpha1.ReasonHandedOff,
 				fmt.Sprintf("operation %s/%s booted host %s", ops[i].Namespace, ops[i].Name, hostName))
-			return nil
+			return r.dropConfigMedia(ctx, node, ops)
 		}
 	}
 	// A person said no for now: nothing new is proposed, and what still waits
@@ -286,6 +292,15 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 	}
 	if !meta.IsStatusConditionTrue(node.Status.Conditions, osv1alpha1.ConditionRendered) || node.Status.ConfigDigest == "" {
 		return hold(metalv1alpha1.ReasonAwaitingRender, fmt.Sprintf("TalosNode %s has no rendered config yet", node.Name))
+	}
+	// A failed boot of this render holds the claim until a person retries
+	// it. Its media are not made again for it: the ones that carry the
+	// config are deleted, and the retry builds them anew.
+	if failed := failedBoot(ops, hostName, node); failed != nil {
+		if err := r.dropConfigMedia(ctx, node, ops); err != nil {
+			return err
+		}
+		return hold(metalv1alpha1.ReasonOperationFailed, failedBootMessage(claim, failed))
 	}
 
 	shape, err := r.endpointShape(ctx, host)
@@ -422,17 +437,84 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 			verb = "installed"
 		}
 		set(metav1.ConditionTrue, metalv1alpha1.ReasonHandedOff, fmt.Sprintf("operation %s %s host %s with TalosNode %s", ref, verb, hostName, node.Name))
-		return nil
+		return r.dropConfigMedia(ctx, node, ops)
 	case current.AwaitsApproval():
 		return hold(metalv1alpha1.ReasonAwaitingApproval, awaitsApprovalMessage(claim, current, "boot", "install"))
 	case ex != nil && ex.Status == metav1.ConditionFalse:
-		return hold(metalv1alpha1.ReasonOperationFailed, fmt.Sprintf(
-			"boot operation %s failed: %s. To try again: pk-metal retry %s. To stop trying: pk-metal hold %s/%s",
-			ref, ex.Message, ref, claim.Namespace, claim.Name))
+		if err := r.dropConfigMedia(ctx, node, ops); err != nil {
+			return err
+		}
+		return hold(metalv1alpha1.ReasonOperationFailed, failedBootMessage(claim, current))
 	case ex != nil && ex.Message != "":
 		return hold(metalv1alpha1.ReasonAwaitingOperation, "boot operation "+ref+": "+ex.Message)
 	}
 	return hold(metalv1alpha1.ReasonAwaitingOperation, "boot operation "+ref+" in flight")
+}
+
+// failedBoot is the failed boot of node's current render onto the host,
+// when nothing else for the host is in flight; nil otherwise. A boot that
+// started fails only by its own steps, and only a person starts it again
+// (pk-metal retry deletes it).
+func failedBoot(ops []metalv1alpha1.HostOperation, hostName string, node *osv1alpha1.TalosNode) *metalv1alpha1.HostOperation {
+	var failed *metalv1alpha1.HostOperation
+	for i := range ops {
+		op := &ops[i]
+		if !op.DeletionTimestamp.IsZero() {
+			continue
+		}
+		if !op.Finished() {
+			return nil
+		}
+		if !opSucceeded(op) && bootsNode(op, hostName, node.Name) &&
+			op.Annotations[annotationConfigDigest] == node.Status.ConfigDigest {
+			failed = op
+		}
+	}
+	return failed
+}
+
+func failedBootMessage(claim *metalv1alpha1.HostClaim, op *metalv1alpha1.HostOperation) string {
+	ref := op.Namespace + "/" + op.Name
+	var why string
+	if ex := meta.FindStatusCondition(op.Status.Conditions, metalv1alpha1.ConditionExecuted); ex != nil {
+		why = ex.Message
+	}
+	return fmt.Sprintf("boot operation %s failed: %s. To try again: pk-metal retry %s. To stop trying: pk-metal hold %s/%s",
+		ref, why, ref, claim.Namespace, claim.Name)
+}
+
+// dropConfigMedia deletes the boot media the lane made for node that carry
+// its machine config, once no boot of the claim runs: the config ISO (its
+// artifact Secret goes with it, as its owner) and the installer with the
+// config built in (the store sweep deletes its file). After the install, or
+// after a failed boot, nothing mounts them again; the operations keep the
+// digest of each medium they mounted, which is the record. A later boot of
+// the node makes them anew. A medium a person made is left alone.
+func (r *HostClaimReconciler) dropConfigMedia(ctx context.Context, node *osv1alpha1.TalosNode, ops []metalv1alpha1.HostOperation) error {
+	for i := range ops {
+		if !ops[i].Finished() && ops[i].DeletionTimestamp.IsZero() {
+			return nil
+		}
+	}
+	for _, name := range []string{node.Name + "-config", embeddedName(node.Name)} {
+		a := &osv1alpha1.BootAsset{}
+		if err := r.Get(ctx, client.ObjectKey{Name: name}, a); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return err
+		}
+		if a.Labels[labelProvisioning] != "true" || !a.DeletionTimestamp.IsZero() || !secretBearing(a) ||
+			a.Spec.NodeRef == nil || a.Spec.NodeRef.Name != node.Name {
+			continue
+		}
+		if err := r.Delete(ctx, a); client.IgnoreNotFound(err) != nil {
+			return err
+		}
+		logf.FromContext(ctx).Info("deleted a boot medium that carries the machine config", "bootAsset", a.Name,
+			"node", node.Name, "digest", a.Status.Digest)
+	}
+	return nil
 }
 
 // heldBy reports whether the claim carries the hold annotation, with its

@@ -243,3 +243,96 @@ func opsFor(t *testing.T, r *HostClaimReconciler, host string) []metalv1alpha1.H
 	}
 	return out
 }
+
+// TestConfigMediaGoAfterTheBoot: the media the lane made that carry the
+// node's machine config are deleted once the install is handed off or the
+// boot failed, and not while a boot still runs. A failed boot holds the
+// claim without making them again; a medium a person made, and the factory
+// installer, which carries no secret, stay.
+func TestConfigMediaGoAfterTheBoot(t *testing.T) {
+	ctx := context.Background()
+	cluster := &osv1alpha1.TalosCluster{ObjectMeta: metav1.ObjectMeta{Name: "lab", UID: "lab-uid"},
+		Spec: osv1alpha1.TalosClusterSpec{TalosVersion: "v1.14.6"}}
+	rendered := func() *osv1alpha1.TalosNode {
+		return &osv1alpha1.TalosNode{
+			ObjectMeta: metav1.ObjectMeta{Name: "node-b", UID: "node-b-uid"},
+			Spec:       osv1alpha1.TalosNodeSpec{ClusterRef: osv1alpha1.Reference{Name: "lab"}},
+			Status: osv1alpha1.TalosNodeStatus{ConfigDigest: "sha256:render", Conditions: []metav1.Condition{{
+				Type: osv1alpha1.ConditionRendered, Status: metav1.ConditionTrue, Reason: osv1alpha1.ReasonConfigRendered,
+				LastTransitionTime: metav1.Now(),
+			}}},
+		}
+	}
+	host := &metalv1alpha1.Host{ObjectMeta: metav1.ObjectMeta{Name: "host-a"}}
+	host.Status.ManagedBy = []metalv1alpha1.ManagementPath{{EndpointRef: metalv1alpha1.Reference{Name: "ibmc"}, SystemID: "1", Reachable: true}}
+	host.Status.Conditions = []metav1.Condition{{Type: metalv1alpha1.ConditionVerified, Status: metav1.ConditionTrue,
+		Reason: "Verified", LastTransitionTime: metav1.Now()}}
+	media := func() []client.Object {
+		lane := map[string]string{labelProvisioning: "true"}
+		return []client.Object{
+			&osv1alpha1.BootAsset{ObjectMeta: metav1.ObjectMeta{Name: "node-b-config", Labels: lane},
+				Spec: osv1alpha1.BootAssetSpec{Strategy: osv1alpha1.StrategyConfigISO, NodeRef: &osv1alpha1.Reference{Name: "node-b"}}},
+			&osv1alpha1.BootAsset{ObjectMeta: metav1.ObjectMeta{Name: "node-b-embedded", Labels: lane},
+				Spec: osv1alpha1.BootAssetSpec{Strategy: osv1alpha1.StrategyEmbeddedInstaller, NodeRef: &osv1alpha1.Reference{Name: "node-b"}}},
+			&osv1alpha1.BootAsset{ObjectMeta: metav1.ObjectMeta{Name: "lab-installer-0123abcd", Labels: lane},
+				Spec: osv1alpha1.BootAssetSpec{Strategy: osv1alpha1.StrategyFactory, TalosVersion: "v1.14.6"}},
+			&osv1alpha1.BootAsset{ObjectMeta: metav1.ObjectMeta{Name: "by-hand"},
+				Spec: osv1alpha1.BootAssetSpec{Strategy: osv1alpha1.StrategyConfigISO, NodeRef: &osv1alpha1.Reference{Name: "node-b"}}},
+		}
+	}
+	left := func(t *testing.T, r *HostClaimReconciler) []string {
+		t.Helper()
+		l := &osv1alpha1.BootAssetList{}
+		require.NoError(t, r.List(ctx, l))
+		var names []string
+		for _, a := range l.Items {
+			names = append(names, a.Name)
+		}
+		return names
+	}
+	failed := func() *metalv1alpha1.HostOperation {
+		op := bootOp("boot", "node-b", false, true)
+		op.Annotations = map[string]string{annotationConfigDigest: "sha256:render"}
+		op.Status.Conditions = []metav1.Condition{{Type: metalv1alpha1.ConditionExecuted, Status: metav1.ConditionFalse,
+			Reason: metalv1alpha1.ReasonStepFailed, Message: "step 3/6 insertMedia: the BMC refused the image", LastTransitionTime: metav1.Now()}}
+		return op
+	}
+
+	t.Run("handed off", func(t *testing.T) {
+		r := claimReconcilerFor(t, append(media(), cluster, rendered(), host, huaweiEndpoint(), bootOp("boot", "node-b", true, true))...)
+		claim := testClaim("node-b")
+		require.NoError(t, r.provision(ctx, claim, "host-a"))
+		require.Equal(t, metalv1alpha1.ReasonHandedOff, meta.FindStatusCondition(claim.Status.Conditions, metalv1alpha1.ConditionProvisioned).Reason)
+		assert.ElementsMatch(t, []string{"lab-installer-0123abcd", "by-hand"}, left(t, r))
+	})
+	t.Run("a boot still runs", func(t *testing.T) {
+		node := rendered()
+		node.Status.Conditions = append(node.Status.Conditions, metav1.Condition{Type: osv1alpha1.ConditionReady,
+			Status: metav1.ConditionTrue, Reason: osv1alpha1.ReasonNodeReady, LastTransitionTime: metav1.Now()})
+		r := claimReconcilerFor(t, append(media(), cluster, node, host, huaweiEndpoint(), bootOp("boot", "node-b", false, true))...)
+		claim := testClaim("node-b")
+		require.NoError(t, r.provision(ctx, claim, "host-a"))
+		require.Equal(t, metalv1alpha1.ReasonHandedOff, meta.FindStatusCondition(claim.Status.Conditions, metalv1alpha1.ConditionProvisioned).Reason)
+		assert.Len(t, left(t, r), 4, "the boot ejects its media first")
+	})
+	t.Run("failed", func(t *testing.T) {
+		r := claimReconcilerFor(t, append(media(), cluster, rendered(), host, huaweiEndpoint(), failed())...)
+		claim := testClaim("node-b")
+		for range 2 {
+			require.NoError(t, r.provision(ctx, claim, "host-a"))
+			c := meta.FindStatusCondition(claim.Status.Conditions, metalv1alpha1.ConditionProvisioned)
+			require.NotNil(t, c)
+			assert.Equal(t, metalv1alpha1.ReasonOperationFailed, c.Reason, c.Message)
+			assert.Contains(t, c.Message, "the BMC refused the image")
+			assert.Contains(t, c.Message, "pk-metal retry pk-metal/boot")
+			assert.ElementsMatch(t, []string{"lab-installer-0123abcd", "by-hand"}, left(t, r), "and none is made again")
+			assert.Len(t, opsFor(t, r, "host-a"), 1, "nothing new is proposed")
+		}
+	})
+	t.Run("a retry makes them anew", func(t *testing.T) {
+		r := claimReconcilerFor(t, cluster, rendered(), host, huaweiEndpoint())
+		claim := testClaim("node-b")
+		require.NoError(t, r.provision(ctx, claim, "host-a"))
+		assert.Contains(t, left(t, r), "node-b-embedded")
+	})
+}
