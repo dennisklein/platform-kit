@@ -416,3 +416,20 @@ func TestFailedStepMasksTheBMCError(t *testing.T) {
 	}
 	assert.Contains(t, trail.String(), `"event":"step.failed"`)
 }
+
+// TestFailedStepEjectsWhatTheRunMounted: a step that fails after a medium
+// was mounted leaves no medium behind. The trailing eject steps never run
+// after a failure, so the failure path ejects, once, and says so.
+func TestFailedStepEjectsWhatTheRunMounted(t *testing.T) {
+	ba, artifact := configAsset(t, buildISO(t, "version: v1alpha1\n"))
+	op := preClearedOp(insertAsset(ba.Name, ""),
+		metalv1alpha1.HostOperationAction{SetBootOverride: &metalv1alpha1.SetBootOverrideAction{Target: "NotARealTarget"}})
+	r, st, rec := executorFor(t, "supermicro-x12", op, ba, artifact)
+	r.Media = startMedia(t)
+
+	got := runOp(t, r)
+	requireFailed(t, got, "after the failure: ejected virtual media "+mediaSlot)
+	assert.Equal(t, []string{mediaSlot}, rec.ejects[len(rec.ejects)-1:], "the mounted slot is ejected")
+	assert.Empty(t, mountedIn(t, st), "the slot is empty")
+	assert.Contains(t, got.Status.Steps[len(got.Status.Steps)-1].Message, "ejected virtual media")
+}

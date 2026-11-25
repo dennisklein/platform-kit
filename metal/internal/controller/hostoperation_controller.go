@@ -411,6 +411,11 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	fail := func(i int, err error) (ctrl.Result, error) {
 		name := actionName(op.Spec.Actions[i])
 		msg := redact.String(err.Error())
+		// The media the run left mounted go now, before the grants end
+		// (forget, below), so the mount drops before its URL dies.
+		if cleanup := x.ejectAfterFailure(bctx, i); cleanup != "" {
+			msg += "; after the failure: " + cleanup
+		}
 		op.Status.Steps = append(op.Status.Steps, metalv1alpha1.OperationStep{
 			Action: name, Phase: "Failed", Message: msg, FinishedAt: ptrTime(metav1.Now()),
 		})

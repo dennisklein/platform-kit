@@ -3,6 +3,8 @@ package controller
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
@@ -42,24 +44,12 @@ func (x *exec) undo(ctx context.Context, i int) (undone, failed []string, err er
 		return nil
 	}
 
-	// The step in flight may have mounted already: a pass can die between
-	// the mount and its record.
-	mounts := ran
-	if i < len(actions) && actions[i].InsertMedia != nil {
-		mounts = actions[:i+1]
-	}
-	ejected := map[string]bool{}
-	for j, a := range mounts {
-		in := a.InsertMedia
-		if in == nil || ejected[in.MediaID] || slotReusedLater(mounts[j+1:], in.MediaID) {
-			continue
-		}
-		ejected[in.MediaID] = true
+	for _, slot := range x.leftMounted(i, true) {
 		cl, _, cerr := x.client(ctx)
 		if cerr == nil {
-			cerr = boot.EjectAndVerify(ctx, cl, in.MediaID, nil)
+			cerr = boot.EjectAndVerify(ctx, cl, slot, nil)
 		}
-		if e := note("ejected virtual media "+in.MediaID, cerr); e != nil {
+		if e := note("ejected virtual media "+slot, cerr); e != nil {
 			return nil, nil, e
 		}
 	}
@@ -85,6 +75,62 @@ func (x *exec) undo(ctx context.Context, i int) (undone, failed []string, err er
 		}
 	}
 	return undone, failed, nil
+}
+
+// leftMounted lists the slots that the steps before step i mounted a medium
+// in and no later step of them emptied or reused. With inFlight, step i
+// counts too: a pass can die between the mount and its record.
+func (x *exec) leftMounted(i int, inFlight bool) []string {
+	actions := x.op.Spec.Actions
+	mounts := actions[:min(recordedSteps(x.op), i)]
+	if inFlight && i < len(actions) && actions[i].InsertMedia != nil {
+		mounts = actions[:i+1]
+	}
+	var slots []string
+	for j, a := range mounts {
+		in := a.InsertMedia
+		if in == nil || slices.Contains(slots, in.MediaID) || slotReusedLater(mounts[j+1:], in.MediaID) {
+			continue
+		}
+		slots = append(slots, in.MediaID)
+	}
+	return slots
+}
+
+// ejectAfterFailure ejects, once and best effort, the media that the steps
+// up to the failed step i left mounted. The trailing eject steps of the
+// operation never run after a failure, and a BMC keeps a mounted URL (on the
+// vmm dialect with the grant credentials in it) until something ejects it.
+// The grant is revoked anyway, so a failed eject is reported, not retried.
+// The failed step itself is left out: a mount that failed holds no grant
+// any more, and a check that failed before it touched the slot must not
+// take out what somebody else mounted there. It returns one phrase for the
+// failure record, or "" when nothing was mounted.
+func (x *exec) ejectAfterFailure(ctx context.Context, i int) string {
+	slots := x.leftMounted(i, false)
+	if len(slots) == 0 {
+		return ""
+	}
+	var done, failed []string
+	for _, slot := range slots {
+		cl, _, err := x.client(ctx)
+		if err == nil {
+			err = boot.EjectAndVerify(ctx, cl, slot, nil)
+		}
+		if err != nil {
+			failed = append(failed, slot+": "+redact.String(err.Error()))
+			continue
+		}
+		done = append(done, slot)
+	}
+	var parts []string
+	if len(done) > 0 {
+		parts = append(parts, "ejected virtual media "+strings.Join(done, ", "))
+	}
+	if len(failed) > 0 {
+		parts = append(parts, "could NOT eject virtual media, eject it by hand: "+strings.Join(failed, "; "))
+	}
+	return strings.Join(parts, "; ")
 }
 
 // clearOverride disables the boot override when the machine still holds one
