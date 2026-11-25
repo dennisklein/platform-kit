@@ -349,10 +349,11 @@ vale --config .vale.ini --no-exit "$tmp"
 [tasks."docs:lint:actions"]
 description = "Check that the actions page (reference/actions.mdx) has each action and field of the API (docs/src/data/generated/actions.json)"
 dir = "docs"
+depends = ["docs:install"]
 run = "node scripts/check-actions.mjs"
 
 [tasks."docs:lint:contrast"]
-description = "Check the WCAG contrast of the theme colours (docs/src/styles/theme.css): 4.5:1 for text, 3:1 for diagram lines"
+description = "Check the WCAG contrast of the theme colors (docs/src/styles/theme.css): 4.5:1 for text, 3:1 for diagram lines"
 dir = "docs"
 run = "node scripts/check-contrast.mjs"
 
