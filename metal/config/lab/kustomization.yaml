@@ -15,6 +15,12 @@ components:
   - ../media-store
 patches:
   - path: approval.yaml
+  - path: networkpolicy.yaml
+    target:
+      group: networking.k8s.io
+      version: v1
+      kind: NetworkPolicy
+      name: pk-metal-manager
   - path: manager_args.yaml
     target:
       group: apps

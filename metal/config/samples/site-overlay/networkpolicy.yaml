@@ -1,0 +1,9 @@
+# The BMC network: the only addresses that may fetch boot media from the
+# manager. With externalTrafficPolicy: Cluster on pk-metal-media, the source
+# can be a node address instead (SNAT); then add the node network too:
+#   - op: add
+#     path: /spec/ingress/0/from/-
+#     value: {ipBlock: {cidr: 198.51.100.0/24}}
+- op: replace
+  path: /spec/ingress/0/from/0/ipBlock/cidr
+  value: 192.0.2.0/24 # EDIT: your BMC network

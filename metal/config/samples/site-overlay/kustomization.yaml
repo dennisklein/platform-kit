@@ -1,5 +1,5 @@
 # A site overlay: the operator for one real site, as a starting point.
-# Copy this directory, then edit the five files next to this one. The values
+# Copy this directory, then edit the six files next to this one. The values
 # here are examples from the documentation ranges (192.0.2.0/24, example.org).
 #
 #   kubectl kustomize .                  # show what would be applied
@@ -57,6 +57,13 @@ patches:
   # Who may approve their own proposal, and how long finished records stay
   # (approval.yaml).
   - path: approval.yaml
+  # The BMC network, the only one that may fetch boot media (networkpolicy.yaml).
+  - path: networkpolicy.yaml
+    target:
+      group: networking.k8s.io
+      version: v1
+      kind: NetworkPolicy
+      name: pk-metal-manager
   - path: manager_args.yaml
     target:
       group: apps

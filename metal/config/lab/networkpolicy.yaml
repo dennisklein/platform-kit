@@ -1,0 +1,7 @@
+# The lab's BMCs are processes on the workstation. Their connections reach the
+# media NodePort through kind's port mapping, from an address of the container
+# network that changes with the Docker setup, so the lab lets every address
+# fetch. A site sets its BMC network instead (config/samples/site-overlay).
+- op: replace
+  path: /spec/ingress/0/from/0/ipBlock/cidr
+  value: 0.0.0.0/0

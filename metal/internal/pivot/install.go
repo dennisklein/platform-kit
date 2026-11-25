@@ -10,6 +10,7 @@ import (
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -32,7 +33,7 @@ var operatorGroups = []string{metalv1alpha1.GroupVersion.Group, osv1alpha1.Group
 // server. The order is the one a fresh install needs: the CRDs (and the wait
 // until they are served), the admission policies, the cluster-wide RBAC, the
 // operator namespace, and in it the service account, roles, the policies'
-// parameters, the Services, the claims the manager mounts (empty: their
+// parameters, the Services, the NetworkPolicies, the claims the manager mounts (empty: their
 // contents do not move) and the manager's Deployment at zero replicas.
 // Every object is applied server-side, so a rerun changes only what differs.
 func (m *Mover) Install(ctx context.Context) error {
@@ -207,6 +208,17 @@ func (m *Mover) Install(ctx context.Context) error {
 		svc.Spec.ClusterIP, svc.Spec.ClusterIPs = "", nil
 		svc.Spec.IPFamilies, svc.Spec.IPFamilyPolicy = nil, nil
 		if err := m.applyTyped(ctx, svc, "Service"); err != nil {
+			return err
+		}
+	}
+	// The NetworkPolicies: the media port answers the BMC network only, on
+	// the target as on the source.
+	netPolicies := &networkingv1.NetworkPolicyList{}
+	if err := src.List(ctx, netPolicies, client.InNamespace(o.Namespace)); err != nil {
+		return err
+	}
+	for i := range netPolicies.Items {
+		if err := m.applyTyped(ctx, &netPolicies.Items[i], "NetworkPolicy"); err != nil {
 			return err
 		}
 	}

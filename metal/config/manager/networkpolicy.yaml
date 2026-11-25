@@ -1,10 +1,17 @@
-# Who may open a connection to the manager's pod. Not part of the base
-# (kustomization.yaml leaves it out): the address range of your BMCs and the
-# namespace of your Prometheus are known only on site, and a wrong value here
-# stops installs without an error anywhere. Edit the two marked values, then
-# apply it on its own or add it to your overlay:
+# Who may open a connection to the manager's pod. The media port answers only
+# the BMC network: a grant URL that leaks is then of no use outside it.
 #
-#   kubectl apply -f metal/config/manager/networkpolicy.yaml
+# The BMC network is a site value. The base has a documentation range
+# (192.0.2.0/24) that matches no BMC, so a site that does not set it gets no
+# install until it does: the BMC mount then fails with a connection error.
+# Replace the cidr in your overlay with a JSON patch, as
+# config/samples/site-overlay/networkpolicy.yaml does.
+#
+# The policy sees the source address after any SNAT. A NodePort Service with
+# externalTrafficPolicy: Cluster can give a connection the address of the node
+# that took it; then add the node network as a second ipBlock, or set
+# externalTrafficPolicy: Local on pk-metal-media. A load balancer or a proxy in
+# front of the media service replaces the address as well.
 #
 # Your CNI must enforce NetworkPolicy; with one that does not, this does
 # nothing.
@@ -22,24 +29,17 @@ spec:
       app.kubernetes.io/component: manager
   policyTypes: ["Ingress"]
   ingress:
-    # The media service: BMCs fetch granted media through the NodePort.
-    # Depending on the CNI and externalTrafficPolicy the source is the BMC or
-    # the node that took the connection; list both ranges.
+    # The media service: BMCs fetch granted media through the NodePort. Keep
+    # this rule first: the site overlay patches /spec/ingress/0.
     - ports:
         - port: media
       from:
         - ipBlock:
-            cidr: 192.0.2.0/24 # EDIT: the BMC network
-        - ipBlock:
-            cidr: 198.51.100.0/24 # EDIT: the node network
-    # Metrics: only from the namespace Prometheus runs in. The token check
-    # in the manager still applies on top.
+            cidr: 192.0.2.0/24 # the BMC network: set it in your overlay
+    # Metrics: the manager answers only a caller whose Kubernetes token may
+    # get /metrics. Narrow it to the namespace Prometheus runs in, if you like.
     - ports:
         - port: metrics
-      from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: monitoring # EDIT: your Prometheus namespace
     # Health probes come from the kubelet on the node.
     - ports:
         - port: health

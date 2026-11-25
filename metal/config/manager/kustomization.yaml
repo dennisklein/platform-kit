@@ -4,6 +4,7 @@ resources:
   - namespace.yaml
   - deployment.yaml
   - services.yaml
+  - networkpolicy.yaml
 # The manager reads the ledger once, at start. Generating the ConfigMap gives it
 # a name that changes with its content, so a new ledger rolls the Deployment by
 # itself instead of needing a restart somebody has to remember.

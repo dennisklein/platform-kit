@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -144,6 +145,15 @@ func TestPivot(t *testing.T) {
 		},
 	}
 	require.NoError(t, cl.Create(ctx, deploy))
+	// The media port answers the BMC network only.
+	require.NoError(t, cl.Create(ctx, &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "pk-metal-manager", Namespace: ns},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{"app.kubernetes.io/name": "pk-metal"}},
+			Ingress: []networkingv1.NetworkPolicyIngressRule{{From: []networkingv1.NetworkPolicyPeer{
+				{IPBlock: &networkingv1.IPBlock{CIDR: "192.0.2.0/24"}}}}},
+		},
+	}))
 	// The media store's claim, bound on the bootstrap cluster to a volume of
 	// its own class (kind's local-path).
 	require.NoError(t, cl.Create(ctx, &corev1.PersistentVolumeClaim{
@@ -390,6 +400,13 @@ func TestPivot(t *testing.T) {
 		assert.Contains(t, d.Spec.Template.Spec.Containers[0].Args, "--media-store-claim=pk-metal-media-store",
 			"the imager Jobs mount the claim the manager does")
 		require.NoError(t, mover.Install(ctx), "a second install leaves the claim as it is")
+	})
+	t.Run("the NetworkPolicy of the media port moves", func(t *testing.T) {
+		np := &networkingv1.NetworkPolicy{}
+		require.NoError(t, dst.cl.Get(ctx, client.ObjectKey{Namespace: ns, Name: "pk-metal-manager"}, np))
+		require.Len(t, np.Spec.Ingress, 1)
+		require.Len(t, np.Spec.Ingress[0].From, 1)
+		assert.Equal(t, "192.0.2.0/24", np.Spec.Ingress[0].From[0].IPBlock.CIDR)
 	})
 	rep, err := mover.Copy(ctx, plan)
 	require.NoError(t, err)
