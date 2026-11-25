@@ -382,6 +382,11 @@ func TestE2EKind(t *testing.T) {
 
 	rung("release returns the machine", func(t *testing.T) {
 		claim := &metalv1alpha1.HostClaim{ObjectMeta: metav1.ObjectMeta{Name: "e2e", Namespace: ns}}
+		// The node is the only control plane of a cluster that stays: the
+		// etcd guard keeps it until a person acknowledges the risk.
+		require.NoError(t, cl.Patch(ctx, claim, client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(
+			`{"metadata":{"annotations":{%q:"e2e: the test cluster ends with this rung"}}}`,
+			metalv1alpha1.AnnotationAckEtcdRisk)))))
 		require.NoError(t, cl.Delete(ctx, claim))
 		// The machine runs a node, so the release that powers it off is a
 		// proposal: approve it the way the approve verb does.
