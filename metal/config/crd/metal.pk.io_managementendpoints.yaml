@@ -76,7 +76,7 @@ spec:
                   type: object
                   x-kubernetes-map-type: atomic
                 tls:
-                  description: TLS says how the BMC's HTTPS certificate is checked, from the manager's --bmc-ca-secret or --bmc-insecure. Unset uses the system's trusted CAs.
+                  description: 'TLS says how the BMC''s HTTPS certificate is checked, from the manager''s --bmc-ca-secret or --bmc-insecure. Unset pins the BMC''s key on first use (status.tlsPin): the operator trusts the key the BMC presents at the first contact, before it sends a password, and refuses any other key until a person approves it.'
                   properties:
                     caSecretRef:
                       description: CASecretRef names a Secret (operator namespace, key ca.crt) with the CA that signed the BMC's certificate. Wins over insecureSkipVerify.
@@ -88,7 +88,7 @@ spec:
                       type: object
                       x-kubernetes-map-type: atomic
                     insecureSkipVerify:
-                      description: InsecureSkipVerify accepts any certificate. For simulated BMCs in the lab only.
+                      description: 'InsecureSkipVerify accepts any certificate and pins nothing: every device that answers at the address gets the BMC password. For simulated BMCs in the lab only. The approval plan of an operation shows it, and the operator uploads no private key over it.'
                       type: boolean
                   type: object
               required:
@@ -219,6 +219,9 @@ spec:
                     planHash:
                       description: PlanHash of the desired identity the push belonged to.
                       type: string
+                    publicKey:
+                      description: PublicKey of the pushed leaf certificate, in the form of TLSPin.PublicKey. Connections accept it next to the pinned key, so the BMC is reachable when it serves the pushed certificate.
+                      type: string
                   required:
                     - fingerprint
                     - planHash
@@ -276,6 +279,24 @@ spec:
                     type: object
                   type: array
                   x-kubernetes-list-type: atomic
+                tlsPin:
+                  description: TLSPin is the BMC key the operator trusts when no CA checks the BMC (spec.tls names no CA and does not skip the check). A connection to a BMC that presents another key fails before a password is sent.
+                  properties:
+                    publicKey:
+                      description: PublicKey is "sha256:" and the hex SHA-256 of the certificate's SubjectPublicKeyInfo. A renewed certificate with the same key keeps the pin.
+                      pattern: ^sha256:[0-9a-f]{64}$
+                      type: string
+                    source:
+                      description: 'Source says how the key came to be trusted: FirstUse, Approved or Pushed.'
+                      enum:
+                        - FirstUse
+                        - Approved
+                        - Pushed
+                      type: string
+                  required:
+                    - publicKey
+                    - source
+                  type: object
                 vendor:
                   description: Vendor is the discovered manufacturer ("Huawei" | "Supermicro" | …).
                   type: string

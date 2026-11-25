@@ -185,6 +185,22 @@ const (
 	// the session of the step in flight, so the push waits for the operation
 	// to finish.
 	ReasonIdentityPushHeld = "IdentityPushHeld"
+	// ReasonTLSNotVerified on Configured=False: the key-upload dialect would
+	// send a private key over a connection whose certificate nobody checks
+	// (insecureSkipVerify). The upload is refused.
+	ReasonTLSNotVerified = "TLSNotVerified"
+)
+
+// Reasons on the endpoint's Reachable condition about the BMC's TLS key.
+const (
+	// ReasonTLSKeyChanged on Reachable=False: the BMC presents another key
+	// than the pinned one. The operator sends it nothing until a person
+	// approves the new key (annotation metal.pk.io/approve-tls-key).
+	ReasonTLSKeyChanged = "TLSKeyChanged"
+	// ReasonTLSKeyNotPinned on Reachable=False and Configured=False: no key
+	// of this BMC is pinned yet, and no CA checks it. The observing pass
+	// pins the key it sees first.
+	ReasonTLSKeyNotPinned = "TLSKeyNotPinned"
 )
 
 // Reasons on the host's Drifted condition (information, not error).

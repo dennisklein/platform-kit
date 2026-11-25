@@ -51,6 +51,9 @@ type ManagementEndpointReconciler struct {
 	PollInterval time.Duration
 	// Dial opens the session to the endpoint; nil dials over gofish.
 	Dial Dialer
+	// Probe reads the certificate the BMC presents, for the key pin; nil
+	// reads it over TLS.
+	Probe TLSProbe
 }
 
 // +kubebuilder:rbac:groups=metal.pk.io,resources=managementendpoints,verbs=get;list;watch;update
@@ -80,7 +83,14 @@ func (r *ManagementEndpointReconciler) Reconcile(ctx context.Context, req ctrl.R
 	phase.StampEndpoint(ep)
 
 	// Discovered facts double as the EndpointProfile matching surface.
-	if stampEndpointLabels(ep) {
+	update := stampEndpointLabels(ep)
+	// An approval of a TLS key is used up once the key is pinned: the
+	// annotation goes in the pass after the one that stored the pin.
+	if approvalDone(orig) {
+		delete(ep.Annotations, metalv1alpha1.AnnotationApproveTLSKey)
+		update = true
+	}
+	if update {
 		if err := r.Update(ctx, ep); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -127,6 +137,9 @@ func (r *ManagementEndpointReconciler) observe(ctx context.Context, ep *metalv1a
 		setCondition(&ep.Status.Conditions, ep.Generation, t, s, reason, msg)
 	}
 
+	if pinsKeys(ep) && !r.checkPin(ctx, ep) {
+		return
+	}
 	cfg, reason, err := r.connectConfig(ctx, ep)
 	if err != nil {
 		setCond(metalv1alpha1.ConditionReachable, metav1.ConditionFalse, reason, err.Error())
@@ -222,8 +235,11 @@ func endpointTLSConfig(ctx context.Context, c client.Client, credentialsNamespac
 		ReadOnly: readOnly,
 	}
 	switch tlsSpec := ep.Spec.TLS; {
-	case tlsSpec == nil:
-		// system trust store
+	case pinsKeys(ep):
+		cfg.PinnedKeys = endpointPins(ep)
+		if len(cfg.PinnedKeys) == 0 {
+			return cfg, metalv1alpha1.ReasonTLSKeyNotPinned, errNotPinned(ep)
+		}
 	case tlsSpec.CASecretRef != nil:
 		ca := &corev1.Secret{}
 		key := types.NamespacedName{Namespace: credentialsNamespace, Name: tlsSpec.CASecretRef.Name}

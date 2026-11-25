@@ -511,6 +511,9 @@ func renderPlan(op *metalv1alpha1.HostOperation, pc planContext) string {
 		}
 		for _, ep := range pc.Endpoints {
 			fmt.Fprintf(&b, "  BMC: %s (endpoint %s)\n", ep.Spec.Address, ep.Name)
+			if t := ep.Spec.TLS; t != nil && t.CASecretRef == nil && t.InsecureSkipVerify {
+				b.WriteString("    TLS not checked (insecureSkipVerify): any device that answers at this address gets the BMC password and runs these steps\n")
+			}
 		}
 	}
 

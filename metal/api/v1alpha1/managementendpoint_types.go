@@ -25,6 +25,38 @@ const (
 	EndpointMismatch     EndpointPhase = "Mismatch"
 )
 
+// AnnotationApproveTLSKey on a ManagementEndpoint approves a new TLS key of
+// the BMC: the value is the key as the Reachable condition names it
+// ("sha256:<hex>"). The operator pins that key when the BMC presents it, and
+// then removes the annotation. A key that is not presented is never pinned.
+const AnnotationApproveTLSKey = "metal.pk.io/approve-tls-key"
+
+// TLS pin sources: how the pinned key came to be trusted.
+const (
+	// TLSPinFirstUse: the key the BMC presented at the first contact.
+	TLSPinFirstUse = "FirstUse"
+	// TLSPinApproved: a person approved the key (AnnotationApproveTLSKey).
+	TLSPinApproved = "Approved"
+	// TLSPinPushed: the key of a certificate that the operator pushed to
+	// the BMC (EndpointProfile tls).
+	TLSPinPushed = "Pushed"
+)
+
+// TLSPin is the BMC key that the operator trusts when no CA checks the
+// BMC's certificate.
+type TLSPin struct {
+	// PublicKey is "sha256:" and the hex SHA-256 of the certificate's
+	// SubjectPublicKeyInfo. A renewed certificate with the same key keeps
+	// the pin.
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	PublicKey string `json:"publicKey"`
+
+	// Source says how the key came to be trusted: FirstUse, Approved or
+	// Pushed.
+	// +kubebuilder:validation:Enum=FirstUse;Approved;Pushed
+	Source string `json:"source"`
+}
+
 // ManagementEndpointSpec is written by the operator from the Asset and the
 // ledger; you do not edit it.
 type ManagementEndpointSpec struct {
@@ -47,7 +79,10 @@ type ManagementEndpointSpec struct {
 	CredentialsRef *corev1.LocalObjectReference `json:"credentialsRef,omitempty"`
 
 	// TLS says how the BMC's HTTPS certificate is checked, from the manager's
-	// --bmc-ca-secret or --bmc-insecure. Unset uses the system's trusted CAs.
+	// --bmc-ca-secret or --bmc-insecure. Unset pins the BMC's key on first
+	// use (status.tlsPin): the operator trusts the key the BMC presents at
+	// the first contact, before it sends a password, and refuses any other
+	// key until a person approves it.
 	// +optional
 	TLS *EndpointTLS `json:"tls,omitempty"`
 }
@@ -59,8 +94,10 @@ type EndpointTLS struct {
 	// +optional
 	CASecretRef *corev1.LocalObjectReference `json:"caSecretRef,omitempty"`
 
-	// InsecureSkipVerify accepts any certificate. For simulated BMCs in the
-	// lab only.
+	// InsecureSkipVerify accepts any certificate and pins nothing: every
+	// device that answers at the address gets the BMC password. For
+	// simulated BMCs in the lab only. The approval plan of an operation
+	// shows it, and the operator uploads no private key over it.
 	// +optional
 	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
 }
@@ -104,6 +141,11 @@ type IdentityPush struct {
 	PlanHash string `json:"planHash"`
 	// Fingerprint (sha256, hex) of the pushed leaf certificate.
 	Fingerprint string `json:"fingerprint"`
+	// PublicKey of the pushed leaf certificate, in the form of
+	// TLSPin.PublicKey. Connections accept it next to the pinned key, so
+	// the BMC is reachable when it serves the pushed certificate.
+	// +optional
+	PublicKey string `json:"publicKey,omitempty"`
 }
 
 // FirmwareInventoryItem is one UpdateService SoftwareInventory member as
@@ -224,6 +266,12 @@ type ManagementEndpointStatus struct {
 	// +listType=atomic
 	// +optional
 	VirtualMedia []DiscoveredMedia `json:"virtualMedia,omitempty"`
+
+	// TLSPin is the BMC key the operator trusts when no CA checks the BMC
+	// (spec.tls names no CA and does not skip the check). A connection to
+	// a BMC that presents another key fails before a password is sent.
+	// +optional
+	TLSPin *TLSPin `json:"tlsPin,omitempty"`
 
 	// Authentication is how the operator's requests to this BMC
 	// authenticate: Session (a Redfish session; the password crosses the

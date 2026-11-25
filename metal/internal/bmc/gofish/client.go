@@ -18,8 +18,10 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -46,8 +48,13 @@ type Config struct {
 	Password string
 	Insecure bool // skip TLS verification (lab BMCs with self-signed certs)
 	// RootCAs pins the server-certificate trust anchors (the site's internal CA
-	// on real BMCs). Wins over Insecure when set.
+	// on real BMCs). Wins over PinnedKeys and Insecure when set.
 	RootCAs *x509.CertPool
+	// PinnedKeys are the BMC keys the session accepts, in the form of
+	// PublicKeyPin, when no CA checks the certificate. A BMC that presents
+	// another key fails the handshake, before any credential is sent. Wins
+	// over Insecure when set.
+	PinnedKeys []string
 	// ReadOnly refuses every mutating call at this layer — the read-only rail: pointing the
 	// client at real hardware is safe by construction until explicitly unlocked.
 	ReadOnly bool
@@ -206,17 +213,57 @@ func Connect(ctx context.Context, cfg Config) (bmc.Client, error) {
 	return c, nil
 }
 
-// clientTLS is the TLS policy of a session: the pinned CAs, else no check
-// at all where the caller asked for that, else the system's CAs (nil).
+// clientTLS is the TLS policy of a session: the pinned CAs, else the pinned
+// keys, else no check at all where the caller asked for that, else the
+// system's CAs (nil).
 func clientTLS(cfg Config) (*tls.Config, error) {
 	switch {
 	case cfg.RootCAs != nil:
 		return &tls.Config{RootCAs: cfg.RootCAs, MinVersion: tls.VersionTLS12}, nil
+	case len(cfg.PinnedKeys) > 0:
+		pins := slices.Clone(cfg.PinnedKeys)
+		return &tls.Config{
+			// The chain is not checked: a pinned BMC certificate is usually
+			// self-signed. VerifyConnection checks the key instead, and runs
+			// on every handshake, a resumed one included.
+			InsecureSkipVerify: true, //nolint:gosec // the key is checked below
+			MinVersion:         tls.VersionTLS12,
+			VerifyConnection: func(cs tls.ConnectionState) error {
+				if len(cs.PeerCertificates) == 0 {
+					return errors.New("bmc: the BMC presents no certificate")
+				}
+				if got := PublicKeyPin(cs.PeerCertificates[0]); !slices.Contains(pins, got) {
+					return &KeyMismatchError{Presented: got}
+				}
+				return nil
+			},
+		}, nil
 	case cfg.Insecure:
 		// Lab BMCs with self-signed certs, asked for by the caller.
 		return &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}, nil //nolint:gosec
 	}
 	return nil, nil
+}
+
+// PublicKeyPin is how a pin names a certificate's key: "sha256:" and the hex
+// SHA-256 of its SubjectPublicKeyInfo. It is what
+//
+//	openssl x509 -pubkey -noout | openssl pkey -pubin -outform der | sha256sum
+//
+// prints for the certificate.
+func PublicKeyPin(c *x509.Certificate) string {
+	sum := sha256.Sum256(c.RawSubjectPublicKeyInfo)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// KeyMismatchError is a BMC that presents a key the session does not pin.
+type KeyMismatchError struct {
+	// Presented is the key the BMC presented, as PublicKeyPin names it.
+	Presented string
+}
+
+func (e *KeyMismatchError) Error() string {
+	return "bmc: the BMC presents key " + e.Presented + ", which is not pinned"
 }
 
 // Authentication values: how a client authenticates its requests.

@@ -717,6 +717,52 @@
       "context": "Reasons on the endpoint's Configured condition (the EndpointProfile lanes). InSync and ProfileConflict are shared with the convergence vocabulary above. There is no operation gate here — merging the profile is the approval — so every False is either in-flight work or an alert-and-hold the next pass retries (the factory account stays as break-glass, faults self-heal)."
     },
     {
+      "name": "ReasonTLSNotVerified",
+      "value": "TLSNotVerified",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the key-upload dialect would send a private key over a connection whose certificate nobody checks (insecureSkipVerify). The upload is refused.",
+      "on": [
+        {
+          "condition": "Configured",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the endpoint's Configured condition (the EndpointProfile lanes). InSync and ProfileConflict are shared with the convergence vocabulary above. There is no operation gate here — merging the profile is the approval — so every False is either in-flight work or an alert-and-hold the next pass retries (the factory account stays as break-glass, faults self-heal)."
+    },
+    {
+      "name": "ReasonTLSKeyChanged",
+      "value": "TLSKeyChanged",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the BMC presents another key than the pinned one. The operator sends it nothing until a person approves the new key (annotation metal.pk.io/approve-tls-key).",
+      "on": [
+        {
+          "condition": "Reachable",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the endpoint's Reachable condition about the BMC's TLS key."
+    },
+    {
+      "name": "ReasonTLSKeyNotPinned",
+      "value": "TLSKeyNotPinned",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "no key of this BMC is pinned yet, and no CA checks it. The observing pass pins the key it sees first.",
+      "on": [
+        {
+          "condition": "Reachable",
+          "status": "False"
+        },
+        {
+          "condition": "Configured",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the endpoint's Reachable condition about the BMC's TLS key."
+    },
+    {
       "name": "ReasonUnexpectedReset",
       "value": "UnexpectedReset",
       "group": "metal.pk.io",

@@ -143,6 +143,20 @@ func TestRenderPlanLiftedGuards(t *testing.T) {
 		"a value from before admission asked for a name says it names nobody")
 }
 
+// TestRenderPlanInsecureBMC: a BMC whose certificate nobody checks is named
+// as such in the plan, so that the approver knows the steps may go to a
+// device that poses as the BMC.
+func TestRenderPlanInsecureBMC(t *testing.T) {
+	op, objs := bootPlan()
+	pc, err := loadPlanContext(context.Background(), fakeClient(objs...), op)
+	require.NoError(t, err)
+	assert.NotContains(t, renderPlan(op, pc), "TLS not checked")
+
+	pc.Endpoints[0].Spec.TLS = &metalv1alpha1.EndpointTLS{InsecureSkipVerify: true}
+	assert.Contains(t, renderPlan(op, pc), "  BMC: https://10.0.0.1:8441 (endpoint node-1-bmc)\n"+
+		"    TLS not checked (insecureSkipVerify): any device that answers at this address gets the BMC password and runs these steps\n")
+}
+
 // TestRenderPlanMissingObjects: a plan whose host or node is gone still
 // renders, and says what it cannot know.
 func TestRenderPlanMissingObjects(t *testing.T) {

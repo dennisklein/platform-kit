@@ -37,6 +37,18 @@
       ]
     },
     {
+      "key": "metal.pk.io/approve-tls-key",
+      "kind": "annotation",
+      "exported": true,
+      "description": "AnnotationApproveTLSKey on a ManagementEndpoint approves a new TLS key of the BMC: the value is the key as the Reachable condition names it (\"sha256:<hex>\"). The operator pins that key when the BMC presents it, and then removes the annotation. A key that is not presented is never pinned.",
+      "constants": [
+        {
+          "name": "AnnotationApproveTLSKey",
+          "source": "metal/api/v1alpha1/managementendpoint_types.go"
+        }
+      ]
+    },
+    {
       "key": "metal.pk.io/claim-name",
       "kind": "label",
       "exported": false,

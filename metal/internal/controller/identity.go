@@ -1,11 +1,11 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
-	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
@@ -29,6 +29,7 @@ import (
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
+	gofishclient "github.com/dennisklein/platform-kit/metal/internal/bmc/gofish"
 )
 
 // The identity lane: a cert-manager-signed HTTPS identity for
@@ -92,29 +93,47 @@ func desiredIdentity(ep *metalv1alpha1.ManagementEndpoint, pol *metalv1alpha1.Id
 
 // identity converges the manager's HTTPS identity against the profile.
 func (r *EndpointConvergenceReconciler) identity(ctx context.Context, ep *metalv1alpha1.ManagementEndpoint, pol *metalv1alpha1.IdentityPolicy) (metav1.ConditionStatus, string, string, error) {
-	desired := desiredIdentity(ep, pol)
-	hash := planHash(desired)
-
 	leaf, err := servedLeaf(ctx, ep.Spec.Address)
 	if err != nil {
 		return metav1.ConditionUnknown, metalv1alpha1.ReasonNoReachablePath,
 			"cannot observe the served certificate: " + err.Error(), nil
 	}
+	return r.identityWith(ctx, ep, pol, leaf)
+}
+
+// identityWith converges the identity against the certificate the manager
+// serves now.
+func (r *EndpointConvergenceReconciler) identityWith(ctx context.Context, ep *metalv1alpha1.ManagementEndpoint, pol *metalv1alpha1.IdentityPolicy, leaf *x509.Certificate) (metav1.ConditionStatus, string, string, error) {
+	desired := desiredIdentity(ep, pol)
+	hash := planHash(desired)
 	renewBefore := identityDefaultRenewBefore
 	if pol.RenewBefore != nil {
 		renewBefore = pol.RenewBefore.Duration
 	}
-	if drift := identityDrift(leaf, desired, renewBefore); drift == "" {
+	// The names and dates are claims anybody can put in a certificate. The
+	// identity is in sync only when the served certificate is the very one
+	// the operator pushed for this desired state: issued by the named
+	// issuer for the operator's own request, so its issuer and its key are
+	// the expected ones. The handshake proved that the BMC holds that key.
+	p := ep.Status.IdentityPushed
+	pushedForThis := p != nil && p.PlanHash == hash
+	servedIsPushed := pushedForThis && certFingerprint(leaf) == p.Fingerprint
+	drift := identityDrift(leaf, desired, renewBefore)
+	switch {
+	case drift == "" && servedIsPushed:
 		if err := r.cleanupIdentityInFlight(ctx, ep); err != nil {
 			return "", "", "", err
 		}
 		return metav1.ConditionTrue, metalv1alpha1.ReasonInSync,
 			fmt.Sprintf("identity %s, renews after %s", desired.CommonName,
 				leaf.NotAfter.Add(-renewBefore).Format(time.RFC3339)), nil
-	} else if p := ep.Status.IdentityPushed; p != nil && p.PlanHash == hash && certFingerprint(leaf) != p.Fingerprint {
+	case pushedForThis && !servedIsPushed:
 		// Pushed for exactly this desired state, yet something else is being
 		// served — the push did not take (the lying-oracle shape). Held per
 		// hash: re-pushing forever would reboot the manager forever.
+		if drift == "" {
+			drift = "the served certificate is not the pushed one"
+		}
 		return metav1.ConditionFalse, metalv1alpha1.ReasonIdentityPushFailed,
 			fmt.Sprintf("%s; pushed certificate %.8s is not being served — change the profile to retry",
 				drift, p.Fingerprint), nil
@@ -127,6 +146,12 @@ func (r *EndpointConvergenceReconciler) identity(ctx context.Context, ep *metalv
 	if dialect != bmc.DialectCSRNative && dialect != bmc.DialectKeyUpload {
 		return metav1.ConditionFalse, metalv1alpha1.ReasonNoIdentityTransport,
 			"endpoint advertises no certificate-replacement surface", nil
+	}
+	if dialect == bmc.DialectKeyUpload && !tlsVerified(ep) {
+		return metav1.ConditionFalse, metalv1alpha1.ReasonTLSNotVerified,
+			"the key-upload dialect sends the private key to the BMC, and spec.tls.insecureSkipVerify " +
+				"checks nothing about who receives it; the key is not made. Give the endpoints a CA " +
+				"(--bmc-ca-secret), or remove --bmc-insecure so that the operator pins each BMC's key", nil
 	}
 
 	sec, csrPEM, err := r.ensureIdentityInFlight(ctx, ep, desired, hash, dialect)
@@ -165,12 +190,16 @@ func (r *EndpointConvergenceReconciler) identity(ctx context.Context, ep *metalv
 			"the signed certificate is ready, but pushing it restarts the manager, and " + busy +
 				"; the push follows when it has finished", nil
 	}
+	if err := issuedForRequest(chain, csrPEM); err != nil {
+		return metav1.ConditionFalse, metalv1alpha1.ReasonIdentityPushFailed, err.Error(), nil
+	}
 	pushedLeaf, err := r.pushIdentity(ctx, ep, dialect, chain, sec.Data["key.pem"])
 	if err != nil {
 		return metav1.ConditionFalse, metalv1alpha1.ReasonIdentityPushFailed, err.Error(), nil
 	}
 	ep.Status.IdentityPushed = &metalv1alpha1.IdentityPush{
 		PlanHash: hash, Fingerprint: certFingerprint(pushedLeaf),
+		PublicKey: gofishclient.PublicKeyPin(pushedLeaf),
 	}
 	logf.FromContext(ctx).Info("pushed identity", "endpoint", ep.Name, "cn", desired.CommonName)
 	return metav1.ConditionFalse, metalv1alpha1.ReasonIdentityPushed,
@@ -336,6 +365,11 @@ func (r *EndpointConvergenceReconciler) pushIdentity(ctx context.Context, ep *me
 	if err != nil {
 		return nil, err
 	}
+	// A private key goes only over a connection whose peer is checked: by
+	// a CA or by the pinned key.
+	if dialect == bmc.DialectKeyUpload && cfg.RootCAs == nil && len(cfg.PinnedKeys) == 0 {
+		return nil, fmt.Errorf("refused to upload a private key over a connection that checks no certificate")
+	}
 	err = withSession(ctx, r.Dial, cfg, func(ctx context.Context, cl bmc.Client) error {
 		switch dialect {
 		case bmc.DialectCSRNative:
@@ -465,33 +499,6 @@ func (r *EndpointConvergenceReconciler) deleteCertificateRequest(ctx context.Con
 	return client.IgnoreNotFound(r.Delete(ctx, cr))
 }
 
-// servedLeaf grabs the certificate the endpoint currently presents — the
-// identity lane's convergence observable. Verification is deliberately off:
-// this reads identity claims, it does not trust them.
-func servedLeaf(ctx context.Context, address string) (*x509.Certificate, error) {
-	u, err := url.Parse(address)
-	if err != nil {
-		return nil, err
-	}
-	host := u.Host
-	if u.Port() == "" {
-		host = net.JoinHostPort(u.Hostname(), "443")
-	}
-	d := &tls.Dialer{Config: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}} //nolint:gosec // observation, not trust
-	dctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	conn, err := d.DialContext(dctx, "tcp", host)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close() //nolint:errcheck // read-only probe
-	certs := conn.(*tls.Conn).ConnectionState().PeerCertificates
-	if len(certs) == 0 {
-		return nil, fmt.Errorf("no peer certificate presented")
-	}
-	return certs[0], nil
-}
-
 // identityDrift compares the served leaf against the desired identity.
 // Empty means in sync; otherwise the first drift, human-readable.
 func identityDrift(leaf *x509.Certificate, desired identityDesired, renewBefore time.Duration) string {
@@ -520,6 +527,40 @@ func identityDrift(leaf *x509.Certificate, desired identityDesired, renewBefore 
 		return fmt.Sprintf("served certificate expires %s — inside the renewal window", leaf.NotAfter.Format(time.RFC3339))
 	}
 	return ""
+}
+
+// tlsVerified reports whether sessions to the endpoint check the BMC: by a
+// CA or by the pinned key. Only insecureSkipVerify checks nothing.
+func tlsVerified(ep *metalv1alpha1.ManagementEndpoint) bool {
+	t := ep.Spec.TLS
+	return t == nil || t.CASecretRef != nil || !t.InsecureSkipVerify
+}
+
+// issuedForRequest checks the issued chain before it goes to the manager:
+// the leaf carries the key of the operator's request, and where the chain
+// holds the issuer's certificate, the issuer's signature verifies.
+func issuedForRequest(chainPEM, csrPEM []byte) error {
+	certs, err := cert.ParseCertsPEM(chainPEM)
+	if err != nil {
+		return fmt.Errorf("issued chain: %w", err)
+	}
+	block, _ := pem.Decode(csrPEM)
+	if block == nil {
+		return fmt.Errorf("in-flight request: no PEM block")
+	}
+	csr, err := x509.ParseCertificateRequest(block.Bytes)
+	if err != nil {
+		return fmt.Errorf("in-flight request: %w", err)
+	}
+	if !bytes.Equal(certs[0].RawSubjectPublicKeyInfo, csr.RawSubjectPublicKeyInfo) {
+		return fmt.Errorf("the issued certificate does not carry the key of the request; it is not pushed")
+	}
+	if len(certs) > 1 {
+		if err := certs[0].CheckSignatureFrom(certs[1]); err != nil {
+			return fmt.Errorf("the issued certificate is not signed by the next certificate of its chain: %w", err)
+		}
+	}
+	return nil
 }
 
 func certFingerprint(c *x509.Certificate) string {

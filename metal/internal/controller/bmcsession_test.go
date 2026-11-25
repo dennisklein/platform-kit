@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"testing"
 
@@ -14,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/asset"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	gofishclient "github.com/dennisklein/platform-kit/metal/internal/bmc/gofish"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc/sim"
@@ -28,11 +30,17 @@ type simEndpoint struct {
 	state   *sim.State
 	fixture *sim.Fixture
 	dialed  []gofishclient.Config
+	// leaf is the certificate the BMC presents; its key is pinned.
+	leaf *x509.Certificate
 }
 
 func newSimEndpoint(t *testing.T, fixture string) *simEndpoint {
 	t.Helper()
 	f, err := sim.LoadFixture(fixture)
+	require.NoError(t, err)
+	served, err := asset.EphemeralCert()
+	require.NoError(t, err)
+	leaf, err := x509.ParseCertificate(served.Certificate[0])
 	require.NoError(t, err)
 	ep := &metalv1alpha1.ManagementEndpoint{
 		ObjectMeta: metav1.ObjectMeta{Name: "bmc-a", Generation: 3},
@@ -41,6 +49,10 @@ func newSimEndpoint(t *testing.T, fixture string) *simEndpoint {
 			AssetRef:       metalv1alpha1.Reference{Name: "asset-a"},
 			CredentialsRef: &corev1.LocalObjectReference{Name: "bmc-a-factory"},
 		},
+		// The BMC's key is pinned, as after the first observation.
+		Status: metalv1alpha1.ManagementEndpointStatus{TLSPin: &metalv1alpha1.TLSPin{
+			PublicKey: gofishclient.PublicKeyPin(leaf), Source: metalv1alpha1.TLSPinFirstUse,
+		}},
 	}
 	creds := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "pk-metal", Name: "bmc-a-factory"},
@@ -51,7 +63,13 @@ func newSimEndpoint(t *testing.T, fixture string) *simEndpoint {
 		cl:      fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(ep, creds).Build(),
 		state:   sim.NewState(f),
 		fixture: f,
+		leaf:    leaf,
 	}
+}
+
+// probe presents the endpoint's certificate, as the BMC's TLS listener would.
+func (s *simEndpoint) probe(context.Context, string) (*x509.Certificate, error) {
+	return s.leaf, nil
 }
 
 func (s *simEndpoint) dial(_ context.Context, cfg gofishclient.Config) (bmc.Client, error) {
@@ -65,11 +83,12 @@ func TestObserveThroughDialSeam(t *testing.T) {
 		Serial: s.fixture.Chassis.BoardSerial,
 		BMCMac: s.fixture.Manager.MAC,
 	}
-	r := &ManagementEndpointReconciler{Client: s.cl, CredentialsNamespace: "pk-metal", Dial: s.dial}
+	r := &ManagementEndpointReconciler{Client: s.cl, CredentialsNamespace: "pk-metal", Dial: s.dial, Probe: s.probe}
 
 	r.observe(t.Context(), s.ep)
 
 	require.Len(t, s.dialed, 1)
+	assert.Equal(t, []string{s.ep.Status.TLSPin.PublicKey}, s.dialed[0].PinnedKeys, "the session accepts the pinned key alone")
 	assert.True(t, s.dialed[0].ReadOnly, "the observing lane must dial read-only")
 	assert.Equal(t, "admin", s.dialed[0].Username)
 	for _, ct := range []string{
@@ -87,7 +106,7 @@ func TestObserveThroughDialSeam(t *testing.T) {
 func TestObserveDialErrorHolds(t *testing.T) {
 	s := newSimEndpoint(t, "generic")
 	r := &ManagementEndpointReconciler{
-		Client: s.cl, CredentialsNamespace: "pk-metal",
+		Client: s.cl, CredentialsNamespace: "pk-metal", Probe: s.probe,
 		Dial: func(context.Context, gofishclient.Config) (bmc.Client, error) {
 			return nil, errors.New("connection refused")
 		},

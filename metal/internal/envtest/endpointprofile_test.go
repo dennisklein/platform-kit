@@ -7,9 +7,10 @@
 // decision. The ntp lane converges both vendors' time sources. The identity
 // lane issues a cert-manager-signed certificate per endpoint, pushes it over
 // each vendor's dialect (csr-native / key-upload), proves it with a
-// pinned-CA handshake against what the listener actually serves, and — the
-// load-bearing guard — never re-pushes a certificate the manager answered
-// success to but does not serve.
+// pinned-CA handshake against what the listener actually serves, takes as
+// in sync only the very certificate it pushed, and — the load-bearing
+// guard — never re-pushes a certificate the manager answered success to but
+// does not serve.
 package envtest_test
 
 import (
@@ -355,7 +356,9 @@ func TestEndpointConvergence(t *testing.T) {
 		assert.Equal(t, served, huaweiState.ServedLeaf().Subject.CommonName)
 
 		// Unstick: the fault clears and the desired state returns to the
-		// identity the listener still serves.
+		// names the listener still serves. The push memory now belongs to
+		// the other desired state, so the served certificate is no longer
+		// one the operator can vouch for: the lane pushes once more.
 		huaweiState.SetFault(sim.FaultCertStuck, false)
 		require.NoError(t, cl.Delete(ctx, &metalv1alpha1.EndpointProfile{
 			ObjectMeta: metav1.ObjectMeta{Name: "huawei-identity"},

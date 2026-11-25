@@ -410,13 +410,13 @@ func parseFlags(args []string, output io.Writer) (*config, error) {
 	fs.StringVar(&c.credsNS, "credentials-namespace", "pk-metal",
 		"namespace for the operator's Secrets: BMC logins and CAs are read from it, and node configs and cluster credentials are written to it")
 	fs.StringVar(&c.caSecret, "bmc-ca-secret", "",
-		"Secret (key ca.crt) with the CA that signed your BMCs' HTTPS certificates; empty trusts the system CAs")
+		"Secret (key ca.crt) with the CA that signed your BMCs' HTTPS certificates; empty pins the key each BMC presents at the first contact and refuses any other until a person approves it")
 	fs.StringVar(&c.imageFactory, "image-factory", render.PublicFactory,
 		"host of the Talos image factory that builds and serves install images; a self-hosted factory works the same way")
 	fs.StringVar(&c.registryCA, "registry-ca", "",
 		"PEM file with the CA of the registry that serves firmware images; empty trusts the system CAs")
 	fs.BoolVar(&c.bmcInsecure, "bmc-insecure", false,
-		"accept any BMC certificate without checking it; for simulated BMCs in a lab only")
+		"accept any BMC certificate without checking it or pinning its key, so any device at a BMC's address gets its password; for simulated BMCs in a lab only")
 	fs.DurationVar(&c.poll, "poll-interval", 5*time.Minute, "how often each BMC is asked again what it reports")
 	fs.StringVar(&c.metricsAddr, "metrics-bind-address", "0", "metrics address ('0' disables)")
 	fs.BoolVar(&c.metricsSecure, "metrics-secure", true,
@@ -505,7 +505,8 @@ func (d imagerDigests) Set(s string) error {
 }
 
 // endpointTLS is the TLS default for BMCs whose endpoint names none: a CA
-// Secret wins over --bmc-insecure, and neither trusts the system CAs (nil).
+// Secret wins over --bmc-insecure, and neither pins each BMC's key on first
+// use (nil).
 func (c *config) endpointTLS() *metalv1alpha1.EndpointTLS {
 	switch {
 	case c.caSecret != "":
