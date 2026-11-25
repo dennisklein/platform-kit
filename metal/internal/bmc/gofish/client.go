@@ -842,9 +842,16 @@ func (c *client) sweepDrives(s *schemas.ComputerSystem) []bmc.Drive {
 			Protocol:    string(d.Protocol),
 		})
 	}
+	// gofish reads collection members in parallel, so the order it returns
+	// them in changes from call to call: sort by resource ID first.
+	byID := func(drives []*schemas.Drive) {
+		slices.SortFunc(drives, func(a, b *schemas.Drive) int { return compareIDs(a.ODataID, b.ODataID) })
+	}
 	if storage, err := s.Storage(); err == nil {
+		slices.SortFunc(storage, func(a, b *schemas.Storage) int { return compareIDs(a.ODataID, b.ODataID) })
 		for _, st := range storage {
 			if drives, err := st.Drives(); err == nil {
+				byID(drives)
 				for _, d := range drives {
 					add(d)
 				}
@@ -853,6 +860,7 @@ func (c *client) sweepDrives(s *schemas.ComputerSystem) []bmc.Drive {
 	}
 	if ch, err := c.chassis(); err == nil {
 		if drives, err := ch.Drives(); err == nil {
+			byID(drives)
 			for _, d := range drives {
 				add(d)
 			}
