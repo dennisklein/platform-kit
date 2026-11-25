@@ -6,4 +6,5 @@ resources:
   - talosrollout-approval.yaml
   - etcdbackuppolicy-guard.yaml
   - endpointprofile-guard.yaml
+  - taloscluster-credentials-guard.yaml
   - guard-lift.yaml
