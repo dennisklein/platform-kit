@@ -383,6 +383,24 @@ func TestE2EKind(t *testing.T) {
 	rung("release returns the machine", func(t *testing.T) {
 		claim := &metalv1alpha1.HostClaim{ObjectMeta: metav1.ObjectMeta{Name: "e2e", Namespace: ns}}
 		require.NoError(t, cl.Delete(ctx, claim))
+		// The machine runs a node, so the release that powers it off is a
+		// proposal: approve it the way the approve verb does.
+		var release *metalv1alpha1.HostOperation
+		require.Eventually(t, func() bool {
+			ops := &metalv1alpha1.HostOperationList{}
+			if err := cl.List(ctx, ops, client.InNamespace(ns)); err != nil {
+				return false
+			}
+			for i := range ops.Items {
+				if strings.HasPrefix(ops.Items[i].Name, "release-") {
+					release = &ops.Items[i]
+					return true
+				}
+			}
+			return false
+		}, waitFor, tick, "the release of a running node was never proposed")
+		require.NoError(t, cl.Patch(ctx, release, client.RawPatch(types.MergePatchType,
+			[]byte(`{"spec":{"approval":{"approvedBy":"e2e"}}}`))))
 		h := waitHost(func(h metalv1alpha1.Host) bool {
 			return h.Status.Phase == metalv1alpha1.HostAvailable
 		}, waitFor, "release never returned the host to Available")
