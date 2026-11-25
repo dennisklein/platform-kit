@@ -38,7 +38,7 @@ If most control planes lose their etcd data, only a snapshot brings the state ba
 | One member is lost, the others have a majority | One member lost | [](act:EtcdRemoveMember), [](act:TalosReset) of EPHEMERAL, [](act:WaitEtcdHealthy) |
 | No majority | Majority lost | A reset of each stuck member, then one [](act:EtcdRecover) |
 
-Each proposed operation has `metal.pk.io/override-cluster-guard` and `metal.pk.io/ignore-window`.
+Each proposed operation has `metal.pk.io/override-cluster-guard` and `metal.pk.io/ignore-window`, in the name of the person who runs the restore.
 The cluster is already down, so the guard and the windows must not hold the repair.
 
 <Callout type="warning">

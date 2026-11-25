@@ -86,7 +86,7 @@ A window that does not parse is never open. The gate fails closed: you meant to 
 
 | You see | Cause | Do this |
 | --- | --- | --- |
-| Operation waits with `OutsideMaintenanceWindow` | A covering window is closed. | Wait, or annotate the operation: `metal.pk.io/ignore-window="<reason>"`. |
+| Operation waits with `OutsideMaintenanceWindow` | A covering window is closed. | Wait, or annotate the operation: `metal.pk.io/ignore-window="<username>: <reason>"`. |
 | `Valid=False` | A typo in the time zone or the start time. | Correct the window. Until then it holds the machines. |
 
 ## Permissions

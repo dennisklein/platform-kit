@@ -41,7 +41,7 @@ For etcd, the operator does not trust these counts. Before a control plane joins
   <dt>Leave verdict</dt>
   <dd>A control plane leaves only if what stays is safe: not empty, a healthy majority, an odd count. The leader leaves last.</dd>
   <dt>ack-etcd-risk</dt>
-  <dd>The annotation `metal.pk.io/ack-etcd-risk` on the claim or the TalosNode. Its value is your reason for an unsafe removal.</dd>
+  <dd>The annotation `metal.pk.io/ack-etcd-risk` on the claim or the TalosNode. Its value is your username and your reason for an unsafe removal.</dd>
   <dt>RemovalBlocked</dt>
   <dd>The condition of a TalosNode that is deleted. It waits for the release of its machine or the removal of its etcd member.</dd>
 </dl>

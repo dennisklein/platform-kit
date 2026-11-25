@@ -149,10 +149,10 @@ Use this procedure for an urgent change, for example a security correction.
    kubectl get hostoperations -n pk-metal -o wide
    ```
 
-2. Set the annotation on the operation. Give the reason as the value.
+2. Set the annotation on the operation. Give your username and the reason as the value.
 
    ```sh
-   kubectl annotate hostoperation -n pk-metal <operation> metal.pk.io/ignore-window="urgent security correction"
+   kubectl annotate hostoperation -n pk-metal <operation> metal.pk.io/ignore-window="<username>: urgent security correction"
    ```
 
 3. Make sure that the phase of the operation is Running.

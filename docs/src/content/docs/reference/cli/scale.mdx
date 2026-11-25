@@ -106,7 +106,7 @@ text={`
 | [](kind:TalosCluster) | get | Makes sure that the cluster exists. |
 | [](kind:TalosNode), [](kind:Host) | list | Finds the members, the spare nodes and the free machines. |
 | [](kind:HostClaim) | list, create, delete | The plan. Only with [`--apply`](cli:scale#--apply). |
-| [](kind:HostClaim) | patch | Sets `metal.pk.io/ack-etcd-risk` before it deletes a claim, with [`--ack-etcd-risk`](cli:scale#--ack-etcd-risk). |
+| [](kind:HostClaim) | patch | Sets `metal.pk.io/ack-etcd-risk` to `<your username>: <reason>` before it deletes a claim, with [`--ack-etcd-risk`](cli:scale#--ack-etcd-risk). |
 
 ## Exit status
 

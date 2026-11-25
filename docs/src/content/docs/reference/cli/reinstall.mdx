@@ -39,7 +39,7 @@ Use it for a damaged install, or after you replace a disk. The operator proposes
 1. The command finds the claim by its name. If no claim has the name, it finds the claim that names the node.
 2. It refuses a claim that has no completed install. Such a claim installs by itself.
 3. It sets the annotation `metal.pk.io/reinstall` on the claim. The value is the time of the install that it replaces.
-4. With [`--ack-etcd-risk`](cli:reinstall#--ack-etcd-risk), it also sets `metal.pk.io/ack-etcd-risk` to your reason.
+4. With [`--ack-etcd-risk`](cli:reinstall#--ack-etcd-risk), it also sets `metal.pk.io/ack-etcd-risk` to `<your username>: <reason>`.
 5. The [](ctrl:hostclaim) proposes one [](kind:HostOperation). Approve it with [](cli:approve).
 
 The operation does these steps:

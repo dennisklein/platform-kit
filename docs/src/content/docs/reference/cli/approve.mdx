@@ -78,7 +78,7 @@ Two annotations on a [](kind:HostOperation) lift a safety rule for that operatio
 | `metal.pk.io/ignore-window` | The operation starts only in a [](kind:MaintenanceWindow). |
 
 [](cli:restore) sets both on each operation that it proposes.
-The plan shows each annotation that is set, in the section `guards lifted for this operation`.
+The plan shows each annotation that is set, in the section `guards lifted for this operation`. Each line names the person who lifted the guard, and the reason. A value that names nobody shows as `lifted by nobody named`.
 If a person adds an annotation after the command showed the plan, the command does not approve. Run it again and read the new plan.
 
 <Callout type="caution">

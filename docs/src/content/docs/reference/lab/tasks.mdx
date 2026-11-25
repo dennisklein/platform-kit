@@ -337,7 +337,7 @@ Runs two day-2 rounds on a lab that is complete.
   <dt>Time limits</dt>
   <dd>`PK_LAB_DAY2_TIMEOUT` for each reboot, `PK_LAB_ROLLOUT_TIMEOUT` for the rollout.</dd>
   <dt>One control plane</dt>
-  <dd>It sets the annotation `metal.pk.io/override-cluster-guard` on the reboot operation. Without it, the cluster guard holds the reboot.</dd>
+  <dd>It sets the annotation `metal.pk.io/override-cluster-guard` on the reboot operation, in the name of the user of `kubectl auth whoami`. Without it, the cluster guard holds the reboot.</dd>
 </dl>
 
 ### upgrade

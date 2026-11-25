@@ -77,11 +77,12 @@ Make approved operations start only in agreed time slots. A window does not appr
 
 ## Start one operation now
 
-For an urgent fix, annotate the operation. The value is your reason.
+For an urgent fix, annotate the operation. The value is your username and your reason.
 
 ```sh
+me=$(kubectl auth whoami -o jsonpath='{.status.userInfo.username}')
 kubectl -n pk-metal annotate hostoperation simhw2288v5000398-bios-4b5c6d7e \
-  metal.pk.io/ignore-window="CVE fix, agreed with on-call"
+  metal.pk.io/ignore-window="$me: CVE fix, agreed with on-call"
 ```
 
 The operation still needs its approval.

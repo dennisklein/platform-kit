@@ -43,7 +43,7 @@ Only a member of the admin group can run this command. A move puts the config of
 1. The command finds the claim, as [](cli:reinstall) does.
 2. It reads the new [](kind:Host). The Host must be Available, not claimed and wiped.
 3. It writes the asset of the new Host into `spec.assetRef` of the claim.
-4. With [`--ack-etcd-risk`](cli:replace#--ack-etcd-risk), it also sets the annotation `metal.pk.io/ack-etcd-risk` to your reason.
+4. With [`--ack-etcd-risk`](cli:replace#--ack-etcd-risk), it also sets the annotation `metal.pk.io/ack-etcd-risk` to `<your username>: <reason>`.
 5. The [](ctrl:hostclaim) releases the old machine first.
 6. Then it proposes the install of the node on the new machine.
 

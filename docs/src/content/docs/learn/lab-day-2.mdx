@@ -215,11 +215,12 @@ kubectl --kubeconfig .lab/workload.kubeconfig get nodes -L lab.pk.io/day2
 
    The column `BLOCKED` shows `ClusterDisruption`. The [cluster guard](concept:cluster-guard) holds the operation, because the cluster has no second control plane.
 
-5. Lift the guard for this operation. The value is your reason. Use the name of the operation from step 4.
+5. Lift the guard for this operation. The value is your username and your reason. Use the name of the operation from step 4.
 
    ```sh
+   me=$(kubectl auth whoami -o jsonpath='{.status.userInfo.username}')
    kubectl -n pk-metal annotate hostoperation <operation> \
-     metal.pk.io/override-cluster-guard='lab: the cluster has one control plane'
+     metal.pk.io/override-cluster-guard="$me: the cluster has one control plane"
    ```
 
    The Kubernetes API of the lab cluster does not answer while `node-1` restarts.

@@ -80,7 +80,7 @@ Workers reboot in parallel. Control planes reboot one at a time, because the clu
 
 <Callout type="note">
 With one control plane only, the cluster guard holds the reboot.
-Set `metal.pk.io/override-cluster-guard` on the operation, with the reason as the value.
+Set `metal.pk.io/override-cluster-guard` on the operation. The value is `<username>: <reason>`, with your username. See [](ref:audit-trail).
 </Callout>
 
 ## Verify

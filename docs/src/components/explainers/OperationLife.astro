@@ -39,7 +39,7 @@ const steps = [
   {
     title: 'Maintenance window',
     caption: 'If a MaintenanceWindow covers the Host and no window is open, the operation waits. The phase is Proposed and blockedOn is OutsideMaintenanceWindow.',
-    code: 'kubectl annotate hostoperation -n pk-metal <op> metal.pk.io/ignore-window="<reason>"',
+    code: 'kubectl annotate hostoperation -n pk-metal <op> metal.pk.io/ignore-window="<username>: <reason>"',
     state: { propose: 'done', approve: 'done', op: 'warn', enter: 'done', 'g-abort': 'done', c1: 'done', 'g-rollout': 'done', c2: 'flow', 'g-window': 'warn' },
     text: { 'op-ph': 'Proposed (held)', 'steps-ph': '-', 'fin-ph': '-' },
   },
