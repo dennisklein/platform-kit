@@ -130,15 +130,28 @@ Two annotations on a [](kind:HostOperation) lift a safety rule for that operatio
 | `metal.pk.io/ignore-window` | The operation starts only in a [](kind:MaintenanceWindow). |
 
 - Each person with `patch` on operations can set them, before or after the approval. That is each holder of `pk-metal-approver`. `selfApproval` does not apply to annotations.
-- [](cli:approve) shows each lifted guard in the plan, with its reason. If an annotation changes after the command showed the plan, the command approves nothing.
+- The value is `<username>: <reason>`, with your own username. The `guard-lift` policy refuses each other value. So the operation records who lifted the rule and why.
+- [](cli:approve) shows each lifted guard in the plan, with the person and the reason. If an annotation changes after the command showed the plan, the command approves nothing.
 - An annotation with an empty value lifts nothing. The plan shows it as `empty: lifts nothing`.
 
+To lift the window on an operation:
+
+```sh
+me=$(kubectl auth whoami -o jsonpath='{.status.userInfo.username}')
+kubectl -n pk-metal annotate hostoperation reboot-node-1 metal.pk.io/ignore-window="$me: CVE fix"
+```
+
 <Callout type="caution">
-Give `pk-metal-approver` only to persons who may decide to lift these rules. An annotation that a person adds after the approval does not go through the approval again.
+Give `pk-metal-approver` only to persons who may decide to lift these rules. An annotation that a person adds after the approval does not go through the approval again. The [](ref:audit-trail) records each lift that the operator uses.
 </Callout>
+
+## Choose the retention
+
+The key `retention` in the same ConfigMap tells how long the operator keeps a finished operation or rollout. The default is `30d`. Set `Forever` to keep each record until a person deletes it. See [Retention](ref:audit-trail#retention).
 
 ## Related
 
+- [](ref:audit-trail)
 - [](concept:approval)
 - [](ref:rbac)
 - [](ref:admission-policies)

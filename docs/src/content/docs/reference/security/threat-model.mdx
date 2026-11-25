@@ -85,8 +85,8 @@ pk-metal can wipe disks, flash firmware and boot any image on a machine. This pa
 | --- | --- | --- |
 | Operator service account | Create an operation that needs no approval. It cannot approve an operation or a rollout, with each `selfApproval` value. | RBAC (no `patch`) and rule 6 of `hostoperation-approval` |
 | Admin group | Create an operation that needs no approval, and the other admin changes above. | `hostoperation-approval`, `hostclaim-provisioning`, `etcdbackuppolicy-guard`, `endpointprofile-guard` |
-| A person with `create` and `patch` on operations or rollouts, if `selfApproval` is `Allowed` | Propose a change and approve it. The record names the person as proposer and as approver. | Rule 7 of `hostoperation-approval`, rule 6 of `talosrollout-approval`, and the audit log |
-| Holder of `patch` on operations | Lift a maintenance window or the cluster guard on an operation that a person approved. | RBAC only |
+| A person with `create` and `patch` on operations or rollouts, if `selfApproval` is `Allowed` | Propose a change and approve it. The record names the person as proposer and as approver. | Rule 7 of `hostoperation-approval`, rule 6 of `talosrollout-approval`, and the `selfApproved` field of the [](ref:audit-trail) |
+| Holder of `patch` on operations | Lift a maintenance window or the cluster guard on an operation that a person approved. The value must name the person and a reason. | RBAC, `guard-lift`, and the [](ref:audit-trail) |
 
 ### Known limits
 
@@ -155,7 +155,7 @@ The operator refuses actions that would take down the cluster that it runs on, o
 
 ## What this model does not cover
 
-- A person with cluster admin can change the policies, the ConfigMap or the RBAC. Watch those objects.
+- A person with cluster admin can change the policies, the ConfigMap or the RBAC. Watch those objects in the kube-apiserver audit log. See [](ref:audit-trail).
 - A BMC with known default logins. Change them before enrollment.
 - A node that answers on the maintenance service. The manager reports it as `MaintenanceMode`, but a machine on the node network can pose as it. Take `MaintenanceMode` as a hint, not as proof.
 - The firmware that you flash. The operator checks the digest that you approved, not who built the image.
@@ -166,6 +166,7 @@ Do not set `--bmc-insecure` outside a lab. It accepts any BMC certificate, so a 
 
 ## Related
 
+- [](ref:audit-trail)
 - [](ref:rbac)
 - [](ref:admission-policies)
 - [](howto:approval-permissions)

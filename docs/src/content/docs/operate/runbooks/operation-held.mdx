@@ -35,8 +35,8 @@ Read the `BLOCKED` value and the note line in [](cli:status). Then find it in th
 | --- | --- | --- |
 | `AwaitingApproval` | Nobody approved it | [](howto:approve-hold-retry) |
 | `OperationQueued` | Another operation runs on the same Host | Wait. One operation at a time for each Host. |
-| `OutsideMaintenanceWindow` | A window covers the Host and it is not open | Wait, or set `metal.pk.io/ignore-window`. See [](howto:maintenance-windows). If the message says "none of them opens again" or "cannot read", no window opens: correct the window. |
-| `ClusterDisruption` | Another control plane is down, or etcd is not healthy without this one | Wait. To repair a broken etcd, set `metal.pk.io/override-cluster-guard` with a reason. |
+| `OutsideMaintenanceWindow` | A window covers the Host and it is not open | Wait, or set `metal.pk.io/ignore-window` to `<username>: <reason>`. See [](howto:maintenance-windows). If the message says "none of them opens again" or "cannot read", no window opens: correct the window. |
+| `ClusterDisruption` | Another control plane is down, or etcd is not healthy without this one | Wait. To repair a broken etcd, set `metal.pk.io/override-cluster-guard` to `<username>: <reason>`. |
 | `SelfDisruption` | The step would reboot a machine that the operator runs on | Move the operator, or set `metal.pk.io/allow-self-disruption` on the Host. See [](concept:self-protection). |
 | `HeldByUser` | The claim has `metal.pk.io/hold` | [](cli:unhold) |
 | `HostInMaintenance` | The Host has `metal.pk.io/maintenance` | [](howto:maintenance-mode) |
@@ -53,3 +53,4 @@ The operation goes to `Running`.
 ## Related
 
 - [](concept:approval), [](concept:self-protection), [](kind:MaintenanceWindow)
+- [](ref:audit-trail): the record of each guard that a person lifts

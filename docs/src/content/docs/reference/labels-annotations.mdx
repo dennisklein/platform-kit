@@ -26,14 +26,14 @@ These annotations are commands. Most of them have a `pk-metal` command that sets
 | --- | --- | --- | --- |
 | <KeyRef k="metal.pk.io/hold" /> | [](kind:HostClaim) | The operator proposes nothing for the claim. | [](cli:hold) |
 | <KeyRef k="metal.pk.io/maintenance" /> | [](kind:Host) | The operator starts nothing on the machine. | `kubectl annotate` |
-| <KeyRef k="metal.pk.io/ignore-window" /> | [](kind:HostOperation) | The operation starts when no [window](kind:MaintenanceWindow) is open. | `kubectl annotate` |
+| <KeyRef k="metal.pk.io/ignore-window" /> | [](kind:HostOperation) | The operation starts when no [window](kind:MaintenanceWindow) is open. | `kubectl annotate`, with your name |
 | <KeyRef k="metal.pk.io/abort" /> | HostOperation | The operation stops before its next step. | [](cli:abort) |
 | <KeyRef k="metal.pk.io/retry" /> | HostOperation | The operator proposes a failed BIOS or firmware plan again. | [](cli:retry) |
 | <KeyRef k="metal.pk.io/reinstall" /> | HostClaim | The operator proposes a wipe and a new install on the same machine. | [](cli:reinstall) |
 | <KeyRef k="metal.pk.io/wipe" /> | Host | The operator proposes a wipe of a machine that it could not reset. | [](cli:wipe) |
 | <KeyRef k="metal.pk.io/ack-etcd-risk" /> | HostClaim, [](kind:TalosNode) | You accept a risk for etcd when a control plane goes. | `--ack-etcd-risk` |
 | <KeyRef k="metal.pk.io/allow-self-disruption" /> | Host | The operator can reboot the machine that it runs on. | `kubectl annotate` |
-| <KeyRef k="metal.pk.io/override-cluster-guard" /> | HostOperation | The operation can stop a control plane when etcd is not healthy. | `kubectl annotate` |
+| <KeyRef k="metal.pk.io/override-cluster-guard" /> | HostOperation | The operation can stop a control plane when etcd is not healthy. | `kubectl annotate`, with your name |
 | <KeyRef k="os.pk.io/resume" /> | [](kind:TalosRollout) | The rollout continues after the pause on the first node. | [](cli:rollout) |
 | <KeyRef k="os.pk.io/restore-pending" /> | [](kind:TalosCluster) | The operator does not bootstrap etcd, because you restore it. | `kubectl annotate` |
 
@@ -44,7 +44,9 @@ Do not set `metal.pk.io/allow-self-disruption` or `metal.pk.io/override-cluster-
 These annotations remove a protection of the cluster that the operator runs in.
 </Callout>
 
-The value of `metal.pk.io/ignore-window` and of `metal.pk.io/override-cluster-guard` is your reason. An empty value does not count: the operator ignores the annotation, and the guard stays. Write the reason, for example `metal.pk.io/ignore-window="CVE fix, agreed with on-call"`.
+The value of `metal.pk.io/ignore-window`, `metal.pk.io/override-cluster-guard` and `metal.pk.io/ack-etcd-risk` is `<username>: <reason>`. The username is your own username in the API server. The [`guard-lift`](ref:admission-policies#guard-lift) policy refuses each other value, and an empty reason. For example: `metal.pk.io/ignore-window="alice: CVE fix, agreed with on-call"`. Get your username with `kubectl auth whoami`. `pk-metal` writes the value for you with `--ack-etcd-risk`.
+
+You can always remove the annotation. That puts the guard back. A value from before the policy, or an empty value, stays until somebody changes it. An empty value does not count: the operator ignores the annotation, and the guard stays. See [](ref:audit-trail).
 
 A holder of `patch` on HostOperations can set these annotations. The [approver role](ref:rbac) has `patch`. So a person who can approve an operation can also lift these guards on it.
 

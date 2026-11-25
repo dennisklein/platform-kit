@@ -1,0 +1,268 @@
+---
+title: Audit trail
+description: Where pk-metal records who changed a machine, who approved it and who lifted a guard, and how long each record stays.
+type: reference
+eyebrow: Reference · security
+xref: { cat: ref, id: audit-trail }
+sources:
+  - /repo/metal/internal/audit/audit.go
+  - /repo/metal/internal/controller/audit.go
+  - /repo/metal/internal/controller/retention.go
+  - /repo/metal/config/policy/guard-lift.yaml
+  - /repo/metal/config/policy/hostoperation-approval.yaml
+---
+
+import Callout from '../../../../components/Callout.astro';
+
+Each change to a machine goes through an approved [](kind:HostOperation) or [](kind:TalosRollout). Three records tell who asked for the change, who approved it, who lifted a guard, and what ran.
+
+| Record | What it holds | Where it lives | How long it stays |
+| --- | --- | --- | --- |
+| The objects | The current state of each operation and rollout: proposer, approver, guard lifts, steps, result. | The API server of the management cluster. | Until the operator or a person deletes it. See [Retention](#retention). |
+| The operator audit log | One JSON line for each decision: proposed, approved, guard lifted, step, finished, deleted. | The log of the manager pod, and your log store. | As long as your log store keeps it. |
+| The kube-apiserver audit log | Each request to the API server: who sent it, and the body for the pk-metal kinds. | Each control-plane node of the management cluster, and your log store. | As long as the node or your log store keeps it. |
+
+The objects are complete but short-lived. The two logs stay after the object is gone. Send both logs to a log store that you keep for as long as your audit rules ask.
+
+## The objects
+
+| Field | Kind | What it records |
+| --- | --- | --- |
+| `spec.proposedBy` | HostOperation, TalosRollout | The person or the operator that proposed it. Admission checks it against the request. |
+| `spec.approval.approvedBy` | HostOperation, TalosRollout | The person that approved it. Admission checks it against the request. |
+| `spec.approval.planHash` | TalosRollout | The plan that the person approved. |
+| `metadata.annotations` | HostOperation, HostClaim, TalosNode, Host | The guard lifts, with the name of the person and the reason. See [Named guard lifts](#named-guard-lifts). |
+| `status.conditions` | HostOperation, TalosRollout | When the approval took effect, when it ran, and why it stopped. |
+| `status.steps` | HostOperation, TalosRollout | Each step, its result and its message. |
+
+Read one record:
+
+```sh
+kubectl -n pk-metal get hostoperation reboot-node-1 -o yaml
+```
+
+## The operator audit log
+
+The manager writes one JSON line for each decision on the logger `audit`. The lines go to the standard error of the manager, with its other log lines. The field `"logger":"audit"` sets them apart.
+
+Read the lines of the last day:
+
+```sh
+kubectl -n pk-metal logs deployment/pk-metal-manager --since=24h \
+  | jq -cR 'fromjson? | select(.logger == "audit")'
+```
+
+In a log store, select on the same field. For example, in Loki: `{namespace="pk-metal"} | json | logger="audit"`.
+
+### Fields
+
+Each line has these fields:
+
+| Field | Value |
+| --- | --- |
+| `ts` | The time of the line, RFC 3339 in UTC. |
+| `logger` | Always `audit`. |
+| `event` | One of the events below. |
+| `kind` | `HostOperation`, `TalosRollout`, `HostClaim`, `TalosNode` or `Host`. |
+| `namespace` | The namespace of the object. It is empty for a cluster-scoped kind. |
+| `name` | The name of the object. |
+| `uid` | The UID of the object. A new object with the same name has a different UID. |
+| `actor` | Who made the decision: a person, or the service account of the operator. It is empty if a guard lift names nobody. |
+
+An event adds the fields in the table below. A line never holds a Secret, a credential or a BMC password. A `message` has at most 512 bytes.
+
+| `event` | When | Fields that it adds |
+| --- | --- | --- |
+| `proposed` | The operator first writes the status of the operation or rollout. | `proposedBy`, `target` (the Host or the cluster), `plan`, `approvalRequired` |
+| `approved` | The approval of a person takes effect. | `proposedBy`, `approvedBy`, `selfApproved`, `planHash` (rollouts) |
+| `guard.lifted` | The operator uses a guard lift. That occurs at the start of an operation, at each step that stops a node, and at a proposal that changes etcd. | `annotation`, `value`, `named`, and `operation` or `step` and `action` |
+| `step.started` | A step starts. | `step` (from 0), `action` |
+| `step.finished` | A step succeeds. | `step`, `action`, `result` |
+| `step.failed` | A step fails. | `step`, `action`, `result`, `reason`, `message` |
+| `finished` | The operation or rollout ends. | `phase`, `reason`, `durationSeconds` |
+| `deleted` | The operator deletes the object. The line comes before the delete request. | `reason`, `message` |
+
+The `reason` of a `deleted` line is one of these:
+
+| `reason` | Why the operator deletes the object |
+| --- | --- |
+| `RetentionExpired` | The record finished and the [retention](#retention) ended. |
+| `Withdrawn` | A proposal that nobody approved. A newer plan replaced it, or its cause went away. |
+| `Stopped` | The operator stops an operation that cannot complete, for example the boot of a node that a person deleted. |
+| `RetryRequested` | A person asked for a retry with [](cli:retry). The operator proposes the plan again. |
+| `RecordOfRemovedObject` | The record of a claim or a node that a person removed. |
+| `OwnerDeleted` | An operation of a rollout. The API server deletes it with the rollout. |
+
+### Examples
+
+The `ts` field is the same in each example. The operator is `system:serviceaccount:pk-metal:pk-metal-manager`, shown as `<operator>`.
+
+```json
+{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"proposed","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"alice","proposedBy":"alice","target":"host-1","plan":"talosReboot, waitNodeReady","approvalRequired":true}
+{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"approved","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"bob","proposedBy":"alice","approvedBy":"bob","selfApproved":false}
+{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"approved","kind":"TalosRollout","namespace":"","name":"fleet-talosupgrade-1a2b3c4d","uid":"u-2","actor":"alice","proposedBy":"alice","approvedBy":"alice","selfApproved":true,"planHash":"sha256:abc"}
+{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"guard.lifted","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"alice","annotation":"metal.pk.io/ignore-window","value":"alice: CVE fix","named":true}
+{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"guard.lifted","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"bob","annotation":"metal.pk.io/override-cluster-guard","value":"bob: single control plane","named":true,"step":2,"action":"talosReboot"}
+{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"step.started","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"<operator>","step":0,"action":"cordon"}
+{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"step.finished","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"<operator>","step":1,"action":"drain","result":"Succeeded"}
+{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"step.failed","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"<operator>","step":2,"action":"talosReboot","result":"Failed","reason":"StepFailed","message":"node did not come back"}
+{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"finished","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"<operator>","reason":"StepsSucceeded","phase":"Succeeded","durationSeconds":95}
+{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"deleted","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"<operator>","reason":"RetentionExpired","message":"finished 720h0m0s ago"}
+```
+
+### One line for each decision
+
+The operator writes a line when its status write records the change. If the API server refuses the write, the operator writes no line, and writes it on the next pass. So a reconcile that repeats writes no second line.
+
+- A `deleted` line can show two times. That occurs if the delete request fails and the operator tries again. Use `uid` and `event` to find a repeated line.
+- A restart of the manager between the status write and the line loses that one line. The object and the kube-apiserver audit log still record the change.
+- A field change in this schema breaks each site that reads it. The unit tests of `internal/audit` pin each line.
+
+## The kube-apiserver audit log
+
+The API server records each request that its audit policy selects. It shows who sent a request, also through impersonation, and the body that changed an object. Use it to find when a person set an annotation, and who deleted a record.
+
+Talos writes the log on each control-plane node, in `/var/log/audit/kube/`. Read it with `talosctl`:
+
+```sh
+talosctl -n 192.0.2.11 read /var/log/audit/kube/kube-apiserver.log \
+  | jq -c 'select(.objectRef.apiGroup == "metal.pk.io")'
+```
+
+Send the log to your log store, because the node rotates the file.
+
+### Audit policy for Talos
+
+Set the policy in the machine config of each control plane, in `cluster.apiServer.auditPolicy`. The API server uses the first rule that matches.
+
+```yaml title="auditpolicy.patch.yaml"
+cluster:
+  apiServer:
+    auditPolicy:
+      apiVersion: audit.k8s.io/v1
+      kind: Policy
+      omitStages:
+        - RequestReceived
+      rules:
+        # Secrets of pk-metal: BMC logins, credentials, backup keys.
+        # Who read or changed them, never the body.
+        - level: Metadata
+          namespaces: ["pk-metal"]
+          resources:
+            - group: ""
+              resources: ["secrets"]
+        # Each change to a pk-metal kind, with the request and the response.
+        - level: RequestResponse
+          verbs: ["create", "update", "patch", "delete", "deletecollection"]
+          resources:
+            - group: metal.pk.io
+            - group: os.pk.io
+        # The site settings: selfApproval, adminGroup and retention.
+        - level: Request
+          verbs: ["create", "update", "patch", "delete"]
+          namespaces: ["pk-metal"]
+          resources:
+            - group: ""
+              resources: ["configmaps"]
+        # The policies and the bindings that guard the approval.
+        - level: Request
+          verbs: ["create", "update", "patch", "delete"]
+          resources:
+            - group: admissionregistration.k8s.io
+            - group: rbac.authorization.k8s.io
+        # Reads of the rest: not recorded.
+        - level: None
+          verbs: ["get", "list", "watch"]
+        # Each other change: who and what, no body.
+        - level: Metadata
+```
+
+- The rule for Secrets comes first. A later rule cannot record the body of a Secret.
+- The `Metadata` rule at the end also covers each Secret outside `pk-metal`. That rule records no body.
+- Apply the patch with `talosctl patch machineconfig`, or add it to the machine config of the cluster.
+
+## Retention
+
+The key `retention` in the ConfigMap `hostoperation-approval` tells how long the operator keeps a finished record.
+
+| Value | Effect |
+| --- | --- |
+| `30d` (the default) | The operator deletes a finished record 30 days after it finished. A missing key has the same effect. |
+| Days, for example `90d` | The same, after that number of days. |
+| A duration, for example `720h` | The same, after that time. |
+| `Forever` | The operator deletes no finished record. A person deletes them. |
+| A value that the operator cannot read | The operator keeps each record, and logs the problem. |
+
+The operator deletes only these records:
+
+- A `Succeeded` operation that has `spec.ttlSecondsAfterFinished`: after its TTL or the retention, whichever is longer. The operator sets a TTL on releases, wipes and convergence proposals.
+- A `Succeeded` rollout, after the retention. Its operations go with it, and each gets a `deleted` line.
+- A proposal that nobody approved, when a newer plan replaces it or its cause goes away. The retention does not apply, because nothing ran. The `deleted` line has the reason `Withdrawn`.
+
+The operator keeps each `Failed` or `Aborted` record. A person deletes it, for example with [](cli:retry).
+
+The default of 30 days is long enough to look back over a month of changes. It is short enough that the API server does not keep many records that nobody reads. Keep the two logs for longer in your log store.
+
+Set the value in the site overlay:
+
+```yaml title="approval.yaml"
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hostoperation-approval
+  namespace: pk-metal
+data:
+  retention: 90d
+```
+
+The operator reads the value again within one hour.
+
+## Named guard lifts
+
+Three annotations lift a safety rule:
+
+| Annotation | On | Rule that it lifts |
+| --- | --- | --- |
+| `metal.pk.io/override-cluster-guard` | HostOperation | A control plane goes down only while etcd is healthy without it. |
+| `metal.pk.io/ignore-window` | HostOperation | The operation starts only in a [](kind:MaintenanceWindow). |
+| `metal.pk.io/ack-etcd-risk` | HostClaim, TalosNode | A control plane leaves etcd only if etcd keeps an odd size and a majority. |
+
+The value must be `<username>: <reason>`. The username is the username of the request, and the reason is not empty. The [admission policy](ref:admission-policies#guard-lift) `guard-lift` refuses each other value. So the object records who lifted the rule and why.
+
+```sh
+kubectl -n pk-metal annotate hostoperation reboot-node-1 \
+  metal.pk.io/ignore-window="$(kubectl auth whoami -o jsonpath='{.status.userInfo.username}'): CVE fix"
+```
+
+- `pk-metal` writes this value for you: [](cli:reinstall), [](cli:replace), [](cli:scale) and [](cli:restore).
+- [](cli:approve) shows the person and the reason of each lift in the plan.
+- A person who may update the object can always remove a lift. That puts the rule back.
+- A value from before the policy stays. The plan and the audit log show it as `nobody named`.
+
+`metal.pk.io/allow-self-disruption` on a [](kind:Host) is not a named lift. The audit log records its use with each operation that it lets stop the node of the operator.
+
+## The self-approval marker
+
+If the site sets `selfApproval: Allowed`, a person can approve their own proposal. The `approved` line then has `"selfApproved":true`. See [](howto:approval-permissions).
+
+Find each self-approval in the operator audit log:
+
+```sh
+kubectl -n pk-metal logs deployment/pk-metal-manager --since=168h \
+  | jq -cR 'fromjson? | select(.logger == "audit" and .event == "approved" and .selfApproved)
+      | {ts, kind, namespace, name, actor}'
+```
+
+The objects show the same thing while they exist: `spec.proposedBy` and `spec.approval.approvedBy` have the same value.
+
+<Callout type="note">
+A person with cluster admin can change the policies, the ConfigMap and the manager. The kube-apiserver audit log records these changes. Keep it outside the cluster.
+</Callout>
+
+## Related
+
+- [](ref:threat-model)
+- [](ref:admission-policies)
+- [](howto:approval-permissions)
+- [](ref:labels-annotations)
+- [](rb:index)

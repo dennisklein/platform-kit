@@ -78,6 +78,10 @@ The operation stopped at the failed step. Steps before it stay done. The operato
 </Steps>
 
 <Callout type="note">
+The retry deletes the failed operation. Its lines in the operator audit log stay. To keep the full record, save it first: `kubectl -n pk-metal get hostoperation <name> -o yaml`. See [](ref:audit-trail).
+</Callout>
+
+<Callout type="note">
 `pk-metal retry` only deletes an operation that a person made, for example with [](cli:reboot). Make it again yourself.
 An operation of a rollout ends the rollout. Follow [](rb:rollout-paused).
 </Callout>
@@ -97,3 +101,4 @@ To stop new proposals while you look, hold the claim with [](cli:hold). Then fol
 ## Related
 
 - [](howto:approve-hold-retry), [](cli:retry)
+- [](ref:audit-trail)

@@ -148,9 +148,10 @@ Set these annotations on the HostOperation. The value tells who asked and why.
     Lets a disruptive action take down a control plane when etcd is not fully healthy.
     Use it to repair a broken etcd or for a cluster with one control plane.
     It does not lift the rule "one control plane at a time", and it does not lift self-protection.
+    The value is `<username>: <reason>`. See [](ref:audit-trail).
   </dd>
   <dt>`metal.pk.io/ignore-window`</dt>
-  <dd>Lets the operation start outside the maintenance windows. [](cli:restore) sets it, because a cluster without etcd is already down.</dd>
+  <dd>Lets the operation start outside the maintenance windows. The value is `<username>: <reason>`. [](cli:restore) sets it, because a cluster without etcd is already down.</dd>
 </dl>
 
 <Callout type="caution">
@@ -190,7 +191,7 @@ The [action catalog](act:index) gives the budget and the guard for each action.
 | `Executed` | `StepFailed`, `RolloutRefused`, `HostNotClaimed` | False. The operation failed. |
 | `Executed` | `Aborted` | False. A person stopped it. |
 
-A finished operation with [`spec.ttlSecondsAfterFinished`](kind:HostOperation#spec.ttlSecondsAfterFinished) goes away when the time is over, but only if it succeeded.
+A finished operation with [`spec.ttlSecondsAfterFinished`](kind:HostOperation#spec.ttlSecondsAfterFinished) goes away when the time is over and the site retention ended, but only if it succeeded. See [Retention](ref:audit-trail#retention).
 A failed operation stays until a person acts.
 
 ## Example
