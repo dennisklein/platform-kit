@@ -1,6 +1,6 @@
 ---
 title: Admission policies
-description: The nine ValidatingAdmissionPolicies that guard approval, provisioning, backups, BMC settings, guard lifts, the name of the requester and the site settings, rule by rule.
+description: The ten ValidatingAdmissionPolicies that guard approval, provisioning, backups, BMC settings, guard lifts, the name of the requester and the site settings, rule by rule.
 type: reference
 eyebrow: Reference · security
 xref: { cat: ref, id: admission-policies }
@@ -13,6 +13,7 @@ sources:
   - /repo/metal/config/policy/taloscluster-credentials-guard.yaml
   - /repo/metal/config/policy/guard-lift.yaml
   - /repo/metal/config/policy/requested-by.yaml
+  - /repo/metal/config/policy/requested-by-patches.yaml
   - /repo/metal/config/policy/settings-guard.yaml
   - /repo/metal/internal/controller/settings.go
 ---
@@ -23,7 +24,7 @@ import Edge from '../../../../components/diagram/Edge.astro';
 import Callout from '../../../../components/Callout.astro';
 
 RBAC says who may create or patch an object. It cannot see the name that a person writes into a field.
-Eight [ValidatingAdmissionPolicies](term:vap) close that gap. They are [CEL](term:cel) in the API server: no webhook, no certificate, no pod.
+Ten [ValidatingAdmissionPolicies](term:vap) close that gap. They are [CEL](term:cel) in the API server: no webhook, no certificate, no pod.
 
 ## At a glance
 
@@ -36,10 +37,11 @@ Eight [ValidatingAdmissionPolicies](term:vap) close that gap. They are [CEL](ter
 | `endpointprofile-guard` | [](kind:EndpointProfile) | CREATE, UPDATE | Who may change what the operator writes to the BMCs. |
 | `taloscluster-credentials-guard` | [](kind:TalosCluster) | CREATE, UPDATE | Who may make the published admin credentials live longer than 24 hours. |
 | `guard-lift` | HostOperation, HostClaim, [](kind:TalosNode), [](kind:Host) | CREATE, UPDATE | A guard lift or a decision names the person who sets it, and a reason. Only the operator removes `disk-not-wiped` without a named waiver. |
-| `requested-by` | TalosCluster, TalosNode, HostClaim, [](kind:BiosProfile), [](kind:FirmwareProfile), Host, TalosRollout, ConfigMaps with `os.pk.io/patch` | CREATE, UPDATE, DELETE | A change that makes the operator propose work names the user who asked for it. |
+| `requested-by` | TalosCluster, TalosNode, HostClaim, [](kind:BiosProfile), [](kind:FirmwareProfile), Host, TalosRollout | CREATE, UPDATE, DELETE | If `selfApproval` is `Forbidden`, a change that makes the operator propose work names the user who asked for it. |
+| `requested-by-patches` | ConfigMaps with `os.pk.io/patch` | CREATE, UPDATE, DELETE | The rules of `requested-by` for the Talos config patches. |
 | `settings-guard` | The ConfigMap `pk-metal/hostoperation-approval` | CREATE, UPDATE, DELETE | Only the admin group changes or deletes the site settings. |
 
-All nine have these settings:
+All ten have these settings:
 
 <dl>
   <dt>`failurePolicy: Fail`</dt>
@@ -47,9 +49,9 @@ All nine have these settings:
   <dt>`validationActions: [Deny]`</dt>
   <dd>A failed rule refuses the request with reason `Forbidden`.</dd>
   <dt>Parameters</dt>
-  <dd>All except `requested-by` and `settings-guard`, which need none: the ConfigMap `hostoperation-approval` in `pk-metal`. Key `operator` is the name of the manager. Key `adminGroup` is the admin group. Key `selfApproval` tells if a person can approve their own proposal.</dd>
+  <dd>All except `settings-guard`, which needs none: the ConfigMap `hostoperation-approval` in `pk-metal`. Key `operator` is the name of the manager. Key `adminGroup` is the admin group. Key `selfApproval` tells if a person can approve their own proposal.</dd>
   <dt>`parameterNotFoundAction: Deny`</dt>
-  <dd>Without the ConfigMap, each create and update is refused. The gate fails closed.</dd>
+  <dd>Without the ConfigMap, the API server refuses each request that a policy with parameters checks. The gate fails closed.</dd>
 </dl>
 
 ```yaml
@@ -215,7 +217,16 @@ These annotations lift a safety rule of the operator, or decide a step of a chan
 
 ## `requested-by`
 
-The operator proposes most changes itself, as the result of an edit. The proposal names the operator as proposer. This policy makes each such edit name the user who made it, in the annotation `metal.pk.io/requested-by`. The operator copies the names into `spec.requestedBy` of the proposal. Rule 8 of `hostoperation-approval` and rule 7 of `talosrollout-approval` then apply.
+The operator proposes most changes itself, as the result of an edit. The proposal names the operator as proposer. If the site forbids self-approval, this policy makes each such edit name the user who made it, in the annotation `metal.pk.io/requested-by`. The operator copies the names into `spec.requestedBy` of the proposal. Rule 8 of `hostoperation-approval` and rule 7 of `talosrollout-approval` then apply.
+
+The policy `requested-by-patches` has the same rules for the ConfigMaps with the label `os.pk.io/patch`. It is a separate policy because it selects these ConfigMaps by their label before the API server reads the parameters. So without the parameters, a request on another ConfigMap passes.
+
+The key `selfApproval` of the parameters sets the mode. A missing key is `Allowed`. A value other than `Allowed` is the same as `Forbidden`.
+
+| Mode | An edit without the annotation | An edit of an object with the annotation |
+| --- | --- | --- |
+| `Forbidden` | Refused if it asks for work | Must name the user of the request if it asks for work |
+| `Allowed` | Passes | Must name the user of the request if it asks for work |
 
 An edit asks for work in these cases:
 
@@ -229,11 +240,14 @@ An edit asks for work in these cases:
 
 | # | Rule | When | Message |
 | --- | --- | --- | --- |
-| 1 | A request that asks for work sets `metal.pk.io/requested-by` to the username of the request. | CREATE, UPDATE | `this change makes the operator propose work, so it must name who asked for it` |
-| 2 | A delete that asks for work needs the annotation to name the user of the delete already. Controllers in `kube-system` (the garbage collector, the namespace controller) are exempt. | DELETE | `deleting it makes the operator propose work, so it must name who asked for it: first set the annotation` |
-| 3 | A request that changes the annotation sets it to the username of the request. Nobody removes it. | UPDATE | `you may set it only to your own username` |
+| 1 | A request that asks for work sets `metal.pk.io/requested-by` to the username of the request. If `selfApproval` is `Allowed`, a request on an object without the annotation passes. | CREATE, UPDATE | `this site forbids approving your own change (…), so it must name who asked for it`, or `metal.pk.io/requested-by names "…", who did not make it` |
+| 2 | A delete that asks for work needs the annotation to name the user of the delete already. If `selfApproval` is `Allowed`, an object without the annotation passes. Controllers in `kube-system` (the garbage collector, the namespace controller) are exempt. | DELETE | `so it must name who asked for it: first set the annotation`, or `metal.pk.io/requested-by names "…", not you` |
+| 3 | A request that changes the annotation sets it to the username of the request. Nobody removes it. This rule applies in the two modes. | UPDATE | `you may set it only to your own username` |
 
-- The pk-metal commands set the annotation. See [](howto:approval-permissions#who-asked-for-a-change).
+- Rules 1 and 2 apply under `Allowed` to an object with the annotation. Thus the annotation never names a person as the requester of the change of another person.
+- Rule 3 applies under `Allowed` too. The operator proposes some time after the edit. The annotation is the record of who asked for a change that is not proposed yet. The next user of a change can replace the name with their own name, so a removal is never necessary.
+- If the ConfigMap `hostoperation-approval` is missing, the two policies refuse each request that they check, also a delete by the namespace controller. Restore the ConfigMap.
+- The pk-metal commands and [](cli:pivot) set the annotation in the two modes. The operator copies it into `spec.requestedBy`, so the audit trail names the requester. See [](howto:approval-permissions#who-asked-for-a-change).
 - The operator has no exemption. It changes no spec of these kinds.
 - [](cli:pivot) writes each object as the user that the annotation names. An object without the annotation gets `pk-metal-pivot`.
 - A GitOps controller names its own service account. See [](concept:gitops).

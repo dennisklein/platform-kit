@@ -10,6 +10,7 @@ sources:
   - /repo/metal/config/policy/hostoperation-approval.yaml
   - /repo/metal/config/policy/talosrollout-approval.yaml
   - /repo/metal/config/policy/requested-by.yaml
+  - /repo/metal/config/policy/requested-by-patches.yaml
   - /repo/metal/config/policy/settings-guard.yaml
   - /repo/metal/config/samples/site-overlay/approval.yaml
   - /repo/metal/config/samples/site-overlay/bindings.yaml
@@ -132,8 +133,9 @@ The key `selfApproval` in the ConfigMap `hostoperation-approval` tells if a pers
 
 The operator proposes most changes itself, as the result of an edit. For example, a new `talosVersion` on a [](kind:TalosCluster) becomes a rollout, and a `metal.pk.io/wipe` mark on a Host becomes a wipe operation. The proposal names the operator as its proposer. So the person who made the edit must also be on the record.
 
-- Each request that makes the operator propose work sets the annotation `metal.pk.io/requested-by` to the username of the request. The `requested-by` policy refuses the request if not. A delete of such an object needs the annotation before the delete.
-- The pk-metal commands set the annotation for you: [](cli:upgrade), [](cli:scale), [](cli:replace), [](cli:wipe), [](cli:reinstall), and `pk-metal rollout pause`, `resume`, and `abort`.
+- If `selfApproval` is `Forbidden`, each request that makes the operator propose work sets the annotation `metal.pk.io/requested-by` to the username of the request. The `requested-by` policy refuses the request if not. A delete of such an object needs the annotation before the delete.
+- If `selfApproval` is `Allowed`, the annotation is optional. But after a person sets it, each request that makes the operator propose work must name its user, as under `Forbidden`. So the annotation does not name a person who did not make the change.
+- The pk-metal commands set the annotation for you in the two modes: [](cli:upgrade), [](cli:scale), [](cli:replace), [](cli:wipe), [](cli:reinstall), and `pk-metal rollout pause`, `resume`, and `abort`.
 - If you use `kubectl`, set the annotation in the same request:
 
   ```sh
@@ -144,10 +146,10 @@ The operator proposes most changes itself, as the result of an edit. For example
 - You can set the annotation to your own username only. You cannot remove it. To make a change of another person your own, set your own username.
 - The operator copies the names from the objects behind a proposal into `spec.requestedBy` of the operation or rollout. This field cannot change after the create.
 - A rollout that the operator proposed ends with `PlanChanged` if a person who is not in its `spec.requestedBy` changes what it applies. The operator then proposes it again, with the new names.
-- A Talos config patch in a ConfigMap must have the label `os.pk.io/patch: "true"`. The operator reads no ConfigMap without it. So the policy can find the patches and ask for a name.
+- A Talos config patch in a ConfigMap must have the label `os.pk.io/patch: "true"`. The operator reads no ConfigMap without it. So the policy `requested-by-patches` can find the patches and ask for a name.
 
 <Callout type="caution">
-A GitOps controller applies the manifests as its own service account. So each manifest that it applies must have `metal.pk.io/requested-by` set to the username of that service account, for example `system:serviceaccount:flux-system:kustomize-controller`. Then `spec.requestedBy` names the service account, not the person who wrote the commit. `Forbidden` does not stop that person from approving the result. Make the review of the commit the second person, or approve only commits that another person wrote. See [](concept:gitops).
+A GitOps controller applies the manifests as its own service account. So under `Forbidden`, each manifest that it applies must have `metal.pk.io/requested-by` set to the username of that service account, for example `system:serviceaccount:flux-system:kustomize-controller`. Then `spec.requestedBy` names the service account, not the person who wrote the commit. `Forbidden` does not stop that person from approving the result. Make the review of the commit the second person, or approve only commits that another person wrote. See [](concept:gitops).
 </Callout>
 
 ## Guard-lift annotations

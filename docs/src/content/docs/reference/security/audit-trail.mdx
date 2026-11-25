@@ -87,7 +87,7 @@ An event adds the fields in the table below. A line never holds a Secret, a cred
 | --- | --- | --- |
 | `proposed` | The operator first writes the status of the operation or rollout. | `proposedBy`, `requestedBy`, `target` (the Host or the cluster), `plan`, `approvalRequired` |
 | `approved` | The approval of a person takes effect. | `proposedBy`, `requestedBy`, `approvedBy`, `selfApproved`, `planHash` (rollouts) |
-| `paused` | A person pauses a rollout (`spec.paused`). The `actor` is the person that `metal.pk.io/requested-by` names. | None |
+| `paused` | A person pauses a rollout (`spec.paused`). The `actor` is the person that `metal.pk.io/requested-by` names. Under `selfApproval: Allowed` it can be empty. | None |
 | `resumed` | A rollout continues after a pause: a person cleared `spec.paused`, or resumed it after its first node. | None |
 | `guard.lifted` | The operator uses a guard lift. That occurs at the start of an operation, at each step that stops a node, and at a proposal that changes etcd. | `annotation`, `value`, `named`, and `operation` or `step` and `action` |
 | `step.started` | A step starts. | `step` (from 0), `action` |

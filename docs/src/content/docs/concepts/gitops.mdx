@@ -11,6 +11,7 @@ sources:
   - /repo/metal/config/policy/hostoperation-approval.yaml
   - /repo/metal/config/policy/talosrollout-approval.yaml
   - /repo/metal/config/policy/requested-by.yaml
+  - /repo/metal/config/policy/requested-by-patches.yaml
   - /repo/metal/internal/controller/provisioning.go
   - /repo/metal/internal/controller/talosnode_finalizer.go
 ---
@@ -68,9 +69,9 @@ The API server compares the name with the login. It refuses a person who approve
 
 ## The requester in git
 
-The admission policy `requested-by` asks each request that makes the operator propose work to name its user in the annotation `metal.pk.io/requested-by`. The kinds are TalosCluster, TalosNode, HostClaim, BiosProfile, FirmwareProfile, and ConfigMaps with the label `os.pk.io/patch`. See [](howto:approval-permissions#who-asked-for-a-change).
+If `selfApproval` is `Forbidden`, the admission policies `requested-by` and `requested-by-patches` ask each request that makes the operator propose work to name its user in the annotation `metal.pk.io/requested-by`. The kinds are TalosCluster, TalosNode, HostClaim, BiosProfile, FirmwareProfile, and ConfigMaps with the label `os.pk.io/patch`. See [](howto:approval-permissions#who-asked-for-a-change).
 
-- Put the annotation in each manifest of these kinds, with the username of the service account of the tool:
+- Put the annotation in each manifest of these kinds, with the username of the service account of the tool. Do this under `Allowed` too. A person can set the annotation on an object, for example with a pk-metal command. After that, the policies refuse a change of the object that does not name its user.
 
   ```yaml
   metadata:
@@ -78,7 +79,7 @@ The admission policy `requested-by` asks each request that makes the operator pr
       metal.pk.io/requested-by: system:serviceaccount:flux-system:kustomize-controller
   ```
 
-- The API server refuses a create, a change of spec, or a delete by the tool without it. A prune is a delete, so the object must have the annotation already.
+- Under `Forbidden`, the API server refuses a create, a change of spec, or a delete by the tool without it. A prune is a delete, so the object must have the annotation already.
 - `spec.requestedBy` of the proposal then names the service account, not the person who wrote the commit. Under `selfApproval: Forbidden`, the author of the commit can approve the result. The review of the commit must be the second person.
 
 ## The identity that applies
