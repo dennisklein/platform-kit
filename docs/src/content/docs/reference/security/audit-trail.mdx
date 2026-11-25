@@ -203,11 +203,12 @@ The key `retention` in the ConfigMap `hostoperation-approval` tells how long the
 | Days, for example `90d` | The same, after that number of days. |
 | A duration, for example `720h` | The same, after that time. |
 | `Forever` | The operator deletes no finished record. A person deletes them. |
+| `0`, `0s`, `0d`, a negative value, or more days than a duration holds (`106752d` and more) | The operator keeps each record, and logs the problem. |
 | A value that the operator cannot read | The operator keeps each record, and logs the problem. |
 
 The operator deletes only these records:
 
-- A `Succeeded` operation that has `spec.ttlSecondsAfterFinished`: after its TTL or the retention, whichever is longer. The operator sets a TTL on releases, wipes and convergence proposals.
+- A `Succeeded` operation that has `spec.ttlSecondsAfterFinished`: after its TTL or the retention, whichever is longer. The operator sets a TTL on releases, wipes and convergence proposals. The TTL is frozen after creation, so an approver cannot add one to a record that must stay.
 - A `Succeeded` rollout, after the retention. Its operations go with it, and each gets a `deleted` line.
 - A proposal that nobody approved, when a newer plan replaces it or its cause goes away. The retention does not apply, because nothing ran. The `deleted` line has the reason `Withdrawn`.
 

@@ -621,6 +621,14 @@ func TestReconcile(t *testing.T) {
 		err = cl.Update(ctx, &op)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "frozen")
+
+		// A record meant to stay cannot be given a time to go: the TTL is
+		// frozen too.
+		op = opByName("cycle-smc")
+		ttl := client.RawPatch(types.MergePatchType, []byte(`{"spec":{"ttlSecondsAfterFinished":60}}`))
+		err = cl.Patch(ctx, &op, ttl)
+		require.Error(t, err, "a TTL added after creation is refused")
+		assert.Contains(t, err.Error(), "ttlSecondsAfterFinished is frozen after creation")
 	})
 
 	st.run(t, "an image by URL needs https and a digest", func(t *testing.T) {

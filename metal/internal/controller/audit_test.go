@@ -247,13 +247,16 @@ func TestParseRetention(t *testing.T) {
 	for v, want := range map[string]retention{
 		"Forever": {forever: true},
 		"30d":     {keep: 30 * 24 * time.Hour},
-		"0d":      {},
+		"106751d": {keep: 106751 * 24 * time.Hour},
 		"720h":    {keep: 720 * time.Hour},
 		" 90m ":   {keep: 90 * time.Minute},
 	} {
 		assert.Equal(t, want, parseRetention(v), v)
 	}
-	for _, v := range []string{"forever", "-1h", "a month", "1.5d", ""} {
+	// Zero would delete each record as it finishes; a number of days past
+	// what a duration holds would wrap around and delete at once.
+	for _, v := range []string{"forever", "-1h", "a month", "1.5d", "", "0", "0s", "0d", "-3d",
+		"106752d", "999999d", "99999999999999999999d"} {
 		got := parseRetention(v)
 		assert.True(t, got.forever, "%q keeps the records", v)
 		assert.Contains(t, got.problem, "is not Forever", v)
@@ -287,14 +290,16 @@ func TestOperationRetention(t *testing.T) {
 		ttl       int32
 		gone      bool
 	}{
-		"Forever keeps it":                          {retention: ptr.To("Forever"), ago: 400 * 24 * time.Hour, gone: false},
-		"a TTL shorter than the retention waits":    {retention: ptr.To("7d"), ago: 2 * 24 * time.Hour, ttl: 60, gone: false},
-		"past the retention it goes":                {retention: ptr.To("7d"), ago: 8 * 24 * time.Hour, ttl: 60, gone: true},
-		"a TTL longer than the retention decides":   {retention: ptr.To("1h"), ago: 2 * time.Hour, ttl: 86400, gone: false},
-		"the default keeps it for 30 days":          {ago: 29 * 24 * time.Hour, gone: false},
-		"the default lets it go after 30 days":      {ago: 31 * 24 * time.Hour, gone: true},
-		"a mistyped setting keeps it":               {retention: ptr.To("a month"), ago: 400 * 24 * time.Hour, gone: false},
-		"zero leaves it to the operation's own TTL": {retention: ptr.To("0s"), ago: 2 * time.Minute, ttl: 60, gone: true},
+		"Forever keeps it":                                 {retention: ptr.To("Forever"), ago: 400 * 24 * time.Hour, gone: false},
+		"a TTL shorter than the retention waits":           {retention: ptr.To("7d"), ago: 2 * 24 * time.Hour, ttl: 60, gone: false},
+		"past the retention it goes":                       {retention: ptr.To("7d"), ago: 8 * 24 * time.Hour, ttl: 60, gone: true},
+		"a TTL longer than the retention decides":          {retention: ptr.To("1h"), ago: 2 * time.Hour, ttl: 86400, gone: false},
+		"the default keeps it for 30 days":                 {ago: 29 * 24 * time.Hour, gone: false},
+		"the default lets it go after 30 days":             {ago: 31 * 24 * time.Hour, gone: true},
+		"a mistyped setting keeps it":                      {retention: ptr.To("a month"), ago: 400 * 24 * time.Hour, gone: false},
+		"a short one leaves it to the operation's own TTL": {retention: ptr.To("1s"), ago: 2 * time.Minute, ttl: 60, gone: true},
+		"zero is refused and keeps it":                     {retention: ptr.To("0s"), ago: 2 * time.Minute, ttl: 60, gone: false},
+		"an overflowing number of days keeps it":           {retention: ptr.To("106752d"), ago: 2 * time.Minute, ttl: 60, gone: false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			op := finishedOp(tc.ago, tc.ttl)

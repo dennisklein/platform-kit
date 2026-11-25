@@ -460,8 +460,9 @@ func runExecutorCase(t *testing.T, seed uint64, image func(string) string, image
 	op.Spec.TTLSecondsAfterFinished = ttl
 	// The site's retention comes from its own source, so that the draws
 	// above and below stay what they were for every seed: the default
-	// (no key), none beyond the TTL ("0s"), or Forever.
-	keep := []string{"", "0s", RetentionForever}[rand.New(rand.NewPCG(7, seed)).IntN(3)]
+	// (no key), none beyond the TTL ("1ns": zero is refused as a
+	// setting), or Forever.
+	keep := []string{"", "1ns", RetentionForever}[rand.New(rand.NewPCG(7, seed)).IntN(3)]
 	site := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: "pk-metal", Name: siteSettingsConfigMap},
 		Data: map[string]string{}}
 	if keep != "" {
@@ -585,7 +586,7 @@ func runExecutorCase(t *testing.T, seed uint64, image func(string) string, image
 	if finished == nil {
 		t.Fatalf("%s: the operation never finished", desc())
 	}
-	if ttl != nil && *ttl == 0 && keep == "0s" && opSucceeded(finished) {
+	if ttl != nil && *ttl == 0 && keep == "1ns" && opSucceeded(finished) {
 		assert.GreaterOrEqual(t, goneAfter, 0, "%s: a zero TTL with no site retention removes the succeeded operation", desc())
 	} else {
 		assert.Less(t, goneAfter, 0, "%s (retention %q): no TTL, one or a retention not yet run out, or a failure keeps the operation",

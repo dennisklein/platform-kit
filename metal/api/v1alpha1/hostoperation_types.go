@@ -66,6 +66,7 @@ const (
 // person who proposed the operation.
 //
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.proposedBy) || (has(self.proposedBy) && self.proposedBy == oldSelf.proposedBy)",message="proposedBy is frozen after creation"
+// +kubebuilder:validation:XValidation:rule="has(self.ttlSecondsAfterFinished) == has(oldSelf.ttlSecondsAfterFinished) && (!has(self.ttlSecondsAfterFinished) || self.ttlSecondsAfterFinished == oldSelf.ttlSecondsAfterFinished)",message="ttlSecondsAfterFinished is frozen after creation"
 // +kubebuilder:validation:XValidation:rule="has(self.rolloutRef) == has(oldSelf.rolloutRef) && (!has(self.rolloutRef) || self.rolloutRef == oldSelf.rolloutRef)",message="rolloutRef is frozen after creation"
 type HostOperationSpec struct {
 	// HostRef names the Host this operation acts on.
@@ -118,6 +119,8 @@ type HostOperationSpec struct {
 	// convergence proposals set it — the plan memory on the proposing object,
 	// not the operation's existence, is what keeps an unchanged planHash from
 	// spawning again.
+	// It is frozen after creation: an approver must not give a record that
+	// is meant to stay a time to go.
 	// +kubebuilder:validation:Minimum=0
 	// +optional
 	TTLSecondsAfterFinished *int32 `json:"ttlSecondsAfterFinished,omitempty"`

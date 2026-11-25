@@ -672,7 +672,7 @@ spec:
                     - planHash
                   type: object
                 ttlSecondsAfterFinished:
-                  description: 'TTLSecondsAfterFinished garbage-collects a succeeded operation Job-style, after this time or the site''s retention (key retention in the ConfigMap hostoperation-approval), whichever is longer. A failed one stays until a person retries or deletes it: it is the record they decide on. Unset keeps it forever (human-requested ops stay as their own record); convergence proposals set it — the plan memory on the proposing object, not the operation''s existence, is what keeps an unchanged planHash from spawning again.'
+                  description: 'TTLSecondsAfterFinished garbage-collects a succeeded operation Job-style, after this time or the site''s retention (key retention in the ConfigMap hostoperation-approval), whichever is longer. A failed one stays until a person retries or deletes it: it is the record they decide on. Unset keeps it forever (human-requested ops stay as their own record); convergence proposals set it — the plan memory on the proposing object, not the operation''s existence, is what keeps an unchanged planHash from spawning again. It is frozen after creation: an approver must not give a record that is meant to stay a time to go.'
                   format: int32
                   minimum: 0
                   type: integer
@@ -684,6 +684,8 @@ spec:
               x-kubernetes-validations:
                 - message: proposedBy is frozen after creation
                   rule: '!has(oldSelf.proposedBy) || (has(self.proposedBy) && self.proposedBy == oldSelf.proposedBy)'
+                - message: ttlSecondsAfterFinished is frozen after creation
+                  rule: has(self.ttlSecondsAfterFinished) == has(oldSelf.ttlSecondsAfterFinished) && (!has(self.ttlSecondsAfterFinished) || self.ttlSecondsAfterFinished == oldSelf.ttlSecondsAfterFinished)
                 - message: rolloutRef is frozen after creation
                   rule: has(self.rolloutRef) == has(oldSelf.rolloutRef) && (!has(self.rolloutRef) || self.rolloutRef == oldSelf.rolloutRef)
             status:

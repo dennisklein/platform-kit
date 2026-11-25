@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -49,25 +50,33 @@ type retention struct {
 	problem string
 }
 
+// maxRetentionDays is the largest number of days that a time.Duration
+// holds (about 292 years). A larger value would wrap around to a negative
+// duration, which deletes at once.
+const maxRetentionDays = int64(math.MaxInt64 / int64(24*time.Hour))
+
 // parseRetention reads a retention value: Forever, a whole number of days
-// ("30d"), or a Go duration ("720h"). A value that is none of them, or is
-// negative, keeps every record: a mistyped setting must not delete records
-// sooner than the site meant.
+// ("30d"), or a Go duration ("720h"). A value that is none of them, is zero
+// or negative, or is too large for a duration keeps every record: a
+// mistyped setting must not delete records sooner than the site meant. A
+// zero retention would delete each record as it finishes, which is the
+// opposite of a record; a site that wants that sets a short duration.
 func parseRetention(v string) retention {
 	v = strings.TrimSpace(v)
 	if v == RetentionForever {
 		return retention{forever: true}
 	}
 	if days, ok := strings.CutSuffix(v, "d"); ok {
-		if n, err := strconv.Atoi(days); err == nil && n >= 0 {
+		if n, err := strconv.ParseInt(days, 10, 64); err == nil && n > 0 && n <= maxRetentionDays {
 			return retention{keep: time.Duration(n) * 24 * time.Hour}
 		}
-	} else if d, err := time.ParseDuration(v); err == nil && d >= 0 {
+	} else if d, err := time.ParseDuration(v); err == nil && d > 0 {
 		return retention{keep: d}
 	}
 	return retention{forever: true, problem: fmt.Sprintf(
-		"%s %q in ConfigMap %s is not Forever, a number of days (30d) or a duration (720h); finished records are kept until it is fixed",
-		retentionKey, v, siteSettingsConfigMap)}
+		"%s %q in ConfigMap %s is not Forever, a number of days (30d) or a duration (720h) greater than zero and "+
+			"at most %dd; finished records are kept until it is fixed",
+		retentionKey, v, siteSettingsConfigMap, maxRetentionDays)}
 }
 
 // siteRetention reads the site's retention from namespace. A missing
