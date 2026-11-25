@@ -32,6 +32,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.yaml.in/yaml/v4"
+	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -46,6 +47,7 @@ import (
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/audit"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc/sim"
 	"github.com/dennisklein/platform-kit/metal/internal/controller"
 	"github.com/dennisklein/platform-kit/metal/internal/ledger"
@@ -135,6 +137,16 @@ func TestE2EKind(t *testing.T) {
 	require.NoError(t, err)
 	cl, err := client.New(cfg, client.Options{Scheme: s})
 	require.NoError(t, err)
+	// Who the test acts as. This tier installs no admission policies, but it
+	// stamps approvals and guard lifts as pk-metal does, with the username
+	// the API server reports for the kube-context, so that what it writes is
+	// what the policies (config/policy) accept from that user.
+	ssr := &authenticationv1.SelfSubjectReview{}
+	require.NoError(t, cl.Create(ctx, ssr), "ask the cluster who the test is")
+	user := ssr.Status.UserInfo.Username
+	require.NotEmpty(t, user, "the cluster reports no username for the kube-context")
+	approvedBy, err := json.Marshal(map[string]any{"spec": map[string]any{"approval": map[string]any{"approvedBy": user}}})
+	require.NoError(t, err)
 
 	_, err = envtest.InstallCRDs(cfg, envtest.CRDInstallOptions{
 		Paths: []string{filepath.Join("..", "..", "config", "crd")},
@@ -172,12 +184,14 @@ func TestE2EKind(t *testing.T) {
 		OperationsNamespace:  ns,
 		Proposer:             "pk-metal-e2e",
 		EventSource:          "pk-metal-e2e",
-		Ledger:               led,
-		TLS:                  &metalv1alpha1.EndpointTLS{CASecretRef: &corev1.LocalObjectReference{Name: "bmc-ca"}},
-		PollInterval:         5 * time.Second,
-		Factory:              kindFactory,
-		TalosDial:            machineapi.Dial,
-		CheckInterval:        2 * time.Second,
+		// The audit trail goes to the test's output beside the log.
+		Audit:         audit.New(os.Stderr, "pk-metal-e2e"),
+		Ledger:        led,
+		TLS:           &metalv1alpha1.EndpointTLS{CASecretRef: &corev1.LocalObjectReference{Name: "bmc-ca"}},
+		PollInterval:  5 * time.Second,
+		Factory:       kindFactory,
+		TalosDial:     machineapi.Dial,
+		CheckInterval: 2 * time.Second,
 	}, controller.LaneAsset, controller.LaneEndpoint, controller.LaneHost, controller.LaneHostClaim,
 		controller.LaneHostOperation, controller.LaneTalosNode, controller.LaneTalosCluster,
 		controller.LaneBootAsset))
@@ -300,8 +314,7 @@ func TestE2EKind(t *testing.T) {
 		// The human gate, stamped the way the approve verb stamps it: a merge
 		// patch — conflict-free against the reconciler's status writes. Its
 		// userInfo rules are VAP territory, envtest-proven.
-		require.NoError(t, cl.Patch(ctx, op, client.RawPatch(types.MergePatchType,
-			[]byte(`{"spec":{"approval":{"approvedBy":"e2e"}}}`))))
+		require.NoError(t, cl.Patch(ctx, op, client.RawPatch(types.MergePatchType, approvedBy)))
 
 		require.Eventually(t, func() bool {
 			running, err := machine.Running(ctx)
@@ -395,9 +408,11 @@ func TestE2EKind(t *testing.T) {
 		claim := &metalv1alpha1.HostClaim{ObjectMeta: metav1.ObjectMeta{Name: "e2e", Namespace: ns}}
 		// The node is the only control plane of a cluster that stays: the
 		// etcd guard keeps it until a person acknowledges the risk.
-		require.NoError(t, cl.Patch(ctx, claim, client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(
-			`{"metadata":{"annotations":{%q:"e2e: the test cluster ends with this rung"}}}`,
-			metalv1alpha1.AnnotationAckEtcdRisk)))))
+		ack, err := json.Marshal(map[string]any{"metadata": map[string]any{"annotations": map[string]any{
+			metalv1alpha1.AnnotationAckEtcdRisk: metalv1alpha1.GuardLiftValue(user, "the test cluster ends with this rung"),
+		}}})
+		require.NoError(t, err)
+		require.NoError(t, cl.Patch(ctx, claim, client.RawPatch(types.MergePatchType, ack)))
 		require.NoError(t, cl.Delete(ctx, claim))
 		// The machine runs a node, so the release that powers it off is a
 		// proposal: approve it the way the approve verb does.
@@ -416,10 +431,16 @@ func TestE2EKind(t *testing.T) {
 			return false
 		}, waitFor, tick, "the release of a running node was never proposed")
 		// The cluster guard keeps the only control plane of a live cluster
-		// up until a person lifts it on the operation, with a reason.
-		require.NoError(t, cl.Patch(ctx, release, client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(
-			`{"metadata":{"annotations":{%q:"e2e: the test cluster ends with this rung"}},"spec":{"approval":{"approvedBy":"e2e"}}}`,
-			metalv1alpha1.AnnotationOverrideClusterGuard)))))
+		// up until a person lifts it on the operation, naming themselves
+		// and a reason, and approves it.
+		lift, err := json.Marshal(map[string]any{
+			"metadata": map[string]any{"annotations": map[string]any{
+				metalv1alpha1.AnnotationOverrideClusterGuard: metalv1alpha1.GuardLiftValue(user, "the test cluster ends with this rung"),
+			}},
+			"spec": map[string]any{"approval": map[string]any{"approvedBy": user}},
+		})
+		require.NoError(t, err)
+		require.NoError(t, cl.Patch(ctx, release, client.RawPatch(types.MergePatchType, lift)))
 		h := waitHost(func(h metalv1alpha1.Host) bool {
 			return h.Status.Phase == metalv1alpha1.HostAvailable
 		}, waitFor, "release never returned the host to Available")
