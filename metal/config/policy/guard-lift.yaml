@@ -1,0 +1,77 @@
+# Named guard lifts: who lifted a safety rule, and why. Three annotations let a
+# person lift one of the operator's safety rules:
+#   - metal.pk.io/override-cluster-guard on a HostOperation: a control plane may
+#     go down although etcd is not fully healthy without it;
+#   - metal.pk.io/ignore-window on a HostOperation: it may start outside every
+#     maintenance window;
+#   - metal.pk.io/ack-etcd-risk on a HostClaim or a TalosNode: a control plane
+#     may leave etcd although that leaves an even count, no majority, or none.
+#
+# The rule: a request that sets one of them, or changes its value, must give the
+# value "<username>: <reason>", with the username of the request and a reason
+# that is not empty. So the object itself records who lifted the rule; the
+# kube-apiserver audit log and the operator's audit trail add when.
+#
+# What stays allowed:
+#   - removing the annotation, by anyone who may update the object: that puts
+#     the rule back;
+#   - any update that leaves the value as it is (the operator's own writes,
+#     a label edit, a value written before this rule existed).
+#
+# The operator itself sets none of these annotations, so it has no exemption.
+# A GitOps controller that applies one must name its own identity: the commit
+# names the person. pk-metal writes the form for its caller.
+#
+# CEL note: oldObject is null on CREATE; every reference to it sits behind a
+# lazily-evaluated request.operation ternary (the null-oldObject guard).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: guard-lift
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["metal.pk.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["hostoperations", "hostclaims"]
+      - apiGroups: ["os.pk.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["talosnodes"]
+  variables:
+    - name: lifts
+      expression: >-
+        ['metal.pk.io/override-cluster-guard', 'metal.pk.io/ignore-window', 'metal.pk.io/ack-etcd-risk']
+    - name: newAnnotations
+      expression: "object.metadata.?annotations.orValue({})"
+    - name: oldAnnotations
+      expression: >-
+        request.operation == 'UPDATE' ? oldObject.metadata.?annotations.orValue({}) : {}
+    # The lifts this request sets or changes. A removed one is not in it.
+    - name: changed
+      expression: >-
+        variables.lifts.filter(k, k in variables.newAnnotations
+          && (!(k in variables.oldAnnotations) || variables.oldAnnotations[k] != variables.newAnnotations[k]))
+    - name: prefix
+      expression: "request.userInfo.username + ': '"
+    - name: unnamed
+      expression: >-
+        variables.changed.filter(k, !variables.newAnnotations[k].startsWith(variables.prefix)
+          || variables.newAnnotations[k].substring(size(variables.prefix)).trim() == '')
+  validations:
+    - expression: "size(variables.unnamed) == 0"
+      messageExpression: >-
+        'a guard lift must name you and say why: set ' + variables.unnamed.join(', ')
+        + ' to "' + variables.prefix + '<reason>" (you are ' + request.userInfo.username
+        + '; pk-metal writes this form for you). Removing the annotation is always allowed'
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: guard-lift
+spec:
+  policyName: guard-lift
+  validationActions: ["Deny"]
