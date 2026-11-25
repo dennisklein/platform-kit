@@ -38,9 +38,11 @@ const AnnotationReinstall = "metal.pk.io/reinstall"
 // AnnotationAckEtcdRisk on a HostClaim or a TalosNode lets the removal or
 // reinstall of a control plane continue, although etcd then has an even
 // number of voting members, no healthy majority, or no member. Without it,
-// the operator refuses such a removal and says why. The value
-// is the person's reason. pk-metal scale sets it on the removals of a plan
-// that passes through an even count.
+// the operator refuses such a removal and says why. The value is
+// "<username>: <reason>": who accepted the risk and why. Admission accepts
+// no other form, and only the caller's own username
+// (config/policy/guard-lift.yaml). pk-metal scale sets it on the removals of
+// a plan that passes through an even count, and names its caller.
 const AnnotationAckEtcdRisk = "metal.pk.io/ack-etcd-risk"
 
 // ConditionDiskWiped on a Host: whether the machine's disks are known to be

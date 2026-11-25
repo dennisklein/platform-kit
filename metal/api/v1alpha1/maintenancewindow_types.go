@@ -7,8 +7,10 @@ import (
 
 // AnnotationIgnoreWindow on a HostOperation lets it start outside every
 // maintenance window. It is for an urgent case that a person decides on: a
-// security fix, or a machine that is down already. The value is free text,
-// the reason. It shows in the record of the operation.
+// security fix, or a machine that is down already. The value is
+// "<username>: <reason>": who lifted the window and why. Admission accepts
+// no other form, and only the caller's own username
+// (config/policy/guard-lift.yaml). It shows in the record of the operation.
 const AnnotationIgnoreWindow = "metal.pk.io/ignore-window"
 
 // Weekday is a day of the week as a three-letter English abbreviation.

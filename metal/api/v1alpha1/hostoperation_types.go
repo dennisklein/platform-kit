@@ -26,8 +26,11 @@ const AnnotationAbort = "metal.pk.io/abort"
 // AnnotationOverrideClusterGuard on a HostOperation lets it take a control
 // plane down although etcd is not fully healthy without it: the way out
 // when etcd is already broken and the reboot is the repair, or for a cluster
-// with a single control plane. The value says why. It does not lift the
-// one-control-plane-at-a-time rule, and it does not lift self-protection.
+// with a single control plane. The value is "<username>: <reason>": who
+// lifted the guard and why. Admission accepts no other form, and only the
+// caller's own username (config/policy/guard-lift.yaml). It does not lift
+// the one-control-plane-at-a-time rule, and it does not lift
+// self-protection.
 const AnnotationOverrideClusterGuard = "metal.pk.io/override-cluster-guard"
 
 // Spec reasons of the operations the convergence lane proposes.

@@ -16,7 +16,7 @@
       "key": "metal.pk.io/ack-etcd-risk",
       "kind": "annotation",
       "exported": true,
-      "description": "AnnotationAckEtcdRisk on a HostClaim or a TalosNode lets the removal or reinstall of a control plane continue, although etcd then has an even number of voting members, no healthy majority, or no member. Without it, the operator refuses such a removal and says why. The value is the person's reason. pk-metal scale sets it on the removals of a plan that passes through an even count.",
+      "description": "AnnotationAckEtcdRisk on a HostClaim or a TalosNode lets the removal or reinstall of a control plane continue, although etcd then has an even number of voting members, no healthy majority, or no member. Without it, the operator refuses such a removal and says why. The value is \"<username>: <reason>\": who accepted the risk and why. Admission accepts no other form, and only the caller's own username (config/policy/guard-lift.yaml). pk-metal scale sets it on the removals of a plan that passes through an even count, and names its caller.",
       "constants": [
         {
           "name": "AnnotationAckEtcdRisk",
@@ -148,7 +148,7 @@
       "key": "metal.pk.io/ignore-window",
       "kind": "annotation",
       "exported": true,
-      "description": "AnnotationIgnoreWindow on a HostOperation lets it start outside every maintenance window. It is for an urgent case that a person decides on: a security fix, or a machine that is down already. The value is free text, the reason. It shows in the record of the operation.",
+      "description": "AnnotationIgnoreWindow on a HostOperation lets it start outside every maintenance window. It is for an urgent case that a person decides on: a security fix, or a machine that is down already. The value is \"<username>: <reason>\": who lifted the window and why. Admission accepts no other form, and only the caller's own username (config/policy/guard-lift.yaml). It shows in the record of the operation.",
       "constants": [
         {
           "name": "AnnotationIgnoreWindow",
@@ -172,7 +172,7 @@
       "key": "metal.pk.io/override-cluster-guard",
       "kind": "annotation",
       "exported": true,
-      "description": "AnnotationOverrideClusterGuard on a HostOperation lets it take a control plane down although etcd is not fully healthy without it: the way out when etcd is already broken and the reboot is the repair, or for a cluster with a single control plane. The value says why. It does not lift the one-control-plane-at-a-time rule, and it does not lift self-protection.",
+      "description": "AnnotationOverrideClusterGuard on a HostOperation lets it take a control plane down although etcd is not fully healthy without it: the way out when etcd is already broken and the reboot is the repair, or for a cluster with a single control plane. The value is \"<username>: <reason>\": who lifted the guard and why. Admission accepts no other form, and only the caller's own username (config/policy/guard-lift.yaml). It does not lift the one-control-plane-at-a-time rule, and it does not lift self-protection.",
       "constants": [
         {
           "name": "AnnotationOverrideClusterGuard",
