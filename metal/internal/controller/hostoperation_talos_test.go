@@ -476,3 +476,22 @@ func TestTalosStepRefusesAnotherHostsNode(t *testing.T) {
 	assert.Contains(t, executed(got).Message, "host host-w-1 runs TalosNode w-1")
 	assert.Empty(t, lab.machines["cp-1"].Reboots())
 }
+
+func TestWaitNodeReadyWantsAReadyFromSinceTheBoot(t *testing.T) {
+	lab := newTalosLab(t, talosOp("w-1", metalv1alpha1.HostOperationAction{
+		WaitNodeReady: &metalv1alpha1.WaitNodeReadyAction{NodeRef: ref("w-1")}}))
+	booted := talosBootTime(t, lab, "w-1")
+	n := &corev1.Node{}
+	require.NoError(t, lab.kube.Get(t.Context(), client.ObjectKey{Name: "w-1"}, n))
+	n.Status.Conditions = []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue,
+		LastHeartbeatTime: metav1.NewTime(booted.Add(-time.Minute))}}
+	require.NoError(t, lab.kube.Status().Update(t.Context(), n))
+
+	op := lab.pass(t)
+	assert.False(t, op.Finished(), "a Ready from before the boot is no answer from the kubelet")
+
+	n.Status.Conditions[0].LastHeartbeatTime = metav1.NewTime(booted.Add(time.Minute))
+	require.NoError(t, lab.kube.Status().Update(t.Context(), n))
+	op = runOp(t, lab.r)
+	assert.True(t, opSucceeded(op), "%+v", op.Status)
+}

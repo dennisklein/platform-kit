@@ -1011,7 +1011,10 @@ func (x *exec) etcdRemoveMember(ctx context.Context, a *metalv1alpha1.EtcdRemove
 
 // waitNodeReady waits for the node to run and be ready: Talos stage running
 // with every condition met (and the version, when named), and its
-// Kubernetes Node Ready.
+// Kubernetes Node Ready as its kubelet reported since the node's last boot.
+// A Ready from before a reboot can outlive it: on a single control plane
+// nothing marks the Node unknown while the cluster is down, so the old
+// condition stands until the controller manager comes back.
 func (x *exec) waitNodeReady(ctx context.Context, a *metalv1alpha1.WaitNodeReadyAction) (stepState, error) {
 	node, acc, err := x.talosNode(ctx, a.NodeRef)
 	if err != nil {
@@ -1020,12 +1023,16 @@ func (x *exec) waitNodeReady(ctx context.Context, a *metalv1alpha1.WaitNodeReady
 	var (
 		st      talos.Status
 		version string
+		booted  time.Time
 	)
 	err = acc.with(ctx, nodeEndpoint(node), func(c talos.Client) (err error) {
 		if st, err = c.Status(ctx); err != nil {
 			return err
 		}
-		version, err = c.Version(ctx)
+		if version, err = c.Version(ctx); err != nil {
+			return err
+		}
+		booted, err = c.BootTime(ctx)
 		return err
 	})
 	switch {
@@ -1049,6 +1056,13 @@ func (x *exec) waitNodeReady(ctx context.Context, a *metalv1alpha1.WaitNodeReady
 	}
 	for _, c := range kn.Status.Conditions {
 		if c.Type == corev1.NodeReady {
+			// Both times come from the node's own clock. A condition
+			// without a heartbeat was not written by a kubelet.
+			if hb := c.LastHeartbeatTime.Time; c.Status == corev1.ConditionTrue && !hb.IsZero() &&
+				hb.Before(booted.Truncate(time.Second)) {
+				return waitingOn("Kubernetes Node %s shows Ready from before the node's last boot; "+
+					"waiting for its kubelet to report", node.Name), nil
+			}
 			if c.Status == corev1.ConditionTrue {
 				return stepDone, nil
 			}
