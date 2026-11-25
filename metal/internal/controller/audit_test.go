@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +23,7 @@ import (
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/asset"
 	"github.com/dennisklein/platform-kit/metal/internal/audit"
 )
 
@@ -394,4 +397,40 @@ func (d *deleteOrder) Delete(ctx context.Context, obj client.Object, opts ...cli
 	d.deleted = true
 	d.linesBefore = strings.Count(d.b.String(), "\n")
 	return d.Client.Delete(ctx, obj, opts...)
+}
+
+// TestMediaFetchesReachTheTrail: a BMC's fetch of a granted medium, a
+// refused copy of it and the grant's end are lines of the trail, under the
+// operation that minted the grant, and none names the token.
+func TestMediaFetchesReachTheTrail(t *testing.T) {
+	var b bytes.Buffer
+	table := asset.NewGrants()
+	table.Record = mediaAuditor(audit.New(&b, testOperator))
+	key := client.ObjectKey{Namespace: "pk-metal", Name: "provision-host-1"}
+	g, err := table.Issue(grantHandle(key), "node-1-config.iso", []byte("config"), time.Hour, nil)
+	require.NoError(t, err)
+	srv := &asset.Server{Grants: table}
+	for _, from := range []string{"192.0.2.10:1000", "198.51.100.7:2000"} {
+		req := httptest.NewRequest(http.MethodGet, "https://media"+g.Path(), nil)
+		req.RemoteAddr = from
+		srv.ServeHTTP(httptest.NewRecorder(), req)
+	}
+	r := &HostOperationReconciler{Media: &asset.Service{Grants: table}}
+	r.revokeGrants(key)
+
+	lines := trail(t, &b)
+	require.Len(t, lines, 3)
+	for i, ev := range []audit.Event{audit.EventMediaFetched, audit.EventMediaRefused, audit.EventMediaGrantEnded} {
+		assert.Equal(t, ev, lines[i].Event)
+		assert.Equal(t, audit.KindHostOperation, lines[i].Kind)
+		assert.Equal(t, "pk-metal", lines[i].Namespace)
+		assert.Equal(t, "provision-host-1", lines[i].Name)
+		assert.Equal(t, "node-1-config.iso", lines[i].Grant)
+	}
+	assert.Equal(t, "192.0.2.10", lines[0].Source)
+	assert.Equal(t, "198.51.100.7", lines[1].Source)
+	require.NotNil(t, lines[2].Bytes)
+	assert.Equal(t, int64(len("config")), *lines[2].Bytes)
+	assert.Equal(t, "revoked", lines[2].Reason)
+	assert.NotContains(t, b.String(), g.Token)
 }

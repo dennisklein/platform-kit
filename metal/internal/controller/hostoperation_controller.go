@@ -835,7 +835,9 @@ func abortMessage(by, where string, undone, failed []string) string {
 }
 
 // grantHandle names an operation's grants in the media service's table.
-func grantHandle(key types.NamespacedName) string { return "hostoperation:" + key.String() }
+func grantHandle(key types.NamespacedName) string { return grantHandlePrefix + key.String() }
+
+const grantHandlePrefix = "hostoperation:"
 
 func (r *HostOperationReconciler) revokeGrants(key types.NamespacedName) {
 	if r.Media == nil {

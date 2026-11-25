@@ -406,8 +406,8 @@ func (x *exec) insertMedia(ctx context.Context, i int, a *metalv1alpha1.InsertMe
 // its back:
 //
 //   - Grants live in memory only: after a restart or a leader change the slot
-//     still holds a URL that answers 403. The medium is mounted again under a
-//     fresh grant.
+//     still holds a URL that the media service refuses. The medium is
+//     mounted again under a fresh grant.
 //   - A manager restart (a firmware update, a reset by a person) empties the
 //     slots on most vendors, while the grant is still live here.
 //

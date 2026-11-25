@@ -24,7 +24,9 @@ type Credentials struct {
 // crypto/rand, carried in the URL path because neither vendor accepts query
 // strings. Config confidentiality and integrity rest on the grant plus the L2
 // island — BMC-verified media TLS is unattainable on either vendor as deployed
-// (tested on both), so HTTPS gives privacy and the grant gives access control.
+// (tested on both), so HTTPS gives privacy against a passive observer only,
+// and the grant gives access control. A grant serves the one source address
+// that first fetched it, and its fetches and refusals are recorded (Record).
 type Grant struct {
 	Token string
 	// Asset is the BootAsset the content came from — the revocation handle.
@@ -36,6 +38,15 @@ type Grant struct {
 	// or expired mount naturally.
 	ExpiresAt   time.Time
 	Credentials *Credentials
+
+	// source is the address the first admitted request came from: the
+	// grant serves that address only. requests, bytes and refused count
+	// what it served and refused, for the record written when it ends. All
+	// four are guarded by the table's lock.
+	source   string
+	requests int64
+	bytes    int64
+	refused  int
 
 	// content is what the grant serves, size bytes of it. It is read at
 	// offsets, so concurrent ranged reads of one grant need no lock.
@@ -57,6 +68,13 @@ func (g *Grant) Path() string {
 type Grants struct {
 	mu      sync.Mutex
 	byToken map[string]*Grant
+
+	// Record, when set, is told what happens to a grant: its first fetch,
+	// each refusal (up to maxRefusalRecords for one grant), and its end. It
+	// is how a media fetch reaches the audit trail. A record never holds the
+	// token or the credentials. Set it before the table serves; it must
+	// not call back into the table.
+	Record func(GrantRecord)
 
 	// now is a test seam; nil means time.Now.
 	now func() time.Time
@@ -123,20 +141,130 @@ func (t *Grants) issue(asset, filename string, content io.ReaderAt, size int64, 
 	}
 
 	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.sweepLocked()
+	recs := t.sweepLocked()
 	t.byToken[g.Token] = g
+	t.mu.Unlock()
+	t.emit(recs...)
 	return g, nil
+}
+
+// GrantEvent is what a GrantRecord reports.
+type GrantEvent string
+
+const (
+	// GrantFetched: the first request the grant admitted. The grant is
+	// bound to its source address from now on.
+	GrantFetched GrantEvent = "fetched"
+	// GrantRefused: a request named the grant and was refused (wrong
+	// credentials, or another source address than the bound one).
+	GrantRefused GrantEvent = "refused"
+	// GrantEnded: the grant was revoked or expired.
+	GrantEnded GrantEvent = "ended"
+)
+
+// maxRefusalRecords bounds the refusal records of one grant: a client that
+// retries without end must not flood the trail. Every refusal still counts
+// in the record of the grant's end.
+const maxRefusalRecords = 10
+
+// GrantRecord is what happened to one grant. It names the grant by its
+// handle and filename, never by its token.
+type GrantRecord struct {
+	Event GrantEvent
+	// Handle is the grant's Asset: the revocation handle, which names the
+	// operation that minted it.
+	Handle   string
+	Filename string
+	// Source is the address of the request (fetched, refused), or the
+	// address the grant was bound to (ended; empty when never fetched).
+	Source string
+	// Reason says why a request was refused, or how the grant ended
+	// (revoked, expired).
+	Reason string
+	// Requests and Bytes count what the grant served; Refused counts the
+	// requests it refused. Set on ended.
+	Requests int64
+	Bytes    int64
+	Refused  int
+}
+
+func (g *Grant) record(ev GrantEvent, source, reason string) GrantRecord {
+	return GrantRecord{Event: ev, Handle: g.Asset, Filename: g.Filename, Source: source, Reason: reason,
+		Requests: g.requests, Bytes: g.bytes, Refused: g.refused}
+}
+
+func (t *Grants) emit(recs ...GrantRecord) {
+	if t.Record == nil {
+		return
+	}
+	for _, r := range recs {
+		t.Record(r)
+	}
+}
+
+// admit decides whether the grant serves a request from source, which
+// passed the credential check. The first admitted request binds the grant
+// to its source address; a request from any other address is refused. A
+// grant is made for one BMC, which fetches from one address. A copy of the
+// URL and its credentials used from elsewhere is refused while the BMC
+// still fetches, and the refusal is recorded.
+func (t *Grants) admit(g *Grant, source string) bool {
+	t.mu.Lock()
+	var rec *GrantRecord
+	ok := true
+	switch {
+	case g.source == "":
+		g.source = source
+		r := g.record(GrantFetched, source, "")
+		rec = &r
+	case g.source != source:
+		ok = false
+		rec = t.refusedLocked(g, source, "the grant is bound to another source address, "+g.source)
+	}
+	t.mu.Unlock()
+	if rec != nil {
+		t.emit(*rec)
+	}
+	return ok
+}
+
+// refuse records a refused request of a grant.
+func (t *Grants) refuse(g *Grant, source, reason string) {
+	t.mu.Lock()
+	rec := t.refusedLocked(g, source, reason)
+	t.mu.Unlock()
+	if rec != nil {
+		t.emit(*rec)
+	}
+}
+
+func (t *Grants) refusedLocked(g *Grant, source, reason string) *GrantRecord {
+	g.refused++
+	if g.refused > maxRefusalRecords {
+		return nil
+	}
+	r := g.record(GrantRefused, source, reason)
+	return &r
+}
+
+// served counts one admitted request and the bytes it sent.
+func (t *Grants) served(g *Grant, n int64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	g.requests++
+	g.bytes += n
 }
 
 // Revoke drops one grant; reports whether it existed.
 func (t *Grants) Revoke(token string) bool {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	g, ok := t.byToken[token]
+	var recs []GrantRecord
 	if ok {
-		t.dropLocked(token, g)
+		recs = append(recs, t.dropLocked(token, g, "revoked"))
 	}
+	t.mu.Unlock()
+	t.emit(recs...)
 	return ok
 }
 
@@ -144,29 +272,32 @@ func (t *Grants) Revoke(token string) bool {
 // artifact rebuild) and reports how many fell.
 func (t *Grants) RevokeAsset(asset string) int {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-	n := 0
+	var recs []GrantRecord
 	for token, g := range t.byToken {
 		if g.Asset == asset {
-			t.dropLocked(token, g)
-			n++
+			recs = append(recs, t.dropLocked(token, g, "revoked"))
 		}
 	}
-	return n
+	t.mu.Unlock()
+	t.emit(recs...)
+	return len(recs)
 }
 
 // lookup resolves a live grant; expired ones are dropped on sight.
 func (t *Grants) lookup(token string) *Grant {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	g, ok := t.byToken[token]
 	if !ok {
+		t.mu.Unlock()
 		return nil
 	}
 	if !t.clock().Before(g.ExpiresAt) {
-		t.dropLocked(token, g)
+		rec := t.dropLocked(token, g, "expired")
+		t.mu.Unlock()
+		t.emit(rec)
 		return nil
 	}
+	t.mu.Unlock()
 	return g
 }
 
@@ -179,6 +310,8 @@ func (t *Grants) lookup(token string) *Grant {
 // mount minted is the one a resumed step compares against.
 func (t *Grants) Live(asset, filename string) (*Grant, bool) {
 	t.mu.Lock()
+	var recs []GrantRecord
+	defer func() { t.emit(recs...) }()
 	defer t.mu.Unlock()
 	var best *Grant
 	for token, g := range t.byToken {
@@ -186,7 +319,7 @@ func (t *Grants) Live(asset, filename string) (*Grant, bool) {
 			continue
 		}
 		if !t.clock().Before(g.ExpiresAt) {
-			t.dropLocked(token, g)
+			recs = append(recs, t.dropLocked(token, g, "expired"))
 			continue
 		}
 		if best == nil || g.ExpiresAt.After(best.ExpiresAt) ||
@@ -197,21 +330,26 @@ func (t *Grants) Live(asset, filename string) (*Grant, bool) {
 	return best, best != nil
 }
 
-func (t *Grants) sweepLocked() {
+func (t *Grants) sweepLocked() []GrantRecord {
+	var recs []GrantRecord
 	for token, g := range t.byToken {
 		if !t.clock().Before(g.ExpiresAt) {
-			t.dropLocked(token, g)
+			recs = append(recs, t.dropLocked(token, g, "expired"))
 		}
 	}
+	return recs
 }
 
 // dropLocked takes a grant out of the table and frees its content. A request
 // still reading it then fails mid-transfer, which is what revoking means.
-func (t *Grants) dropLocked(token string, g *Grant) {
+// It returns the record of the grant's end, for the caller to emit once the
+// lock is released.
+func (t *Grants) dropLocked(token string, g *Grant, how string) GrantRecord {
 	delete(t.byToken, token)
 	if g.release != nil {
 		g.release()
 	}
+	return g.record(GrantEnded, g.source, how)
 }
 
 func (t *Grants) clock() time.Time {

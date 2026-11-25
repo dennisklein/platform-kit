@@ -181,6 +181,7 @@ func SetupAll(mgr ctrl.Manager, o Options, lanes ...Lane) error {
 			return fmt.Errorf("setup %s reconciler: %w", name, err)
 		}
 		if l == LaneHostOperation && o.Media != nil {
+			o.Media.Grants.Record = mediaAuditor(o.Audit)
 			if err := mgr.Add(o.Media); err != nil {
 				return fmt.Errorf("add media service: %w", err)
 			}

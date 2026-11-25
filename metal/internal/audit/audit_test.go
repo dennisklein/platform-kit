@@ -135,6 +135,29 @@ func TestSchema(t *testing.T) {
 				`"actor":"system:serviceaccount:pk-metal:pk-metal-manager","reason":"RetentionExpired",` +
 				`"message":"finished 720h0m0s ago"}`,
 		},
+		{
+			name:  "media fetched",
+			write: func(l *Logger) { l.MediaFetched(op, "node-1-config.iso", "192.0.2.10") },
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"media.fetched","kind":"HostOperation",` +
+				`"namespace":"pk-metal","name":"reboot-node-1","uid":"u-1",` +
+				`"actor":"system:serviceaccount:pk-metal:pk-metal-manager","grant":"node-1-config.iso","source":"192.0.2.10"}`,
+		},
+		{
+			name:  "media refused",
+			write: func(l *Logger) { l.MediaRefused(op, "node-1-config.iso", "198.51.100.7", "wrong credentials") },
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"media.refused","kind":"HostOperation",` +
+				`"namespace":"pk-metal","name":"reboot-node-1","uid":"u-1",` +
+				`"actor":"system:serviceaccount:pk-metal:pk-metal-manager","reason":"wrong credentials",` +
+				`"grant":"node-1-config.iso","source":"198.51.100.7"}`,
+		},
+		{
+			name:  "media grant ended, never fetched",
+			write: func(l *Logger) { l.MediaGrantEnded(op, "node-1-config.iso", "", "expired", 0, 0, 0) },
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","event":"media.grantEnded","kind":"HostOperation",` +
+				`"namespace":"pk-metal","name":"reboot-node-1","uid":"u-1",` +
+				`"actor":"system:serviceaccount:pk-metal:pk-metal-manager","reason":"expired",` +
+				`"grant":"node-1-config.iso","requests":0,"bytes":0,"refused":0}`,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			l, b := newTest()

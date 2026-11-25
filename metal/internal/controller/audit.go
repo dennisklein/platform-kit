@@ -12,6 +12,7 @@ import (
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/asset"
 	"github.com/dennisklein/platform-kit/metal/internal/audit"
 	"github.com/dennisklein/platform-kit/metal/internal/phase"
 )
@@ -250,4 +251,32 @@ func hostAnnotation(host *metalv1alpha1.Host, key string) (string, bool) {
 	}
 	v, ok := host.Annotations[key]
 	return v, ok
+}
+
+// mediaAuditor writes what happens to the media grants into the audit
+// trail: who fetched a medium, which requests were refused, and what each
+// grant served before it ended. The grants of an operation carry its
+// handle (grantHandle), so each line names the operation; one with another
+// handle (none today) is written under the handle as its name. Nil writes
+// nothing.
+func mediaAuditor(l *audit.Logger) func(asset.GrantRecord) {
+	if l == nil {
+		return nil
+	}
+	return func(g asset.GrantRecord) {
+		o := audit.Object{Kind: audit.KindHostOperation, Name: g.Handle}
+		if ref, ok := strings.CutPrefix(g.Handle, grantHandlePrefix); ok {
+			if ns, name, ok := strings.Cut(ref, "/"); ok {
+				o.Namespace, o.Name = ns, name
+			}
+		}
+		switch g.Event {
+		case asset.GrantFetched:
+			l.MediaFetched(o, g.Filename, g.Source)
+		case asset.GrantRefused:
+			l.MediaRefused(o, g.Filename, g.Source, g.Reason)
+		case asset.GrantEnded:
+			l.MediaGrantEnded(o, g.Filename, g.Source, g.Reason, g.Requests, g.Bytes, g.Refused)
+		}
+	}
 }

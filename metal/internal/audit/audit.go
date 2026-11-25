@@ -66,6 +66,14 @@ const (
 	EventStepFailed   Event = "step.failed"
 	EventFinished     Event = "finished"
 	EventDeleted      Event = "deleted"
+	// EventMediaFetched: the first request a media grant admitted. The
+	// grant is bound to that source address.
+	EventMediaFetched Event = "media.fetched"
+	// EventMediaRefused: a request named a media grant and was refused.
+	EventMediaRefused Event = "media.refused"
+	// EventMediaGrantEnded: a media grant was revoked or expired; the line
+	// says what it served.
+	EventMediaGrantEnded Event = "media.grantEnded"
 )
 
 // DeleteReason says why the operator deletes a record.
@@ -144,6 +152,15 @@ type Line struct {
 	// finished
 	Phase           string   `json:"phase,omitempty"`
 	DurationSeconds *float64 `json:"durationSeconds,omitempty"`
+	// media.fetched, media.refused, media.grantEnded: the grant's file
+	// (never its token) and the source address. reason is set on
+	// media.refused and media.grantEnded.
+	Grant  string `json:"grant,omitempty"`
+	Source string `json:"source,omitempty"`
+	// media.grantEnded
+	Requests *int64 `json:"requests,omitempty"`
+	Bytes    *int64 `json:"bytes,omitempty"`
+	Refused  *int   `json:"refused,omitempty"`
 }
 
 // maxMessage bounds the free text of a line. The full text stays on the
@@ -258,6 +275,30 @@ func (l *Logger) Finished(o Object, phase, reason string, ran time.Duration) {
 // when the request is the last thing the process does.
 func (l *Logger) Deleted(o Object, reason DeleteReason, message string) {
 	l.write(o, EventDeleted, l.Operator(), func(x *Line) { x.Reason, x.Message = string(reason), clip(redact.String(message)) })
+}
+
+// MediaFetched records the first request a media grant of the operation o
+// admitted. grant is the file the grant serves; source is the address the
+// grant is bound to from now on.
+func (l *Logger) MediaFetched(o Object, grant, source string) {
+	l.write(o, EventMediaFetched, l.Operator(), func(x *Line) { x.Grant, x.Source = grant, source })
+}
+
+// MediaRefused records a refused request for a media grant of o.
+func (l *Logger) MediaRefused(o Object, grant, source, reason string) {
+	l.write(o, EventMediaRefused, l.Operator(), func(x *Line) {
+		x.Grant, x.Source, x.Reason = grant, source, clip(reason)
+	})
+}
+
+// MediaGrantEnded records the end of a media grant of o: how it ended
+// (revoked, expired), the address it was bound to (empty when nobody
+// fetched it), and what it served and refused.
+func (l *Logger) MediaGrantEnded(o Object, grant, source, how string, requests, bytes int64, refused int) {
+	l.write(o, EventMediaGrantEnded, l.Operator(), func(x *Line) {
+		x.Grant, x.Source, x.Reason = grant, source, how
+		x.Requests, x.Bytes, x.Refused = &requests, &bytes, &refused
+	})
 }
 
 func (l *Logger) write(o Object, ev Event, actor string, fill func(*Line)) {

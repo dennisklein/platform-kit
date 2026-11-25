@@ -618,7 +618,8 @@ func TestProvisioning(t *testing.T) {
 		checkIn("node-dual", machineAPI...)
 		op = waitOp(key, succeeded)
 		assert.Empty(t, mediaOf(dualState), "media ejected after the check-in")
-		assert.Equal(t, http.StatusForbidden, grantStatus(configURL), "the grant is revoked")
+		assert.Equal(t, http.StatusUnauthorized, grantStatus(configURL),
+			"the grant is revoked: the common refusal, as for a token that never was")
 		require.Len(t, op.Status.Steps, len(op.Spec.Actions))
 
 		waitHost(dualHost, func(h metalv1alpha1.Host) bool { return h.Status.Phase == metalv1alpha1.HostProvisioned })
@@ -751,7 +752,8 @@ func TestProvisioning(t *testing.T) {
 		checkIn("node-single", machineAPI...)
 		waitOp(key, succeeded)
 		assert.Empty(t, mediaOf(singleState), "the installer is ejected after the check-in")
-		assert.Equal(t, http.StatusForbidden, grantStatus(mounted["CD"]), "and its grant revoked")
+		assert.Equal(t, http.StatusUnauthorized, grantStatus(mounted["CD"]),
+			"and its grant revoked: even its credentials get the common refusal")
 		waitClaim("single", provisionedReason(metalv1alpha1.ReasonHandedOff))
 
 		// The node stops answering before its claim goes: nothing can reset

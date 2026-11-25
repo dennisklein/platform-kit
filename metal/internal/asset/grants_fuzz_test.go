@@ -111,8 +111,8 @@ func FuzzGrantTable(f *testing.F) {
 // FuzzServePath sends arbitrary requests to the media server. Only a GET or
 // HEAD of /grants/<live token>/<its filename>, with the grant's credentials
 // where it has some, may succeed. Every refusal of a well-formed grant path
-// is the same 403, whether the grant is absent, expired, revoked, or the
-// filename or credentials do not match.
+// is the same 401 with the same challenge and body, whether the grant is
+// absent, expired, revoked, or the filename or credentials do not match.
 func FuzzServePath(f *testing.F) {
 	for _, seed := range [][4]string{
 		{"GET", "/grants/{open}/open.iso", "", ""},
@@ -151,8 +151,8 @@ func FuzzServePath(f *testing.F) {
 	tokens := strings.NewReplacer("{open}", open.Token, "{locked}", locked.Token,
 		"{expired}", expired.Token, "{revoked}", revoked.Token)
 
-	forbidden := httptest.NewRecorder()
-	http.Error(forbidden, "forbidden", http.StatusForbidden)
+	refused := httptest.NewRecorder()
+	refuse(refused)
 
 	f.Fuzz(func(t *testing.T, method, path, user, pass string) {
 		req, err := http.NewRequest(method, "http://media"+tokens.Replace(path), nil)
@@ -179,17 +179,14 @@ func FuzzServePath(f *testing.F) {
 			if req.Method == http.MethodGet && rec.Code == http.StatusOK {
 				assert.Equal(t, []byte("content of "+g.Asset), body)
 			}
-		case http.StatusUnauthorized:
-			assert.True(t, match && g.Credentials != nil, "401 for %q leaks that a grant exists", req.URL.Path)
 		}
-		if getOrHead && isGrant && wellFormed && !match {
-			assert.Equal(t, http.StatusForbidden, rec.Code, "%s %q", method, req.URL.Path)
+		refusal := getOrHead && isGrant && wellFormed && (!match || !credsOK || (g.Credentials != nil && user == "" && pass == ""))
+		if refusal {
+			assert.Equal(t, http.StatusUnauthorized, rec.Code, "%s %q", method, req.URL.Path)
+			assert.Equal(t, refused.Header().Get("WWW-Authenticate"), rec.Header().Get("WWW-Authenticate"))
 			if req.Method == http.MethodGet {
-				assert.Equal(t, forbidden.Body.String(), string(body), "the refusal must not tell grants apart")
+				assert.Equal(t, refused.Body.String(), string(body), "the refusal must not tell grants apart")
 			}
-		}
-		if getOrHead && match && !credsOK && (user != "" || pass != "") {
-			assert.Equal(t, http.StatusForbidden, rec.Code)
 		}
 	})
 }
