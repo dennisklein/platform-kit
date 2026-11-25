@@ -227,7 +227,8 @@ func auditRollout(l *audit.Logger, before, after *osv1alpha1.TalosRollout) {
 	}
 	// Who paused, resumed or aborted a rollout is the person the rollout's
 	// metal.pk.io/requested-by names: admission asks for it with each of
-	// these changes (config/policy/requested-by.yaml).
+	// these changes where the site forbids self-approval
+	// (config/policy/requested-by.yaml); elsewhere it can name nobody.
 	actor := after.Annotations[metalv1alpha1.AnnotationRequestedBy]
 	wasHeld, isHeld := pauseReason(before), pauseReason(after)
 	switch {

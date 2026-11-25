@@ -28,9 +28,11 @@ func namedLift(ctx context.Context, cl client.Client, why string) (string, error
 }
 
 // requester is the caller's username, for the annotation
-// metal.pk.io/requested-by: the requested-by admission policy wants it on
-// each request that makes the operator propose work, so that the approval
-// policies can refuse an approval by the person who asked for the change.
+// metal.pk.io/requested-by: where the site forbids self-approval, the
+// requested-by admission policy wants it on each request that makes the
+// operator propose work, so that the approval policies can refuse an
+// approval by the person who asked for the change. pk-metal sets it in
+// both modes: the operator copies it into the audit trail.
 func requester(ctx context.Context, cl client.Client) (string, error) {
 	user, err := whoAmI(ctx, cl)
 	if err != nil {

@@ -308,7 +308,7 @@
       "key": "metal.pk.io/requested-by",
       "kind": "annotation",
       "exported": true,
-      "description": "AnnotationRequestedBy on an object whose change makes the operator propose work names the person who last changed what the object asks for. Its value is a username. Admission (config/policy/requested-by.yaml) accepts a request that changes the intent of such an object only if the request also sets this annotation to the username of the request, and a request that changes the annotation only if it names the requester. So the value always names the last person who changed the intent, or a person who took the change on as theirs.\n\nThe operator copies the names of the objects behind a proposal into the proposal's spec.requestedBy. Where the site forbids self-approval, none of them may approve it: the person who bumps a cluster's version, marks a Host for a wipe or a claim for a reinstall cannot approve the change that follows, although the operator proposed it.\n\nThe intent of each kind, and the kinds themselves, are listed in the policy. pk-metal sets the annotation for its caller; a GitOps controller sets its own service account name in the manifests it applies.",
+      "description": "AnnotationRequestedBy on an object whose change makes the operator propose work names the person who last changed what the object asks for. Its value is a username. Admission (config/policy/requested-by.yaml) accepts a request that changes the intent of such an object only if the request also sets this annotation to the username of the request, and a request that changes the annotation only if it names the requester. Where the site allows self-approval, an object without the annotation needs none; one with it still names the user of each change of the intent. So the value, where it is set, always names the last person who changed the intent, or a person who took the change on as theirs.\n\nThe operator copies the names of the objects behind a proposal into the proposal's spec.requestedBy. Where the site forbids self-approval, none of them may approve it: the person who bumps a cluster's version, marks a Host for a wipe or a claim for a reinstall cannot approve the change that follows, although the operator proposed it.\n\nThe intent of each kind, and the kinds themselves, are listed in the policy. pk-metal sets the annotation for its caller; a GitOps controller sets its own service account name in the manifests it applies.",
       "constants": [
         {
           "name": "AnnotationRequestedBy",
@@ -472,7 +472,7 @@
       "key": "os.pk.io/patch",
       "kind": "label",
       "exported": true,
-      "description": "LabelPatch marks a ConfigMap that holds Talos config patches. The operator reads a patch only from a ConfigMap with this label (any value), and admission asks who changed such a ConfigMap (metal.pk.io/requested-by, config/policy/requested-by.yaml), so that a change of a patch is attributed like a change of the cluster.",
+      "description": "LabelPatch marks a ConfigMap that holds Talos config patches. The operator reads a patch only from a ConfigMap with this label (any value), and admission asks who changed such a ConfigMap (metal.pk.io/requested-by, config/policy/requested-by-patches.yaml), so that a change of a patch is attributed like a change of the cluster.",
       "constants": [
         {
           "name": "LabelPatch",

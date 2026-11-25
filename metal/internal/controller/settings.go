@@ -40,6 +40,7 @@ var GatePolicies = []string{
 	"taloscluster-credentials-guard",
 	"guard-lift",
 	"requested-by",
+	"requested-by-patches",
 	"settings-guard",
 }
 

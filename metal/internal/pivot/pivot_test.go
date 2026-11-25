@@ -191,6 +191,12 @@ func TestGuardsOperator(t *testing.T) {
 	assert.True(t, guardsOperator(settings), "the guard of the site settings moves too")
 	settings.Spec.MatchConstraints.ResourceRules[0].ResourceNames = nil
 	assert.False(t, guardsOperator(settings), "a policy on other ConfigMaps stays behind")
+
+	settings.Spec.MatchConstraints.ObjectSelector = &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
+		{Key: "os.pk.io/patch", Operator: metav1.LabelSelectorOpExists}}}
+	assert.True(t, guardsOperator(settings), "the policy on the Talos config patches moves too")
+	settings.Spec.MatchConstraints.ObjectSelector.MatchExpressions[0].Operator = metav1.LabelSelectorOpDoesNotExist
+	assert.False(t, guardsOperator(settings), "a policy on the ConfigMaps that are no patches stays behind")
 }
 
 func TestLeaseFree(t *testing.T) {

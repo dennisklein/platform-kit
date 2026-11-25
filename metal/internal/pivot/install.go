@@ -13,6 +13,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -290,18 +291,38 @@ func managerForTarget(src *appsv1.Deployment, image, mediaURL string, claims []C
 }
 
 // guardsOperator: the policy matches a resource of the operator's groups,
-// or the site settings ConfigMap that the other policies read.
+// the site settings ConfigMap that the other policies read, or the
+// ConfigMaps that hold Talos config patches (selected by their label).
 func guardsOperator(p *admissionregistrationv1.ValidatingAdmissionPolicy) bool {
-	if p.Spec.MatchConstraints == nil {
+	m := p.Spec.MatchConstraints
+	if m == nil {
 		return false
 	}
-	for _, r := range p.Spec.MatchConstraints.ResourceRules {
+	for _, r := range m.ResourceRules {
 		for _, g := range r.APIGroups {
 			if slices.Contains(operatorGroups, g) {
 				return true
 			}
 		}
-		if slices.Contains(r.Resources, "configmaps") && slices.Contains(r.ResourceNames, settingsConfigMap) {
+		if slices.Contains(r.Resources, "configmaps") &&
+			(slices.Contains(r.ResourceNames, settingsConfigMap) || selectsPatches(m.ObjectSelector)) {
+			return true
+		}
+	}
+	return false
+}
+
+// selectsPatches: the selector selects only objects with the label
+// os.pk.io/patch.
+func selectsPatches(s *metav1.LabelSelector) bool {
+	if s == nil {
+		return false
+	}
+	if _, ok := s.MatchLabels[osv1alpha1.LabelPatch]; ok {
+		return true
+	}
+	for _, e := range s.MatchExpressions {
+		if e.Key == osv1alpha1.LabelPatch && (e.Operator == metav1.LabelSelectorOpExists || e.Operator == metav1.LabelSelectorOpIn) {
 			return true
 		}
 	}

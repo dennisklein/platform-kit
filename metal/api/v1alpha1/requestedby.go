@@ -7,9 +7,11 @@ import "slices"
 // value is a username. Admission (config/policy/requested-by.yaml) accepts
 // a request that changes the intent of such an object only if the request
 // also sets this annotation to the username of the request, and a request
-// that changes the annotation only if it names the requester. So the value
-// always names the last person who changed the intent, or a person who
-// took the change on as theirs.
+// that changes the annotation only if it names the requester. Where the
+// site allows self-approval, an object without the annotation needs none;
+// one with it still names the user of each change of the intent. So the
+// value, where it is set, always names the last person who changed the
+// intent, or a person who took the change on as theirs.
 //
 // The operator copies the names of the objects behind a proposal into the
 // proposal's spec.requestedBy. Where the site forbids self-approval, none

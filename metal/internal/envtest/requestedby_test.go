@@ -1,7 +1,10 @@
-// The requested-by suite: an edit that makes the operator propose work names
-// its requester (config/policy/requested-by.yaml), the operator copies the
-// names into the proposal's spec.requestedBy, and where the site forbids
-// self-approval the approval policies refuse an approval by one of them.
+// The requested-by suite: where the site forbids self-approval, an edit that
+// makes the operator propose work names its requester
+// (config/policy/requested-by.yaml, requested-by-patches.yaml), the operator
+// copies the names into the proposal's spec.requestedBy, and the approval
+// policies refuse an approval by one of them. Where the site allows
+// self-approval, the name is not necessary, but a name that is set names
+// the user of each change.
 package envtest_test
 
 import (
@@ -31,6 +34,10 @@ func TestRequestedBy(t *testing.T) {
 	installApprovalPolicy(t, ctx, cl, operator)
 	installRolloutPolicy(t, ctx, cl)
 	installPolicy(t, ctx, cl, "requested-by.yaml")
+	installPolicy(t, ctx, cl, "requested-by-patches.yaml")
+	// The base settings allow self-approval; the first subtests are the
+	// rules of a site that forbids it.
+	setSelfApproval(t, ctx, cl, ptr.To("Forbidden"))
 	operatorCl := st.userClient(t, operator)
 	alice := st.userClient(t, "alice")
 	bob := st.userClient(t, "bob")
@@ -120,6 +127,121 @@ func TestRequestedBy(t *testing.T) {
 		require.Error(t, patch(alice, ro, `{"spec":{"paused":true}}`))
 		require.NoError(t, patch(alice, ro, `{"metadata":{"annotations":{"`+key+`":"alice"}},"spec":{"paused":true}}`))
 		require.Error(t, patch(bob, ro, `{"spec":{"abort":true}}`))
+	})
+
+	// eventually repeats try until its error contains want, or until it
+	// passes where want is "": a change of the settings reaches the policy
+	// a moment after the write.
+	eventually := func(t *testing.T, want string, try func() error) {
+		t.Helper()
+		var last error
+		require.Eventually(t, func() bool {
+			last = try()
+			if want == "" {
+				return last == nil
+			}
+			return last != nil && strings.Contains(last.Error(), want)
+		}, 30*time.Second, 100*time.Millisecond, "want %q, last: %v", want, last)
+	}
+	newCluster := func(name string, annotations map[string]string) *osv1alpha1.TalosCluster {
+		return &osv1alpha1.TalosCluster{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Annotations: annotations},
+			Spec: osv1alpha1.TalosClusterSpec{TalosVersion: "v1.14.6", KubernetesVersion: "v1.36.2",
+				Endpoint:   "https://192.0.2.10:6443",
+				SecretsRef: osv1alpha1.SecretReference{Namespace: "pk-metal", Name: name + "-secrets"}},
+		}
+	}
+	newPatch := func(name string, annotations map[string]string) *corev1.ConfigMap {
+		return &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "pk-metal",
+			Labels: map[string]string{osv1alpha1.LabelPatch: "true"}, Annotations: annotations},
+			Data: map[string]string{"patch.yaml": "{}"}}
+	}
+
+	// A missing key means Allowed, as for the approval policies.
+	for _, mode := range []struct {
+		name  string
+		value *string
+	}{{"Allowed", ptr.To("Allowed")}, {"no selfApproval key", nil}} {
+		t.Run(mode.name+": a change needs no name, but a name names the user of each change", func(t *testing.T) {
+			setSelfApproval(t, ctx, cl, mode.value)
+			t.Cleanup(func() { setSelfApproval(t, ctx, cl, ptr.To("Forbidden")) })
+			suffix := strings.ToLower(strings.ReplaceAll(mode.name, " ", "-"))
+
+			cluster := newCluster("rb-allowed-"+suffix, nil)
+			eventually(t, "", func() error { return alice.Create(ctx, cluster.DeepCopy()) })
+			require.NoError(t, cl.Get(ctx, client.ObjectKeyFromObject(cluster), cluster))
+			require.NoError(t, patch(bob, cluster, `{"spec":{"talosVersion":"v1.14.7"}}`),
+				"a change of an object that names nobody needs no name")
+			require.Error(t, patch(bob, cluster, stamp("alice")), "nobody names another person")
+			require.NoError(t, patch(alice, cluster, `{"metadata":{"annotations":{"`+key+`":"alice"}},"spec":{"talosVersion":"v1.14.8"}}`),
+				"a person names themselves")
+			err := patch(bob, cluster, `{"spec":{"talosVersion":"v1.14.9"}}`)
+			require.Error(t, err, "a change under another person's name would record the wrong requester")
+			assert.Contains(t, err.Error(), `names "alice", who did not make it: set the annotation to "bob"`)
+			require.Error(t, patch(bob, cluster, `{"metadata":{"annotations":{"`+key+`":null}},"spec":{"talosVersion":"v1.14.9"}}`),
+				"nobody removes the name, not even where the site allows self-approval")
+			require.NoError(t, patch(bob, cluster, `{"metadata":{"annotations":{"`+key+`":"bob"}},"spec":{"talosVersion":"v1.14.9"}}`),
+				"a person takes the change on as theirs")
+			err = alice.Delete(ctx, cluster)
+			require.Error(t, err, "a delete under another person's name")
+			assert.Contains(t, err.Error(), `names "bob", not you`)
+			require.NoError(t, bob.Delete(ctx, cluster))
+
+			plain := newCluster("rb-allowed-plain-"+suffix, nil)
+			require.NoError(t, alice.Create(ctx, plain))
+			require.NoError(t, bob.Delete(ctx, plain), "a delete of an object that names nobody needs no name")
+
+			cm := newPatch("rb-allowed-"+suffix, nil)
+			require.NoError(t, alice.Create(ctx, cm), "a Talos config patch needs no name")
+			require.NoError(t, patch(bob, cm, `{"data":{"patch.yaml":"machine: {}"}}`))
+			require.NoError(t, patch(alice, cm, `{"metadata":{"annotations":{"`+key+`":"alice"}},"data":{"patch.yaml":"cluster: {}"}}`))
+			require.Error(t, patch(bob, cm, `{"data":{"patch.yaml":"{}"}}`), "a patch that names a person names the user of each change")
+			require.Error(t, bob.Delete(ctx, cm))
+			require.NoError(t, alice.Delete(ctx, cm))
+		})
+	}
+
+	t.Run("a value other than Allowed counts as Forbidden", func(t *testing.T) {
+		setSelfApproval(t, ctx, cl, ptr.To("yes"))
+		t.Cleanup(func() { setSelfApproval(t, ctx, cl, ptr.To("Forbidden")) })
+		// The approval policy reads the same key; the message says how it reads it.
+		eventually(t, "which counts as Forbidden", func() error {
+			c := newCluster("rb-unknown", nil)
+			err := alice.Create(ctx, c)
+			if err == nil {
+				require.NoError(t, cl.Delete(ctx, c))
+			}
+			return err
+		})
+		err := alice.Create(ctx, newPatch("rb-unknown", nil))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `(selfApproval in ConfigMap pk-metal/hostoperation-approval is "yes", which counts as Forbidden)`)
+		require.NoError(t, alice.Create(ctx, newCluster("rb-unknown", map[string]string{key: "alice"})))
+	})
+
+	t.Run("without the settings ConfigMap every request it checks is refused", func(t *testing.T) {
+		settings := &corev1.ConfigMap{}
+		require.NoError(t, cl.Get(ctx, client.ObjectKey{Namespace: "pk-metal", Name: "hostoperation-approval"}, settings))
+		require.NoError(t, cl.Delete(ctx, settings))
+		t.Cleanup(func() {
+			settings.ResourceVersion, settings.UID = "", ""
+			require.NoError(t, cl.Create(ctx, settings))
+		})
+		mine := map[string]string{key: "alice"}
+		eventually(t, "no params found", func() error {
+			c := newCluster("rb-no-settings", mine)
+			err := alice.Create(ctx, c)
+			if err == nil {
+				require.NoError(t, cl.Delete(ctx, c))
+			}
+			return err
+		})
+		err := alice.Create(ctx, newPatch("rb-no-settings", mine))
+		require.Error(t, err, "a Talos config patch is refused even with a name")
+		assert.Contains(t, err.Error(), "no params found")
+		other := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "rb-no-settings-plain", Namespace: "pk-metal"}}
+		require.NoError(t, alice.Create(ctx, other), "a ConfigMap that is no patch is not checked")
+		require.NoError(t, alice.Delete(ctx, other))
 	})
 
 	// The approvals. The operator proposed each object; alice's edit caused it.

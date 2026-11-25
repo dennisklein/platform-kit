@@ -1,14 +1,16 @@
-# Who asked for a change: a request that changes what an object asks the
-# operator to do must name its requester in the annotation
-# metal.pk.io/requested-by. The operator proposes most changes to a machine
-# itself, as the reaction to such an edit: a new Talos version on a
-# TalosCluster becomes a TalosUpgrade rollout, a wipe mark on a Host a wipe,
-# a reinstall mark on a claim a reinstall. The proposal names the operator
-# as its proposer, so without this record the person who made the edit
-# could also approve its result. The operator copies the annotations of the
-# objects behind a proposal into its spec.requestedBy, and the approval
-# policies refuse an approval by one of them where the site forbids
-# self-approval.
+# Who asked for a change: where the site forbids self-approval, a request
+# that changes what an object asks the operator to do must name its
+# requester in the annotation metal.pk.io/requested-by. The operator
+# proposes most changes to a machine itself, as the reaction to such an
+# edit: a new Talos version on a TalosCluster becomes a TalosUpgrade
+# rollout, a wipe mark on a Host a wipe, a reinstall mark on a claim a
+# reinstall. The proposal names the operator as its proposer, so without
+# this record the person who made the edit could also approve its result.
+# The operator copies the annotations of the objects behind a proposal into
+# its spec.requestedBy, and the approval policies refuse an approval by one
+# of them where the site forbids self-approval. The ConfigMaps that hold
+# Talos config patches have their own policy with the same rules
+# (requested-by-patches.yaml).
 #
 # The intent of each kind, the change that needs the name:
 #   - TalosCluster, TalosNode, BIOSProfile, FirmwareProfile: create, a change
@@ -17,18 +19,27 @@
 #     (a release);
 #   - Host: setting or changing metal.pk.io/wipe;
 #   - TalosRollout: a change of spec.abort or spec.paused, or of the
-#     annotation os.pk.io/resume (who stopped or let on a rollout);
-#   - ConfigMap with the label os.pk.io/patch (a Talos config patch; the
-#     operator reads no other): create, a change of data, the label set on
-#     a ConfigMap that had none (its data becomes a patch), delete.
+#     annotation os.pk.io/resume (who stopped or let on a rollout).
 #
 # The rules, in order:
 #   - a request that changes the intent sets the annotation to the username
 #     of the request; a delete needs the annotation to name the requester
-#     already (set it first; pk-metal does);
+#     already (set it first; pk-metal does). Where the site allows
+#     self-approval (selfApproval: Allowed, the default), the name is not
+#     necessary: an object that names nobody passes. But an object that
+#     names a person names the user of each change of its intent, so that
+#     the operator never records one person as the requester of another
+#     person's change;
 #   - a request that changes the annotation sets it to the username of the
 #     request: a person takes a change on as theirs, never puts it on
-#     someone else, and cannot remove the name.
+#     someone else, and cannot remove the name. This applies in both modes:
+#     the operator proposes some time after the edit, and the name is the
+#     record of who asked for a change that is still to come.
+#
+# The setting comes from the ConfigMap that the approval policies read (the
+# binding's params). A missing key means Allowed, a value other than Allowed
+# counts as Forbidden. A missing ConfigMap denies each request this policy
+# matches: the gate fails closed.
 #
 # Deletes by the controllers of kube-system (the garbage collector, the
 # namespace controller) need no name: a person who deleted the owner or the
@@ -44,6 +55,9 @@ metadata:
   name: requested-by
 spec:
   failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
   matchConstraints:
     resourceRules:
       - apiGroups: ["os.pk.io"]
@@ -62,18 +76,6 @@ spec:
         apiVersions: ["v1alpha1"]
         operations: ["UPDATE"]
         resources: ["talosrollouts"]
-      - apiGroups: [""]
-        apiVersions: ["v1"]
-        operations: ["CREATE", "UPDATE", "DELETE"]
-        resources: ["configmaps"]
-  matchConditions:
-    # Of the ConfigMaps, only the patches: the label on the object, or on
-    # the object before the request (a delete, a label taken off).
-    - name: patch-configmaps-only
-      expression: >-
-        request.resource.resource != 'configmaps'
-        || (request.operation != 'DELETE' && 'os.pk.io/patch' in object.metadata.?labels.orValue({}))
-        || (request.operation != 'CREATE' && 'os.pk.io/patch' in oldObject.metadata.?labels.orValue({}))
   variables:
     - name: key
       expression: "'metal.pk.io/requested-by'"
@@ -104,10 +106,6 @@ spec:
             || object.spec.?abort.orValue(false) != oldObject.spec.?abort.orValue(false)
             || object.spec.?paused.orValue(false) != oldObject.spec.?paused.orValue(false)
         : request.operation == 'CREATE' ? true
-        : variables.res == 'configmaps'
-          ? object.?data.orValue({}) != oldObject.?data.orValue({})
-            || object.?binaryData.orValue({}) != oldObject.?binaryData.orValue({})
-            || !('os.pk.io/patch' in oldObject.metadata.?labels.orValue({}))
         : variables.res == 'hostclaims'
           ? object.spec != oldObject.spec || 'metal.pk.io/reinstall' in variables.setAnnotation
         : object.spec != oldObject.spec
@@ -116,21 +114,42 @@ spec:
     - name: what
       expression: >-
         request.kind.kind + ' ' + (has(request.namespace) && request.namespace != '' ? request.namespace + '/' : '') + request.name
+    - name: selfApproval
+      expression: >-
+        has(params.data) && has(params.data.selfApproval) ? params.data.selfApproval : 'Allowed'
+    - name: forbidden
+      expression: "variables.selfApproval != 'Allowed'"
+    - name: setting
+      expression: >-
+        '(selfApproval in ConfigMap ' + params.metadata.namespace + '/' + params.metadata.name
+        + ' is "' + variables.selfApproval + '"' + (variables.selfApproval == 'Forbidden' ? '' : ', which counts as Forbidden') + ')'
   validations:
     - expression: >-
         !variables.intentChanged || request.operation == 'DELETE' || variables.newName == variables.user
+        || (!variables.forbidden && variables.newName == '')
       messageExpression: >-
-        variables.what + ': this change makes the operator propose work, so it must name who asked for it:'
-        + ' set the annotation metal.pk.io/requested-by to "' + variables.user + '" in the same request'
-        + ' (pk-metal does this for you)'
+        variables.newName == ''
+        ? variables.what + ': this change makes the operator propose work and this site forbids approving your own change '
+          + variables.setting + ', so it must name who asked for it:'
+          + ' set the annotation metal.pk.io/requested-by to "' + variables.user + '" in the same request'
+          + ' (pk-metal does this for you)'
+        : variables.what + ': this change makes the operator propose work, and metal.pk.io/requested-by names "'
+          + variables.newName + '", who did not make it: set the annotation to "' + variables.user + '" in the same request'
+          + ' (pk-metal does this for you)'
       reason: Forbidden
     - expression: >-
         request.operation != 'DELETE' || variables.oldName == variables.user
+        || (!variables.forbidden && variables.oldName == '')
         || variables.user.startsWith('system:serviceaccount:kube-system:')
       messageExpression: >-
-        variables.what + ': deleting it makes the operator propose work, so it must name who asked for it:'
-        + ' first set the annotation metal.pk.io/requested-by to "' + variables.user + '", then delete it'
-        + ' (pk-metal does this for you)'
+        variables.oldName == ''
+        ? variables.what + ': deleting it makes the operator propose work and this site forbids approving your own change '
+          + variables.setting + ', so it must name who asked for it:'
+          + ' first set the annotation metal.pk.io/requested-by to "' + variables.user + '", then delete it'
+          + ' (pk-metal does this for you)'
+        : variables.what + ': deleting it makes the operator propose work, and metal.pk.io/requested-by names "'
+          + variables.oldName + '", not you: first set the annotation to "' + variables.user + '", then delete it'
+          + ' (pk-metal does this for you)'
       reason: Forbidden
     - expression: >-
         request.operation == 'DELETE' || variables.newName == variables.oldName || variables.newName == variables.user
@@ -146,3 +165,7 @@ metadata:
 spec:
   policyName: requested-by
   validationActions: ["Deny"]
+  paramRef:
+    name: hostoperation-approval
+    namespace: pk-metal
+    parameterNotFoundAction: Deny

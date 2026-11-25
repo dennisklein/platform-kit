@@ -356,8 +356,10 @@ func (m *Mover) writerFor(ctx context.Context, so sourceObject, want *unstructur
 	return m.Target.Client, nil
 }
 
-// requestGated: the requested-by policy (config/policy/requested-by.yaml)
-// asks for the requester's name when obj is created, changed or deleted.
+// requestGated: the requested-by policies (config/policy/requested-by.yaml,
+// requested-by-patches.yaml) ask for the requester's name when obj is
+// created, changed or deleted, where the site forbids self-approval. The
+// move names one in both modes, for the audit trail.
 // A Host only while it asks for a wipe; a ConfigMap only when it is a Talos
 // config patch.
 func requestGated(obj *unstructured.Unstructured) bool {

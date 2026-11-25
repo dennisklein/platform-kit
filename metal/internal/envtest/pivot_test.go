@@ -352,10 +352,14 @@ func TestPivot(t *testing.T) {
 	// envtest runs no pods, so the in-process manager stands in and stops
 	// here, before the move pauses the Deployment.
 	stopSource()
-	// The requested-by policy, installed after the objects above were
+	// The requested-by policies, installed after the objects above were
 	// written: they name no requester, as objects written before a site
-	// installed it do. The move installs it on the target too.
+	// installed them do. The move installs them on the target too. The
+	// site forbids self-approval, as the lab does, so that the policies
+	// ask the move for a name.
 	installPolicy(t, ctx, cl, "requested-by.yaml")
+	installPolicy(t, ctx, cl, "requested-by-patches.yaml")
+	setSelfApproval(t, ctx, cl, ptr.To("Forbidden"))
 
 	source, err := pivot.NewCluster("bootstrap", src.cfg, src.scheme)
 	require.NoError(t, err)

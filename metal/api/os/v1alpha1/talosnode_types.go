@@ -202,8 +202,8 @@ type Patch struct {
 // LabelPatch marks a ConfigMap that holds Talos config patches. The operator
 // reads a patch only from a ConfigMap with this label (any value), and
 // admission asks who changed such a ConfigMap
-// (metal.pk.io/requested-by, config/policy/requested-by.yaml), so that a
-// change of a patch is attributed like a change of the cluster.
+// (metal.pk.io/requested-by, config/policy/requested-by-patches.yaml), so
+// that a change of a patch is attributed like a change of the cluster.
 const LabelPatch = "os.pk.io/patch"
 
 // ConfigMapKeyReference points at one key of a namespaced ConfigMap. The
