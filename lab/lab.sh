@@ -1127,6 +1127,18 @@ release() {
 
 # ---------------------------------------------------------------- day 2
 
+# Prints the value of a guard-lift annotation that the lab's admin sets for the
+# reason $1: "<username>: <reason>". The guard-lift policy accepts no other form
+# (metal/config/policy/guard-lift.yaml), and the username must be the one the
+# cluster reports for the caller, so it is asked, not assumed.
+guard_lift() {
+  local why=$1 user
+  user=$(kubectl auth whoami --output jsonpath='{.status.userInfo.username}') \
+    || die "kubectl auth whoami did not answer, so the lab cannot name who lifts the guard. Check the cluster: kubectl cluster-info"
+  [[ -n $user ]] || die "the cluster reports no username for $KUBECONFIG, so the lab cannot name who lifts the guard. Check it: kubectl auth whoami"
+  printf '%s: %s' "$user" "$why"
+}
+
 # Writes a kubeconfig for a second person. pk-metal reboot records its caller
 # as the proposer, and the lab forbids an approval by the proposer
 # (selfApproval: Forbidden, metal/config/lab/approval.yaml), so the lab proposes as lab-proposer (the lab's admin impersonates it) and
@@ -1245,7 +1257,7 @@ day2_reboot() {
   cp=$(running_node controlplane)
   [[ -n $cp ]] || die "no control plane runs on a Provisioned host. See where the lab stands: mise run lab:status"
   if (( $(control_plane_count "$cluster_name") == 1 )); then
-    override="lab: cluster $cluster_name has a single control plane"
+    override=$(guard_lift "cluster $cluster_name has a single control plane")
   fi
   day2_reboot_node "$root" "$lab_dir" "$proposer" "$cp" "$override" "$timeout"
 }
@@ -1481,13 +1493,14 @@ rollout_wait_proposed() {
 # checked: Complete=True, every step Succeeded.
 rollout_through() {
   local root=$1 lab_dir=$2 name=$3 timeout=$4
-  local conditions cluster single op resumed=0 line last="" deadline=$((SECONDS + timeout)) count look_until
+  local conditions cluster single lift op resumed=0 line last="" deadline=$((SECONDS + timeout)) count look_until
   step "rollout $name: approve, check the first node, resume, wait (up to ${timeout}s)"
   "$root/metal/bin/pk-metal" rollout show "$name" >&2
   "$root/metal/bin/pk-metal" rollout approve --yes "$name" >&2
   cluster=$(kubectl get talosrollout "$name" --output jsonpath='{.spec.clusterRef.name}')
   single=0
   [[ $(control_plane_count "$cluster") != 1 ]] || single=1
+  (( ! single )) || lift=$(guard_lift "cluster $cluster has a single control plane")
   while true; do
     if (( single )); then
       # A cluster with one control plane has no etcd majority while that
@@ -1497,8 +1510,7 @@ rollout_through() {
       # lab gives it only to an operation the guard actually holds.
       while IFS= read -r op; do
         [[ -n $op ]] || continue
-        kubectl -n "$NAMESPACE" annotate hostoperation "$op" \
-          "metal.pk.io/override-cluster-guard=lab: cluster $cluster has a single control plane" >&2
+        kubectl -n "$NAMESPACE" annotate hostoperation "$op" "metal.pk.io/override-cluster-guard=$lift" >&2
       done < <(kubectl -n "$NAMESPACE" get hostoperations --selector "os.pk.io/rollout=$name" --output json | jq -r '
         .items[]
         | select((.metadata.annotations // {})["metal.pk.io/override-cluster-guard"] == null)
