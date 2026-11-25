@@ -279,9 +279,10 @@ func TestE2EKind(t *testing.T) {
 		op := &metalv1alpha1.HostOperation{
 			ObjectMeta: metav1.ObjectMeta{Name: "e2e-power-on", Namespace: ns},
 			Spec: metalv1alpha1.HostOperationSpec{
-				HostRef: metalv1alpha1.Reference{Name: hostName},
-				Reason:  "Provision",
-				Actions: []metalv1alpha1.HostOperationAction{{PowerCycle: &metalv1alpha1.PowerCycleAction{}}},
+				HostRef:    metalv1alpha1.Reference{Name: hostName},
+				Reason:     "Provision",
+				ProposedBy: "e2e-proposer",
+				Actions:    []metalv1alpha1.HostOperationAction{{PowerCycle: &metalv1alpha1.PowerCycleAction{}}},
 			},
 		}
 		require.NoError(t, cl.Create(ctx, op))
