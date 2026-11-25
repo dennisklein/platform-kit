@@ -274,6 +274,19 @@
         },
         {
           "apiGroups": [
+            "admissionregistration.k8s.io"
+          ],
+          "resources": [
+            "validatingadmissionpolicies",
+            "validatingadmissionpolicybindings"
+          ],
+          "verbs": [
+            "get",
+            "list"
+          ]
+        },
+        {
+          "apiGroups": [
             "authentication.k8s.io"
           ],
           "resources": [
@@ -1715,6 +1728,24 @@
           ],
           "verbs": [
             "get"
+          ]
+        }
+      ]
+    },
+    {
+      "source": "metal/internal/controller/settings.go",
+      "rules": [
+        {
+          "apiGroups": [
+            "admissionregistration.k8s.io"
+          ],
+          "resources": [
+            "validatingadmissionpolicies",
+            "validatingadmissionpolicybindings"
+          ],
+          "verbs": [
+            "get",
+            "list"
           ]
         }
       ]

@@ -12,9 +12,11 @@ import (
 )
 
 var (
-	op = Object{Kind: KindHostOperation, Namespace: "pk-metal", Name: "reboot-node-1", UID: "u-1"}
-	ro = Object{Kind: KindTalosRollout, Name: "fleet-talosupgrade-1a2b3c4d", UID: "u-2"}
-	at = time.Date(2026, 3, 4, 5, 6, 7, 800, time.UTC)
+	op       = Object{Kind: KindHostOperation, Namespace: "pk-metal", Name: "reboot-node-1", UID: "u-1"}
+	ro       = Object{Kind: KindTalosRollout, Name: "fleet-talosupgrade-1a2b3c4d", UID: "u-2"}
+	settings = Object{Kind: KindConfigMap, Namespace: "pk-metal", Name: "hostoperation-approval", UID: "u-3"}
+	policy   = Object{Kind: KindAdmissionPolicy, Name: "guard-lift"}
+	at       = time.Date(2026, 3, 4, 5, 6, 7, 800, time.UTC)
 )
 
 func newTest() (*Logger, *bytes.Buffer) {
@@ -86,6 +88,38 @@ func TestSchema(t *testing.T) {
 			write: func(l *Logger) { l.Resumed(ro, "bob") },
 			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"resumed","kind":"TalosRollout",` +
 				`"namespace":"","name":"fleet-talosupgrade-1a2b3c4d","uid":"u-2","actor":"bob"}`,
+		},
+		{
+			name: "settings read",
+			write: func(l *Logger) {
+				l.SettingsRead(settings, map[string]string{"selfApproval": "Forbidden", "adminGroup": "pk-metal:admins"}, "")
+			},
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"settings.read","kind":"ConfigMap",` +
+				`"namespace":"pk-metal","name":"hostoperation-approval","uid":"u-3","actor":"",` +
+				`"new":{"adminGroup":"pk-metal:admins","selfApproval":"Forbidden"}}`,
+		},
+		{
+			name: "settings changed",
+			write: func(l *Logger) {
+				l.SettingsChanged(settings, map[string]string{"selfApproval": "Forbidden"},
+					map[string]string{"selfApproval": "Allowed"}, "")
+			},
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"settings.changed","kind":"ConfigMap",` +
+				`"namespace":"pk-metal","name":"hostoperation-approval","uid":"u-3","actor":"",` +
+				`"old":{"selfApproval":"Forbidden"},"new":{"selfApproval":"Allowed"}}`,
+		},
+		{
+			name:  "gate degraded",
+			write: func(l *Logger) { l.GateDegraded(policy, "the ValidatingAdmissionPolicy guard-lift is missing") },
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"gate.degraded",` +
+				`"kind":"ValidatingAdmissionPolicy","namespace":"","name":"guard-lift","uid":"","actor":"",` +
+				`"message":"the ValidatingAdmissionPolicy guard-lift is missing"}`,
+		},
+		{
+			name:  "gate restored",
+			write: func(l *Logger) { l.GateRestored(policy) },
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"gate.restored",` +
+				`"kind":"ValidatingAdmissionPolicy","namespace":"","name":"guard-lift","uid":"","actor":""}`,
 		},
 		{
 			name: "guard lifted on the operation, at the start",

@@ -1,6 +1,6 @@
 ---
 title: Admission policies
-description: The seven ValidatingAdmissionPolicies that guard approval, provisioning, backups, BMC settings, guard lifts and the name of the requester, rule by rule.
+description: The eight ValidatingAdmissionPolicies that guard approval, provisioning, backups, BMC settings, guard lifts, the name of the requester and the site settings, rule by rule.
 type: reference
 eyebrow: Reference · security
 xref: { cat: ref, id: admission-policies }
@@ -13,6 +13,8 @@ sources:
   - /repo/metal/config/policy/taloscluster-credentials-guard.yaml
   - /repo/metal/config/policy/guard-lift.yaml
   - /repo/metal/config/policy/requested-by.yaml
+  - /repo/metal/config/policy/settings-guard.yaml
+  - /repo/metal/internal/controller/settings.go
 ---
 
 import Figure from '../../../../components/diagram/Figure.astro';
@@ -21,7 +23,7 @@ import Edge from '../../../../components/diagram/Edge.astro';
 import Callout from '../../../../components/Callout.astro';
 
 RBAC says who may create or patch an object. It cannot see the name that a person writes into a field.
-Seven [ValidatingAdmissionPolicies](term:vap) close that gap. They are [CEL](term:cel) in the API server: no webhook, no certificate, no pod.
+Eight [ValidatingAdmissionPolicies](term:vap) close that gap. They are [CEL](term:cel) in the API server: no webhook, no certificate, no pod.
 
 ## At a glance
 
@@ -35,8 +37,9 @@ Seven [ValidatingAdmissionPolicies](term:vap) close that gap. They are [CEL](ter
 | `taloscluster-credentials-guard` | [](kind:TalosCluster) | CREATE, UPDATE | Who may make the published admin credentials live longer than 24 hours. |
 | `guard-lift` | HostOperation, HostClaim, [](kind:TalosNode), [](kind:Host) | CREATE, UPDATE | A guard lift or a decision names the person who sets it, and a reason. Only the operator removes `disk-not-wiped` without a named waiver. |
 | `requested-by` | TalosCluster, TalosNode, HostClaim, [](kind:BiosProfile), [](kind:FirmwareProfile), Host, TalosRollout, ConfigMaps with `os.pk.io/patch` | CREATE, UPDATE, DELETE | A change that makes the operator propose work names the user who asked for it. |
+| `settings-guard` | The ConfigMap `pk-metal/hostoperation-approval` | CREATE, UPDATE, DELETE | Only the admin group changes or deletes the site settings. |
 
-All seven have these settings:
+All eight have these settings:
 
 <dl>
   <dt>`failurePolicy: Fail`</dt>
@@ -44,7 +47,7 @@ All seven have these settings:
   <dt>`validationActions: [Deny]`</dt>
   <dd>A failed rule refuses the request with reason `Forbidden`.</dd>
   <dt>Parameters</dt>
-  <dd>All except `requested-by`, which needs none: the ConfigMap `hostoperation-approval` in `pk-metal`. Key `operator` is the name of the manager. Key `adminGroup` is the admin group. Key `selfApproval` tells if a person can approve their own proposal.</dd>
+  <dd>All except `requested-by` and `settings-guard`, which need none: the ConfigMap `hostoperation-approval` in `pk-metal`. Key `operator` is the name of the manager. Key `adminGroup` is the admin group. Key `selfApproval` tells if a person can approve their own proposal.</dd>
   <dt>`parameterNotFoundAction: Deny`</dt>
   <dd>Without the ConfigMap, each create and update is refused. The gate fails closed.</dd>
 </dl>
@@ -234,6 +237,23 @@ An edit asks for work in these cases:
 - The operator has no exemption. It changes no spec of these kinds.
 - [](cli:pivot) writes each object as the user that the annotation names. An object without the annotation gets `pk-metal-pivot`.
 - A GitOps controller names its own service account. See [](concept:gitops).
+
+## `settings-guard`
+
+The ConfigMap `pk-metal/hostoperation-approval` names the operator and the admin group. It also tells if a person can approve their own change, and how long finished records stay. RBAC lets each holder of `update` on ConfigMaps in `pk-metal` change it. This policy limits that to the admin group.
+
+| # | Rule | When | Message |
+| --- | --- | --- | --- |
+| 1 | A change of `data`, or a delete, comes from a member of the admin group that the ConfigMap names before the request. A request that does not change `data` passes. | UPDATE, DELETE | `only a member of the admin group "…" may change or delete them` |
+| 2 | The key `operator` names a service account (`system:serviceaccount:…`). | CREATE, UPDATE | `the operator key must name the manager's service account` |
+
+- A create is not limited. Without the ConfigMap, each policy that reads it refuses each request, so the create is the install.
+- The namespace controller in `kube-system` can delete the ConfigMap with its namespace.
+- The operator writes a `settings.changed` line for each change that it sees. See [](ref:audit-trail).
+
+## The check of the gate
+
+The operator checks each policy of this page one time each minute. It reports a policy that is missing, has a `failurePolicy` other than `Fail`, or has no binding that denies. A binding of a policy with parameters must also have `parameterNotFoundAction: Deny`. The operator then sets the metric `pk_metal_admission_gate_degraded` to 1 for the policy, and writes a `gate.degraded` line. The alert `PkMetalAdmissionGateDegraded` links [](rb:admission-gate-degraded). The operator changes no policy.
 
 ## Related
 

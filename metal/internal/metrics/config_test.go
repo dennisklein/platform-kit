@@ -77,6 +77,7 @@ func seriesNames(t *testing.T) []string {
 		(&Collector{}).Describe(ch)
 		rolloutNodesDone.Describe(ch)
 		rolloutNodesTotal.Describe(ch)
+		gateDegraded.Describe(ch)
 		close(ch)
 	}()
 	var names []string

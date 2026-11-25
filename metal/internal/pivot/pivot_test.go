@@ -181,6 +181,16 @@ func TestGuardsOperator(t *testing.T) {
 	assert.False(t, guardsOperator(p))
 	p.Spec.MatchConstraints.ResourceRules[0].APIGroups = append(p.Spec.MatchConstraints.ResourceRules[0].APIGroups, "metal.pk.io")
 	assert.True(t, guardsOperator(p))
+
+	settings := &admissionregistrationv1.ValidatingAdmissionPolicy{}
+	settings.Spec.MatchConstraints = &admissionregistrationv1.MatchResources{ResourceRules: []admissionregistrationv1.NamedRuleWithOperations{{
+		ResourceNames: []string{"hostoperation-approval"},
+		RuleWithOperations: admissionregistrationv1.RuleWithOperations{Rule: admissionregistrationv1.Rule{
+			APIGroups: []string{""}, Resources: []string{"configmaps"}}},
+	}}}
+	assert.True(t, guardsOperator(settings), "the guard of the site settings moves too")
+	settings.Spec.MatchConstraints.ResourceRules[0].ResourceNames = nil
+	assert.False(t, guardsOperator(settings), "a policy on other ConfigMaps stays behind")
 }
 
 func TestLeaseFree(t *testing.T) {

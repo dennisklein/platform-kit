@@ -1,0 +1,77 @@
+# The site settings: the ConfigMap pk-metal/hostoperation-approval says who
+# the operator is, which group is the admin group, whether a person may
+# approve their own change, and how long finished records stay. Every other
+# policy of the gate reads it. RBAC lets each holder of update on ConfigMaps
+# in pk-metal change it; this policy lets only the admin group do that.
+#
+# The rules, in order:
+#   - a change of data, or a delete, comes from a member of the admin group
+#     that the ConfigMap names before the request (adminGroup, default
+#     pk-metal:admins); a request that leaves data as it is (an apply that
+#     changes nothing, a label) passes;
+#   - the operator key names a service account, never a person.
+#
+# A create is not limited: without the ConfigMap every policy that reads it
+# refuses each request, and creating it is the install. A delete of the
+# namespace by the namespace controller (kube-system) passes. The operator
+# writes an audit line for each change of the settings it sees
+# (settings.changed), and checks on a timer that each policy of the gate and
+# its binding deny (pk_metal_admission_gate_degraded).
+#
+# CEL note: oldObject is null on CREATE and object is null on DELETE; every
+# reference to them sits behind a lazily-evaluated request.operation ternary.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: settings-guard
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["configmaps"]
+        resourceNames: ["hostoperation-approval"]
+  matchConditions:
+    - name: settings-namespace-only
+      expression: "request.namespace == 'pk-metal'"
+  variables:
+    - name: oldData
+      expression: >-
+        request.operation != 'CREATE' ? oldObject.?data.orValue({}) : {}
+    - name: newData
+      expression: >-
+        request.operation != 'DELETE' ? object.?data.orValue({}) : {}
+    - name: adminGroup
+      expression: >-
+        'adminGroup' in variables.oldData ? variables.oldData['adminGroup'] : 'pk-metal:admins'
+    - name: isAdmin
+      expression: "variables.adminGroup in request.userInfo.groups"
+    - name: user
+      expression: "request.userInfo.username"
+  validations:
+    - expression: >-
+        request.operation == 'CREATE'
+        || (request.operation == 'UPDATE' && variables.newData == variables.oldData)
+        || variables.isAdmin
+        || (request.operation == 'DELETE' && variables.user.startsWith('system:serviceaccount:kube-system:'))
+      messageExpression: >-
+        'the site settings (ConfigMap pk-metal/hostoperation-approval) decide who may approve; only a member of the'
+        + ' admin group "' + variables.adminGroup + '" may change or delete them, and ' + variables.user + ' is not one'
+      reason: Forbidden
+    - expression: >-
+        request.operation == 'DELETE' || !('operator' in variables.newData)
+        || variables.newData['operator'].startsWith('system:serviceaccount:')
+      message: >-
+        the operator key must name the manager's service account
+        (system:serviceaccount:<namespace>:<name>), never a person
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: settings-guard
+spec:
+  policyName: settings-guard
+  validationActions: ["Deny"]

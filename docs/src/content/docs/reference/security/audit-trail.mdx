@@ -71,12 +71,13 @@ Each line has these fields:
 | `seq` | The number of the line in the manager process, from 1. A gap or a repeated number shows a missing or a repeated line. A new process starts again at 1. |
 | `pod` | The name of the manager pod that wrote the line. |
 | `event` | One of the events below. |
-| `kind` | `HostOperation`, `TalosRollout`, `HostClaim`, `TalosNode` or `Host`. |
+| `kind` | `HostOperation`, `TalosRollout`, `HostClaim`, `TalosNode`, `Host`, `ConfigMap` (the site settings) or `ValidatingAdmissionPolicy`. |
 | `namespace` | The namespace of the object. It is empty for a cluster-scoped kind. |
 | `name` | The name of the object. |
 | `uid` | The UID of the object. A new object with the same name has a different UID. |
 | `actor` | Who made the decision: a person, or the service account of the operator. It is empty if a guard lift names nobody. |
 | `requestedBy` | On `proposed` and `approved`: the persons whose edit made the operator propose the change (`spec.requestedBy`). Not there if the list is empty. |
+| `old`, `new` | On `settings.read` and `settings.changed`: the settings before and after, by key. A key that the ConfigMap does not have is not there. |
 
 An event adds the fields in the table below. A line never holds a Secret, a credential, a BMC password or a media grant token. The operator masks the credentials and the grant token of a URL in a `message`. A `message` has at most 512 bytes.
 
@@ -95,6 +96,10 @@ An event adds the fields in the table below. A line never holds a Secret, a cred
 | `media.fetched` | A BMC fetches through a [media grant](ref:media-store#grants) of the operation for the first time. The grant is now bound to that address. | `grant` (the file name), `source` |
 | `media.refused` | The media service refuses a request with a wrong password, or from an address that is not the bound one. At most ten lines for each grant. | `grant`, `source`, `reason` |
 | `media.grantEnded` | A media grant ends. | `grant`, `source` (empty if nobody fetched), `reason` (`revoked` or `expired`), `requests`, `bytes`, `refused` |
+| `settings.read` | The operator reads the site settings (`hostoperation-approval`) for the first time after it starts. The `actor` is empty. | `new`, and `message` if the ConfigMap is missing |
+| `settings.changed` | The operator sees a change of `selfApproval`, `retention`, `adminGroup` or `operator`. The `actor` is empty: the kube-apiserver audit log names who. | `old`, `new`, and `message` if the ConfigMap is gone |
+| `gate.degraded` | An admission policy of the gate, or its binding, is missing or does not deny. See [](rb:admission-gate-degraded). | `message` |
+| `gate.restored` | A degraded policy is in place again. | None |
 
 The `reason` of a `deleted` line is one of these:
 

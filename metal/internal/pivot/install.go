@@ -289,7 +289,8 @@ func managerForTarget(src *appsv1.Deployment, image, mediaURL string, claims []C
 	return d
 }
 
-// guardsOperator: the policy matches a resource of the operator's groups.
+// guardsOperator: the policy matches a resource of the operator's groups,
+// or the site settings ConfigMap that the other policies read.
 func guardsOperator(p *admissionregistrationv1.ValidatingAdmissionPolicy) bool {
 	if p.Spec.MatchConstraints == nil {
 		return false
@@ -299,6 +300,9 @@ func guardsOperator(p *admissionregistrationv1.ValidatingAdmissionPolicy) bool {
 			if slices.Contains(operatorGroups, g) {
 				return true
 			}
+		}
+		if slices.Contains(r.Resources, "configmaps") && slices.Contains(r.ResourceNames, settingsConfigMap) {
+			return true
 		}
 	}
 	return false

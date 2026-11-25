@@ -9,3 +9,4 @@ resources:
   - taloscluster-credentials-guard.yaml
   - guard-lift.yaml
   - requested-by.yaml
+  - settings-guard.yaml

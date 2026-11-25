@@ -10,6 +10,7 @@ sources:
   - /repo/metal/config/policy/hostoperation-approval.yaml
   - /repo/metal/config/policy/talosrollout-approval.yaml
   - /repo/metal/config/policy/requested-by.yaml
+  - /repo/metal/config/policy/settings-guard.yaml
   - /repo/metal/config/samples/site-overlay/approval.yaml
   - /repo/metal/config/samples/site-overlay/bindings.yaml
   - /repo/metal/config/rbac/approver_role.yaml
@@ -107,6 +108,8 @@ The key `selfApproval` in the ConfigMap `hostoperation-approval` tells if a pers
    kubectl apply --server-side -k .
    ```
 
+   After the first install, only a member of the admin group can change or delete the ConfigMap. The `settings-guard` policy refuses each other person. The operator writes a `settings.changed` line in the [](ref:audit-trail) for each change.
+
 5. Read the setting back.
 
    ```sh
@@ -138,7 +141,7 @@ The operator proposes most changes itself, as the result of an edit. For example
   kubectl annotate talosnode node-2 --overwrite "metal.pk.io/requested-by=$me"
   ```
 
-- You can set the annotation to your own username only. You cannot remove it. To take over a change from another person, set your own username.
+- You can set the annotation to your own username only. You cannot remove it. To make a change of another person your own, set your own username.
 - The operator copies the names from the objects behind a proposal into `spec.requestedBy` of the operation or rollout. This field cannot change after the create.
 - A rollout that the operator proposed ends with `PlanChanged` if a person who is not in its `spec.requestedBy` changes what it applies. The operator then proposes it again, with the new names.
 - A Talos config patch in a ConfigMap must have the label `os.pk.io/patch: "true"`. The operator reads no ConfigMap without it. So the policy can find the patches and ask for a name.

@@ -1,0 +1,73 @@
+---
+title: Admission gate degraded
+description: An admission policy of the approval gate, or its binding, is missing or does not deny. The rules that it holds are open until you apply it again.
+type: runbook
+xref: { cat: rb, id: admission-gate-degraded }
+sources:
+  - /repo/metal/internal/controller/settings.go
+  - /repo/metal/config/policy/kustomization.yaml
+  - /repo/metal/config/policy/settings-guard.yaml
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Symptoms
+
+<dl>
+  <dt>Alert</dt>
+  <dd>`PkMetalAdmissionGateDegraded` names the policy.</dd>
+  <dt>Metric</dt>
+  <dd>`pk_metal_admission_gate_degraded{policy="<name>"}` is 1.</dd>
+  <dt>[](ref:audit-trail)</dt>
+  <dd>A `gate.degraded` line with `kind` `ValidatingAdmissionPolicy`. The `message` says what is wrong.</dd>
+</dl>
+
+The operator checks each policy of the gate one time each minute. The operator reports a policy if one of these is true:
+
+- The ValidatingAdmissionPolicy is missing.
+- Its `failurePolicy` is not `Fail`.
+- No binding of the policy has `validationActions: [Deny]`.
+- The policy reads the site settings, and no such binding has `parameterNotFoundAction: Deny`.
+
+## Impact
+
+The API server does not apply the rules of the policy. For example, without `hostoperation-approval` a person can approve as another person. Without `settings-guard` a person outside the admin group can change `selfApproval`. See [](ref:admission-policies).
+
+The operator changes nothing. It does not stop its work.
+
+## Diagnose
+
+```sh
+kubectl get validatingadmissionpolicy,validatingadmissionpolicybinding
+kubectl get validatingadmissionpolicybinding guard-lift -o yaml
+```
+
+Find who changed or deleted the object in the kube-apiserver audit log.
+
+## Fix
+
+<Steps>
+
+1. Apply the policies again from the release that you run.
+
+   ```sh
+   kubectl apply --server-side -k metal/config/policy
+   ```
+
+2. If a site overlay changes a policy or a binding, correct the overlay.
+
+</Steps>
+
+<Callout type="warning">
+A policy that is open lets one person do what needs two. Examine the approvals of operations and rollouts in the time without the policy. The audit log has the `approved` lines.
+</Callout>
+
+## Verify
+
+The metric is 0 for each policy. The audit log has a `gate.restored` line for the policy.
+
+## Related
+
+- [](ref:admission-policies)
+- [](ref:audit-trail)

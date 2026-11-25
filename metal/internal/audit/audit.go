@@ -61,6 +61,11 @@ const (
 	// KindManagementEndpoint: a BMC, for what the operator does to it
 	// outside an operation (EndpointProfile lanes, the TLS key pin).
 	KindManagementEndpoint Kind = "ManagementEndpoint"
+	// KindConfigMap is the site settings ConfigMap (hostoperation-approval).
+	KindConfigMap Kind = "ConfigMap"
+	// KindAdmissionPolicy is a ValidatingAdmissionPolicy of the approval
+	// gate.
+	KindAdmissionPolicy Kind = "ValidatingAdmissionPolicy"
 )
 
 // Event is what happened.
@@ -93,6 +98,17 @@ const (
 	EventBMCIdentityPushed  Event = "bmc.identity.pushed"
 	EventBMCRestarted       Event = "bmc.restarted"
 	EventBMCKeyPinned       Event = "bmc.tls.pinned"
+	// EventSettingsRead: the operator read the site settings for the first
+	// time since it started; new holds the values.
+	EventSettingsRead Event = "settings.read"
+	// EventSettingsChanged: the operator saw the site settings change; old
+	// and new hold the values. The kube-apiserver audit log names who.
+	EventSettingsChanged Event = "settings.changed"
+	// EventGateDegraded: an admission policy of the approval gate, or its
+	// binding, is missing or does not deny; message says what.
+	EventGateDegraded Event = "gate.degraded"
+	// EventGateRestored: a degraded policy is in place again.
+	EventGateRestored Event = "gate.restored"
 )
 
 // DeleteReason says why the operator deletes a record.
@@ -193,6 +209,11 @@ type Line struct {
 	// bmc.identity.pushed, bmc.tls.pinned: a certificate fingerprint or a
 	// key, never key material.
 	Key string `json:"key,omitempty"`
+
+	// settings.read and settings.changed: the site settings before and
+	// after, by key. A key the ConfigMap does not have is not there.
+	Old map[string]string `json:"old,omitempty"`
+	New map[string]string `json:"new,omitempty"`
 }
 
 // maxMessage bounds the free text of a line. The full text stays on the
@@ -387,6 +408,30 @@ func (l *Logger) BMCRestarted(o Object, action, reason string) {
 // on; reason is how it came to be trusted (FirstUse, Approved, Pushed).
 func (l *Logger) BMCKeyPinned(o Object, key, reason string) {
 	l.write(o, EventBMCKeyPinned, l.Operator(), func(x *Line) { x.Key, x.Reason = key, reason })
+}
+
+// SettingsRead records the site settings as the operator first read them.
+// The actor is empty: the operator knows the values, not who wrote them.
+func (l *Logger) SettingsRead(o Object, values map[string]string, message string) {
+	l.write(o, EventSettingsRead, "", func(x *Line) { x.New, x.Message = values, clip(message) })
+}
+
+// SettingsChanged records a change of the site settings that the operator
+// saw. message says what the change means, for example that the ConfigMap
+// is gone.
+func (l *Logger) SettingsChanged(o Object, old, values map[string]string, message string) {
+	l.write(o, EventSettingsChanged, "", func(x *Line) { x.Old, x.New, x.Message = old, values, clip(message) })
+}
+
+// GateDegraded records that a policy of the approval gate is missing, or
+// does not deny (message says which).
+func (l *Logger) GateDegraded(o Object, message string) {
+	l.write(o, EventGateDegraded, "", func(x *Line) { x.Message = clip(message) })
+}
+
+// GateRestored records that a degraded policy is in place again.
+func (l *Logger) GateRestored(o Object) {
+	l.write(o, EventGateRestored, "", func(*Line) {})
 }
 
 func (l *Logger) write(o Object, ev Event, actor string, fill func(*Line)) {

@@ -58,6 +58,10 @@
       "source": "metal/internal/controller/talosrollout_proposer.go"
     },
     {
+      "name": "settings",
+      "source": "metal/internal/controller/settings.go"
+    },
+    {
       "name": "taloscluster",
       "source": "metal/internal/controller/taloscluster_controller.go"
     },

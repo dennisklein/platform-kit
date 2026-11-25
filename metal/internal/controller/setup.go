@@ -43,6 +43,7 @@ const (
 	LaneEtcdBackup
 	LaneTalosRollout
 	LaneMaintenanceWindow
+	LaneSettings
 	laneCount
 )
 
@@ -53,6 +54,7 @@ var AllLanes = []Lane{
 	LaneEtcdBackup,
 	LaneTalosRollout,
 	LaneMaintenanceWindow,
+	LaneSettings,
 }
 
 // Options is what the reconcilers are configured with. The manager fills it
@@ -123,6 +125,10 @@ type Options struct {
 	Workload      k8supgrade.Dialer
 	GateInterval  time.Duration
 	DriftInterval time.Duration
+
+	// SettingsInterval paces the settings lane's check of the admission
+	// gate; zero is one minute.
+	SettingsInterval time.Duration
 
 	// NodeName is the Kubernetes node the manager's pod runs on. When set,
 	// the claim, operation and convergence lanes refuse to reboot the
@@ -281,6 +287,9 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 		}
 	case LaneMaintenanceWindow:
 		return "maintenancewindow", &MaintenanceWindowReconciler{Client: c}
+	case LaneSettings:
+		return "settings", &SettingsReconciler{Client: c, Reader: mgr.GetAPIReader(),
+			Namespace: o.CredentialsNamespace, Audit: o.Audit, Interval: o.SettingsInterval}
 	default: // LaneBootAsset; SetupAll has checked the range
 		return "bootasset", &BootAssetReconciler{
 			Client: c, Scheme: scheme, Namespace: o.CredentialsNamespace, Factory: o.Factory,

@@ -159,3 +159,27 @@ tests:
               summary: "Approved HostOperation pk-metal/b on n2 has not started for an hour: ClusterDisruption"
               description: "kubectl describe hostoperation -n pk-metal b says what holds it and what to run."
               runbook_url: https://dennisklein.github.io/platform-kit/operate/runbooks/operation-held/
+
+  # A gate policy that goes missing pages after two minutes; one that is
+  # back resolves.
+  - interval: 1m
+    input_series:
+      - series: 'pk_metal_admission_gate_degraded{policy="guard-lift"}'
+        values: '0 1 1 1 1 0 0'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: PkMetalAdmissionGateDegraded
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: PkMetalAdmissionGateDegraded
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              policy: guard-lift
+            exp_annotations:
+              summary: "The admission policy guard-lift of the approval gate is missing or does not deny"
+              description: "kubectl get validatingadmissionpolicy,validatingadmissionpolicybinding guard-lift shows what is wrong; the gate.degraded line of the operator audit log says it in words. Apply metal/config/policy again."
+              runbook_url: https://dennisklein.github.io/platform-kit/operate/runbooks/admission-gate-degraded/
+      - eval_time: 6m
+        alertname: PkMetalAdmissionGateDegraded
+        exp_alerts: []

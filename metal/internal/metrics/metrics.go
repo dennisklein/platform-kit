@@ -37,7 +37,25 @@ var (
 		Name:      "rollout_nodes_total",
 		Help:      "Nodes in a TalosRollout's approved plan.",
 	}, []string{"rollout", "cluster"})
+
+	gateDegraded = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: Namespace,
+		Name:      "admission_gate_degraded",
+		Help: "1 while an admission policy of the approval gate, or its binding, is missing or does not deny; " +
+			"0 while it is in place. The settings controller checks each policy on a timer.",
+	}, []string{"policy"})
 )
+
+// SetGateDegraded records whether the named admission policy of the
+// approval gate is degraded. The settings controller calls it on every
+// check.
+func SetGateDegraded(policy string, degraded bool) {
+	v := 0.0
+	if degraded {
+		v = 1
+	}
+	gateDegraded.WithLabelValues(policy).Set(v)
+}
 
 // SetRolloutProgress records how many nodes of a rollout's plan are done.
 // The rollout controller calls it on every pass.
@@ -60,7 +78,7 @@ func ForgetRollout(rollout, cluster string) {
 // registry), so registering them into a registry that already has them is
 // not an error.
 func Register(reg prometheus.Registerer, reader client.Reader, credentialsNamespace string) error {
-	for _, c := range []prometheus.Collector{rolloutNodesDone, rolloutNodesTotal} {
+	for _, c := range []prometheus.Collector{rolloutNodesDone, rolloutNodesTotal, gateDegraded} {
 		if err := reg.Register(c); err != nil && !errors.As(err, &prometheus.AlreadyRegisteredError{}) {
 			return err
 		}

@@ -92,6 +92,18 @@ spec:
             summary: "Prometheus has not scraped the pk-metal manager for 10 minutes"
             description: "No pk-metal alert can fire while this one does. kubectl -n pk-metal get pods,endpoints shows whether the manager runs; if the API server does not answer, the management cluster is lost."
             runbook_url: https://dennisklein.github.io/platform-kit/operate/runbooks/management-cluster-lost/
+        - alert: PkMetalAdmissionGateDegraded
+          # An admission policy of the approval gate, or its binding, is
+          # missing or does not deny: the rules it holds (who approves, who
+          # lifts a guard, who may change the settings) are open.
+          expr: max by (policy) (pk_metal_admission_gate_degraded) == 1
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "The admission policy {{ $labels.policy }} of the approval gate is missing or does not deny"
+            description: "kubectl get validatingadmissionpolicy,validatingadmissionpolicybinding {{ $labels.policy }} shows what is wrong; the gate.degraded line of the operator audit log says it in words. Apply metal/config/policy again."
+            runbook_url: https://dennisklein.github.io/platform-kit/operate/runbooks/admission-gate-degraded/
     - name: pk-metal.clusters
       rules:
         - alert: PkMetalNodeNotReady

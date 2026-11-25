@@ -11,6 +11,14 @@ rules:
   verbs:
   - get
 - apiGroups:
+  - admissionregistration.k8s.io
+  resources:
+  - validatingadmissionpolicies
+  - validatingadmissionpolicybindings
+  verbs:
+  - get
+  - list
+- apiGroups:
   - authentication.k8s.io
   resources:
   - tokenreviews

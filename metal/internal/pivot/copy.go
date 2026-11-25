@@ -34,6 +34,9 @@ const (
 	// impersonatedMover is the user the move creates HostClaims as: the
 	// claim policy lets only an admin name a TalosNode.
 	impersonatedMover = "pk-metal-pivot"
+	// settingsConfigMap holds the site settings that the admission policies
+	// read (config/policy/hostoperation-approval.yaml).
+	settingsConfigMap = "hostoperation-approval"
 )
 
 // movedKind is one kind of the operator's state, in the order it is copied:
@@ -341,6 +344,11 @@ func (m *Mover) writerFor(ctx context.Context, so sourceObject, want *unstructur
 		proposer, _, _ := unstructured.NestedString(so.obj.Object, "spec", "proposedBy")
 		return m.Target.as(proposer, m.adminGroups(ctx)...)
 	}
+	if so.kind.gvk.Kind == "ConfigMap" && want.GetName() == settingsConfigMap {
+		// The settings-guard policy lets only the admin group change the
+		// site settings; the move brings them up to the source's.
+		return m.Target.as(impersonatedMover, m.adminGroups(ctx)...)
+	}
 	if user := want.GetAnnotations()[metalv1alpha1.AnnotationRequestedBy]; user != "" && requestGated(want) {
 		return m.Target.as(user, m.adminGroups(ctx)...)
 	}
@@ -386,7 +394,7 @@ func stampRequester(obj *unstructured.Unstructured) {
 func (m *Mover) adminGroups(ctx context.Context) []string {
 	groups := []string{"system:masters", "system:authenticated"}
 	params := &corev1.ConfigMap{}
-	if err := m.Target.Client.Get(ctx, client.ObjectKey{Namespace: m.Options.Namespace, Name: "hostoperation-approval"}, params); err == nil {
+	if err := m.Target.Client.Get(ctx, client.ObjectKey{Namespace: m.Options.Namespace, Name: settingsConfigMap}, params); err == nil {
 		if g := params.Data["adminGroup"]; g != "" {
 			groups = append(groups, g)
 		}

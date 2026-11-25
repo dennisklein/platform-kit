@@ -193,7 +193,7 @@ The operator refuses actions that would take down the cluster that it runs on, o
 
 ## What this model does not cover
 
-- A person with cluster admin can change the policies, the ConfigMap or the RBAC. Watch those objects in the kube-apiserver audit log. See [](ref:audit-trail).
+- A person with cluster admin can change the policies, the ConfigMap or the RBAC. The `settings-guard` policy lets only the admin group change the ConfigMap. The operator writes a `settings.changed` line for each change that it sees. It sets `pk_metal_admission_gate_degraded` when a policy or a binding is missing or does not deny. A person with cluster admin can still remove `settings-guard` first. Watch those objects in the kube-apiserver audit log. See [](ref:audit-trail).
 - A BMC with known default logins. The operator does not change the factory password. Change it to a value that only your site holds. See [Rotate BMC credentials](howto:rotate-bmc-credentials#change-the-factory-password).
 - One namespace for all secrets. The secrets of all clusters and all BMCs are in `pk-metal`, so one Secret read gets all of them.
 - A node that answers on the maintenance service. The manager reports it as `MaintenanceMode`, but a machine on the node network can pose as it. Take `MaintenanceMode` as a hint, not as proof.
