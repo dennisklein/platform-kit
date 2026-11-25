@@ -47,7 +47,7 @@ Kubernetes RBAC does the split. The [admission policies](ref:admission-policies)
 1. The manager creates a [](kind:HostOperation) or a [](kind:TalosRollout) with `spec.proposedBy` set to its own name.
 2. The CRD schema freezes what the object changes. So the only field that a patch can still change is the approval.
 3. A person who holds `patch` sets `approvedBy` to their own name. Permission to patch is permission to approve.
-4. The admission policies refuse an approval in another name, a second approval, and an approval of your own proposal.
+4. The admission policies refuse an approval in another name, a second approval, and an approval by the operator. They refuse an approval of your own proposal only if the site sets `selfApproval: Forbidden`.
 
 ## Roles
 
@@ -117,9 +117,9 @@ subjects:
 | Change | Who may do it | What checks it |
 | --- | --- | --- |
 | Propose a HostOperation | Anyone with `create`. The manager does it for you. | RBAC, and `proposedBy` must be your name. |
-| Approve a HostOperation | A holder of `patch` who did not propose it. | RBAC, and [](ref:admission-policies). |
+| Approve a HostOperation | A holder of `patch`. Also the proposer, unless `selfApproval` is `Forbidden`. Never the manager. | RBAC, and [](ref:admission-policies). |
 | Create a HostOperation that needs no approval | The manager, or a member of the admin group. | `hostoperation-approval` |
-| Approve a TalosRollout | A holder of `patch` who did not propose it. Never the manager. | RBAC, and `talosrollout-approval` |
+| Approve a TalosRollout | A holder of `patch`. Also the proposer, unless `selfApproval` is `Forbidden`. Never the manager. | RBAC, and `talosrollout-approval` |
 | Pause, resume or abort a rollout | A holder of `patch`. | RBAC |
 | Name the TalosNode that a claim installs | A member of the admin group. | `hostclaim-provisioning` |
 | Set `provisioning.approval: Automatic` on a claim | A member of the admin group. | `hostclaim-provisioning` |
@@ -145,9 +145,9 @@ subjects:
 | Approve, abort, pause or resume | [](cli:approve), [](cli:abort), [](cli:rollout) | `pk-metal-approver` |
 | Lift a window or the cluster guard | `kubectl annotate hostoperation` | `pk-metal-approver` |
 | Take a snapshot now | [](cli:backup) | `pk-metal-backup` |
-| Restore etcd | [](cli:restore) | A holder of `create` on operations. A second person approves. |
+| Restore etcd | [](cli:restore) | A holder of `create` on operations. A holder of `pk-metal-approver` approves. |
 
-A person on call usually holds `pk-metal-oncall` and `pk-metal-approver`. The admission policies still stop them from approving their own proposal.
+A person on call usually holds `pk-metal-oncall` and `pk-metal-approver`. With `selfApproval: Forbidden`, the admission policies stop them from approving their own proposal. With `Allowed`, they can propose and approve alone. See [](howto:approval-permissions).
 
 ## Get into the admin group
 
@@ -175,5 +175,6 @@ Cluster admin (`system:masters`) is not a member of the admin group. The policie
 ## Related
 
 - [](concept:approval)
+- [](howto:approval-permissions)
 - [](ref:threat-model)
 - [](cli:approve)

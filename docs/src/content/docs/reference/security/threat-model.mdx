@@ -8,6 +8,7 @@ sources:
   - /repo/metal/internal/asset/grants.go
   - /repo/metal/internal/etcdbackup/pipeline.go
   - /repo/metal/config/policy/hostoperation-approval.yaml
+  - /repo/metal/config/policy/talosrollout-approval.yaml
   - /repo/metal/config/policy/endpointprofile-guard.yaml
   - /repo/metal/config/policy/etcdbackuppolicy-guard.yaml
   - /repo/metal/config/manager/services.yaml
@@ -50,7 +51,7 @@ pk-metal can wipe disks, flash firmware and boot any image on a machine. This pa
 
 | # | Crossing | What crosses | Control |
 | --- | --- | --- | --- |
-| 1 | Person to API server | Approvals | RBAC and the [](ref:admission-policies). One person proposes, another approves. Two identities can skip the second person: the operator service account and a member of the admin group. See [Who can skip the gate](#who-can-skip-the-gate). |
+| 1 | Person to API server | Approvals | RBAC and the [](ref:admission-policies). A person proposes, and a person approves as themselves. The site setting `selfApproval` decides if that can be the same person. The operator never approves. Two identities can create work that needs no approval: the operator service account and a member of the admin group. See [Who can skip the gate](#who-can-skip-the-gate). |
 | 2 | Manager or CLI to BMC | BMC login, power and boot commands | Redfish over TLS. Each [](kind:ManagementEndpoint) has its own `spec.tls`, see [BMC certificates](#bmc-certificates). The CLI checks the BMC certificate against `--bmc-ca`; `--insecure` turns the check off and prints a warning. |
 | 3 | BMC to media service | The boot medium, maybe with a node config | HTTPS, a grant token in the URL, and a user and password for each grant. See [Media grants](#media-grants). |
 | 4 | Manager to node | Talos API calls | Mutual TLS with the cluster certificates. To observe a node, the manager can also call the maintenance service without authentication. That call reads the version only. It sends no configuration. |
@@ -69,7 +70,7 @@ pk-metal can wipe disks, flash firmware and boot any image on a machine. This pa
   <dt>Etcd snapshots</dt>
   <dd>The full state of a cluster, including its Secrets.</dd>
   <dt>The approval gate</dt>
-  <dd>A bypass lets one identity wipe or reboot machines alone. The operator service account and the admin group can bypass it by design today. Protect both as you protect the gate.</dd>
+  <dd>A bypass lets one identity wipe or reboot machines alone. The operator service account and the admin group can bypass it by design today. Protect both as you protect the gate. With `selfApproval: Allowed`, one person who can propose and approve can also change a machine alone. See [Known limits](#known-limits).</dd>
   <dt>The operator service account</dt>
   <dd>Its token can create an operation with `approval.required: false`, with any actions. The executor runs it with no person. The operator code decides when it does this: the node steps of an approved rollout, an install with `provisioning.approval: Automatic`, and a release that needs no person. Admission does not limit the actions.</dd>
   <dt>The admin group</dt>
@@ -82,9 +83,19 @@ pk-metal can wipe disks, flash firmware and boot any image on a machine. This pa
 
 | Identity | What it can do alone | What checks it |
 | --- | --- | --- |
-| Operator service account | Create an operation that needs no approval. It cannot approve an operation or a rollout. | RBAC (no `patch`) and rule 6 of `hostoperation-approval` |
+| Operator service account | Create an operation that needs no approval. It cannot approve an operation or a rollout, with each `selfApproval` value. | RBAC (no `patch`) and rule 6 of `hostoperation-approval` |
 | Admin group | Create an operation that needs no approval, and the other admin changes above. | `hostoperation-approval`, `hostclaim-provisioning`, `etcdbackuppolicy-guard`, `endpointprofile-guard` |
-| Holder of `patch` on operations | Lift a maintenance window or the cluster guard on an operation that another person approved. | RBAC only |
+| A person with `create` and `patch` on operations or rollouts, if `selfApproval` is `Allowed` | Propose a change and approve it. The record names the person as proposer and as approver. | Rule 7 of `hostoperation-approval`, rule 6 of `talosrollout-approval`, and the audit log |
+| Holder of `patch` on operations | Lift a maintenance window or the cluster guard on an operation that a person approved. | RBAC only |
+
+### Known limits
+
+<dl>
+  <dt>Self-approval</dt>
+  <dd>The default of `selfApproval` is `Allowed`. Then one person with propose and approve rights can change a machine alone. The record still names them in `spec.proposedBy` and in `spec.approval.approvedBy`. If one account must not change a machine alone, set `Forbidden`. See [](howto:approval-permissions).</dd>
+  <dt>Operator work without approval</dt>
+  <dd>The identity of the operator can create operations that need no approval. These are the node steps of an approved rollout, an install of a claim with `provisioning.approval: Automatic`, and a release that needs no person. `selfApproval: Forbidden` does not change this. Admission does not limit the actions of these operations. Protect the token of the operator service account: give nobody `impersonate` on it, or `create` on `serviceaccounts/token` in `pk-metal`, and do not copy its token out of the cluster.</dd>
+</dl>
 
 ## Controls
 
@@ -157,4 +168,5 @@ Do not set `--bmc-insecure` outside a lab. It accepts any BMC certificate, so a 
 
 - [](ref:rbac)
 - [](ref:admission-policies)
+- [](howto:approval-permissions)
 - [](concept:approval)

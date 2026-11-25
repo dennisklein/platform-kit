@@ -38,7 +38,7 @@ All five have these settings:
   <dt>`validationActions: [Deny]`</dt>
   <dd>A failed rule refuses the request with reason `Forbidden`.</dd>
   <dt>Parameters</dt>
-  <dd>The ConfigMap `hostoperation-approval` in `pk-metal`. Key `operator` is the name of the manager. Key `adminGroup` is the admin group.</dd>
+  <dd>The ConfigMap `hostoperation-approval` in `pk-metal`. Key `operator` is the name of the manager. Key `adminGroup` is the admin group. Key `selfApproval` tells if a person can approve their own proposal.</dd>
   <dt>`parameterNotFoundAction: Deny`</dt>
   <dd>Without the ConfigMap, each create and update is refused. The gate fails closed.</dd>
 </dl>
@@ -52,7 +52,21 @@ metadata:
 data:
   operator: system:serviceaccount:pk-metal:pk-metal-manager
   adminGroup: pk-metal:admins
+  selfApproval: Allowed
 ```
+
+## The `selfApproval` setting
+
+The two approval policies read the key `selfApproval`. It applies to operations and to rollouts.
+
+| Value | A person approves their own proposal | Use it when |
+| --- | --- | --- |
+| `Allowed` | Yes. The record names the same person as proposer and approver. | The team is too small for review by two persons. |
+| `Forbidden` | No. Another person must approve. | One account must not change a machine alone. |
+| Key not set | Yes, as `Allowed`. | |
+| Another value | No, as `Forbidden`. The message tells you to set a correct value. | |
+
+The operator never approves, with each value. [](howto:approval-permissions) tells you how to choose.
 
 ## The approval path
 
@@ -65,7 +79,7 @@ data:
   <Box x={10} y={40} w={120} h={50} label="Propose" sub="manager creates" cat="ctrl" href="/reference/controllers/hostclaim/" />
   <Box x={160} y={40} w={130} h={50} label="Policy" sub="rules 1 to 3" variant="warn" />
   <Box x={320} y={40} w={120} h={50} label="Approve" sub="a person patches" variant="accent" />
-  <Box x={470} y={40} w={110} h={50} label="Policy" sub="rules 4 to 6" variant="warn" />
+  <Box x={470} y={40} w={110} h={50} label="Policy" sub="rules 4 to 7" variant="warn" />
   <Box x={610} y={40} w={100} h={50} label="Run" sub="executor" variant="ok" cat="ctrl" href="/reference/controllers/hostoperation/" />
   <Edge points={[[130, 65], [160, 65]]} />
   <Edge points={[[290, 65], [320, 65]]} />
@@ -84,13 +98,16 @@ The CRD schema freezes the target, the actions, `approval.required` and `propose
 | 3 | Only the operator or an admin creates an operation with `approval.required: false`. | CREATE | only the operator or an admin may create an operation that needs no approval |
 | 4 | An approval, once set, does not change. | UPDATE | approval is write-once |
 | 5 | You approve as yourself: `approvedBy` is your name. | Approval write | you may only approve as yourself |
-| 6 | You do not approve your own proposal, and the operator approves nothing. | Approval write | you may not approve your own proposal, and the operator approves nothing |
+| 6 | The operator approves nothing. | Approval write | the operator approves nothing: a person with the pk-metal-approver role must approve |
+| 7 | You approve your own proposal only if `selfApproval` is `Allowed` or not set. | Approval write | this site forbids approving your own proposal (selfApproval: Forbidden in ConfigMap pk-metal/hostoperation-approval): another person must approve |
 
 <dl>
   <dt>Why rule 3</dt>
   <dd>Anybody else could skip the gate. The operator itself creates such operations in three cases. These are the node steps of an approved rollout, an install of a claim with `provisioning.approval: Automatic`, and a release that needs no person.</dd>
   <dt>Why rule 6 names the operator</dt>
-  <dd>The operator proposes most operations. A person must approve them. RBAC also stops the operator: it has no `patch` on operations. See [](ref:rbac). Rule 6 is the second lock. It is the same rule as rule 5 of `talosrollout-approval`.</dd>
+  <dd>The operator proposes most operations. A person must approve them. RBAC also stops the operator: it has no `patch` on operations. See [](ref:rbac). Rule 6 is the second lock. It is the same rule as rule 5 of `talosrollout-approval`. No setting changes it.</dd>
+  <dt>Why rule 7 is a setting</dt>
+  <dd>A small team cannot always find a second person. With `Allowed`, the record still names who proposed and who approved. A value that is not `Allowed` or `Forbidden` closes the gate. The message names the value.</dd>
 </dl>
 
 Example: the manager proposed an operation. `jo` approves it.
@@ -112,7 +129,8 @@ One approval covers each node of a rollout plan. So the rules are the rules of a
 | 2 | `spec.proposedBy` is your own name. | CREATE | spec.proposedBy must name you |
 | 3 | `approvedBy` and `planHash`, once set, do not change. | UPDATE | approval is write-once |
 | 4 | You approve as yourself. | Approval write | you may only approve as yourself |
-| 5 | You do not approve your own proposal, and the operator approves nothing. | Approval write | you may not approve your own proposal, and the operator approves nothing |
+| 5 | The operator approves nothing. | Approval write | the operator approves nothing: a person with the pk-metal-approver role must approve |
+| 6 | You approve your own proposal only if `selfApproval` is `Allowed` or not set. | Approval write | this site forbids approving your own proposal (selfApproval: Forbidden in ConfigMap pk-metal/hostoperation-approval): another person must approve |
 
 The approval names the `planHash` that you read. The [](ctrl:talosrollout) runs the rollout only while that hash is the plan.
 
@@ -159,5 +177,6 @@ Labels and annotations of a profile need no admin.
 ## Related
 
 - [](ref:rbac)
+- [](howto:approval-permissions)
 - [](concept:approval)
 - [](ctrl:hostoperation)
