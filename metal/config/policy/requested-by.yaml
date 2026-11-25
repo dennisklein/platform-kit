@@ -19,7 +19,8 @@
 #   - TalosRollout: a change of spec.abort or spec.paused, or of the
 #     annotation os.pk.io/resume (who stopped or let on a rollout);
 #   - ConfigMap with the label os.pk.io/patch (a Talos config patch; the
-#     operator reads no other): create, a change of data, delete.
+#     operator reads no other): create, a change of data, the label set on
+#     a ConfigMap that had none (its data becomes a patch), delete.
 #
 # The rules, in order:
 #   - a request that changes the intent sets the annotation to the username
@@ -106,6 +107,7 @@ spec:
         : variables.res == 'configmaps'
           ? object.?data.orValue({}) != oldObject.?data.orValue({})
             || object.?binaryData.orValue({}) != oldObject.?binaryData.orValue({})
+            || !('os.pk.io/patch' in oldObject.metadata.?labels.orValue({}))
         : variables.res == 'hostclaims'
           ? object.spec != oldObject.spec || 'metal.pk.io/reinstall' in variables.setAnnotation
         : object.spec != oldObject.spec

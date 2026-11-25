@@ -225,7 +225,7 @@ An edit asks for work in these cases:
 | HostClaim | Create, a change of `spec` or of `metal.pk.io/reinstall`, delete (a release) |
 | Host | A request that sets or changes `metal.pk.io/wipe` |
 | TalosRollout | A change of `spec.abort` or `spec.paused`, or a request that sets `os.pk.io/resume` |
-| ConfigMap with the label `os.pk.io/patch` | Create, a change of `data` or `binaryData`, delete |
+| ConfigMap with the label `os.pk.io/patch` | Create, a change of `data` or `binaryData`, the label set on a ConfigMap without it, delete |
 
 | # | Rule | When | Message |
 | --- | --- | --- | --- |

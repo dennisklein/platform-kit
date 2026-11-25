@@ -102,6 +102,11 @@ func TestRequestedBy(t *testing.T) {
 		require.Error(t, patch(bob, labeled, `{"data":{"patch.yaml":"machine: {}"}}`))
 		require.Error(t, patch(bob, plain, `{"metadata":{"labels":{"`+osv1alpha1.LabelPatch+`":"true"}},"data":{"a":"c"}}`),
 			"a ConfigMap that becomes a patch with new data names its requester")
+		err := patch(bob, plain, `{"metadata":{"labels":{"`+osv1alpha1.LabelPatch+`":"true"}}}`)
+		require.Error(t, err, "a ConfigMap that becomes a patch with the data it has names its requester too")
+		assert.Contains(t, err.Error(), "must name who asked for it")
+		require.NoError(t, patch(bob, plain,
+			`{"metadata":{"labels":{"`+osv1alpha1.LabelPatch+`":"true"},"annotations":{"`+key+`":"bob"}}}`))
 	})
 
 	t.Run("pausing or aborting a rollout names who did it", func(t *testing.T) {
