@@ -415,8 +415,11 @@ func TestE2EKind(t *testing.T) {
 			}
 			return false
 		}, waitFor, tick, "the release of a running node was never proposed")
-		require.NoError(t, cl.Patch(ctx, release, client.RawPatch(types.MergePatchType,
-			[]byte(`{"spec":{"approval":{"approvedBy":"e2e"}}}`))))
+		// The cluster guard keeps the only control plane of a live cluster
+		// up until a person lifts it on the operation, with a reason.
+		require.NoError(t, cl.Patch(ctx, release, client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(
+			`{"metadata":{"annotations":{%q:"e2e: the test cluster ends with this rung"}},"spec":{"approval":{"approvedBy":"e2e"}}}`,
+			metalv1alpha1.AnnotationOverrideClusterGuard)))))
 		h := waitHost(func(h metalv1alpha1.Host) bool {
 			return h.Status.Phase == metalv1alpha1.HostAvailable
 		}, waitFor, "release never returned the host to Available")
