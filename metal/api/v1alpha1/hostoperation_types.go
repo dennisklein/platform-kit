@@ -79,9 +79,9 @@ type HostOperationSpec struct {
 	Reason string `json:"reason,omitempty"`
 
 	// ProposedBy is the username that created the operation. Admission checks
-	// it against the creating request, so it cannot name someone else, and
-	// refuses an approval stamped by the same person: nobody approves their
-	// own proposal.
+	// it against the creating request, so it cannot name someone else. Whether
+	// the same person may also approve it is a site setting (selfApproval in
+	// the ConfigMap pk-metal/hostoperation-approval, default Allowed).
 	// +kubebuilder:validation:MinLength=1
 	ProposedBy string `json:"proposedBy"`
 
@@ -864,7 +864,8 @@ type HostOperationStatus struct {
 // order, so read it before you approve.
 //
 //   - Approve:   pk-metal approve <namespace>/<operation>
-//     (someone other than the proposer must approve).
+//     (the operator never approves; the site setting selfApproval says
+//     whether the proposer may).
 //   - Refuse:    delete the operation, or set metal.pk.io/hold on the
 //     HostClaim so the operator stops proposing.
 //   - Retry:     pk-metal retry <namespace>/<operation> once you have fixed

@@ -23,8 +23,9 @@ subjects:
     kind: Group
     name: pk-metal:admins
 ---
-# The approvers: the persons who can approve an operation or a rollout that
-# they did not propose. The role pk-metal-approver comes with the base.
+# The approvers: the persons who can approve an operation or a rollout. Whether
+# they can also approve what they proposed themselves is the setting
+# selfApproval (approval.yaml). The role pk-metal-approver comes with the base.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:

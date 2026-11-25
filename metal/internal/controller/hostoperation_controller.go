@@ -76,7 +76,8 @@ const (
 
 // HostOperationReconciler runs approved disruptive one-shots — the model's ONE
 // writer to a BMC. The gate itself is admission (VAP: approve as yourself, never
-// your own proposal, never pre-approved, write-once) and RBAC (the controller
+// as the operator, your own proposal only where the site allows it, never
+// pre-approved, write-once) and RBAC (the controller
 // may create, humans may patch); this reconciler only observes its outcome. At
 // most one operation runs per Host (a started one first, then the oldest); a
 // failed step is terminal — one-shots never auto-retry.

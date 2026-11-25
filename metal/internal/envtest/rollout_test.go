@@ -234,7 +234,7 @@ func TestRollout(t *testing.T) {
 		assert.Empty(t, opsOf(upgrade), "nothing runs before an approval")
 	})
 
-	st.run(t, "only another person approves, and only as themselves", func(t *testing.T) {
+	st.run(t, "the operator approves nothing, and a person only as themselves", func(t *testing.T) {
 		ro := getRollout(upgrade)
 		approve := func(c client.Client, who, hash string) error {
 			patch := client.MergeFrom(ro.DeepCopy())

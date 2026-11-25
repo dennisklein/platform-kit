@@ -428,9 +428,8 @@ func TestProvisioning(t *testing.T) {
 			return c.Patch(ctx, own, client.RawPatch(types.MergePatchType,
 				[]byte(`{"spec":{"approval":{"approvedBy":"`+who+`"}}}`)))
 		}
-		err = approveAs(bobCl, "bob")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "your own proposal")
+		// Approving one's own proposal is a site setting, under test in
+		// selfapproval_test.go.
 
 		err = bobCl.Patch(ctx, own, client.RawPatch(types.MergePatchType, []byte(`{"spec":{"approval":{"required":false}}}`)))
 		require.Error(t, err, "flipping the gate off is an approval without a name")

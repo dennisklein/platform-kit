@@ -11,11 +11,13 @@
 #   - the creator records themselves in spec.proposedBy;
 #   - the approval (approvedBy and planHash) is write-once and stamped as
 #     yourself;
-#   - a person never approves their own proposal, and the operator never
-#     approves anything.
+#   - the operator never approves anything;
+#   - a person approves their own proposal only where the site allows it
+#     (selfApproval).
 #
 # The params are the hostoperation-approval ConfigMap: one place says who the
-# operator is. A missing ConfigMap denies every create and update.
+# operator is and whether self-approval is allowed. A missing ConfigMap denies
+# every create and update.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -54,6 +56,11 @@ spec:
       expression: "has(object.spec.proposedBy) ? object.spec.proposedBy : ''"
     - name: operator
       expression: "has(params.data) && has(params.data.operator) ? params.data.operator : ''"
+    - name: selfApproval
+      expression: >-
+        has(params.data) && has(params.data.selfApproval) ? params.data.selfApproval : 'Allowed'
+    - name: paramsRef
+      expression: "params.metadata.namespace + '/' + params.metadata.name"
   validations:
     - expression: "request.operation != 'CREATE' || (variables.newApprover == '' && variables.newPlan == '')"
       message: a rollout cannot be created pre-approved
@@ -73,9 +80,22 @@ spec:
       message: you may only approve as yourself (approvedBy must equal your username)
       reason: Forbidden
     - expression: >-
-        variables.newApprover == variables.oldApprover
-        || (variables.newApprover != variables.proposer && variables.newApprover != variables.operator)
-      message: you may not approve your own proposal, and the operator approves nothing — another person must
+        variables.newApprover == variables.oldApprover || variables.newApprover != variables.operator
+      message: >-
+        the operator approves nothing: a person with the pk-metal-approver role must approve
+      reason: Forbidden
+    # Any value other than Allowed counts as Forbidden, so a mistyped setting
+    # closes the gate rather than opening it.
+    - expression: >-
+        variables.newApprover == variables.oldApprover || variables.newApprover != variables.proposer
+        || variables.selfApproval == 'Allowed'
+      messageExpression: >-
+        variables.selfApproval == 'Forbidden'
+        ? 'this site forbids approving your own proposal (selfApproval: Forbidden in ConfigMap '
+          + variables.paramsRef + '): another person must approve'
+        : 'selfApproval in ConfigMap ' + variables.paramsRef + ' is "' + variables.selfApproval
+          + '", which is not Allowed or Forbidden, so it counts as Forbidden: another person must approve,'
+          + ' or an admin sets it to Allowed or Forbidden'
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1

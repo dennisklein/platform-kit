@@ -1128,8 +1128,8 @@ release() {
 # ---------------------------------------------------------------- day 2
 
 # Writes a kubeconfig for a second person. pk-metal reboot records its caller
-# as the proposer, and the approval policy refuses an approval by the proposer,
-# so the lab proposes as lab-proposer (the lab's admin impersonates it) and
+# as the proposer, and the lab forbids an approval by the proposer
+# (selfApproval: Forbidden, metal/config/lab/approval.yaml), so the lab proposes as lab-proposer (the lab's admin impersonates it) and
 # approves as itself. system:masters gives the impersonated user the
 # permissions; it is not a member of the admin group, which a reboot does not
 # need.
@@ -1713,7 +1713,7 @@ spec:
 YAML
   kubectl -n "$NAMESPACE" delete hostoperation "$op" --ignore-not-found >&2
   # Proposed as the operator, so that the lab's own user may approve it: the
-  # approval policy refuses an approval of one's own proposal.
+  # lab forbids an approval of one's own proposal (selfApproval: Forbidden).
   kubectl --as="system:serviceaccount:$NAMESPACE:$DEPLOYMENT" --as-group=pk-metal:admins \
     -n "$NAMESPACE" create -f - >&2 <<YAML
 apiVersion: metal.pk.io/v1alpha1

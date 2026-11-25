@@ -708,7 +708,7 @@ func successors(s state) []*pass {
 		out = append(out, p)
 	}
 	for i := range nSlots {
-		// The admission policy: approve once, never your own proposal, and
+		// The admission policy: approve once, never as the operator, and
 		// only an unfinished operation that asks for it.
 		if o := w.Ops[i]; o.Exists && opObj(o).AwaitsApproval() {
 			person("person approves "+i.String(), func(n *world) {

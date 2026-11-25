@@ -1,0 +1,18 @@
+# Whether a person may approve an operation or a rollout that they proposed
+# themselves. The admission policies read it from this ConfigMap, together
+# with the operator's identity and the admin group (config/policy).
+#
+#   Allowed    one person can propose and approve. The record still names
+#              them twice, and the operator still approves nothing. For a
+#              team too small for two-person review. The default.
+#   Forbidden  another person must approve, so one account alone cannot
+#              change a machine.
+#
+# Any other value counts as Forbidden.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hostoperation-approval
+  namespace: pk-metal
+data:
+  selfApproval: Allowed

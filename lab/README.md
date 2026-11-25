@@ -169,7 +169,9 @@ The operator proposes each installation as a HostOperation and does not touch
 a machine before somebody else approves it. `lab:approve` is that somebody: it
 runs `pk-metal approve` as the kind cluster's admin. The operator's own
 ServiceAccount has no permission to approve, and the admission policy would
-refuse it if it had.
+refuse it if it had. The lab also forbids a person to approve their own
+proposal (`selfApproval: Forbidden` in `metal/config/lab/approval.yaml`; a
+site's default is `Allowed`), so each lab run goes through the stricter rule.
 
 ### Watch the lab live
 

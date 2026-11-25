@@ -91,8 +91,9 @@ type TalosRolloutSpec struct {
 	DrainTimeoutSeconds int32 `json:"drainTimeoutSeconds,omitempty"`
 
 	// ProposedBy is the username that created the rollout. Admission checks
-	// it against the creating request, and refuses an approval by the same
-	// person.
+	// it against the creating request. Whether the same person may also
+	// approve it is a site setting (selfApproval in the ConfigMap
+	// pk-metal/hostoperation-approval, default Allowed).
 	// +kubebuilder:validation:MinLength=1
 	ProposedBy string `json:"proposedBy"`
 
@@ -131,7 +132,8 @@ type RolloutTarget struct {
 type RolloutApproval struct {
 	// ApprovedBy is the person who approved. Admission enforces that it
 	// equals the requesting username, is empty at creation, is write-once,
-	// and is not the proposer.
+	// and is not the operator; it is the proposer only where the site allows
+	// self-approval.
 	// +optional
 	ApprovedBy string `json:"approvedBy,omitempty"`
 

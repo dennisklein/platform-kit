@@ -11,7 +11,7 @@
   ],
   "scope": "Namespaced",
   "source": "metal/config/crd/metal.pk.io_hostoperations.yaml",
-  "description": "HostOperation is one step that changes a machine — an install, a shutdown, a BIOS change, a firmware flash — and the record of what happened. The operator proposes it; spec.actions lists exactly what will be done, in order, so read it before you approve.\n\n- Approve:   pk-metal approve <namespace>/<operation> (someone other than the proposer must approve).\n- Refuse:    delete the operation, or set metal.pk.io/hold on the HostClaim so the operator stops proposing.\n- Retry:     pk-metal retry <namespace>/<operation> once you have fixed the cause. A failed operation is never retried on its own.\n\nkubectl get hostoperations shows what waits (Phase AwaitingApproval) and what failed; kubectl describe shows each step's message.",
+  "description": "HostOperation is one step that changes a machine — an install, a shutdown, a BIOS change, a firmware flash — and the record of what happened. The operator proposes it; spec.actions lists exactly what will be done, in order, so read it before you approve.\n\n- Approve:   pk-metal approve <namespace>/<operation> (the operator never approves; the site setting selfApproval says whether the proposer may).\n- Refuse:    delete the operation, or set metal.pk.io/hold on the HostClaim so the operator stops proposing.\n- Retry:     pk-metal retry <namespace>/<operation> once you have fixed the cause. A failed operation is never retried on its own.\n\nkubectl get hostoperations shows what waits (Phase AwaitingApproval) and what failed; kubectl describe shows each step's message.",
   "statusSubresource": true,
   "printerColumns": [
     {
@@ -1232,7 +1232,7 @@
       "type": "string",
       "required": true,
       "minLength": 1,
-      "description": "ProposedBy is the username that created the operation. Admission checks it against the creating request, so it cannot name someone else, and refuses an approval stamped by the same person: nobody approves their own proposal."
+      "description": "ProposedBy is the username that created the operation. Admission checks it against the creating request, so it cannot name someone else. Whether the same person may also approve it is a site setting (selfApproval in the ConfigMap pk-metal/hostoperation-approval, default Allowed)."
     },
     {
       "path": "spec.reason",

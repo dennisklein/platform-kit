@@ -14,6 +14,7 @@ resources:
 components:
   - ../media-store
 patches:
+  - path: approval.yaml
   - path: manager_args.yaml
     target:
       group: apps
