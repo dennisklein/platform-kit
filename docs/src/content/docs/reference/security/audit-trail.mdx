@@ -69,7 +69,7 @@ Each line has these fields:
 | `uid` | The UID of the object. A new object with the same name has a different UID. |
 | `actor` | Who made the decision: a person, or the service account of the operator. It is empty if a guard lift names nobody. |
 
-An event adds the fields in the table below. A line never holds a Secret, a credential or a BMC password. A `message` has at most 512 bytes.
+An event adds the fields in the table below. A line never holds a Secret, a credential, a BMC password or a media grant token. The operator masks the credentials and the grant token of a URL in a `message`. A `message` has at most 512 bytes.
 
 | `event` | When | Fields that it adds |
 | --- | --- | --- |
@@ -81,6 +81,9 @@ An event adds the fields in the table below. A line never holds a Secret, a cred
 | `step.failed` | A step fails. | `step`, `action`, `result`, `reason`, `message` |
 | `finished` | The operation or rollout ends. | `phase`, `reason`, `durationSeconds` |
 | `deleted` | The operator deletes the object. The line comes before the delete request. | `reason`, `message` |
+| `media.fetched` | A BMC fetches through a [media grant](ref:media-store#grants) of the operation for the first time. The grant is now bound to that address. | `grant` (the file name), `source` |
+| `media.refused` | The media service refuses a request with a wrong password, or from an address that is not the bound one. At most ten lines for each grant. | `grant`, `source`, `reason` |
+| `media.grantEnded` | A media grant ends. | `grant`, `source` (empty if nobody fetched), `reason` (`revoked` or `expired`), `requests`, `bytes`, `refused` |
 
 The `reason` of a `deleted` line is one of these:
 

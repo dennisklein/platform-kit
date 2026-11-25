@@ -46,10 +46,9 @@ Open every network path that the install needs, before you enroll the first mach
   <Box x={538} y={160} w={196} h={50} label="Registries, DNS, NTP" sub="ghcr.io, registry.k8s.io" />
   <Edge points={[[216, 76], [282, 76]]} label="1" at={[249, 70]} />
   <Edge points={[[282, 100], [216, 176]]} label="2" at={[262, 140]} />
-  <Edge points={[[216, 100], [282, 184]]} label="4" at={[232, 156]} />
-  <Edge points={[[472, 76], [538, 76]]} label="3" at={[505, 70]} />
-  <Edge points={[[472, 185], [538, 185]]} label="6" at={[505, 179]} />
-  <Edge points={[[121, 60], [121, 30], [636, 30], [636, 60]]} variant="muted" label="5" at={[380, 24]} />
+  <Edge points={[[216, 100], [282, 184]]} label="3" at={[232, 156]} />
+  <Edge points={[[472, 185], [538, 185]]} label="5" at={[505, 179]} />
+  <Edge points={[[121, 60], [121, 30], [636, 30], [636, 60]]} variant="muted" label="4" at={[380, 24]} />
 </Figure>
 
 ## Steps
@@ -60,10 +59,9 @@ Check each row with your network team. The number is the arrow in the figure.
 | --- | --- | --- | --- | --- |
 | 1 | Management cluster nodes | Each BMC | TCP 443 (or the port in the ledger URL) | The operator reads and controls the machine through [Redfish](https://www.dmtf.org/standards/redfish). |
 | 2 | Each BMC | The media service address (`--media-url`) | TCP 30443 (NodePort) or your load balancer | The BMC downloads the installer and the machine config. |
-| 3 | Each BMC with two media slots | The image factory (`factory.talos.dev`), and a DNS server that knows the name | TCP 443, UDP 53 | The BMC downloads the installer ISO from the factory. See [The BMC and the image factory](#the-bmc-and-the-image-factory). |
-| 4 | Management cluster nodes | Each installed node | TCP 50000 | The operator checks that the node came up and reads its state. |
-| 5 | Management cluster nodes | The image factory | TCP 443 | The operator registers the image [](term:schematic). |
-| 6 | Each node | DNS, NTP, the image factory registry, `ghcr.io`, `registry.k8s.io` | TCP 443, UDP 53, UDP 123 | Talos pulls its installer image and the Kubernetes images. |
+| 3 | Management cluster nodes | Each installed node | TCP 50000 | The operator checks that the node came up and reads its state. |
+| 4 | Management cluster nodes | The image factory | TCP 443 | The operator registers the image [](term:schematic) and downloads the installer ISO. |
+| 5 | Each node | DNS, NTP, the image factory registry, `ghcr.io`, `registry.k8s.io` | TCP 443, UDP 53, UDP 123 | Talos pulls its installer image and the Kubernetes images. |
 
 Also do these steps:
 
@@ -73,6 +71,8 @@ Also do these steps:
 4. If your BMCs use one virtual media slot, let the management cluster pull `ghcr.io/siderolabs/imager`.
 5. Make sure that each machine agrees with [](ref:hardware): UEFI boot mode, and a BMC license for virtual media.
 
+The NetworkPolicy `pk-metal-manager` lets only the BMC network open row 2. Set the BMC network in your overlay. See [](ref:media-store#network-policy).
+
 <Callout type="note">
 The simulated BMCs do not verify the certificate of the media service, and most BMCs do not by default.
 The manager makes its own certificate when `--media-cert-secret` is not set.
@@ -81,15 +81,14 @@ Some BMC firmware can verify the certificate of virtual media. Then give the man
 
 ## The BMC and the image factory
 
-A BMC network usually has no route to the internet and no DNS server. Row 3 needs both.
+A BMC never connects to the image factory. The operator downloads the installer ISO into its [media store](ref:media-store) and checks it.
+Then the media service serves it to the BMC.
+Thus a BMC network needs no route to the internet and no DNS server.
 
 | Your BMCs | What the BMC downloads, and from where | What you do |
 | --- | --- | --- |
-| Two media slots, BMC network with a route or a proxy | The installer ISO from the image factory. The machine config from the media service. | Open row 3. Give the BMC a DNS server. |
-| Two media slots, closed BMC network | The same | Run an image factory of your own in the BMC network. See [](howto:air-gapped-site). |
-| One media slot | One image with the config inside, from the media service | Row 3 is not necessary. The management cluster needs row 5 and the imager image. |
-
-The operator cannot serve the installer ISO of the factory through its media service.
+| Two media slots | The installer ISO and the machine config, from the media service | Open row 2. The management cluster needs row 4. |
+| One media slot | One image with the config inside, from the media service | Open row 2. The management cluster needs row 4 and the imager image. |
 
 ## Verify
 
@@ -102,11 +101,12 @@ The operator cannot serve the installer ISO of the factory through its media ser
 | --- | --- |
 | The endpoint phase is `Unreachable` | [](rb:bmc-unreachable) |
 | `insertMedia` fails | [](rb:media-slot-busy) |
-| `insertMedia` fails, and the BMC log shows a name or connection error | The BMC cannot reach the image factory. See [The BMC and the image factory](#the-bmc-and-the-image-factory). |
+| `insertMedia` fails, and the BMC log shows a connection error | The BMC cannot reach the media service. Check row 2 and the NetworkPolicy. |
+| The install is not proposed, and the factory BootAsset is not `Ready` | The manager cannot download the installer. Check row 4. |
 | The node boots but does not check in | [](rb:node-not-ready) |
 
 ## Related
 
-- [](howto:air-gapped-site) and [](howto:behind-a-proxy) change rows 3, 5 and 6.
+- [](howto:air-gapped-site) and [](howto:behind-a-proxy) change rows 4 and 5.
 - [](howto:pivot) adds the same paths for the new management cluster.
 - [](concept:architecture) shows where each part runs.

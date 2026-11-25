@@ -53,7 +53,7 @@ pk-metal can wipe disks, flash firmware and boot any image on a machine. This pa
 | --- | --- | --- | --- |
 | 1 | Person to API server | Approvals | RBAC and the [](ref:admission-policies). A person proposes, and a person approves as themselves. The site setting `selfApproval` decides if that can be the same person. The operator never approves. Two identities can create work that needs no approval: the operator service account and a member of the admin group. See [Who can skip the gate](#who-can-skip-the-gate). |
 | 2 | Manager or CLI to BMC | BMC login, power and boot commands | Redfish over TLS. Each [](kind:ManagementEndpoint) has its own `spec.tls`, see [BMC certificates](#bmc-certificates). The CLI checks the BMC certificate against `--bmc-ca`; `--insecure` turns the check off and prints a warning. |
-| 3 | BMC to media service | The boot medium, maybe with a node config | HTTPS, a grant token in the URL, and a user and password for each grant. See [Media grants](#media-grants). |
+| 3 | BMC to media service | Each boot medium, maybe with a node config | HTTPS that the BMC does not verify. A grant token in the URL, bound to the first source address. A user and password for each grant that carries a secret. The digest of each medium. A NetworkPolicy for the BMC network. See [Media grants](#media-grants). |
 | 4 | Manager to node | Talos API calls | Mutual TLS with the cluster certificates. To observe a node, the manager can also call the maintenance service without authentication. That call reads the version only. It sends no configuration. |
 | 5 | Manager to sink | Etcd snapshots | Age encryption to public recipients. Only the holder of the age identity can decrypt, on their own machine. Only an admin chooses the recipients and the sink. |
 | 6 | Manager to BMC, from an [](kind:EndpointProfile) | Account, NTP servers, TLS identity | No operation and no approval: the profile is the approval. Only an admin creates or changes a profile (`endpointprofile-guard`). |
@@ -76,7 +76,7 @@ pk-metal can wipe disks, flash firmware and boot any image on a machine. This pa
   <dt>The admin group</dt>
   <dd>A member can create an operation that needs no approval. A member can also set a claim to `Automatic`, name the TalosNode of a claim, change the backup recipients, and change an EndpointProfile. One member can do these alone. Keep the group small, and audit each create with `approval.required: false` by a person. See [Get into the admin group](ref:rbac#get-into-the-admin-group).</dd>
   <dt>Data at rest</dt>
-  <dd>Rendered configs, BMC logins, the secrets bundle of each cluster, the published credentials and the S3 keys are Kubernetes Secrets. They are plain text in etcd unless the management cluster encrypts Secrets at rest. Set encryption at rest to on. Embedded installers that carry a node config stay on the volume of the [media store](term:media-service). Use an encrypted StorageClass for it.</dd>
+  <dd>Rendered configs, BMC logins, the secrets bundle of each cluster, the published credentials and the S3 keys are Kubernetes Secrets. They are plain text in etcd unless the management cluster encrypts Secrets at rest. Set encryption at rest to on. Embedded installers that carry a node config stay on the volume of the [media store](term:media-service) until the install ends or fails. Then the operator deletes them, and the config ISO Secrets too. A delete is an unlink: the data can stay on the disk. Use an encrypted StorageClass for it.</dd>
 </dl>
 
 ### Who can skip the gate
@@ -101,19 +101,24 @@ pk-metal can wipe disks, flash firmware and boot any image on a machine. This pa
 
 ### Media grants
 
-The BMC downloads boot media from the [media service](term:media-service). The BMC does not check the certificate, so HTTPS gives privacy but no identity.
+The BMC downloads each boot medium from the [media service](term:media-service), also the factory installer and an `imageUrl`. The operator downloads those first, over TLS that it verifies, and checks their digest. A BMC never fetches from another server.
+The BMC does not check the certificate of the media service. Thus HTTPS protects against a passive listener only, not against a machine in the middle on the BMC network. The approval plan says "certificate not verified by the BMC".
 
 1. Each download needs a [grant](term:grant): a 128-bit random token in the URL path.
-2. Each grant also has its own user and password for HTTP Basic authentication. The media service compares them in constant time.
+2. A grant for a medium that carries a secret also has its own user and password for HTTP Basic authentication. The media service compares them in constant time.
 3. A grant serves one artifact for one operation. The executor checks the artifact digest against the approved digest.
-4. A grant ends after a limited time: 15 minutes plus the power and check-in timeouts of the operation. That is often 45 minutes or more. Until then, the BMC can download the artifact more than one time.
-5. The executor revokes the grant when the operation ends or is deleted.
-6. Grants live in memory only. A restart of the manager forgets them, so it fails closed. A mount that runs gets a new grant on retry.
-7. The BMC network must be an isolated L2 island. The confidentiality of a node config rests on the grant and on that island.
+4. The first source address that fetches through a grant owns it. The media service refuses the grant to each other address.
+5. Each refusal gets the same answer, `401`. A client cannot tell a wrong token from an expired grant.
+6. The [](ref:audit-trail) gets each first fetch, each refusal of a known grant and the end of each grant. A line has the source address and the bytes, never the token.
+7. A grant ends after a limited time: 15 minutes plus the power and check-in timeouts of the operation. That is often 45 minutes or more. Until then, the BMC can download the artifact more than one time.
+8. The executor revokes the grant when the operation ends or is deleted. A failed step ejects the media that the operation mounted, and the message records the result.
+9. Grants live in memory only. A restart of the manager forgets them, so it fails closed. A mount that runs gets a new grant on retry.
+10. The BMC network must be an isolated L2 island. The confidentiality of a node config rests on the grant and on that island.
+11. An `imageUrl` needs `https://` and a digest. Thus an operation cannot boot an arbitrary image that nobody checked.
 
-The media Service is a NodePort (30443). It listens on each node of the management cluster, not only on the BMC island. Limit it with a host firewall or a NetworkPolicy that lets in only the BMC network.
+The media Service is a NodePort (30443). It listens on each node of the management cluster, not only on the BMC island. The base install has a NetworkPolicy that lets only the BMC network in; set that network in your overlay. A NodePort with `externalTrafficPolicy: Cluster` can replace the BMC address with a node address (SNAT). Then the policy and the source binding see the node, and protect less. See [](ref:media-store#source-addresses-and-nat).
 
-On Huawei iBMC, the user and password of the grant go into the image URL. The BMC stores that URL, so a read-only BMC user can see them until the grant ends.
+On Huawei iBMC, the user and password of the grant go into the image URL. The BMC stores that URL, so a read-only BMC user can see them until the grant ends. An installer grant has no credentials, so its URL holds none. A BMC error often repeats the URL. The operator masks the credentials and the grant token in each error text. It does this before it writes the text to a status, an Event, a log line or the [](ref:audit-trail).
 
 ### BMC certificates
 

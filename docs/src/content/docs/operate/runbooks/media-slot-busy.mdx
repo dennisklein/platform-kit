@@ -56,7 +56,6 @@ The machine does not boot the installer. It stays as it was.
 | --- | --- |
 | The slot holds media from a person | The operator ejects other media first. If the BMC refuses, eject it in the BMC web console. Then retry. |
 | The BMC cannot download from the media service | Check `--media-url` and the path from the BMC network. See [](howto:network-checklist). |
-| The BMC cannot download the installer from the image factory | Open the path, or mirror it. See [](howto:air-gapped-site). |
 | `SingleMediumUnsupported` | One slot, and the slot does not boot an ISO. Talos before 1.12 also causes it, but the operator accepts only v1.14.0 or later. See [](ref:versions). |
 | `BuilderUnavailable` | Add the media store component, or set the imager flag that the message names. |
 | `BuildFailed` | The BootAsset message has the commands to read the build log. |

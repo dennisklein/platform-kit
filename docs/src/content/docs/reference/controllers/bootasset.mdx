@@ -24,9 +24,9 @@ The [](ctrl:hostoperation) then mounts it on a BMC with [](act:InsertMedia).
   <dt>Writes</dt>
   <dd>An artifact Secret `bootasset-<name>`, imager Jobs, files in the media store, and the BootAsset status.</dd>
   <dt>Talks to</dt>
-  <dd>The image factory. It starts imager Jobs in `pk-metal`.</dd>
+  <dd>The image factory: it registers schematics and downloads installer images. It starts imager Jobs in `pk-metal`.</dd>
   <dt>Requeue</dt>
-  <dd>None. Job and Secret events and TalosNode renders start the next pass.</dd>
+  <dd>While a download runs, every 5 seconds; after a failed download, after 1 minute. Otherwise none: Job and Secret events and TalosNode renders start the next pass.</dd>
   <dt>Source</dt>
   <dd>[bootasset_controller.go](/repo/metal/internal/controller/bootasset_controller.go)</dd>
 </dl>
@@ -44,7 +44,7 @@ The [](ctrl:hostoperation) then mounts it on a BMC with [](act:InsertMedia).
 
 | `spec.strategy` | What the controller does | Carries a secret | Served from |
 | --- | --- | --- | --- |
-| `factory` | Registers the schematic with the image factory and writes the image URL. Nothing to build. | No | The image factory |
+| `factory` | Registers the schematic with the image factory, writes the image URL, and downloads the image into the media store over verified TLS. | No | The media store, under a grant |
 | `configISO` | Packs the rendered config of the node into a small ISO and stores it in a Secret. | Yes | The media service, under a grant |
 | `embeddedInstaller` | Runs the imager in a Job to build one installer with the config inside. | Yes | The media store, under a grant |
 
@@ -106,7 +106,7 @@ See [](ctrl:manager) for the flags.
 
 | Condition | Status | Reasons |
 | --- | --- | --- |
-| `Ready` | True | `URLComputed`, `ArtifactBuilt` |
+| `Ready` | True | `ImageDownloaded`, `ArtifactBuilt` |
 | `Ready` | False | `SchematicUnavailable`, `NodeNotFound`, `ConfigNotRendered`, `BuilderUnavailable`, `Building`, `BuildFailed` |
 
 ## Failure modes
@@ -114,7 +114,7 @@ See [](ctrl:manager) for the flags.
 | You see | Cause | Do this |
 | --- | --- | --- |
 | `Ready=False`, `BuilderUnavailable` | No media store, no store claim, or no imager digest for the version. | Set the flags on the [](ctrl:manager). |
-| `Ready=False`, `BuildFailed` | The imager Job failed twice. | Read the Job log, then delete the Job. |
+| `Ready=False`, `BuildFailed` | The imager Job failed twice, or the download of a `factory` image failed. | Read the Job log, then delete the Job. For a download, read the message: the manager tries again after 1 minute. |
 | `Ready=False`, `SchematicUnavailable` | The image factory does not answer. | See [](howto:air-gapped-site). |
 
 ## Permissions

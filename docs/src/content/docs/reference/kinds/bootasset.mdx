@@ -38,7 +38,7 @@ The [](ctrl:bootasset) builds or addresses the image. The [](act:InsertMedia) ac
 
 | Strategy | Content | Secret | Fields | Where it rests | How the BMC fetches it |
 | --- | --- | --- | --- | --- | --- |
-| `factory` | The generic Talos installer, with the [schematic](term:schematic) | no | `talosVersion`, `schematic` | the image factory | a stable URL in `status.url` |
+| `factory` | The generic Talos installer, with the [schematic](term:schematic) | no | `talosVersion`, `schematic` | the [media store](ref:media-store), downloaded from the URL in `status.url` | a grant of the media service, with no credentials |
 | `configISO` | The machine config of one node, about 10 KB | yes | `nodeRef` | a Secret in `pk-metal` | a grant of the [media service](ref:media-store) |
 | `embeddedInstaller` | An installer with the config of one node inside | yes | `nodeRef`, `talosVersion`, `schematic` | the [media store](ref:media-store) | a grant of the media service |
 
@@ -46,7 +46,7 @@ The kind refuses fields that do not belong to the strategy.
 
 <dl>
   <dt>`factory`</dt>
-  <dd>The controller registers the schematic with the image factory before it sets `Ready`. Then the URL points to an image that exists.</dd>
+  <dd>The controller registers the schematic with the image factory, downloads the image into the media store over verified TLS, and records its digest. Then it sets `Ready`. The BMC never connects to the image factory. The manager needs a media store; without `--media-store` it uses a temporary directory in the pod.</dd>
   <dt>`configISO`</dt>
   <dd>The controller packs the rendered config of the [](kind:TalosNode) into an ISO with the label `metal-iso`. Talos reads it at boot. A new config gives a new pack.</dd>
   <dt>`embeddedInstaller`</dt>
@@ -56,10 +56,11 @@ The kind refuses fields that do not belong to the strategy.
 ## Lifecycle
 
 1. You or the operator create the BootAsset.
-2. The controller builds the artifact, or computes the URL. While a build runs, `Ready=False` with reason `Building`.
-3. The artifact is complete. `Ready=True` with reason `ArtifactBuilt` or `URLComputed`. `status.digest` names the bytes.
+2. The controller builds the artifact, or downloads it. While a build or a download runs, `Ready=False` with reason `Building`.
+3. The artifact is complete. `Ready=True` with reason `ArtifactBuilt` or `ImageDownloaded`. `status.digest` names the bytes.
 4. An approved operation mounts it. The operation pins the digest. Other bytes fail the step.
 5. The inputs change. The controller builds again. The status names the old artifact until the new build is complete.
+6. The install ends with a hand-off, or the boot fails. The operator deletes the BootAssets it made that carry a machine config (`configISO`, `embeddedInstaller`). The operation keeps their digests. A retry makes them again.
 
 <Callout type="warning">
 Do not give other pods access to the media store volume. An embedded installer holds the machine config in plain text, with keys and tokens.
@@ -78,10 +79,10 @@ Do not give other pods access to the media store volume. An embedded installer h
 | Reason | Status | Meaning |
 | --- | --- | --- |
 | `ArtifactBuilt` | True | `configISO` or `embeddedInstaller` is complete. |
-| `URLComputed` | True | `factory`: the image factory knows the schematic, and the URL is in the status. |
+| `ImageDownloaded` | True | `factory`: the image is in the media store, and its digest is in the status. |
 | `Building` | False | A build runs. |
 | `BuildFailed` | False | The build failed. The message gives the error. A failed imager Job stays, so you can read its log. |
-| `BuilderUnavailable` | False | `embeddedInstaller`: no media store, no imager image for the Talos version, or a Talos version without embedded config. The message names the flag or field. |
+| `BuilderUnavailable` | False | No media store, or for `embeddedInstaller`: no imager image for the Talos version, or a Talos version without embedded config. The message names the flag or field. |
 | `SchematicUnavailable` | False | The image factory did not register the schematic, so the image can be missing. |
 | `NodeNotFound`, `ConfigNotRendered` | False | The TalosNode or its config is not there yet. |
 

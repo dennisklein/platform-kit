@@ -44,7 +44,7 @@ Read [](ref:status) and [](ref:hardware) before you start, and stay near the ser
   <dt>Network</dt>
   <dd>Your workstation reaches the BMC on TCP 443. The BMC reaches your workstation on TCP 30443. The node reaches the internet.</dd>
   <dt>BMC network</dt>
-  <dd>A BMC with two media slots downloads the installer from `factory.talos.dev`. It needs a DNS server and a route or a proxy. See [The BMC and the image factory](howto:network-checklist#the-bmc-and-the-image-factory).</dd>
+  <dd>The BMC downloads the installer and the config from the media service of the operator. The operator downloads the installer from `factory.talos.dev`. See [The BMC and the image factory](howto:network-checklist#the-bmc-and-the-image-factory).</dd>
   <dt>Tools</dt>
   <dd>A Linux workstation with Docker Engine and a clone of the repository. `mise install` gives you kind, kubectl and talosctl. `eval "$(mise activate bash)"` puts them on the `PATH`. Stage 1 builds `pk-metal`.</dd>
   <dt>Knowledge</dt>

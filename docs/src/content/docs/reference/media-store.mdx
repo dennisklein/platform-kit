@@ -1,6 +1,6 @@
 ---
 title: Media store
-description: The volume and the HTTPS service from which BMCs fetch boot media that carry secrets, under short grants.
+description: The volume and the HTTPS service from which BMCs fetch all boot media, under short grants.
 type: reference
 eyebrow: Reference · manager
 xref: { cat: ref, id: media-store }
@@ -8,6 +8,7 @@ sources:
   - /repo/metal/internal/asset/store.go
   - /repo/metal/internal/asset/service.go
   - /repo/metal/internal/asset/grants.go
+  - /repo/metal/internal/asset/server.go
   - /repo/metal/config/media-store/kustomization.yaml
   - /repo/metal/cmd/manager/main.go
 ---
@@ -16,7 +17,7 @@ import Callout from '../../../components/Callout.astro';
 import MediaFlow from '../../../components/diagrams/MediaFlow.astro';
 
 The media store and the media service give boot media to the BMCs.
-A BMC fetches an image over HTTPS from the manager. A grant controls each fetch.
+A BMC fetches each image over HTTPS from the manager, never from the image factory or another server. A grant controls each fetch.
 
 ## At a glance
 
@@ -24,11 +25,11 @@ A BMC fetches an image over HTTPS from the manager. A grant controls each fetch.
   <dt>Media service</dt>
   <dd>An HTTPS listener in the manager process. Only the leader serves, because the grants live in its memory.</dd>
   <dt>Media store</dt>
-  <dd>A directory on a volume, for artifacts that are too large for a Secret: the [embedded installers](term:embedded-installer).</dd>
+  <dd>A directory on a volume, for artifacts that are too large for a Secret. It holds the [embedded installers](term:embedded-installer) and the downloaded factory installers. It also holds the images that an operation names by URL.</dd>
   <dt>Used by</dt>
-  <dd>The [](act:InsertMedia) action, for a [](kind:BootAsset) of strategy `configISO` or `embeddedInstaller`.</dd>
+  <dd>The [](act:InsertMedia) action, for each [](kind:BootAsset) and for each `imageUrl`.</dd>
   <dt>Written by</dt>
-  <dd>The [](ctrl:bootasset) and its imager Jobs.</dd>
+  <dd>The [](ctrl:bootasset), its imager Jobs, and the [](ctrl:hostoperation) for an `imageUrl`.</dd>
   <dt>Installed by</dt>
   <dd>The kustomize component [`config/media-store`](/repo/metal/config/media-store/kustomization.yaml).</dd>
 </dl>
@@ -45,7 +46,22 @@ A BMC fetches an image over HTTPS from the manager. A grant controls each fetch.
 6. The grant ends when the node checks in, when an action ejects the media, when the operation ends, or when its time is over.
 
 A `configISO` asset is small (about 10 KB). It rests in a Secret, not in the store, but the service also serves it under a grant.
-A `factory` asset has no secret. The BMC fetches it from the image factory URL, with no grant.
+
+A `factory` asset has no secret. The manager downloads it from the image factory into the store, over TLS that the manager verifies, and records its digest.
+The service then serves it under a grant, with no credentials. The BMC never connects to the image factory.
+
+An `imageUrl` of an [](act:InsertMedia) action follows the same path. The manager downloads the image when the step starts. It keeps the image only if it has the digest of the action.
+The download belongs to the operation. The manager deletes it when the operation ends.
+
+### Media that carry secrets
+
+A `configISO` asset and an `embeddedInstaller` asset hold the machine config of their node. When the install succeeds, or when the operation fails, the manager deletes them:
+
+- the BootAsset and its artifact Secret, for `configISO`;
+- the BootAsset and its file in the store, for `embeddedInstaller`.
+
+The [](kind:HostOperation) keeps the digest of each medium, so the record of what the machine booted stays.
+The manager deletes a file with an unlink. The data can stay on the disk until the file system uses the blocks again. Thus use a StorageClass that encrypts at rest.
 
 ## Grants
 
@@ -53,12 +69,31 @@ A `factory` asset has no secret. The BMC fetches it from the image factory URL, 
   <dt>Token</dt>
   <dd>128 random bits in the URL path. The BMCs do not accept query strings.</dd>
   <dt>Credentials</dt>
-  <dd>Each grant can also have its own user name and password, which the BMC sends as HTTP Basic. A URL alone then fetches nothing.</dd>
+  <dd>A grant for a medium that carries a secret also has its own user name and password, which the BMC sends as HTTP Basic. A URL alone then fetches nothing. A grant for an installer without a secret has no credentials. Thus a BMC that keeps the credentials in the URL shows none.</dd>
+  <dt>Source address</dt>
+  <dd>The first address that fetches through a grant owns it. The service refuses the grant to each other address and writes the refusal to the [audit trail](ref:audit-trail). Behind a NAT, all BMCs can have one address. See [](#source-addresses-and-nat).</dd>
+  <dt>Refusals</dt>
+  <dd>The service gives the same answer to each refusal: `401` with a Basic challenge. A wrong token, an expired grant, wrong credentials and a refused source address look the same to the client.</dd>
   <dt>Lifetime</dt>
   <dd>A grant has a time limit. It is in memory only. A restart of the manager forgets all grants. A mount in progress gets a new grant at the next try.</dd>
   <dt>TLS</dt>
-  <dd>The service ends TLS itself, never at the [relay](concept:relay). The BMCs do not check the certificate. The grant controls the access.</dd>
+  <dd>The service ends TLS itself, never at the [relay](concept:relay). The BMCs do not check the certificate. The grant, the source address and the digest of each medium control the access. The approval plan says so: "certificate not verified by the BMC".</dd>
+  <dt>Audit</dt>
+  <dd>The service writes one line to the audit trail for the first fetch through a grant, and one when the grant ends. It also writes one line for each refusal, at most ten for each grant. Each line has the grant name, the source address, the bytes and the result. It never has the token.</dd>
 </dl>
+
+### Source addresses and NAT
+
+The service sees the address from which the connection comes. A NodePort Service with `externalTrafficPolicy: Cluster` can replace that address with the address of a node (SNAT).
+Then all BMCs have the address of that node, and the source binding protects less.
+To keep the BMC address, set `externalTrafficPolicy: Local` on the media Service, and give the BMCs the address of the node that runs the leader.
+A load balancer or a proxy in front of the service also replaces the address.
+
+## Network policy
+
+The base install has the NetworkPolicy `pk-metal-manager`. It lets only the BMC network connect to the media port.
+Set the BMC network as a CIDR in the patch of your overlay. See [](howto:install-operator).
+The policy sees the source address after SNAT. With `externalTrafficPolicy: Cluster`, allow the node addresses too.
 
 ## Layout of the store
 
@@ -66,6 +101,7 @@ A `factory` asset has no secret. The BMC fetches it from the image factory URL, 
 | --- | --- |
 | `builds/<job>/` | The output of one imager Job. The manager deletes it after the import. |
 | `assets/<asset>/<key>.iso` | The installer of one BootAsset, one file for each build key. |
+| `assets/op-<hash>/<digest>.iso` | An image that one operation names by URL. The manager deletes it when the operation ends. |
 
 A build key names all inputs: the config, the Talos version, the schematic and the imager image.
 A change of one input gives a new key and a new build. The manager never writes a file again in place.
@@ -78,13 +114,13 @@ When you delete a BootAsset, the manager deletes its files.
 | `--media-listen` | `:8443` | The address of the HTTPS listener in the pod. |
 | `--media-url` | empty | The `https://host[:port]` at which the BMCs reach the service, for example a NodePort. Empty stops the service. Then the operator cannot install machines. |
 | `--media-cert-secret` | empty | A Secret with `tls.crt` and `tls.key`. Empty: a self-signed certificate. |
-| `--media-store` | empty | The directory of the store. Empty: the operator cannot install machines behind a [one-slot BMC](concept:one-slot-bmc). |
+| `--media-store` | empty | The directory of the store. Empty: a directory in the temporary directory of the pod, which holds the downloads only. Then the operator cannot install machines behind a [one-slot BMC](concept:one-slot-bmc). |
 | `--media-store-claim` | empty | The PersistentVolumeClaim mounted at `--media-store`. The imager Jobs mount it too. Empty: the imager builds no installer. |
 
 The component makes the claim `pk-metal-media-store` of 10 GiB. One installer is about 400 MiB, so the claim holds about twenty machines.
 
 <Callout type="warning">
-Use a StorageClass that encrypts at rest for the media store. An embedded installer holds the machine config of its node in plain text, with keys and tokens.
+Use a StorageClass that encrypts at rest for the media store. An embedded installer holds the machine config of its node in plain text, with keys and tokens, until the install ends.
 </Callout>
 
 ## Related

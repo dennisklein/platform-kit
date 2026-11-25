@@ -20,11 +20,11 @@ It mounts the installer and the node configuration as virtual media on the BMC, 
 
 <dl>
   <dt>Virtual media slot</dt>
-  <dd>A virtual CD drive of the BMC. The BMC downloads an image URL into the slot.</dd>
+  <dd>A virtual CD drive of the BMC. The BMC downloads an image URL of the media service into the slot.</dd>
   <dt>Boot override</dt>
   <dd>A one-time boot device that the BMC uses at the next start, here the virtual CD.</dd>
   <dt>Grant</dt>
-  <dd>A one-time user and password in the media URL. The media service accepts it for one operation only.</dd>
+  <dd>A random token in the media URL, for one operation only. The first BMC address that uses it owns it. A medium that carries a secret also gets a one-time user and password.</dd>
   <dt>Check-in</dt>
   <dd>The moment when the installed node runs its configuration and answers the operator over the Talos API.</dd>
 </dl>
@@ -32,7 +32,7 @@ It mounts the installer and the node configuration as virtual media on the BMC, 
 ## The sequence
 
 1. [](act:EjectMedia) on each slot.
-2. [](act:InsertMedia) for the installer.
+2. [](act:InsertMedia) for the installer. The operator downloaded it from the image factory and pins it by its digest.
 3. [](act:InsertMedia) for the configuration. The operation pins the configuration by its digest.
 4. [](act:SetBootOverride) to the virtual CD, one time, in UEFI mode.
 5. [](act:PowerCycle).

@@ -126,18 +126,43 @@ The [](ctrl:convergence) copies the values from the [](kind:BiosSettings) into t
 <Badge text="BMC" variant="note" /> <Badge text="Budget 5 min" />
 
 Mounts an image on a virtual media slot of the BMC, as you put a disc into a drive.
-The image is a plain URL or a [](kind:BootAsset).
-The [media service](ref:media-store) serves a BootAsset with a secret (a config ISO or an embedded installer) under a grant.
+The image is a [](kind:BootAsset) or an `imageUrl`.
+The BMC always fetches the image from the [media service](ref:media-store), under a grant. It never gets the URL of another server.
 The grant ends when the operation ends.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `mediaId` | string | — | The slot, for example `CD` or `USBStick`. |
-| `imageUrl` | string | not set | The URL to mount. Give `imageUrl` or `bootAssetRef`, not both. |
+| `imageUrl` | string | not set | An `https://` URL of an image. Give `imageUrl` or `bootAssetRef`, not both. |
 | `bootAssetRef` | object | not set | The BootAsset to mount. |
-| `digest` | `sha256:<hex>` | not set | The digest of the artifact that the approver saw. Other bytes fail the step. Only with `bootAssetRef`. |
+| `digest` | `sha256:<hex>` | not set | The digest of the image that the approver saw. Other bytes fail the step. Necessary with `imageUrl`. |
 
 The step waits while a pinned BootAsset has no artifact yet.
+
+#### A custom image
+
+Use `imageUrl` for an image that no BootAsset makes, for example a vendor diagnostic ISO.
+The kind refuses an `imageUrl` that is not `https://`, and an `imageUrl` without `digest`.
+
+1. Put the image on an HTTPS server that the manager can reach. The manager trusts the system CAs and the CA of `--registry-ca`.
+2. Get the digest of the image.
+
+   ```sh
+   echo "sha256:$(sha256sum diag.iso | cut -d' ' -f1)"
+   ```
+
+3. Write the action with the URL and the digest.
+
+   ```yaml
+   - insertMedia:
+       mediaId: CD
+       imageUrl: https://images.example.org/diag.iso
+       digest: sha256:<hex>
+   ```
+
+When the step starts, the manager downloads the image into its media store and compares the digest. Other bytes fail the step, and the BMC gets nothing.
+Then the media service serves the image under a grant, with no credentials. The manager deletes the download when the operation ends.
+The budget of the step adds 30 minutes for the download.
 
 ### EjectMedia
 

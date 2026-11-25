@@ -118,25 +118,27 @@ The overlay is a kustomize directory. It adds the values of your site to the bas
 
 12. If a BMC has only one usable media slot, remove the comment marks from `components` in `kustomization.yaml`. See [One-slot BMCs](#one-slot-bmcs).
 
+13. In `networkpolicy.yaml`, set the CIDR of your BMC network. Only that network can fetch boot media. Until you set it, each mount fails with a connection error. Behind SNAT, add the node network too. See [](ref:media-store#network-policy).
+
 </Steps>
 
 ### Apply
 
 <Steps>
 
-13. Show what the overlay makes. Read the Deployment at the end.
+14. Show what the overlay makes. Read the Deployment at the end.
 
     ```sh
     kubectl kustomize overlays/site | less
     ```
 
-14. Apply the overlay. Server-side apply is necessary, because the CRDs are large.
+15. Apply the overlay. Server-side apply is necessary, because the CRDs are large.
 
     ```sh
     kubectl apply --server-side -k overlays/site
     ```
 
-15. Wait for the manager.
+16. Wait for the manager.
 
     ```sh
     kubectl -n pk-metal rollout status deployment/pk-metal-manager --timeout=180s
@@ -154,6 +156,7 @@ The overlay is a kustomize directory. It adds the values of your site to the bas
 | `bmc-ca.crt` | The CA of the BMC certificates | [BMC certificates](#bmc-certificates) |
 | `bindings.yaml` | The rights of the admin group and of the approvers | [](ref:rbac) |
 | `approval.yaml` | Whether a person can approve their own proposal (`selfApproval`) | [](howto:approval-permissions) |
+| `networkpolicy.yaml` | The BMC network, the only one that can fetch boot media | [](ref:media-store#network-policy) |
 
 The ledger ConfigMap has a name that changes with its content. Thus an apply of a new ledger restarts the manager.
 
