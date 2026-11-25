@@ -140,7 +140,10 @@ func TestE2EKind(t *testing.T) {
 	// Who the test acts as. This tier installs no admission policies, but it
 	// stamps approvals and guard lifts as pk-metal does, with the username
 	// the API server reports for the kube-context, so that what it writes is
-	// what the policies (config/policy) accept from that user.
+	// what the policies (config/policy) accept from that user. The objects
+	// that make the operator propose work name it as their requester
+	// (metal.pk.io/requested-by), as pk-metal does; under selfApproval:
+	// Forbidden another person would approve what they cause.
 	ssr := &authenticationv1.SelfSubjectReview{}
 	require.NoError(t, cl.Create(ctx, ssr), "ask the cluster who the test is")
 	user := ssr.Status.UserInfo.Username
@@ -237,8 +240,9 @@ func TestE2EKind(t *testing.T) {
 	// disk selector; the container ignores the install document. Built once:
 	// subtests create copies on the cluster, and the bootstrap verb reads the
 	// same shape from a CR dir, which is the git-native story in miniature.
+	requested := map[string]string{metalv1alpha1.AnnotationRequestedBy: user}
 	talosCluster := &osv1alpha1.TalosCluster{
-		ObjectMeta: metav1.ObjectMeta{Name: clusterName},
+		ObjectMeta: metav1.ObjectMeta{Name: clusterName, Annotations: requested},
 		Spec: osv1alpha1.TalosClusterSpec{
 			TalosVersion:      talosVersion,
 			KubernetesVersion: e2eKubernetesVersion,
@@ -247,7 +251,7 @@ func TestE2EKind(t *testing.T) {
 		},
 	}
 	talosNode := &osv1alpha1.TalosNode{
-		ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+		ObjectMeta: metav1.ObjectMeta{Name: nodeName, Annotations: requested},
 		Spec: osv1alpha1.TalosNodeSpec{
 			ClusterRef:          osv1alpha1.Reference{Name: clusterName},
 			Role:                osv1alpha1.RoleControlPlane,
@@ -286,7 +290,7 @@ func TestE2EKind(t *testing.T) {
 		require.NoError(t, cl.Create(ctx, talosCluster.DeepCopy()))
 		require.NoError(t, cl.Create(ctx, talosNode.DeepCopy()))
 		require.NoError(t, cl.Create(ctx, &metalv1alpha1.HostClaim{
-			ObjectMeta: metav1.ObjectMeta{Name: "e2e", Namespace: ns},
+			ObjectMeta: metav1.ObjectMeta{Name: "e2e", Namespace: ns, Annotations: requested},
 			Spec: metalv1alpha1.HostClaimSpec{
 				AssetRef: metalv1alpha1.Reference{Name: assetName},
 				OS:       &metalv1alpha1.ClaimOS{NodeRef: metalv1alpha1.Reference{Name: nodeName}},
@@ -407,9 +411,11 @@ func TestE2EKind(t *testing.T) {
 	rung("release returns the machine", func(t *testing.T) {
 		claim := &metalv1alpha1.HostClaim{ObjectMeta: metav1.ObjectMeta{Name: "e2e", Namespace: ns}}
 		// The node is the only control plane of a cluster that stays: the
-		// etcd guard keeps it until a person acknowledges the risk.
+		// etcd guard keeps it until a person acknowledges the risk. The
+		// release names who asks for it before the delete.
 		ack, err := json.Marshal(map[string]any{"metadata": map[string]any{"annotations": map[string]any{
 			metalv1alpha1.AnnotationAckEtcdRisk: metalv1alpha1.GuardLiftValue(user, "the test cluster ends with this rung"),
+			metalv1alpha1.AnnotationRequestedBy: user,
 		}}})
 		require.NoError(t, err)
 		require.NoError(t, cl.Patch(ctx, claim, client.RawPatch(types.MergePatchType, ack)))

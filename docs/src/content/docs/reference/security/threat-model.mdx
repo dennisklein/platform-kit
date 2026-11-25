@@ -89,14 +89,14 @@ pk-metal can wipe disks, flash firmware and boot any image on a machine. This pa
 | --- | --- | --- |
 | Operator service account | Create an operation that needs no approval. It cannot approve an operation or a rollout, with each `selfApproval` value. | RBAC (no `patch`) and rule 6 of `hostoperation-approval` |
 | Admin group | Create an operation that needs no approval, and the other admin changes above. | `hostoperation-approval`, `hostclaim-provisioning`, `etcdbackuppolicy-guard`, `endpointprofile-guard` |
-| A person with `create` and `patch` on operations or rollouts, if `selfApproval` is `Allowed` | Propose a change and approve it. The record names the person as proposer and as approver. | Rule 7 of `hostoperation-approval`, rule 6 of `talosrollout-approval`, and the `selfApproved` field of the [](ref:audit-trail) |
+| A person with `create` and `patch` on operations or rollouts, if `selfApproval` is `Allowed` | Propose a change, or make the edit that the operator proposes a change for, and approve it. The record names the person as proposer or requester, and as approver. | Rules 7 and 8 of `hostoperation-approval`, rules 6 and 7 of `talosrollout-approval`, `requested-by`, and the `selfApproved` field of the [](ref:audit-trail) |
 | Holder of `patch` on operations | Lift a maintenance window or the cluster guard on an operation that a person approved. The value must name the person and a reason. | RBAC, `guard-lift`, and the [](ref:audit-trail) |
 
 ### Known limits
 
 <dl>
   <dt>Self-approval</dt>
-  <dd>The default of `selfApproval` is `Allowed`. Then one person with propose and approve rights can change a machine alone. The record still names them in `spec.proposedBy` and in `spec.approval.approvedBy`. If one account must not change a machine alone, set `Forbidden`. See [](howto:approval-permissions).</dd>
+  <dd>The default of `selfApproval` is `Allowed`. Then one person with propose and approve rights can change a machine alone. The record still names them in `spec.proposedBy` or `spec.requestedBy`, and in `spec.approval.approvedBy`. If one account must not change a machine alone, set `Forbidden`. `Forbidden` also stops the person whose edit made the operator propose the change. A GitOps service account is the requester of what it applies, so `Forbidden` does not stop the author of the commit. A rollout that a person created is not checked again when other persons change the cluster. See [](howto:approval-permissions).</dd>
   <dt>Operator work without approval</dt>
   <dd>The identity of the operator can create operations that need no approval. These are the node steps of an approved rollout, an install of a claim with `provisioning.approval: Automatic`, and a release that needs no person. `selfApproval: Forbidden` does not change this. Admission does not limit the actions of these operations. The executor refuses an operation in the name of the operator that needs no approval and is none of these kinds. Protect the token of the operator service account: give nobody `impersonate` on it, or `create` on `serviceaccounts/token` in `pk-metal`, and do not copy its token out of the cluster.</dd>
 </dl>

@@ -114,6 +114,8 @@ func (r *hostWipeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 	op := wipeOp(r.OperationsNamespace, r.Proposer, host.Name, name, asset, shape, target)
+	// The wipe mark asked for it (pk-metal wipe names its caller).
+	op.Spec.RequestedBy = metalv1alpha1.RequestedBy(host.Annotations)
 	if err := r.Create(ctx, op); err != nil && !apierrors.IsAlreadyExists(err) {
 		return ctrl.Result{}, err
 	}

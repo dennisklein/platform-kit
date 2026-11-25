@@ -1052,7 +1052,13 @@ release() {
   [[ -n $host ]] || die "HostClaim $claim holds no Host yet, so there is nothing to release. See where it stands: mise run lab:status"
 
   step "releasing $claim (Host $host), waiting up to ${timeout}s for the Host to be Available"
-  kubectl -n "$namespace" delete hostclaim "$name" --wait=false >&2
+  # The release is lab-admin's request (the requested-by policy wants its
+  # name on the claim first), so that the kind admin may approve its result.
+  kubectl -n "$namespace" annotate hostclaim "$name" --overwrite \
+    --as=lab-admin --as-group=pk-metal:admins --as-group=system:authenticated \
+    metal.pk.io/requested-by=lab-admin >&2
+  kubectl -n "$namespace" delete hostclaim "$name" --wait=false \
+    --as=lab-admin --as-group=pk-metal:admins --as-group=system:authenticated >&2
   while true; do
     approve_pending "$root" "$lab_dir" >/dev/null || true
     phase=$(host_phase "$host") || phase=""
@@ -1366,7 +1372,8 @@ day2_scale() {
   step "replace control plane node-2 onto Host $h5"
   KUBECONFIG=$admin "$cli" replace node-2 --host "$h5" --ack-etcd-risk "lab scale round" >&2
   release_host "$root" "$h2" "$timeout" "replace a control plane"
-  kubectl patch talosnode node-2 --type json --patch '[
+  kubectl --kubeconfig "$admin" patch talosnode node-2 --type json --patch '[
+    {"op": "add", "path": "/metadata/annotations/metal.pk.io~1requested-by", "value": "lab-admin"},
     {"op": "replace", "path": "/spec/installDiskSelector/serial", "value": "pklab-disk-5"},
     {"op": "replace", "path": "/spec/network/links/0/hardwareAddr", "value": "52:54:00:77:00:15"}]' >&2
   day2_until "$root" "$lab_dir" "$timeout" 3 4 2 "replace a control plane"
@@ -1533,7 +1540,11 @@ day2_upgrade() {
   Bring the lab up on an older release first, for example:
     mise run lab:down && mise run lab:reset && PK_LAB_TALOS=v1.14.5 mise run lab:up && mise run lab:wait"
   step "day 2: upgrade cluster $cluster_name from Talos $current to $target"
-  "$root/metal/bin/pk-metal" upgrade --wait 5m talos "$cluster_name" "$target" >&2
+  # pk-metal upgrade names its caller as the requester of the rollout, and
+  # the lab forbids an approval by the requester: lab-proposer asks, the kind
+  # admin approves.
+  proposer_kubeconfig "$lab_dir" "$lab_dir/upgrade-proposer.kubeconfig"
+  KUBECONFIG=$lab_dir/upgrade-proposer.kubeconfig "$root/metal/bin/pk-metal" upgrade --wait 5m talos "$cluster_name" "$target" >&2
   name=$(rollout_wait_proposed "$cluster_name" TalosUpgrade 300)
   rollout_through "$root" "$lab_dir" "$name" "$timeout"
   stale=$(kubectl get talosnodes --output json | jq -r --arg v "$target" '
@@ -1559,10 +1570,12 @@ day2_config_change() {
   before=$(boot_ids "$lab_dir/workload.kubeconfig")
   step "day 2: label every node lab.pk.io/day2=$stamp (a change that needs no reboot)"
   while read -r node; do
-    # No admission policy guards a TalosNode's labels: the kind admin patches
-    # it as it is, as a person with patch on talosnodes would.
+    # lab-proposer asks for the change (the requested-by policy wants its
+    # name in the same request), so that the kind admin may approve the
+    # rollout it causes.
     kubectl patch talosnode "$node" --type merge \
-      --patch "{\"spec\":{\"labels\":{\"lab.pk.io/day2\":\"$stamp\"}}}" >&2
+      --as=lab-proposer --as-group=system:masters --as-group=system:authenticated \
+      --patch "{\"metadata\":{\"annotations\":{\"metal.pk.io/requested-by\":\"lab-proposer\"}},\"spec\":{\"labels\":{\"lab.pk.io/day2\":\"$stamp\"}}}" >&2
   done < <(kubectl get talosnodes --output json | jq -r --arg c "$cluster_name" '
     .items[] | select(.spec.clusterRef.name == $c) | .metadata.name')
   name=$(rollout_wait_proposed "$cluster_name" Config 600)

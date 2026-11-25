@@ -67,7 +67,7 @@ A second controller in the same lane, `talosnode-member`, holds a deleted node u
 
 1. Read the node. During a deletion, only `talosnode-member` writes.
 2. Read the [](kind:TalosCluster) and its secrets bundle.
-3. Resolve the config patches of the cluster and of the node from their ConfigMaps.
+3. Resolve the config patches of the cluster and of the node from their ConfigMaps. A ConfigMap without the label `os.pk.io/patch` stops the render, and the condition names the command that adds the label.
 4. Register the schematic with the image factory, so that the installer image of the config exists.
 5. Render for the Talos version that the machine runs, while it is older than the cluster version. Write the config into a Secret named by its digest.
 6. If a Host hands this node out, check in: the machine API with a short-lived client certificate first, the maintenance service second.

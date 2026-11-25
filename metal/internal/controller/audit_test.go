@@ -285,6 +285,56 @@ func TestRolloutAuditTrail(t *testing.T) {
 	assert.Equal(t, osv1alpha1.ReasonRolloutFailed, lines[4].Reason)
 }
 
+// A person who pauses, resumes or aborts a rollout is the one its
+// requested-by annotation names; the trail says so, and a requester who
+// approves is marked as approving their own change.
+func TestRolloutAuditPauseResumeAbort(t *testing.T) {
+	var b bytes.Buffer
+	l := audit.New(&b, testOperator)
+	paused := func(ro *osv1alpha1.TalosRollout, reason string) *osv1alpha1.TalosRollout {
+		ro = ro.DeepCopy()
+		st := metav1.ConditionTrue
+		if reason == osv1alpha1.ReasonNotPaused {
+			st = metav1.ConditionFalse
+		}
+		meta.SetStatusCondition(&ro.Status.Conditions, metav1.Condition{Type: osv1alpha1.ConditionPaused, Status: st, Reason: reason})
+		return ro
+	}
+	base := rolloutFixture()
+	base.Spec.RequestedBy = []string{"alice"}
+	base.Spec.Approval = osv1alpha1.RolloutApproval{ApprovedBy: "alice", PlanHash: "sha256:abc"}
+	base.Status.Conditions = []metav1.Condition{{Type: osv1alpha1.ConditionApproved, Status: metav1.ConditionFalse,
+		Reason: osv1alpha1.ReasonAwaitingApproval}}
+	approved := base.DeepCopy()
+	meta.SetStatusCondition(&approved.Status.Conditions, metav1.Condition{Type: osv1alpha1.ConditionApproved,
+		Status: metav1.ConditionTrue, Reason: osv1alpha1.ReasonPlanApproved})
+	auditRollout(l, base, approved)
+
+	canary := paused(approved, osv1alpha1.ReasonCanaryPause)
+	auditRollout(l, approved, canary)
+	byBob := paused(canary, osv1alpha1.ReasonPausedByPerson)
+	byBob.Annotations = map[string]string{metalv1alpha1.AnnotationRequestedBy: "bob"}
+	auditRollout(l, canary, byBob)
+	byCarol := paused(byBob, osv1alpha1.ReasonNotPaused)
+	byCarol.Annotations = map[string]string{metalv1alpha1.AnnotationRequestedBy: "carol"}
+	auditRollout(l, byBob, byCarol)
+	aborted := byCarol.DeepCopy()
+	aborted.Annotations = map[string]string{metalv1alpha1.AnnotationRequestedBy: "dave"}
+	meta.SetStatusCondition(&aborted.Status.Conditions, metav1.Condition{Type: osv1alpha1.ConditionComplete,
+		Status: metav1.ConditionFalse, Reason: osv1alpha1.ReasonRolloutAborted, LastTransitionTime: metav1.Now()})
+	auditRollout(l, byCarol, aborted)
+
+	lines := trail(t, &b)
+	require.Equal(t, []string{"approved", "paused", "resumed", "finished"}, eventNames(lines),
+		"the pause after the first node is the operator's, not a person's")
+	assert.Equal(t, ptr.To(true), lines[0].SelfApproved, "alice asked for the change and approved it")
+	assert.Equal(t, []string{"alice"}, lines[0].RequestedBy)
+	assert.Equal(t, "bob", lines[1].Actor)
+	assert.Equal(t, "carol", lines[2].Actor)
+	assert.Equal(t, "Aborted", lines[3].Phase)
+	assert.Equal(t, "aborted by dave", lines[3].Message)
+}
+
 func TestParseRetention(t *testing.T) {
 	for v, want := range map[string]retention{
 		"Forever": {forever: true},

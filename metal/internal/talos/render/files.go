@@ -43,6 +43,9 @@ func (m *Manifests) ConfigMapReader() ConfigMapReader {
 			if cm.Namespace != ref.Namespace || cm.Name != ref.Name {
 				continue
 			}
+			if err := PatchConfigMapLabeled(cm.Labels, ref); err != nil {
+				return "", err
+			}
 			v, ok := cm.Data[ref.Key]
 			if !ok {
 				return "", fmt.Errorf("%w: ConfigMap %s/%s has no key %q", ErrPatchUnresolvable, ref.Namespace, ref.Name, ref.Key)

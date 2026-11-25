@@ -62,7 +62,7 @@ func TestSelfApprovalSetting(t *testing.T) {
 		{selfApproval{Known: true, Value: "allowed"}, false}, // a typo closes the gate
 	} {
 		assert.Equal(t, c.allowed, c.s.allowed(), "%+v", c.s)
-		assert.Equal(t, c.allowed, c.s.ownProposal("operation x", "alice") == nil, "%+v", c.s)
+		assert.Equal(t, c.allowed, c.s.ownProposal("operation x", "alice", "proposed") == nil, "%+v", c.s)
 	}
 }
 
@@ -113,6 +113,22 @@ func TestApproveOwnProposal(t *testing.T) {
 			"pk-metal/hostoperation-approval); another person must approve it")
 		assert.Empty(t, approvedOf(t, cl, a))
 		assert.NotContains(t, out.String(), "steps, in this order:")
+	})
+
+	t.Run("forbidden: the person who asked for the change is refused too", func(t *testing.T) {
+		op, objs := bootPlan()
+		op.Spec.ProposedBy = "system:serviceaccount:pk-metal:pk-metal-manager"
+		op.Spec.RequestedBy = []string{"alice", "bob"}
+		var out bytes.Buffer
+		cl := fakeClient(append(objs, params(str("Forbidden")))...)
+		a := approval{Namespace: op.Namespace, Name: op.Name, User: "bob", Yes: true, Out: &out}
+		err := approve(ctx, cl, a)
+		require.ErrorContains(t, err, "was asked for by you (bob), and this site forbids approving your own proposal")
+		assert.Empty(t, approvedOf(t, cl, a))
+
+		a.User = "carol"
+		require.NoError(t, approve(ctx, cl, a), "a person not named approves")
+		assert.Contains(t, out.String(), "asked by:    alice, bob")
 	})
 
 	t.Run("an unknown value counts as Forbidden", func(t *testing.T) {

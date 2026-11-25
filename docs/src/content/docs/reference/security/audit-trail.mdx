@@ -76,18 +76,21 @@ Each line has these fields:
 | `name` | The name of the object. |
 | `uid` | The UID of the object. A new object with the same name has a different UID. |
 | `actor` | Who made the decision: a person, or the service account of the operator. It is empty if a guard lift names nobody. |
+| `requestedBy` | On `proposed` and `approved`: the persons whose edit made the operator propose the change (`spec.requestedBy`). Not there if the list is empty. |
 
 An event adds the fields in the table below. A line never holds a Secret, a credential, a BMC password or a media grant token. The operator masks the credentials and the grant token of a URL in a `message`. A `message` has at most 512 bytes.
 
 | `event` | When | Fields that it adds |
 | --- | --- | --- |
-| `proposed` | The operator first writes the status of the operation or rollout. | `proposedBy`, `target` (the Host or the cluster), `plan`, `approvalRequired` |
-| `approved` | The approval of a person takes effect. | `proposedBy`, `approvedBy`, `selfApproved`, `planHash` (rollouts) |
+| `proposed` | The operator first writes the status of the operation or rollout. | `proposedBy`, `requestedBy`, `target` (the Host or the cluster), `plan`, `approvalRequired` |
+| `approved` | The approval of a person takes effect. | `proposedBy`, `requestedBy`, `approvedBy`, `selfApproved`, `planHash` (rollouts) |
+| `paused` | A person pauses a rollout (`spec.paused`). The `actor` is the person that `metal.pk.io/requested-by` names. | None |
+| `resumed` | A rollout continues after a pause: a person cleared `spec.paused`, or resumed it after its first node. | None |
 | `guard.lifted` | The operator uses a guard lift. That occurs at the start of an operation, at each step that stops a node, and at a proposal that changes etcd. | `annotation`, `value`, `named`, and `operation` or `step` and `action` |
 | `step.started` | A step starts. | `step` (from 0), `action` |
 | `step.finished` | A step succeeds. | `step`, `action`, `result` |
 | `step.failed` | A step fails. | `step`, `action`, `result`, `reason`, `message` |
-| `finished` | The operation or rollout ends. | `phase`, `reason`, `durationSeconds`, and `message` with the abort |
+| `finished` | The operation or rollout ends. | `phase`, `reason`, `durationSeconds`, and `message` with the abort. For a rollout, the message names the person who aborted it. |
 | `deleted` | The operator deletes the object. The line comes before the delete request. | `reason`, `message` |
 | `media.fetched` | A BMC fetches through a [media grant](ref:media-store#grants) of the operation for the first time. The grant is now bound to that address. | `grant` (the file name), `source` |
 | `media.refused` | The media service refuses a request with a wrong password, or from an address that is not the bound one. At most ten lines for each grant. | `grant`, `source`, `reason` |
@@ -111,7 +114,7 @@ The `ts` field is the same in each example. The operator is `system:serviceaccou
 ```json
 {"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"pod":"pk-metal-manager-7c9d5-x2v4q","event":"proposed","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"alice","proposedBy":"alice","target":"host-1","plan":"talosReboot, waitNodeReady","approvalRequired":true}
 {"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":2,"pod":"pk-metal-manager-7c9d5-x2v4q","event":"approved","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"bob","proposedBy":"alice","approvedBy":"bob","selfApproved":false}
-{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":3,"pod":"pk-metal-manager-7c9d5-x2v4q","event":"approved","kind":"TalosRollout","namespace":"","name":"fleet-talosupgrade-1a2b3c4d","uid":"u-2","actor":"alice","proposedBy":"alice","approvedBy":"alice","selfApproved":true,"planHash":"sha256:abc"}
+{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":3,"pod":"pk-metal-manager-7c9d5-x2v4q","event":"approved","kind":"TalosRollout","namespace":"","name":"fleet-talosupgrade-1a2b3c4d","uid":"u-2","actor":"alice","proposedBy":"<operator>","requestedBy":["alice"],"approvedBy":"alice","selfApproved":true,"planHash":"sha256:abc"}
 {"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":4,"pod":"pk-metal-manager-7c9d5-x2v4q","event":"guard.lifted","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"alice","annotation":"metal.pk.io/ignore-window","value":"alice: CVE fix","named":true}
 {"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":5,"pod":"pk-metal-manager-7c9d5-x2v4q","event":"guard.lifted","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"bob","annotation":"metal.pk.io/override-cluster-guard","value":"bob: single control plane","named":true,"step":2,"action":"talosReboot"}
 {"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":6,"pod":"pk-metal-manager-7c9d5-x2v4q","event":"step.started","kind":"HostOperation","namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"<operator>","step":0,"action":"cordon"}
@@ -260,7 +263,7 @@ The audit log records `metal.pk.io/allow-self-disruption` with each operation th
 
 ## The self-approval marker
 
-If the site sets `selfApproval: Allowed`, a person can approve their own proposal. The `approved` line then has `"selfApproved":true`. See [](howto:approval-permissions).
+If the site sets `selfApproval: Allowed`, a person can approve their own change. The `approved` line then has `"selfApproved":true`. A change is their own if `proposedBy` names them, or if `requestedBy` names them: their edit made the operator propose it. See [](howto:approval-permissions).
 
 Find each self-approval in the operator audit log:
 
@@ -270,7 +273,7 @@ kubectl -n pk-metal logs deployment/pk-metal-manager --since=168h \
       | {ts, kind, namespace, name, actor}'
 ```
 
-The objects show the same thing while they exist: `spec.proposedBy` and `spec.approval.approvedBy` have the same value.
+The objects show the same thing while they exist: `spec.approval.approvedBy` has the value of `spec.proposedBy`, or a value in `spec.requestedBy`.
 
 <Callout type="note">
 A person with cluster admin can change the policies, the ConfigMap and the manager. The kube-apiserver audit log records these changes. Keep it outside the cluster.

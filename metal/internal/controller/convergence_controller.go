@@ -255,6 +255,7 @@ func (r *ConvergenceReconciler) firmware(ctx context.Context, host *metalv1alpha
 	op := r.proposal(host.Name, "firmware", hash, metalv1alpha1.OperationReasonFirmwareConvergence, []metalv1alpha1.HostOperationAction{
 		{FlashFirmware: &metalv1alpha1.FlashFirmwareAction{Image: target.Image, Version: target.Version}},
 	})
+	op.Spec.RequestedBy = profileRequesters(profiles)
 	// Create before recording: a crash between the two re-proposes into
 	// AlreadyExists (benign), the reverse order would hold on a ghost.
 	if err := r.propose(ctx, op); err != nil {
@@ -401,6 +402,7 @@ func (r *ConvergenceReconciler) bios(ctx context.Context, host *metalv1alpha1.Ho
 				Attributes:  settings.Spec.Attributes,
 			}},
 		}))
+		op.Spec.RequestedBy = profileRequesters(profiles)
 		if err := r.propose(ctx, op); err != nil {
 			return false, err
 		}
@@ -532,6 +534,22 @@ func (r *ConvergenceReconciler) proposal(hostName, domain, hash, reason string, 
 			TTLSecondsAfterFinished: ptr.To(proposalTTL),
 		},
 	}
+}
+
+// profileRequesters names the people who last changed the profiles that a
+// convergence proposal serves (metal.pk.io/requested-by): any of their
+// edits may be what the proposal carries.
+func profileRequesters[P metalv1alpha1.BiosProfile | metalv1alpha1.FirmwareProfile](profiles []P) []string {
+	annotations := make([]map[string]string, len(profiles))
+	for i := range profiles {
+		switch p := any(&profiles[i]).(type) {
+		case *metalv1alpha1.BiosProfile:
+			annotations[i] = p.Annotations
+		case *metalv1alpha1.FirmwareProfile:
+			annotations[i] = p.Annotations
+		}
+	}
+	return metalv1alpha1.RequestedBy(annotations...)
 }
 
 // observeBios reads the machine's BIOS state and registry over a read-only

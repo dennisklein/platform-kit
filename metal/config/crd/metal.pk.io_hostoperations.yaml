@@ -656,6 +656,14 @@ spec:
                   maxLength: 128
                   pattern: ^[A-Za-z][A-Za-z0-9]*$
                   type: string
+                requestedBy:
+                  description: 'RequestedBy names the people whose change made the operator propose this operation: the metal.pk.io/requested-by annotations of the objects behind it (the claim, the node, the Host, the profiles). It is frozen after creation. Where the site forbids self-approval, none of them may approve the operation. Empty for an operation a person proposed; that person is its proposer.'
+                  items:
+                    minLength: 1
+                    type: string
+                  maxItems: 32
+                  type: array
+                  x-kubernetes-list-type: set
                 rolloutRef:
                   description: 'RolloutRef names the rollout (os.pk.io TalosRollout) this operation is one node''s part of, and the plan it was created for. The executor refuses an operation whose rollout is gone, not approved, or approved for another planHash: an operation the rollout''s approval covers carries no approval of its own, so the binding is what makes that approval mean this operation. Empty for an operation approved on its own.'
                   properties:
@@ -684,6 +692,8 @@ spec:
               x-kubernetes-validations:
                 - message: proposedBy is frozen after creation
                   rule: '!has(oldSelf.proposedBy) || (has(self.proposedBy) && self.proposedBy == oldSelf.proposedBy)'
+                - message: requestedBy is frozen after creation
+                  rule: has(self.requestedBy) == has(oldSelf.requestedBy) && (!has(self.requestedBy) || self.requestedBy == oldSelf.requestedBy)
                 - message: ttlSecondsAfterFinished is frozen after creation
                   rule: has(self.ttlSecondsAfterFinished) == has(oldSelf.ttlSecondsAfterFinished) && (!has(self.ttlSecondsAfterFinished) || self.ttlSecondsAfterFinished == oldSelf.ttlSecondsAfterFinished)
                 - message: rolloutRef is frozen after creation

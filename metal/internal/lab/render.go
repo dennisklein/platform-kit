@@ -388,6 +388,9 @@ apiVersion: os.pk.io/v1alpha1
 kind: TalosCluster
 metadata:
   name: {{.Cluster.Name}}
+  # lab.sh applies this as lab-admin: the requester (metal.pk.io/requested-by).
+  annotations:
+    metal.pk.io/requested-by: lab-admin
 spec:
   talosVersion: {{.Cluster.TalosVersion}}
   kubernetesVersion: {{.Cluster.KubernetesVersion}}
@@ -431,6 +434,9 @@ apiVersion: os.pk.io/v1alpha1
 kind: TalosNode
 metadata:
   name: {{.Name}}
+  # lab.sh applies this as lab-admin: the requester (metal.pk.io/requested-by).
+  annotations:
+    metal.pk.io/requested-by: lab-admin
 spec:
   clusterRef:
     name: {{$.Cluster.Name}}
@@ -471,6 +477,9 @@ kind: HostClaim
 metadata:
   name: {{.Name}}
   namespace: default
+  # lab.sh applies this as lab-admin: the requester (metal.pk.io/requested-by).
+  annotations:
+    metal.pk.io/requested-by: lab-admin
 spec:
   assetRef:
     name: {{.Name}}

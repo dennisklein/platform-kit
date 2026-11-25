@@ -31,7 +31,12 @@ func TestReferencesOutsideTheOperatorNamespaceDoNotResolve(t *testing.T) {
 			Data:       map[string][]byte{render.BundleKey: []byte("cluster: {}")},
 		},
 		&corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Namespace: "tenant", Name: "patches"},
+			ObjectMeta: metav1.ObjectMeta{Namespace: "tenant", Name: "patches",
+				Labels: map[string]string{osv1alpha1.LabelPatch: "true"}},
+			Data: map[string]string{"p.yaml": "machine: {}"},
+		},
+		&corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "tenant", Name: "unlabeled"},
 			Data:       map[string]string{"p.yaml": "machine: {}"},
 		},
 	).Build()
@@ -60,6 +65,11 @@ func TestReferencesOutsideTheOperatorNamespaceDoNotResolve(t *testing.T) {
 			osv1alpha1.ConfigMapKeyReference{Namespace: "tenant", Name: "patches", Key: "p.yaml"})
 		require.NoError(t, err, "the same reference resolves when it is the operator's namespace")
 		assert.Equal(t, "machine: {}", got)
+
+		_, err = configMapReader(t.Context(), cl, "tenant")(
+			osv1alpha1.ConfigMapKeyReference{Namespace: "tenant", Name: "unlabeled", Key: "p.yaml"})
+		require.ErrorIs(t, err, render.ErrPatchUnresolvable, "a ConfigMap without the patch label holds the render")
+		assert.ErrorContains(t, err, "kubectl -n tenant label configmap unlabeled os.pk.io/patch=true")
 	})
 }
 

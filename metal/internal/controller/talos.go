@@ -79,6 +79,9 @@ func configMapReader(ctx context.Context, c client.Reader, namespace string) ren
 			}
 			return "", fmt.Errorf("%w: ConfigMap %s/%s not found", render.ErrPatchUnresolvable, ref.Namespace, ref.Name)
 		}
+		if err := render.PatchConfigMapLabeled(cm.Labels, ref); err != nil {
+			return "", err
+		}
 		v, ok := cm.Data[ref.Key]
 		if !ok {
 			return "", fmt.Errorf("%w: ConfigMap %s/%s has no key %q", render.ErrPatchUnresolvable, ref.Namespace, ref.Name, ref.Key)

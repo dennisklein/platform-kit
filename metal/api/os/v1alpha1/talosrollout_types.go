@@ -49,6 +49,7 @@ const LabelRollout = "os.pk.io/rollout"
 // +kubebuilder:validation:XValidation:rule="(!has(self.target) && !has(oldSelf.target)) || (has(self.target) && has(oldSelf.target) && self.target == oldSelf.target)",message="target is frozen after creation"
 // +kubebuilder:validation:XValidation:rule="(!has(self.nodes) && !has(oldSelf.nodes)) || (has(self.nodes) && has(oldSelf.nodes) && self.nodes == oldSelf.nodes)",message="nodes are frozen after creation"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.proposedBy) || (has(self.proposedBy) && self.proposedBy == oldSelf.proposedBy)",message="proposedBy is frozen after creation"
+// +kubebuilder:validation:XValidation:rule="has(self.requestedBy) == has(oldSelf.requestedBy) && (!has(self.requestedBy) || self.requestedBy == oldSelf.requestedBy)",message="requestedBy is frozen after creation"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.abort) || !oldSelf.abort || (has(self.abort) && self.abort)",message="an abort cannot be taken back"
 // +kubebuilder:validation:XValidation:rule="(has(self.maxUnavailableWorkers) ? self.maxUnavailableWorkers : 1) == (has(oldSelf.maxUnavailableWorkers) ? oldSelf.maxUnavailableWorkers : 1)",message="maxUnavailableWorkers is frozen after creation"
 // +kubebuilder:validation:XValidation:rule="(has(self.drainTimeoutSeconds) ? self.drainTimeoutSeconds : 900) == (has(oldSelf.drainTimeoutSeconds) ? oldSelf.drainTimeoutSeconds : 900)",message="drainTimeoutSeconds is frozen after creation"
@@ -96,6 +97,18 @@ type TalosRolloutSpec struct {
 	// pk-metal/hostoperation-approval, default Allowed).
 	// +kubebuilder:validation:MinLength=1
 	ProposedBy string `json:"proposedBy"`
+
+	// RequestedBy names the people whose change made the operator propose
+	// this rollout: the metal.pk.io/requested-by annotations of the
+	// cluster, its nodes and its patch ConfigMaps. It is frozen after
+	// creation; if one of them names someone else before the approval, the
+	// rollout ends (PlanChanged) and the operator proposes it again. Where
+	// the site forbids self-approval, none of them may approve it.
+	// +kubebuilder:validation:MaxItems=32
+	// +kubebuilder:validation:items:MinLength=1
+	// +listType=set
+	// +optional
+	RequestedBy []string `json:"requestedBy,omitempty"`
 
 	// Approval is the one human gate of the whole rollout.
 	// +optional

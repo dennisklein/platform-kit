@@ -193,12 +193,21 @@ type Patch struct {
 	// Inline is the patch text.
 	// +optional
 	Inline string `json:"inline,omitempty"`
-	// ConfigMapRef reads the patch from a ConfigMap key.
+	// ConfigMapRef reads the patch from a ConfigMap key. The ConfigMap must
+	// have the label os.pk.io/patch; the operator reads no other.
 	// +optional
 	ConfigMapRef *ConfigMapKeyReference `json:"configMapRef,omitempty"`
 }
 
-// ConfigMapKeyReference points at one key of a namespaced ConfigMap.
+// LabelPatch marks a ConfigMap that holds Talos config patches. The operator
+// reads a patch only from a ConfigMap with this label (any value), and
+// admission asks who changed such a ConfigMap
+// (metal.pk.io/requested-by, config/policy/requested-by.yaml), so that a
+// change of a patch is attributed like a change of the cluster.
+const LabelPatch = "os.pk.io/patch"
+
+// ConfigMapKeyReference points at one key of a namespaced ConfigMap. The
+// ConfigMap must carry the label os.pk.io/patch.
 type ConfigMapKeyReference struct {
 	Namespace string `json:"namespace"`
 	Name      string `json:"name"`

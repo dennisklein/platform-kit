@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -116,7 +117,12 @@ func wipe(ctx context.Context, cl client.Client, name, version string, w io.Writ
 		}
 		version = cluster.Spec.TalosVersion
 	}
-	if err := patchAnnotations(ctx, cl, host, map[string]any{metalv1alpha1.AnnotationWipe: version}); err != nil {
+	user, err := requester(ctx, cl)
+	if err != nil {
+		return err
+	}
+	if err := patchAnnotations(ctx, cl, host, map[string]any{
+		metalv1alpha1.AnnotationWipe: version, metalv1alpha1.AnnotationRequestedBy: user}); err != nil {
 		return fmt.Errorf("update host %s: %w", name, err)
 	}
 	fmt.Fprintf(w, "host %s: wipe asked for (it may still hold node %s).\n", name, mark)
@@ -184,6 +190,9 @@ func reinstall(ctx context.Context, cl client.Client, namespace, ref, ack string
 	}
 	if ack != "" {
 		set[metalv1alpha1.AnnotationAckEtcdRisk] = ack
+	}
+	if set[metalv1alpha1.AnnotationRequestedBy], err = requester(ctx, cl); err != nil {
+		return err
 	}
 	if err := patchAnnotations(ctx, cl, c, set); err != nil {
 		return fmt.Errorf("update claim %s: %w", cref, err)
@@ -266,9 +275,15 @@ func replace(ctx context.Context, cl client.Client, namespace, ref, hostName, ac
 	if ack, err = namedLift(ctx, cl, ack); err != nil {
 		return err
 	}
-	if ack != "" {
-		patch["metadata"] = map[string]any{"annotations": map[string]any{metalv1alpha1.AnnotationAckEtcdRisk: ack}}
+	user, err := requester(ctx, cl)
+	if err != nil {
+		return err
 	}
+	annotations := map[string]any{metalv1alpha1.AnnotationRequestedBy: user}
+	if ack != "" {
+		annotations[metalv1alpha1.AnnotationAckEtcdRisk] = ack
+	}
+	patch["metadata"] = map[string]any{"annotations": annotations}
 	raw, err := json.Marshal(patch)
 	if err != nil {
 		return err
@@ -528,17 +543,26 @@ func (p *scalePlan) apply(ctx context.Context, cl client.Client, ack string, w i
 	if err != nil {
 		return err
 	}
+	user, err := requester(ctx, cl)
+	if err != nil {
+		return err
+	}
 	for _, a := range p.add {
+		metav1.SetMetaDataAnnotation(&a.claim.ObjectMeta, metalv1alpha1.AnnotationRequestedBy, user)
 		if err := cl.Create(ctx, a.claim); err != nil {
 			return fmt.Errorf("create claim %s/%s: %w", a.claim.Namespace, a.claim.Name, err)
 		}
 		fmt.Fprintf(w, "created claim %s/%s\n", a.claim.Namespace, a.claim.Name)
 	}
 	for _, c := range p.remove {
+		// The release is the caller's request: the name goes on the claim
+		// before the delete (the requested-by policy).
+		set := map[string]any{metalv1alpha1.AnnotationRequestedBy: user}
 		if ack != "" {
-			if err := patchAnnotations(ctx, cl, c, map[string]any{metalv1alpha1.AnnotationAckEtcdRisk: ack}); err != nil {
-				return fmt.Errorf("acknowledge on claim %s/%s: %w", c.Namespace, c.Name, err)
-			}
+			set[metalv1alpha1.AnnotationAckEtcdRisk] = ack
+		}
+		if err := patchAnnotations(ctx, cl, c, set); err != nil {
+			return fmt.Errorf("name the request on claim %s/%s: %w", c.Namespace, c.Name, err)
 		}
 		if err := cl.Delete(ctx, c); client.IgnoreNotFound(err) != nil {
 			return fmt.Errorf("delete claim %s/%s: %w", c.Namespace, c.Name, err)

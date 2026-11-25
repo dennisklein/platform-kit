@@ -224,6 +224,9 @@ func (r *TalosRolloutReconciler) planPass(ctx context.Context, ro *osv1alpha1.Ta
 		r.set(ro, osv1alpha1.ConditionComplete, metav1.ConditionFalse, osv1alpha1.ReasonRolloutAborted, "aborted before it was approved")
 		return ctrl.Result{}, nil
 	}
+	if stop, err := r.requestersMoved(ctx, ro); stop || err != nil {
+		return ctrl.Result{}, err
+	}
 	plan, blocked, err := r.plan(ctx, ro)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -246,6 +249,44 @@ func (r *TalosRolloutReconciler) planPass(ctx context.Context, ro *osv1alpha1.Ta
 			fmt.Sprintf("%d steps, plan %s", len(plan), shortDigest(ro.Status.PlanHash)))
 	}
 	return ctrl.Result{RequeueAfter: replanInterval}, nil
+}
+
+// requestersMoved ends an unapproved rollout that the operator proposed
+// when a person who is not in its spec.requestedBy changed what it applies
+// since: the plan, re-made on every pass, would carry their change, and
+// they could approve it. The rollout ends as PlanChanged, unrun, and the
+// proposer proposes it again with their name.
+func (r *TalosRolloutReconciler) requestersMoved(ctx context.Context, ro *osv1alpha1.TalosRollout) (bool, error) {
+	if r.Proposer == "" || ro.Spec.ProposedBy != r.Proposer {
+		return false, nil
+	}
+	cluster := &osv1alpha1.TalosCluster{}
+	if err := r.Get(ctx, types.NamespacedName{Name: ro.Spec.ClusterRef.Name}, cluster); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	members, err := clusterMembers(ctx, r.Client, cluster.Name)
+	if err != nil {
+		return false, err
+	}
+	now, err := clusterRequesters(ctx, r.Client, r.Namespace, cluster, members)
+	if err != nil {
+		return false, err
+	}
+	var added []string
+	for _, n := range now {
+		if !slices.Contains(ro.Spec.RequestedBy, n) {
+			added = append(added, n)
+		}
+	}
+	if len(added) == 0 {
+		return false, nil
+	}
+	why := strings.Join(added, ", ") + " changed what this rollout applies after it was proposed; nothing ran. " +
+		"The operator proposes it again, naming them"
+	r.set(ro, osv1alpha1.ConditionApproved, metav1.ConditionFalse, osv1alpha1.ReasonPlanChanged, why)
+	r.set(ro, osv1alpha1.ConditionProgressing, metav1.ConditionFalse, osv1alpha1.ReasonPlanChanged, "the requesters changed")
+	r.set(ro, osv1alpha1.ConditionComplete, metav1.ConditionFalse, osv1alpha1.ReasonPlanChanged, why)
+	return true, nil
 }
 
 // runPass runs an approved rollout one decision further.

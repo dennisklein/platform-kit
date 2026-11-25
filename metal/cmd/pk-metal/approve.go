@@ -240,11 +240,11 @@ func approve(ctx context.Context, cl client.Client, a approval) error {
 		return changed
 	}
 	fmt.Fprint(a.Out, plan)
-	if op.Spec.ProposedBy == a.User && a.Expect == "" {
+	if role := ownRole(a.User, op.Spec.ProposedBy, op.Spec.RequestedBy); role != "" && a.Expect == "" {
 		// approvalPlan refused it if the site forbids it. pk-metal top (a
 		// set Expect) showed the plan on its own screen and reports only the
 		// outcome.
-		fmt.Fprint(a.Out, "\n"+readSelfApproval(ctx, cl).note("operation"))
+		fmt.Fprint(a.Out, "\n"+readSelfApproval(ctx, cl).note("operation", role))
 	}
 
 	shown := op.UID
@@ -360,10 +360,10 @@ func approvalPlan(ctx context.Context, cl client.Client, namespace, name, user s
 	case !op.ApprovalRequired():
 		return nil, "", fmt.Errorf("operation %s does not need approval; the operator runs it on its own", ref)
 	}
-	if op.Spec.ProposedBy == user {
+	if role := ownRole(user, op.Spec.ProposedBy, op.Spec.RequestedBy); role != "" {
 		// Admission decides; refusing here, where the setting is readable,
 		// spares the person a plan they cannot approve.
-		if err := readSelfApproval(ctx, cl).ownProposal("operation "+ref, user); err != nil {
+		if err := readSelfApproval(ctx, cl).ownProposal("operation "+ref, user, role); err != nil {
 			return nil, "", err
 		}
 	}
@@ -487,6 +487,9 @@ func renderPlan(op *metalv1alpha1.HostOperation, pc planContext) string {
 		fmt.Fprintf(&b, "  why:         %s\n", op.Spec.Reason)
 	}
 	fmt.Fprintf(&b, "  proposed by: %s\n", orDash(op.Spec.ProposedBy))
+	if len(op.Spec.RequestedBy) > 0 {
+		fmt.Fprintf(&b, "  asked by:    %s\n", strings.Join(op.Spec.RequestedBy, ", "))
+	}
 	if r := op.Spec.RolloutRef; r != nil {
 		fmt.Fprintf(&b, "  rollout:     %s (plan %s); the rollout's approval covers this operation\n", r.Name, r.PlanHash)
 	}

@@ -85,12 +85,12 @@ func (r *HostOperationReconciler) auditOperation(ctx context.Context, before, af
 	o := opObject(after)
 	ref := after.Namespace + "/" + after.Name
 	if len(before.Status.Conditions) == 0 && len(after.Status.Conditions) > 0 {
-		l.Proposed(o, after.Spec.ProposedBy, after.Spec.HostRef.Name, opPlan(after), after.ApprovalRequired())
+		l.Proposed(o, after.Spec.ProposedBy, after.Spec.RequestedBy, after.Spec.HostRef.Name, opPlan(after), after.ApprovalRequired())
 		r.auditAcks(ctx, after)
 	}
 	if !approvedByPerson(before.Status.Conditions, metalv1alpha1.ReasonApproved) &&
 		approvedByPerson(after.Status.Conditions, metalv1alpha1.ReasonApproved) {
-		l.Approved(o, after.Spec.ProposedBy, after.Spec.Approval.ApprovedBy, "")
+		l.Approved(o, after.Spec.ProposedBy, after.Spec.RequestedBy, after.Spec.Approval.ApprovedBy, "")
 	}
 	actions := after.Spec.Actions
 	started := func(i int) {
@@ -197,6 +197,20 @@ func rolloutPhase(c *metav1.Condition) string {
 	return string(metalv1alpha1.OperationFailed)
 }
 
+// pauseReason is why the rollout waits for a person between nodes: they
+// paused it (spec.paused), or it waits to be resumed after its first node.
+// Empty when it waits for neither.
+func pauseReason(ro *osv1alpha1.TalosRollout) string {
+	c := meta.FindStatusCondition(ro.Status.Conditions, osv1alpha1.ConditionPaused)
+	if c == nil || c.Status != metav1.ConditionTrue {
+		return ""
+	}
+	if c.Reason == osv1alpha1.ReasonPausedByPerson || c.Reason == osv1alpha1.ReasonCanaryPause {
+		return c.Reason
+	}
+	return ""
+}
+
 // auditRollout writes the lines for what changed between the status before
 // and after one successful status write of ro.
 func auditRollout(l *audit.Logger, before, after *osv1alpha1.TalosRollout) {
@@ -205,11 +219,22 @@ func auditRollout(l *audit.Logger, before, after *osv1alpha1.TalosRollout) {
 	}
 	o := rolloutObject(after)
 	if len(before.Status.Conditions) == 0 && len(after.Status.Conditions) > 0 {
-		l.Proposed(o, after.Spec.ProposedBy, after.Spec.ClusterRef.Name, rolloutPlan(after), true)
+		l.Proposed(o, after.Spec.ProposedBy, after.Spec.RequestedBy, after.Spec.ClusterRef.Name, rolloutPlan(after), true)
 	}
 	if !approvedByPerson(before.Status.Conditions, osv1alpha1.ReasonPlanApproved) &&
 		approvedByPerson(after.Status.Conditions, osv1alpha1.ReasonPlanApproved) {
-		l.Approved(o, after.Spec.ProposedBy, after.Spec.Approval.ApprovedBy, after.Spec.Approval.PlanHash)
+		l.Approved(o, after.Spec.ProposedBy, after.Spec.RequestedBy, after.Spec.Approval.ApprovedBy, after.Spec.Approval.PlanHash)
+	}
+	// Who paused, resumed or aborted a rollout is the person the rollout's
+	// metal.pk.io/requested-by names: admission asks for it with each of
+	// these changes (config/policy/requested-by.yaml).
+	actor := after.Annotations[metalv1alpha1.AnnotationRequestedBy]
+	wasHeld, isHeld := pauseReason(before), pauseReason(after)
+	switch {
+	case isHeld == osv1alpha1.ReasonPausedByPerson && wasHeld != isHeld:
+		l.Paused(o, actor)
+	case wasHeld != "" && isHeld == "" && !rolloutFinished(after):
+		l.Resumed(o, actor)
 	}
 	if after.Spec.Approval.ApprovedBy != "" {
 		for i, st := range after.Status.Steps {
@@ -247,7 +272,11 @@ func auditRollout(l *audit.Logger, before, after *osv1alpha1.TalosRollout) {
 		if first != nil {
 			ran = c.LastTransitionTime.Sub(first.Time)
 		}
-		l.Finished(o, rolloutPhase(c), c.Reason, "", ran)
+		why := ""
+		if c.Reason == osv1alpha1.ReasonRolloutAborted && actor != "" {
+			why = "aborted by " + actor
+		}
+		l.Finished(o, rolloutPhase(c), c.Reason, why, ran)
 	}
 }
 

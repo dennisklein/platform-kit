@@ -1222,6 +1222,11 @@ func (in *TalosRolloutSpec) DeepCopyInto(out *TalosRolloutSpec) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.RequestedBy != nil {
+		in, out := &in.RequestedBy, &out.RequestedBy
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	out.Approval = in.Approval
 }
 

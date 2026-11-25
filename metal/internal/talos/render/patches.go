@@ -12,6 +12,18 @@ import (
 // watch re-renders once it appears.
 var ErrPatchUnresolvable = errors.New("patch unresolvable")
 
+// PatchConfigMapLabeled refuses a patch ConfigMap without the label
+// os.pk.io/patch. Admission records who changed a labeled one
+// (metal.pk.io/requested-by); a patch from any other ConfigMap would change
+// the machines with nobody named.
+func PatchConfigMapLabeled(labels map[string]string, ref osv1alpha1.ConfigMapKeyReference) error {
+	if _, ok := labels[osv1alpha1.LabelPatch]; ok {
+		return nil
+	}
+	return fmt.Errorf("%w: ConfigMap %s/%s has no label %s; add it: kubectl -n %s label configmap %s %s=true",
+		ErrPatchUnresolvable, ref.Namespace, ref.Name, osv1alpha1.LabelPatch, ref.Namespace, ref.Name, osv1alpha1.LabelPatch)
+}
+
 // ConfigMapReader reads one ConfigMap key. It returns an error wrapping
 // ErrPatchUnresolvable when the ConfigMap or the key is missing; any other
 // error is a transport failure.

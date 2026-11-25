@@ -8,3 +8,4 @@ resources:
   - endpointprofile-guard.yaml
   - taloscluster-credentials-guard.yaml
   - guard-lift.yaml
+  - requested-by.yaml

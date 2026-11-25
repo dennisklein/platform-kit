@@ -1452,6 +1452,11 @@ func (in *HostOperationList) DeepCopyObject() runtime.Object {
 func (in *HostOperationSpec) DeepCopyInto(out *HostOperationSpec) {
 	*out = *in
 	out.HostRef = in.HostRef
+	if in.RequestedBy != nil {
+		in, out := &in.RequestedBy, &out.RequestedBy
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.Actions != nil {
 		in, out := &in.Actions, &out.Actions
 		*out = make([]HostOperationAction, len(*in))

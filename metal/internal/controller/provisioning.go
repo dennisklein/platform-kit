@@ -631,10 +631,13 @@ func (r *HostClaimReconciler) provisionOp(claim *metalv1alpha1.HostClaim, hostNa
 		Spec: metalv1alpha1.HostOperationSpec{
 			HostRef:    metalv1alpha1.Reference{Name: hostName},
 			ProposedBy: r.Proposer,
-			Reason:     reasonProvisioning,
-			PlanHash:   planHash(plan),
-			Actions:    actions,
-			Approval:   metalv1alpha1.OperationApproval{Required: ptr.To(required)},
+			// Whoever last changed the claim (a reinstall mark, a new
+			// machine) or the node asked for this install.
+			RequestedBy: metalv1alpha1.RequestedBy(claim.Annotations, node.Annotations),
+			Reason:      reasonProvisioning,
+			PlanHash:    planHash(plan),
+			Actions:     actions,
+			Approval:    metalv1alpha1.OperationApproval{Required: ptr.To(required)},
 		},
 	}
 }
@@ -1320,8 +1323,10 @@ func (r *HostClaimReconciler) releaseOp(ctx context.Context, claim *metalv1alpha
 			Labels: labels, Annotations: annotations,
 		},
 		Spec: metalv1alpha1.HostOperationSpec{
-			HostRef:                 metalv1alpha1.Reference{Name: host.Name},
-			ProposedBy:              r.Proposer,
+			HostRef:    metalv1alpha1.Reference{Name: host.Name},
+			ProposedBy: r.Proposer,
+			// The claim's deletion or new machine asked for this release.
+			RequestedBy:             metalv1alpha1.RequestedBy(claim.Annotations),
 			Reason:                  reasonRelease,
 			Actions:                 actions,
 			Approval:                metalv1alpha1.OperationApproval{Required: ptr.To(releaseNeedsPerson(claim, host, provisionOps))},

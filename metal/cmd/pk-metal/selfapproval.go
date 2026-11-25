@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -44,32 +45,48 @@ func (s selfApproval) allowed() bool {
 	return !s.Known || s.Value == "" || s.Value == "Allowed"
 }
 
-// ownProposal refuses an approval of what the user proposed when the site
-// forbids it, and says what to do instead. what is "operation <ns>/<name>"
-// or "rollout <name>".
-func (s selfApproval) ownProposal(what, user string) error {
+// ownRole says how the user took part in a proposal: "proposed" when it
+// names them as its proposer, "asked for" when its spec.requestedBy names
+// them (an edit of theirs made the operator propose it), and "" when
+// neither. The approval policies treat both alike.
+func ownRole(user, proposedBy string, requestedBy []string) string {
+	switch {
+	case user == "":
+		return ""
+	case proposedBy == user:
+		return "proposed"
+	case slices.Contains(requestedBy, user):
+		return "asked for"
+	}
+	return ""
+}
+
+// ownProposal refuses an approval of what the user proposed or asked for
+// (role, from ownRole) when the site forbids it, and says what to do
+// instead. what is "operation <ns>/<name>" or "rollout <name>".
+func (s selfApproval) ownProposal(what, user, role string) error {
 	if s.allowed() {
 		return nil
 	}
 	where := "ConfigMap " + operatorNamespace + "/" + approvalParams
 	if s.Value == "Forbidden" {
-		return fmt.Errorf("%s was proposed by you (%s), and this site forbids approving your own proposal "+
-			"(selfApproval: Forbidden in %s); another person must approve it", what, user, where)
+		return fmt.Errorf("%s was %s by you (%s), and this site forbids approving your own proposal "+
+			"(selfApproval: Forbidden in %s); another person must approve it", what, role, user, where)
 	}
-	return fmt.Errorf("%s was proposed by you (%s), and selfApproval in %s is %q, which is not Allowed or "+
+	return fmt.Errorf("%s was %s by you (%s), and selfApproval in %s is %q, which is not Allowed or "+
 		"Forbidden and so counts as Forbidden; another person must approve it, or an admin sets it to "+
-		"Allowed or Forbidden", what, user, where, s.Value)
+		"Allowed or Forbidden", what, role, user, where, s.Value)
 }
 
-// note is what approve says before it asks about the user's own proposal:
-// the record will name the same person twice.
-func (s selfApproval) note(what string) string {
+// note is what approve says before it asks about the user's own proposal
+// (role, from ownRole): the record will name the same person twice.
+func (s selfApproval) note(what, role string) string {
 	if s.Known {
-		return fmt.Sprintf("You proposed this %s yourself. This site allows you to approve it "+
-			"(selfApproval); the record names you as proposer and approver.\n", what)
+		return fmt.Sprintf("You %s this %s yourself. This site allows you to approve it "+
+			"(selfApproval); the record names you as requester and approver.\n", role, what)
 	}
-	return fmt.Sprintf("You proposed this %s yourself. If this site forbids that (selfApproval), "+
-		"the cluster refuses the approval and another person must approve it.\n", what)
+	return fmt.Sprintf("You %s this %s yourself. If this site forbids that (selfApproval), "+
+		"the cluster refuses the approval and another person must approve it.\n", role, what)
 }
 
 // approvalRefused is the error a person reads when the API server refuses an

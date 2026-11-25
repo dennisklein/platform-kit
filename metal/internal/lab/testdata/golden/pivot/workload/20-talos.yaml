@@ -24,6 +24,9 @@ apiVersion: os.pk.io/v1alpha1
 kind: TalosCluster
 metadata:
   name: work
+  # lab.sh applies this as lab-admin: the requester (metal.pk.io/requested-by).
+  annotations:
+    metal.pk.io/requested-by: lab-admin
 spec:
   talosVersion: v1.14.6
   kubernetesVersion: v1.36.2
@@ -62,6 +65,9 @@ apiVersion: os.pk.io/v1alpha1
 kind: TalosNode
 metadata:
   name: node-2
+  # lab.sh applies this as lab-admin: the requester (metal.pk.io/requested-by).
+  annotations:
+    metal.pk.io/requested-by: lab-admin
 spec:
   clusterRef:
     name: work

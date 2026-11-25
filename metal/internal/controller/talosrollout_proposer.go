@@ -7,14 +7,17 @@ import (
 	"strings"
 
 	"github.com/opencontainers/go-digest"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
+	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 )
 
 // RolloutProposer proposes, and never starts, the rollout a cluster needs:
@@ -30,6 +33,9 @@ type RolloutProposer struct {
 	client.Client
 	// Proposer is the operator's own username, stamped as proposedBy.
 	Proposer string
+	// Namespace is the operator's: the only one it reads patch ConfigMaps
+	// from.
+	Namespace string
 }
 
 // labelProposal marks a rollout the operator proposed with the hash of what
@@ -81,6 +87,9 @@ func (r *RolloutProposer) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, nil
 	}
 	ro.Spec.ProposedBy = r.Proposer
+	if ro.Spec.RequestedBy, err = clusterRequesters(ctx, r.Client, r.Namespace, cluster, members); err != nil {
+		return ctrl.Result{}, err
+	}
 	base := ro.Name
 	for round := 1; round <= maxProposalRounds; round++ {
 		if round > 1 {
@@ -107,6 +116,42 @@ func (r *RolloutProposer) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 	logf.FromContext(ctx).Info("proposed rollout", "cluster", cluster.Name, "rollout", ro.Name, "kind", ro.Spec.Kind)
 	return ctrl.Result{}, nil
+}
+
+// clusterRequesters names the people who last changed what a cluster's
+// rollout applies (metal.pk.io/requested-by): the cluster, its nodes, and
+// the patch ConfigMaps that either names. Any of their edits may be in the
+// plan, so none of them approves it where the site forbids self-approval.
+// A ConfigMap that is gone, or outside namespace (the operator's, the only
+// one it reads patches from), adds nothing: the render holds on it.
+func clusterRequesters(ctx context.Context, c client.Reader, namespace string, cluster *osv1alpha1.TalosCluster,
+	members []osv1alpha1.TalosNode) ([]string, error) {
+	annotations := []map[string]string{cluster.Annotations}
+	patches := slices.Clone(cluster.Spec.Patches)
+	for i := range members {
+		annotations = append(annotations, members[i].Annotations)
+		patches = append(patches, members[i].Spec.Patches...)
+	}
+	seen := map[types.NamespacedName]bool{}
+	for _, p := range patches {
+		if p.ConfigMapRef == nil || p.ConfigMapRef.Namespace != namespace {
+			continue
+		}
+		key := types.NamespacedName{Namespace: p.ConfigMapRef.Namespace, Name: p.ConfigMapRef.Name}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		cm := &corev1.ConfigMap{}
+		if err := c.Get(ctx, key, cm); err != nil {
+			if client.IgnoreNotFound(err) != nil {
+				return nil, err
+			}
+			continue
+		}
+		annotations = append(annotations, cm.Annotations)
+	}
+	return metalv1alpha1.RequestedBy(annotations...), nil
 }
 
 // needed is the rollout the cluster needs first, nil when none.

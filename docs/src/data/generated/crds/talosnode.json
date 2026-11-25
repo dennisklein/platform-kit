@@ -301,7 +301,7 @@
       "depth": 2,
       "type": "object",
       "required": false,
-      "description": "ConfigMapRef reads the patch from a ConfigMap key."
+      "description": "ConfigMapRef reads the patch from a ConfigMap key. The ConfigMap must have the label os.pk.io/patch; the operator reads no other."
     },
     {
       "path": "spec.patches[].configMapRef.key",

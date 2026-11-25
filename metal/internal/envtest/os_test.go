@@ -476,11 +476,21 @@ func TestOSLane(t *testing.T) {
 			return c != nil && c.Reason == osv1alpha1.ReasonPatchesUnresolvable
 		}, waitFor, tick, "the bundle watch must re-render")
 
-		require.NoError(t, cl.Create(ctx, &corev1.ConfigMap{
+		patches := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Name: "other-patches", Namespace: "default"},
 			Data: map[string]string{"sysctl.yaml": "apiVersion: v1alpha1\nkind: SysctlConfig\n" +
 				"params:\n  net.core.somaxconn: \"65535\"\n"},
-		}))
+		}
+		require.NoError(t, cl.Create(ctx, patches))
+		// Without the patch label the operator does not read it: nobody
+		// would be named for a change of it.
+		require.Eventually(t, func() bool {
+			_, c := nodeCondition("other-1", osv1alpha1.ConditionRendered)
+			return c != nil && c.Reason == osv1alpha1.ReasonPatchesUnresolvable &&
+				strings.Contains(c.Message, "has no label os.pk.io/patch")
+		}, waitFor, tick, "an unlabeled patch ConfigMap holds the render")
+		patches.Labels = map[string]string{osv1alpha1.LabelPatch: "true"}
+		require.NoError(t, cl.Update(ctx, patches))
 		require.Eventually(t, func() bool {
 			_, c := nodeCondition("other-1", osv1alpha1.ConditionRendered)
 			return c != nil && c.Status == metav1.ConditionTrue

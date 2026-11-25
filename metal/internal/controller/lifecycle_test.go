@@ -492,6 +492,7 @@ func TestReinstallLeavesEtcdBeforeTheBoot(t *testing.T) {
 func TestWipeIsProposedOnRequestAndClearsTheMark(t *testing.T) {
 	host := onPath(&metalv1alpha1.Host{ObjectMeta: metav1.ObjectMeta{Name: "host-a", Annotations: map[string]string{
 		metalv1alpha1.AnnotationDiskNotWiped: "lab/w-1", metalv1alpha1.AnnotationWipe: "v1.14.6",
+		metalv1alpha1.AnnotationRequestedBy: "alice",
 	}}})
 	ep := &metalv1alpha1.ManagementEndpoint{ObjectMeta: metav1.ObjectMeta{Name: "bmc"}}
 	ep.Status.Conditions = []metav1.Condition{{Type: metalv1alpha1.ConditionInventoried, Status: metav1.ConditionTrue, Reason: "x", LastTransitionTime: metav1.Now()}}
@@ -525,6 +526,7 @@ func TestWipeIsProposedOnRequestAndClearsTheMark(t *testing.T) {
 	assert.Equal(t, []string{"ejectMedia", "insertMedia", "setBootOverride", "powerCycle"}, opActionKeys(op))
 	assert.Equal(t, a.Status.Digest, op.Spec.Actions[1].InsertMedia.Digest, "the wipe image is pinned to what the operator downloaded")
 	assert.True(t, *op.Spec.Approval.Required, "erasing a disk is a person's decision")
+	assert.Equal(t, []string{"alice"}, op.Spec.RequestedBy, "the person who asked for the wipe is named")
 
 	meta.SetStatusCondition(&op.Status.Conditions, metav1.Condition{Type: metalv1alpha1.ConditionExecuted,
 		Status: metav1.ConditionTrue, Reason: metalv1alpha1.ReasonStepsSucceeded})

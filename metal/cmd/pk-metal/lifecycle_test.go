@@ -59,7 +59,7 @@ func scaleFleet() []client.Object {
 
 func TestScalePlanGrows(t *testing.T) {
 	ctx := context.Background()
-	cl := fakeClient(scaleFleet()...)
+	cl := fakeClientAs("alice", scaleFleet()...)
 	p, err := planScale(ctx, cl, "lab", 4, 2, "default")
 	require.NoError(t, err)
 	var out bytes.Buffer
@@ -78,6 +78,7 @@ check: each added TalosNode's install disk and network links must fit the host i
 	assert.Equal(t, "asset-h-8", c.Spec.AssetRef.Name)
 	assert.Equal(t, "1", c.Spec.SystemRef.Name)
 	assert.Equal(t, "cp-4", c.Spec.OS.NodeRef.Name)
+	assert.Equal(t, "alice", c.Annotations[metalv1alpha1.AnnotationRequestedBy], "the claim names who asked for it")
 }
 
 func TestScalePlanShrinksThroughAnEvenCountOnlyWhenAcknowledged(t *testing.T) {
@@ -131,6 +132,7 @@ func TestReinstallBindsTheRequestToTheInstall(t *testing.T) {
 	require.NoError(t, cl.Get(ctx, client.ObjectKeyFromObject(c), got))
 	assert.Equal(t, "2026-11-02T03:04:05Z", got.Annotations[metalv1alpha1.AnnotationReinstall])
 	assert.Equal(t, "alice: disk swap", got.Annotations[metalv1alpha1.AnnotationAckEtcdRisk], "the ack names who gave it")
+	assert.Equal(t, "alice", got.Annotations[metalv1alpha1.AnnotationRequestedBy], "the request names who asked for it")
 }
 
 func TestWipeAndReplace(t *testing.T) {
@@ -142,6 +144,7 @@ func TestWipeAndReplace(t *testing.T) {
 	h := &metalv1alpha1.Host{}
 	require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: "h-7"}, h))
 	assert.Equal(t, "v1.14.6", h.Annotations[metalv1alpha1.AnnotationWipe], "the version of the node's cluster")
+	assert.Equal(t, "alice", h.Annotations[metalv1alpha1.AnnotationRequestedBy], "the wipe names who asked for it")
 
 	assert.ErrorContains(t, replace(ctx, cl, "default", "cp-2", "h-7", "", &out), "not wiped")
 	require.NoError(t, replace(ctx, cl, "default", "cp-2", "h-9", "failed PSU", &out))
@@ -149,4 +152,5 @@ func TestWipeAndReplace(t *testing.T) {
 	require.NoError(t, cl.Get(ctx, client.ObjectKey{Namespace: "default", Name: "cp-2"}, c))
 	assert.Equal(t, "asset-h-9", c.Spec.AssetRef.Name)
 	assert.Equal(t, "alice: failed PSU", c.Annotations[metalv1alpha1.AnnotationAckEtcdRisk], "the ack names who gave it")
+	assert.Equal(t, "alice", c.Annotations[metalv1alpha1.AnnotationRequestedBy], "the move names who asked for it")
 }

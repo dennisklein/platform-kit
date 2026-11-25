@@ -68,6 +68,7 @@ const (
 // person who proposed the operation.
 //
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.proposedBy) || (has(self.proposedBy) && self.proposedBy == oldSelf.proposedBy)",message="proposedBy is frozen after creation"
+// +kubebuilder:validation:XValidation:rule="has(self.requestedBy) == has(oldSelf.requestedBy) && (!has(self.requestedBy) || self.requestedBy == oldSelf.requestedBy)",message="requestedBy is frozen after creation"
 // +kubebuilder:validation:XValidation:rule="has(self.ttlSecondsAfterFinished) == has(oldSelf.ttlSecondsAfterFinished) && (!has(self.ttlSecondsAfterFinished) || self.ttlSecondsAfterFinished == oldSelf.ttlSecondsAfterFinished)",message="ttlSecondsAfterFinished is frozen after creation"
 // +kubebuilder:validation:XValidation:rule="has(self.rolloutRef) == has(oldSelf.rolloutRef) && (!has(self.rolloutRef) || self.rolloutRef == oldSelf.rolloutRef)",message="rolloutRef is frozen after creation"
 type HostOperationSpec struct {
@@ -90,6 +91,18 @@ type HostOperationSpec struct {
 	// the ConfigMap pk-metal/hostoperation-approval, default Allowed).
 	// +kubebuilder:validation:MinLength=1
 	ProposedBy string `json:"proposedBy"`
+
+	// RequestedBy names the people whose change made the operator propose
+	// this operation: the metal.pk.io/requested-by annotations of the
+	// objects behind it (the claim, the node, the Host, the profiles). It
+	// is frozen after creation. Where the site forbids self-approval, none
+	// of them may approve the operation. Empty for an operation a person
+	// proposed; that person is its proposer.
+	// +kubebuilder:validation:MaxItems=32
+	// +kubebuilder:validation:items:MinLength=1
+	// +listType=set
+	// +optional
+	RequestedBy []string `json:"requestedBy,omitempty"`
 
 	// PlanHash binds a proposed operation to the desired state it serves — an
 	// unchanged hash never spawns a second op (the convergence reconcilers' guard).

@@ -130,7 +130,7 @@ spec:
                     description: 'Patch is one Talos configuration patch: a multi-document YAML strategic merge patch (documents merge by apiVersion, kind and name; `$patch: delete` removes one), given inline or read from a ConfigMap key.'
                     properties:
                       configMapRef:
-                        description: ConfigMapRef reads the patch from a ConfigMap key.
+                        description: ConfigMapRef reads the patch from a ConfigMap key. The ConfigMap must have the label os.pk.io/patch; the operator reads no other.
                         properties:
                           key:
                             type: string

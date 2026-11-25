@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
+	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 )
 
 func init() {
@@ -223,6 +224,9 @@ func renderRollout(ro *osv1alpha1.TalosRollout) string {
 		fmt.Fprintf(&b, " to %s", t)
 	}
 	fmt.Fprintf(&b, "\n  proposed by %s\n", orDash(ro.Spec.ProposedBy))
+	if len(ro.Spec.RequestedBy) > 0 {
+		fmt.Fprintf(&b, "  asked by %s\n", strings.Join(ro.Spec.RequestedBy, ", "))
+	}
 	if ro.Spec.Approval.ApprovedBy != "" {
 		fmt.Fprintf(&b, "  approved by %s for plan %s\n", ro.Spec.Approval.ApprovedBy, shortDigest(ro.Spec.Approval.PlanHash))
 	}
@@ -315,20 +319,20 @@ func approveRollout(ctx context.Context, cl client.Client, a rolloutApproval) er
 	if err := approvableRollout(ro); err != nil {
 		return err
 	}
-	own := ro.Spec.ProposedBy == a.User
+	role := ownRole(a.User, ro.Spec.ProposedBy, ro.Spec.RequestedBy)
 	var self selfApproval
-	if own {
+	if role != "" {
 		// Admission decides; refusing here, where the setting is readable,
 		// spares the person a plan they cannot approve.
 		self = readSelfApproval(ctx, cl)
-		if err := self.ownProposal("rollout "+ro.Name, a.User); err != nil {
+		if err := self.ownProposal("rollout "+ro.Name, a.User, role); err != nil {
 			return err
 		}
 	}
 	shown := renderRollout(ro)
 	fmt.Fprint(a.Out, shown)
-	if own {
-		fmt.Fprint(a.Out, "\n"+self.note("rollout"))
+	if role != "" {
+		fmt.Fprint(a.Out, "\n"+self.note("rollout", role))
 	}
 	if !a.Yes {
 		if !a.Interactive {
@@ -413,9 +417,14 @@ func resumeRollout(ctx context.Context, cl client.Client, name string, w io.Writ
 	if ro.Status.PlanHash == "" {
 		return fmt.Errorf("rollout %s has no plan", name)
 	}
+	user, err := requester(ctx, cl)
+	if err != nil {
+		return err
+	}
 	patch, _ := json.Marshal(map[string]any{
 		"metadata": map[string]any{"uid": ro.UID,
-			"annotations": map[string]any{osv1alpha1.AnnotationRolloutResume: ro.Status.PlanHash}},
+			"annotations": map[string]any{osv1alpha1.AnnotationRolloutResume: ro.Status.PlanHash,
+				metalv1alpha1.AnnotationRequestedBy: user}},
 		"spec": map[string]any{"paused": nil},
 	})
 	if err := cl.Patch(ctx, ro, client.RawPatch(types.MergePatchType, patch)); err != nil {
@@ -430,9 +439,14 @@ func pauseRollout(ctx context.Context, cl client.Client, name string, w io.Write
 	if err != nil {
 		return err
 	}
+	user, err := requester(ctx, cl)
+	if err != nil {
+		return err
+	}
 	patch, _ := json.Marshal(map[string]any{
-		"metadata": map[string]any{"uid": ro.UID},
-		"spec":     map[string]any{"paused": true},
+		"metadata": map[string]any{"uid": ro.UID,
+			"annotations": map[string]any{metalv1alpha1.AnnotationRequestedBy: user}},
+		"spec": map[string]any{"paused": true},
 	})
 	if err := cl.Patch(ctx, ro, client.RawPatch(types.MergePatchType, patch)); err != nil {
 		return fmt.Errorf("pause rollout %s: %w", name, err)
@@ -464,9 +478,14 @@ func abortRollout(ctx context.Context, cl client.Client, name string, yes bool, 
 			return errors.New("not aborted; nothing changed")
 		}
 	}
+	user, err := requester(ctx, cl)
+	if err != nil {
+		return err
+	}
 	patch, _ := json.Marshal(map[string]any{
-		"metadata": map[string]any{"uid": ro.UID},
-		"spec":     map[string]any{"abort": true},
+		"metadata": map[string]any{"uid": ro.UID,
+			"annotations": map[string]any{metalv1alpha1.AnnotationRequestedBy: user}},
+		"spec": map[string]any{"abort": true},
 	})
 	if err := cl.Patch(ctx, ro, client.RawPatch(types.MergePatchType, patch)); err != nil {
 		return fmt.Errorf("abort rollout %s: %w", name, err)

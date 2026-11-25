@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
+	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 )
 
 const planHash = "sha256:00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
@@ -204,7 +205,7 @@ func TestResumePauseAbort(t *testing.T) {
 	ro := planned()
 	ro.Spec.Approval = osv1alpha1.RolloutApproval{ApprovedBy: "alice", PlanHash: planHash}
 	ro.Spec.Paused = true
-	cl := fakeClient(ro)
+	cl := fakeClientAs("bob", ro)
 	get := func() *osv1alpha1.TalosRollout {
 		got := &osv1alpha1.TalosRollout{}
 		require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: ro.Name}, got))
@@ -213,6 +214,7 @@ func TestResumePauseAbort(t *testing.T) {
 	require.NoError(t, resumeRollout(ctx, cl, ro.Name, &bytes.Buffer{}))
 	assert.False(t, get().Spec.Paused)
 	assert.Equal(t, planHash, get().Annotations[osv1alpha1.AnnotationRolloutResume], "resume names the plan it lets go on")
+	assert.Equal(t, "bob", get().Annotations[metalv1alpha1.AnnotationRequestedBy], "resume names who let the rollout go on")
 
 	require.NoError(t, pauseRollout(ctx, cl, ro.Name, &bytes.Buffer{}))
 	assert.True(t, get().Spec.Paused)
@@ -235,12 +237,13 @@ func TestUpgrade(t *testing.T) {
 			Spec: osv1alpha1.TalosClusterSpec{TalosVersion: "v1.14.6", KubernetesVersion: "v1.36.2"}}
 	}
 	t.Run("sets the spec and shows the proposed plan", func(t *testing.T) {
-		cl := fakeClient(cluster(), planned())
+		cl := fakeClientAs("bob", cluster(), planned())
 		var out bytes.Buffer
 		require.NoError(t, upgrade(ctx, cl, "talos", "lab", "v1.14.7", time.Second, time.Millisecond, &out))
 		c := &osv1alpha1.TalosCluster{}
 		require.NoError(t, cl.Get(ctx, client.ObjectKey{Name: "lab"}, c))
 		assert.Equal(t, "v1.14.7", c.Spec.TalosVersion)
+		assert.Equal(t, "bob", c.Annotations[metalv1alpha1.AnnotationRequestedBy], "the upgrade names who asked for it")
 		assert.Contains(t, out.String(), "lab-talosupgrade-1a2b3c4d")
 		assert.Contains(t, out.String(), "pk-metal rollout approve")
 	})
@@ -254,7 +257,7 @@ func TestUpgrade(t *testing.T) {
 		assert.Equal(t, "v1.36.2", c.Spec.KubernetesVersion)
 	})
 	t.Run("times out when nothing is proposed", func(t *testing.T) {
-		cl := fakeClient(cluster())
+		cl := fakeClientAs("bob", cluster())
 		err := upgrade(ctx, cl, "kubernetes", "lab", "v1.36.3", 5*time.Millisecond, time.Millisecond, &bytes.Buffer{})
 		require.ErrorContains(t, err, "no rollout planned")
 	})

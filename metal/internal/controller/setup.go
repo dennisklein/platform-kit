@@ -277,7 +277,7 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 				Factory: o.Factory, ResolveImage: o.ResolveImage, Dial: o.TalosDial,
 				Workload: o.Workload, GateInterval: o.GateInterval, Audit: o.Audit,
 			},
-			propose: &RolloutProposer{Client: c, Proposer: o.Proposer},
+			propose: &RolloutProposer{Client: c, Proposer: o.Proposer, Namespace: o.CredentialsNamespace},
 		}
 	case LaneMaintenanceWindow:
 		return "maintenancewindow", &MaintenanceWindowReconciler{Client: c}

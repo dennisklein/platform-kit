@@ -33,31 +33,59 @@ func TestSchema(t *testing.T) {
 	}{
 		{
 			name:  "proposed",
-			write: func(l *Logger) { l.Proposed(op, "alice", "host-1", "talosReboot, waitNodeReady", true) },
+			write: func(l *Logger) { l.Proposed(op, "alice", nil, "host-1", "talosReboot, waitNodeReady", true) },
 			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"proposed","kind":"HostOperation",` +
 				`"namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"alice","proposedBy":"alice",` +
 				`"target":"host-1","plan":"talosReboot, waitNodeReady","approvalRequired":true}`,
 		},
 		{
 			name:  "proposed, no approval needed",
-			write: func(l *Logger) { l.Proposed(op, "op", "host-1", "powerOff", false) },
+			write: func(l *Logger) { l.Proposed(op, "op", nil, "host-1", "powerOff", false) },
 			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"proposed","kind":"HostOperation",` +
 				`"namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"op","proposedBy":"op",` +
 				`"target":"host-1","plan":"powerOff","approvalRequired":false}`,
 		},
 		{
 			name:  "approved by another person",
-			write: func(l *Logger) { l.Approved(op, "alice", "bob", "") },
+			write: func(l *Logger) { l.Approved(op, "alice", nil, "bob", "") },
 			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"approved","kind":"HostOperation",` +
 				`"namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"bob","proposedBy":"alice",` +
 				`"approvedBy":"bob","selfApproved":false}`,
 		},
 		{
 			name:  "self-approved rollout",
-			write: func(l *Logger) { l.Approved(ro, "alice", "alice", "sha256:abc") },
+			write: func(l *Logger) { l.Approved(ro, "alice", nil, "alice", "sha256:abc") },
 			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"approved","kind":"TalosRollout",` +
 				`"namespace":"","name":"fleet-talosupgrade-1a2b3c4d","uid":"u-2","actor":"alice","proposedBy":"alice",` +
 				`"approvedBy":"alice","selfApproved":true,"planHash":"sha256:abc"}`,
+		},
+		{
+			name: "proposed by the operator for a person's edit",
+			write: func(l *Logger) {
+				l.Proposed(ro, "op", []string{"alice"}, "fleet", "TalosUpgrade to v1.14.7, 2 steps: cp-1, w-1", true)
+			},
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"proposed","kind":"TalosRollout",` +
+				`"namespace":"","name":"fleet-talosupgrade-1a2b3c4d","uid":"u-2","actor":"op","proposedBy":"op",` +
+				`"requestedBy":["alice"],"target":"fleet","plan":"TalosUpgrade to v1.14.7, 2 steps: cp-1, w-1","approvalRequired":true}`,
+		},
+		{
+			name:  "approved by the person whose edit made the operator propose it",
+			write: func(l *Logger) { l.Approved(ro, "op", []string{"alice"}, "alice", "sha256:abc") },
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"approved","kind":"TalosRollout",` +
+				`"namespace":"","name":"fleet-talosupgrade-1a2b3c4d","uid":"u-2","actor":"alice","proposedBy":"op",` +
+				`"requestedBy":["alice"],"approvedBy":"alice","selfApproved":true,"planHash":"sha256:abc"}`,
+		},
+		{
+			name:  "paused",
+			write: func(l *Logger) { l.Paused(ro, "bob") },
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"paused","kind":"TalosRollout",` +
+				`"namespace":"","name":"fleet-talosupgrade-1a2b3c4d","uid":"u-2","actor":"bob"}`,
+		},
+		{
+			name:  "resumed",
+			write: func(l *Logger) { l.Resumed(ro, "bob") },
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"resumed","kind":"TalosRollout",` +
+				`"namespace":"","name":"fleet-talosupgrade-1a2b3c4d","uid":"u-2","actor":"bob"}`,
 		},
 		{
 			name: "guard lifted on the operation, at the start",
@@ -173,8 +201,8 @@ func TestSchema(t *testing.T) {
 // is one line of valid JSON.
 func TestCommonFields(t *testing.T) {
 	l, b := newTest()
-	l.Proposed(op, "a", "h", "p", true)
-	l.Approved(op, "a", "b", "")
+	l.Proposed(op, "a", nil, "h", "p", true)
+	l.Approved(op, "a", nil, "b", "")
 	l.GuardLifted(op, "k", "a: v", "")
 	l.GuardLiftedAtStep(op, "k", "a: v", 1, "x")
 	l.StepStarted(op, 0, "x")
@@ -217,7 +245,7 @@ func TestSequenceAndPod(t *testing.T) {
 func TestNilLoggerWritesNothing(t *testing.T) {
 	var l *Logger
 	assert.NotPanics(t, func() {
-		l.Proposed(op, "a", "h", "p", true)
+		l.Proposed(op, "a", nil, "h", "p", true)
 		l.Deleted(op, DeleteWithdrawn, "")
 	})
 	assert.Empty(t, l.Operator())

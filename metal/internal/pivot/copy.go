@@ -329,19 +329,55 @@ func (m *Mover) ensureNamespaces(ctx context.Context, objs []sourceObject) error
 	return nil
 }
 
-// writerFor is the client an object is created with. HostClaims are created
-// as an admin: the claim policy lets only an admin name a TalosNode.
+// writerFor is the client an object is created and updated with.
 // HostOperations are created as the user who proposed them: the approval
-// policy checks spec.proposedBy against the request's user.
-func (m *Mover) writerFor(ctx context.Context, so sourceObject) (client.Client, error) {
-	switch so.kind.gvk.Kind {
-	case "HostClaim":
-		return m.Target.as(impersonatedMover, m.adminGroups(ctx)...)
-	case "HostOperation":
+// policy checks spec.proposedBy against the request's user. An object whose
+// change makes the operator propose work is written as the user its
+// requested-by annotation names (stamped first, see stampRequester), as an
+// admin: the requested-by policy wants the request's user there, and the
+// claim policy lets only an admin name a TalosNode.
+func (m *Mover) writerFor(ctx context.Context, so sourceObject, want *unstructured.Unstructured) (client.Client, error) {
+	if so.kind.gvk.Kind == "HostOperation" {
 		proposer, _, _ := unstructured.NestedString(so.obj.Object, "spec", "proposedBy")
 		return m.Target.as(proposer, m.adminGroups(ctx)...)
 	}
+	if user := want.GetAnnotations()[metalv1alpha1.AnnotationRequestedBy]; user != "" && requestGated(want) {
+		return m.Target.as(user, m.adminGroups(ctx)...)
+	}
 	return m.Target.Client, nil
+}
+
+// requestGated: the requested-by policy (config/policy/requested-by.yaml)
+// asks for the requester's name when obj is created, changed or deleted.
+// A Host only while it asks for a wipe; a ConfigMap only when it is a Talos
+// config patch.
+func requestGated(obj *unstructured.Unstructured) bool {
+	switch obj.GetKind() {
+	case "TalosCluster", "TalosNode", "HostClaim", "BiosProfile", "FirmwareProfile":
+		return true
+	case "Host":
+		_, ok := obj.GetAnnotations()[metalv1alpha1.AnnotationWipe]
+		return ok
+	case "ConfigMap":
+		_, ok := obj.GetLabels()[osv1alpha1.LabelPatch]
+		return ok
+	}
+	return false
+}
+
+// stampRequester names the move as the requester of a gated object that
+// names nobody (written before the policy asked for a name). An object
+// that names a person keeps the name, and is written as that person.
+func stampRequester(obj *unstructured.Unstructured) {
+	if !requestGated(obj) || obj.GetAnnotations()[metalv1alpha1.AnnotationRequestedBy] != "" {
+		return
+	}
+	ann := obj.GetAnnotations()
+	if ann == nil {
+		ann = map[string]string{}
+	}
+	ann[metalv1alpha1.AnnotationRequestedBy] = impersonatedMover
+	obj.SetAnnotations(ann)
 }
 
 // adminGroups are the groups an impersonated request carries: the
@@ -364,6 +400,7 @@ func (m *Mover) adminGroups(ctx context.Context) []string {
 func (m *Mover) ensure(ctx context.Context, so sourceObject, rw *rewriter) (int, error) {
 	want, n, complete := rw.rewrite(so.obj)
 	unstructured.RemoveNestedField(want.Object, "status")
+	stampRequester(want)
 	lifts := takeLifts(want)
 	isOp := so.kind.gvk.Kind == "HostOperation"
 	approvedBy, _, _ := unstructured.NestedString(want.Object, "spec", "approval", "approvedBy")
@@ -373,15 +410,15 @@ func (m *Mover) ensure(ctx context.Context, so sourceObject, rw *rewriter) (int,
 		unstructured.RemoveNestedField(want.Object, "spec", "approval", "approvedBy")
 	}
 
+	w, err := m.writerFor(ctx, so, want)
+	if err != nil {
+		return 0, err
+	}
 	cur := &unstructured.Unstructured{}
 	cur.SetGroupVersionKind(so.kind.gvk)
-	err := m.Target.Client.Get(ctx, client.ObjectKeyFromObject(want), cur)
+	err = m.Target.Client.Get(ctx, client.ObjectKeyFromObject(want), cur)
 	switch {
 	case apierrors.IsNotFound(err):
-		w, werr := m.writerFor(ctx, so)
-		if werr != nil {
-			return 0, werr
-		}
 		if err := w.Create(ctx, want); err != nil {
 			return 0, err
 		}
@@ -394,8 +431,11 @@ func (m *Mover) ensure(ctx context.Context, so sourceObject, rw *rewriter) (int,
 		// write the source's UID over the target's.
 	default:
 		keepLifts(cur, want, lifts)
+		if isOp {
+			w = m.Target.Client // the proposer's approval rules apply to a create only
+		}
 		if changed := mergeInto(cur, want, isOp); changed {
-			if err := m.Target.Client.Update(ctx, cur); err != nil {
+			if err := w.Update(ctx, cur); err != nil {
 				return 0, err
 			}
 		}
@@ -550,13 +590,31 @@ func (m *Mover) prune(ctx context.Context, objs []sourceObject) ([]string, error
 			if keep[key] {
 				continue
 			}
-			if len(u.GetFinalizers()) > 0 {
+			// A delete of a gated object must name its requester first: the
+			// move, which takes the delete on.
+			w := m.Target.Client
+			stamped := false
+			if requestGated(u) {
+				mover, err := m.Target.as(impersonatedMover, m.adminGroups(ctx)...)
+				if err != nil {
+					return nil, err
+				}
+				w = mover
+				stamped = u.GetAnnotations()[metalv1alpha1.AnnotationRequestedBy] != impersonatedMover
+				ann := u.GetAnnotations()
+				if ann == nil {
+					ann = map[string]string{}
+				}
+				ann[metalv1alpha1.AnnotationRequestedBy] = impersonatedMover
+				u.SetAnnotations(ann)
+			}
+			if len(u.GetFinalizers()) > 0 || stamped {
 				u.SetFinalizers(nil)
-				if err := m.Target.Client.Update(ctx, u); client.IgnoreNotFound(err) != nil {
+				if err := w.Update(ctx, u); client.IgnoreNotFound(err) != nil {
 					return nil, err
 				}
 			}
-			if err := m.Target.Client.Delete(ctx, u); client.IgnoreNotFound(err) != nil {
+			if err := w.Delete(ctx, u); client.IgnoreNotFound(err) != nil {
 				return nil, err
 			}
 			pruned = append(pruned, key)

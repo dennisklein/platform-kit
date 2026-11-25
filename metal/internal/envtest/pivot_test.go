@@ -352,6 +352,10 @@ func TestPivot(t *testing.T) {
 	// envtest runs no pods, so the in-process manager stands in and stops
 	// here, before the move pauses the Deployment.
 	stopSource()
+	// The requested-by policy, installed after the objects above were
+	// written: they name no requester, as objects written before a site
+	// installed it do. The move installs it on the target too.
+	installPolicy(t, ctx, cl, "requested-by.yaml")
 
 	source, err := pivot.NewCluster("bootstrap", src.cfg, src.scheme)
 	require.NoError(t, err)
@@ -437,6 +441,11 @@ func TestPivot(t *testing.T) {
 				"the guard lift is set again by the person it names")
 		}
 		assert.Equal(t, "carol: pivot test", dstClaim.Annotations[metalv1alpha1.AnnotationAckEtcdRisk])
+		assert.Equal(t, "pk-metal-pivot", dstClaim.Annotations[metalv1alpha1.AnnotationRequestedBy],
+			"an object that names no requester is written by the move, which names itself")
+		dstCluster := &osv1alpha1.TalosCluster{}
+		require.NoError(t, dst.cl.Get(ctx, client.ObjectKey{Name: "mgmt"}, dstCluster))
+		assert.Equal(t, "pk-metal-pivot", dstCluster.Annotations[metalv1alpha1.AnnotationRequestedBy])
 		require.NotEmpty(t, dstHost.OwnerReferences)
 		for _, ref := range dstHost.OwnerReferences {
 			ep := &metalv1alpha1.ManagementEndpoint{}
@@ -517,6 +526,9 @@ func TestPivot(t *testing.T) {
 	})
 
 	t.Run("the manager does not shut down the machine it runs on", func(t *testing.T) {
+		// The release names who asked for it (the requested-by policy).
+		require.NoError(t, dst.cl.Patch(ctx, dstClaim, client.RawPatch(types.MergePatchType, []byte(
+			`{"metadata":{"annotations":{"`+metalv1alpha1.AnnotationRequestedBy+`":"`+whoAmI(t, ctx, dst.cl)+`"}}}`))))
 		require.NoError(t, dst.cl.Delete(ctx, dstClaim))
 		require.Eventually(t, func() bool {
 			claim := &metalv1alpha1.HostClaim{}

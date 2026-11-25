@@ -26,3 +26,15 @@ func namedLift(ctx context.Context, cl client.Client, why string) (string, error
 	}
 	return metalv1alpha1.GuardLiftValue(user, why), nil
 }
+
+// requester is the caller's username, for the annotation
+// metal.pk.io/requested-by: the requested-by admission policy wants it on
+// each request that makes the operator propose work, so that the approval
+// policies can refuse an approval by the person who asked for the change.
+func requester(ctx context.Context, cl client.Client) (string, error) {
+	user, err := whoAmI(ctx, cl)
+	if err != nil {
+		return "", fmt.Errorf("the change must name who asks for it: %w", err)
+	}
+	return user, nil
+}

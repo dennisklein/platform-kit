@@ -17,6 +17,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.yaml.in/yaml/v4"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/talos/render"
@@ -234,6 +236,21 @@ func TestRenderOptions(t *testing.T) {
 		_, err := render.ResolvePatches(m.Cluster.Spec.Patches, m.ConfigMapReader())
 		assert.ErrorIs(t, err, render.ErrPatchUnresolvable)
 		m.Cluster.Spec.Patches = m.Cluster.Spec.Patches[:1]
+	})
+
+	t.Run("a ConfigMap patch needs the patch label", func(t *testing.T) {
+		cm := corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: "pk-metal", Name: "extra"},
+			Data: map[string]string{"p.yaml": "machine: {}"}}
+		m.ConfigMaps = append(m.ConfigMaps, cm)
+		defer func() { m.ConfigMaps = m.ConfigMaps[:len(m.ConfigMaps)-1] }()
+		ref := osv1alpha1.ConfigMapKeyReference{Namespace: "pk-metal", Name: "extra", Key: "p.yaml"}
+		_, err := m.ConfigMapReader()(ref)
+		require.ErrorIs(t, err, render.ErrPatchUnresolvable)
+		assert.ErrorContains(t, err, "has no label os.pk.io/patch")
+		m.ConfigMaps[len(m.ConfigMaps)-1].Labels = map[string]string{osv1alpha1.LabelPatch: "true"}
+		got, err := m.ConfigMapReader()(ref)
+		require.NoError(t, err)
+		assert.Equal(t, "machine: {}", got)
 	})
 
 	t.Run("JSON patches are refused", func(t *testing.T) {

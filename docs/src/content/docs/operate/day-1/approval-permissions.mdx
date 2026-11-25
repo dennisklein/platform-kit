@@ -9,6 +9,7 @@ sidebar:
 sources:
   - /repo/metal/config/policy/hostoperation-approval.yaml
   - /repo/metal/config/policy/talosrollout-approval.yaml
+  - /repo/metal/config/policy/requested-by.yaml
   - /repo/metal/config/samples/site-overlay/approval.yaml
   - /repo/metal/config/samples/site-overlay/bindings.yaml
   - /repo/metal/config/rbac/approver_role.yaml
@@ -42,20 +43,24 @@ A person can have more than one role. A person on call usually also has `pk-meta
 
 ## Choose the `selfApproval` setting
 
-The key `selfApproval` in the ConfigMap `hostoperation-approval` tells if a person can approve their own proposal. It applies to operations and to rollouts.
+The key `selfApproval` in the ConfigMap `hostoperation-approval` tells if a person can approve their own change. It applies to operations and to rollouts. A change is "their own" when one of these names the person:
+
+- `spec.proposedBy`: the person proposed it.
+- `spec.requestedBy`: the edit of the person made the operator propose it. See [Who asked for a change](#who-asked-for-a-change).
 
 | Value | What it prevents | What it does not prevent |
 | --- | --- | --- |
-| `Allowed` (the default) | The operator approves nothing. A person approves in their own name only, and only one time. Nobody creates an approved object. | One person with the proposer and the approver role changes a machine alone. The record names that person as proposer and as approver. |
-| `Forbidden` | The same, and also: one account alone cannot change a machine. A second person reads each plan before it runs. | The operator and the admin group can still create operations that need no approval. See [](ref:threat-model). |
+| `Allowed` (the default) | The operator approves nothing. A person approves in their own name only, and only one time. Nobody creates an approved object. | One person with the proposer and the approver role changes a machine alone. The record names that person as requester and as approver. |
+| `Forbidden` | The same, and also: one account alone cannot change a machine. A second person reads each plan before it runs. | The operator and the admin group can still create operations that need no approval. A GitOps service account is the requester of what it applies, not the person who wrote the commit. See [](ref:threat-model). |
 
 - Select `Forbidden` if two or more approvers can answer in time.
 - Select `Allowed` for a small team. Then examine the approvals that a person gave to their own proposals:
 
   ```sh
   kubectl get hostoperations,talosrollouts -A -o json | jq -r '.items[]
-    | select(.spec.approval.approvedBy != null and .spec.proposedBy == .spec.approval.approvedBy)
-    | "\(.kind) \(.metadata.name) \(.spec.proposedBy)"'
+    | select(.spec.approval.approvedBy as $a | $a != null
+        and (.spec.proposedBy == $a or ((.spec.requestedBy // []) | index($a))))
+    | "\(.kind) \(.metadata.name) \(.spec.approval.approvedBy)"'
   ```
 
 - The API server reads each other value as `Forbidden`, and its message names the value.
@@ -119,6 +124,28 @@ The key `selfApproval` in the ConfigMap `hostoperation-approval` tells if a pers
    The output is `yes`.
 
 </Steps>
+
+## Who asked for a change
+
+The operator proposes most changes itself, as the result of an edit. For example, a new `talosVersion` on a [](kind:TalosCluster) becomes a rollout, and a `metal.pk.io/wipe` mark on a Host becomes a wipe operation. The proposal names the operator as its proposer. So the person who made the edit must also be on the record.
+
+- Each request that makes the operator propose work sets the annotation `metal.pk.io/requested-by` to the username of the request. The `requested-by` policy refuses the request if not. A delete of such an object needs the annotation before the delete.
+- The pk-metal commands set the annotation for you: [](cli:upgrade), [](cli:scale), [](cli:replace), [](cli:wipe), [](cli:reinstall), and `pk-metal rollout pause`, `resume`, and `abort`.
+- If you use `kubectl`, set the annotation in the same request:
+
+  ```sh
+  me=$(kubectl auth whoami -o jsonpath='{.status.userInfo.username}')
+  kubectl annotate talosnode node-2 --overwrite "metal.pk.io/requested-by=$me"
+  ```
+
+- You can set the annotation to your own username only. You cannot remove it. To take over a change from another person, set your own username.
+- The operator copies the names from the objects behind a proposal into `spec.requestedBy` of the operation or rollout. This field cannot change after the create.
+- A rollout that the operator proposed ends with `PlanChanged` if a person who is not in its `spec.requestedBy` changes what it applies. The operator then proposes it again, with the new names.
+- A Talos config patch in a ConfigMap must have the label `os.pk.io/patch: "true"`. The operator reads no ConfigMap without it. So the policy can find the patches and ask for a name.
+
+<Callout type="caution">
+A GitOps controller applies the manifests as its own service account. So each manifest that it applies must have `metal.pk.io/requested-by` set to the username of that service account, for example `system:serviceaccount:flux-system:kustomize-controller`. Then `spec.requestedBy` names the service account, not the person who wrote the commit. `Forbidden` does not stop that person from approving the result. Make the review of the commit the second person, or approve only commits that another person wrote. See [](concept:gitops).
+</Callout>
 
 ## Guard-lift annotations
 

@@ -16,6 +16,9 @@ kind: HostClaim
 metadata:
   name: node-1
   namespace: default
+  # lab.sh applies this as lab-admin: the requester (metal.pk.io/requested-by).
+  annotations:
+    metal.pk.io/requested-by: lab-admin
 spec:
   assetRef:
     name: node-1

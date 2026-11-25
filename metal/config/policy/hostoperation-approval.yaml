@@ -14,7 +14,9 @@
 #     operation that needs no approval — anyone else would simply skip the gate;
 #   - approval is write-once and stamped as yourself;
 #   - the operator never approves anything;
-#   - a person approves their own proposal only where the site allows it
+#   - a person approves their own proposal, or a change they asked for (a
+#     name in spec.requestedBy: whose edit made the operator propose it,
+#     config/policy/requested-by.yaml), only where the site allows it
 #     (selfApproval below; the same rules as talosrollout-approval.yaml).
 #
 # Who the operator is, which group administers it and whether a person may
@@ -63,6 +65,8 @@ spec:
       expression: >-
         has(params.data) && has(params.data.adminGroup) && params.data.adminGroup != ''
         && has(request.userInfo.groups) && params.data.adminGroup in request.userInfo.groups
+    - name: requesters
+      expression: "object.spec.?requestedBy.orValue([])"
     - name: selfApproval
       expression: >-
         has(params.data) && has(params.data.selfApproval) ? params.data.selfApproval : 'Allowed'
@@ -106,6 +110,14 @@ spec:
         : 'selfApproval in ConfigMap ' + variables.paramsRef + ' is "' + variables.selfApproval
           + '", which is not Allowed or Forbidden, so it counts as Forbidden: another person must approve,'
           + ' or an admin sets it to Allowed or Forbidden'
+      reason: Forbidden
+    - expression: >-
+        variables.newApprover == variables.oldApprover || !(variables.newApprover in variables.requesters)
+        || variables.selfApproval == 'Allowed'
+      messageExpression: >-
+        'you asked for this change (spec.requestedBy names you: your edit made the operator propose it),'
+        + ' and this site does not allow approving your own change (selfApproval in ConfigMap '
+        + variables.paramsRef + ' is "' + variables.selfApproval + '"): another person must approve'
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1

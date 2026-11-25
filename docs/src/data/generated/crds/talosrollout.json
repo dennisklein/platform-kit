@@ -80,6 +80,10 @@
           "message": "proposedBy is frozen after creation"
         },
         {
+          "rule": "has(self.requestedBy) == has(oldSelf.requestedBy) && (!has(self.requestedBy) || self.requestedBy == oldSelf.requestedBy)",
+          "message": "requestedBy is frozen after creation"
+        },
+        {
           "rule": "!has(oldSelf.abort) || !oldSelf.abort || (has(self.abort) && self.abort)",
           "message": "an abort cannot be taken back"
         },
@@ -223,6 +227,17 @@
       "required": true,
       "minLength": 1,
       "description": "ProposedBy is the username that created the rollout. Admission checks it against the creating request. Whether the same person may also approve it is a site setting (selfApproval in the ConfigMap pk-metal/hostoperation-approval, default Allowed)."
+    },
+    {
+      "path": "spec.requestedBy",
+      "name": "requestedBy",
+      "parent": "spec",
+      "depth": 1,
+      "type": "[]string",
+      "required": false,
+      "maxItems": 32,
+      "listType": "set",
+      "description": "RequestedBy names the people whose change made the operator propose this rollout: the metal.pk.io/requested-by annotations of the cluster, its nodes and its patch ConfigMaps. It is frozen after creation; if one of them names someone else before the approval, the rollout ends (PlanChanged) and the operator proposes it again. Where the site forbids self-approval, none of them may approve it."
     },
     {
       "path": "spec.target",

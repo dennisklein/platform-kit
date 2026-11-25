@@ -82,7 +82,7 @@ The command reads files, not objects in the cluster. The files have the same for
 | --- | --- |
 | [](kind:TalosCluster) | Versions, endpoint and cluster patches. |
 | [](kind:TalosNode) | Role, address, install disk, links and node patches. |
-| ConfigMap | The patches that the cluster and the nodes name. |
+| ConfigMap | The patches that the cluster and the nodes name. Each has the label `os.pk.io/patch`. |
 
 In the cluster, the [](ctrl:talosnode) renders the same configuration.
 

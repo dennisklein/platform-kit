@@ -73,6 +73,10 @@
           "message": "proposedBy is frozen after creation"
         },
         {
+          "rule": "has(self.requestedBy) == has(oldSelf.requestedBy) && (!has(self.requestedBy) || self.requestedBy == oldSelf.requestedBy)",
+          "message": "requestedBy is frozen after creation"
+        },
+        {
           "rule": "has(self.ttlSecondsAfterFinished) == has(oldSelf.ttlSecondsAfterFinished) && (!has(self.ttlSecondsAfterFinished) || self.ttlSecondsAfterFinished == oldSelf.ttlSecondsAfterFinished)",
           "message": "ttlSecondsAfterFinished is frozen after creation"
         },
@@ -1249,6 +1253,17 @@
       "pattern": "^[A-Za-z][A-Za-z0-9]*$",
       "maxLength": 128,
       "description": "Reason names the desired-state gate this operation serves (BiosConvergence, FirmwareConvergence, …); empty for a human-requested op. It becomes the Approval(<reason>) domain on the Host's blockedOn — hence the condition-reason shape."
+    },
+    {
+      "path": "spec.requestedBy",
+      "name": "requestedBy",
+      "parent": "spec",
+      "depth": 1,
+      "type": "[]string",
+      "required": false,
+      "maxItems": 32,
+      "listType": "set",
+      "description": "RequestedBy names the people whose change made the operator propose this operation: the metal.pk.io/requested-by annotations of the objects behind it (the claim, the node, the Host, the profiles). It is frozen after creation. Where the site forbids self-approval, none of them may approve the operation. Empty for an operation a person proposed; that person is its proposer."
     },
     {
       "path": "spec.rolloutRef",

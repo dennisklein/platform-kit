@@ -32,6 +32,7 @@ package audit
 import (
 	"encoding/json"
 	"io"
+	"slices"
 	"sync"
 	"time"
 
@@ -70,6 +71,8 @@ const (
 	EventProposed     Event = "proposed"
 	EventApproved     Event = "approved"
 	EventGuardLifted  Event = "guard.lifted"
+	EventPaused       Event = "paused"
+	EventResumed      Event = "resumed"
 	EventStepStarted  Event = "step.started"
 	EventStepFinished Event = "step.finished"
 	EventStepFailed   Event = "step.failed"
@@ -149,6 +152,9 @@ type Line struct {
 
 	// proposed, approved
 	ProposedBy string `json:"proposedBy,omitempty"`
+	// RequestedBy names the people whose edit made the operator propose
+	// the change (spec.requestedBy).
+	RequestedBy []string `json:"requestedBy,omitempty"`
 	// proposed
 	Target           string `json:"target,omitempty"`
 	Plan             string `json:"plan,omitempty"`
@@ -238,19 +244,34 @@ func (l *Logger) Operator() string {
 // Proposed records that an operation or a rollout was proposed: by the
 // operator, or by a person or GitOps, seen by the operator for the first
 // time. target is the machine or the cluster; plan says what it does.
-func (l *Logger) Proposed(o Object, proposedBy, target, plan string, approvalRequired bool) {
+// requestedBy names the people whose edit made the operator propose it.
+func (l *Logger) Proposed(o Object, proposedBy string, requestedBy []string, target, plan string, approvalRequired bool) {
 	l.write(o, EventProposed, proposedBy, func(x *Line) {
-		x.ProposedBy, x.Target, x.Plan, x.ApprovalRequired = proposedBy, target, plan, &approvalRequired
+		x.ProposedBy, x.RequestedBy, x.Target, x.Plan, x.ApprovalRequired = proposedBy, requestedBy, target, plan, &approvalRequired
 	})
 }
 
 // Approved records an approval. planHash is the plan that a rollout's
-// approval names; empty for an operation.
-func (l *Logger) Approved(o Object, proposedBy, approvedBy, planHash string) {
-	self := approvedBy == proposedBy
+// approval names; empty for an operation. The approval is a self-approval
+// when the approver proposed the change or asked for it (a name in
+// requestedBy).
+func (l *Logger) Approved(o Object, proposedBy string, requestedBy []string, approvedBy, planHash string) {
+	self := approvedBy == proposedBy || slices.Contains(requestedBy, approvedBy)
 	l.write(o, EventApproved, approvedBy, func(x *Line) {
-		x.ProposedBy, x.ApprovedBy, x.SelfApproved, x.PlanHash = proposedBy, approvedBy, &self, planHash
+		x.ProposedBy, x.RequestedBy, x.ApprovedBy, x.SelfApproved, x.PlanHash = proposedBy, requestedBy, approvedBy, &self, planHash
 	})
+}
+
+// Paused records that a person paused a rollout (spec.paused). actor is
+// the person metal.pk.io/requested-by names; empty when it names nobody.
+func (l *Logger) Paused(o Object, actor string) {
+	l.write(o, EventPaused, actor, func(*Line) {})
+}
+
+// Resumed records that a rollout goes on past a pause: a person cleared
+// spec.paused or resumed it after its first node. actor is as for Paused.
+func (l *Logger) Resumed(o Object, actor string) {
+	l.write(o, EventResumed, actor, func(*Line) {})
 }
 
 // GuardLifted records that a guard-lift annotation on o was in effect for

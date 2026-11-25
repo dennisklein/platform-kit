@@ -313,8 +313,10 @@ func (r *HostClaimReconciler) removalOp(ctx context.Context, claim *metalv1alpha
 	return &metalv1alpha1.HostOperation{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: r.OperationsNamespace, Labels: labels, Annotations: annotations},
 		Spec: metalv1alpha1.HostOperationSpec{
-			HostRef:                 metalv1alpha1.Reference{Name: host.Name},
-			ProposedBy:              r.Proposer,
+			HostRef:    metalv1alpha1.Reference{Name: host.Name},
+			ProposedBy: r.Proposer,
+			// The node's deletion asked for this removal.
+			RequestedBy:             metalv1alpha1.RequestedBy(node.Annotations, claim.Annotations),
 			Reason:                  reasonRelease,
 			Actions:                 actions,
 			Approval:                metalv1alpha1.OperationApproval{Required: ptr.To(releaseNeedsPerson(claim, host, ops))},

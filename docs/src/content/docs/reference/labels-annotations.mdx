@@ -38,8 +38,11 @@ These annotations are commands. Most of them have a `pk-metal` command that sets
 | <KeyRef k="metal.pk.io/approve-tls-key" /> | [](kind:ManagementEndpoint) | The operator pins this TLS key of the BMC when the BMC shows it. See [Trust the BMC certificate](kind:ManagementEndpoint#trust-the-bmc-certificate). | `kubectl annotate` |
 | <KeyRef k="os.pk.io/resume" /> | [](kind:TalosRollout) | The rollout continues after the pause on the first node. | [](cli:rollout) |
 | <KeyRef k="os.pk.io/restore-pending" /> | [](kind:TalosCluster) | The operator does not bootstrap etcd, because you restore it. | `kubectl annotate` |
+| <KeyRef k="metal.pk.io/requested-by" /> | TalosCluster, TalosNode, HostClaim, Host, TalosRollout, profiles, patch ConfigMaps | Names you as the person who asked for the change that the operator proposes. Required by the [`requested-by`](ref:admission-policies#requested-by) policy. | The `pk-metal` commands, or `kubectl annotate` with your username |
 
 In the table, each name is without its prefix `metal.pk.io/` or `os.pk.io/`.
+
+Put the label <KeyRef k="os.pk.io/patch" /> on each ConfigMap that holds a Talos config patch. The operator reads no patch from a ConfigMap without it.
 
 <Callout type="caution">
 Do not set `metal.pk.io/allow-self-disruption` or `metal.pk.io/override-cluster-guard` unless it is necessary.

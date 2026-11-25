@@ -234,6 +234,7 @@ func (r *ConvergenceReconciler) systemFirmware(ctx context.Context, host *metalv
 		}})
 	}
 	op := r.proposal(host.Name, "sysfw", hash, metalv1alpha1.OperationReasonSystemFirmwareConvergence, disruptivePlan(node, stage))
+	op.Spec.RequestedBy = profileRequesters(profiles)
 	if err := r.propose(ctx, op); err != nil {
 		return false, err
 	}
