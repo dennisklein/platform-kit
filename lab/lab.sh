@@ -1807,9 +1807,18 @@ pivot() {
     # kube-proxy answers a NodePort on the node addresses, not on the VIP
     # (the first run was refused on 10.77.0.10:30443), so the BMCs fetch from
     # the first control-plane node.
-    media_node=$(kubectl --kubeconfig "$lab_dir/workload.kubeconfig" get nodes \
-      --selector node-role.kubernetes.io/control-plane --output json \
-      | jq -r '[.items[].status.addresses[] | select(.type == "InternalIP") | .address][0] // empty')
+    # A node that just turned Ready can still lack its role label or its
+    # addresses for a moment, so look again for up to two minutes.
+    local look_until=$((SECONDS + 120))
+    while true; do
+      media_node=$(kubectl --kubeconfig "$lab_dir/workload.kubeconfig" get nodes \
+        --selector node-role.kubernetes.io/control-plane --output json \
+        | jq -r '[.items[].status.addresses[] | select(.type == "InternalIP") | .address][0] // empty') || media_node=""
+      if [[ -n $media_node ]] || (( SECONDS >= look_until )); then
+        break
+      fi
+      sleep 5
+    done
     [[ -n $media_node ]] || die "TalosCluster $first lists no control-plane node address, so the BMCs would have no media address.
   Look at it: kubectl --kubeconfig $lab_dir/workload.kubeconfig get nodes -o wide"
     step "pk-metal pivot to TalosCluster $first"
