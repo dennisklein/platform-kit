@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -51,8 +52,9 @@ import (
 const labTalos = "v1.14.6"
 
 // stubFactory stands in for the image factory: it answers a schematic POST the
-// way the real one does (201 with the id the posted content hashes to) and
-// records what it was asked to register. Registration is a network call on the
+// way the real one does (201 with the id the posted content hashes to),
+// serves a stand-in image under any .iso path, and records what it was asked
+// to register. Registration is a network call on the
 // render path, so the suite runs its own factory instead of the public one, and
 // gets to watch what the reconcilers tell it.
 func stubFactory(t *testing.T) (*render.Factory, func() []string) {
@@ -60,6 +62,11 @@ func stubFactory(t *testing.T) (*render.Factory, func() []string) {
 	var mu sync.Mutex
 	var ids []string
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, ".iso") {
+			// The install image, which the operator downloads.
+			_, _ = w.Write([]byte("install image " + r.URL.Path))
+			return
+		}
 		if r.Method != http.MethodPost || r.URL.Path != "/schematics" {
 			http.Error(w, "not the schematic endpoint", http.StatusNotFound)
 			return
@@ -372,7 +379,7 @@ func TestOSLane(t *testing.T) {
 		require.Eventually(t, func() bool { return !store.Has(ba.Name, ba.Status.BuildKey) }, waitFor, tick)
 	})
 
-	st.run(t, "factory BootAsset computes the content address", func(t *testing.T) {
+	st.run(t, "factory BootAsset downloads the image at the content address", func(t *testing.T) {
 		require.NoError(t, cl.Create(ctx, &osv1alpha1.BootAsset{
 			ObjectMeta: metav1.ObjectMeta{Name: "lab-install"},
 			Spec: osv1alpha1.BootAssetSpec{
@@ -387,11 +394,15 @@ func TestOSLane(t *testing.T) {
 		}, waitFor, tick)
 
 		ba, c := assetCondition("lab-install")
-		assert.Equal(t, osv1alpha1.ReasonURLComputed, c.Reason)
+		assert.Equal(t, osv1alpha1.ReasonImageDownloaded, c.Reason)
 		assert.Regexp(t,
 			`^https://`+regexp.QuoteMeta(factory.RegistryURL)+`/image/[0-9a-f]{64}/v1\.14\.6/metal-amd64\.iso$`,
 			ba.Status.URL, "the URL must name the factory the operator was given, not the public one")
-		assert.Empty(t, ba.Status.Digest, "remote artifact is addressed, not verified")
+		u, err := url.Parse(ba.Status.URL)
+		require.NoError(t, err)
+		assert.Equal(t, digest.FromString("install image "+u.Path).String(), ba.Status.Digest,
+			"the operator downloaded the image and records its digest")
+		assert.True(t, store.Has(ba.Name, ba.Status.BuildKey), "the image rests in the media store")
 
 		// The boot medium and the installer the config names are one build.
 		n, _ := nodeCondition("node-1", osv1alpha1.ConditionRendered)

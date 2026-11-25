@@ -121,6 +121,14 @@ func TestMediaCache(t *testing.T) {
 	assert.NotEqual(t, path, m3.media[0].Path)
 	assert.Equal(t, 2, gets)
 
+	// The same installer under two grants of the media service is one
+	// entry: each mount has a new token, and the cache must not grow by one
+	// installer per boot.
+	_, g1 := boot(t, asset.URL+"/grants/0123456789abcdef0123456789abcdef/installer.iso", nil)
+	_, g2 := boot(t, asset.URL+"/grants/fedcba9876543210fedcba9876543210/installer.iso", nil)
+	assert.Equal(t, g1.media[0].Path, g2.media[0].Path)
+	assert.Equal(t, 3, gets, "the second grant of the installer is served from the cache")
+
 	// A granted image — one mounted with credentials — never touches the disk.
 	_, m4 := boot(t, asset.URL+"/config.iso", &bmc.MediaCredentials{Username: "media", Password: "grant"})
 	assert.Empty(t, m4.media[0].Path)
@@ -134,7 +142,7 @@ func TestMediaCache(t *testing.T) {
 
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
-	assert.Len(t, entries, 2, "two cached images, no leftovers")
+	assert.Len(t, entries, 3, "three cached images, no leftovers")
 }
 
 func TestPersonalize(t *testing.T) {

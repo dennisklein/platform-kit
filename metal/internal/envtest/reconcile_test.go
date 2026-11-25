@@ -623,6 +623,27 @@ func TestReconcile(t *testing.T) {
 		assert.Contains(t, err.Error(), "frozen")
 	})
 
+	st.run(t, "an image by URL needs https and a digest", func(t *testing.T) {
+		// imageUrl is no free boot primitive: the operator mounts only an
+		// image it downloads itself and checks against the digest.
+		for name, a := range map[string]metalv1alpha1.InsertMediaAction{
+			"url-plain-http": {MediaID: "CD", ImageURL: "http://images.example/x.iso",
+				Digest: "sha256:" + strings.Repeat("0", 64)},
+			"url-no-digest": {MediaID: "CD", ImageURL: "https://images.example/x.iso"},
+		} {
+			op := powerCycleOp(name)
+			op.Spec.Actions = []metalv1alpha1.HostOperationAction{{InsertMedia: &a}}
+			err := cl.Create(ctx, op)
+			require.Error(t, err, name)
+			assert.Contains(t, err.Error(), "imageUrl needs an https:// URL and a digest", name)
+		}
+		op := powerCycleOp("url-pinned")
+		op.Spec.Actions = []metalv1alpha1.HostOperationAction{{InsertMedia: &metalv1alpha1.InsertMediaAction{
+			MediaID: "CD", ImageURL: "https://images.example/x.iso", Digest: "sha256:" + strings.Repeat("0", 64)}}}
+		require.NoError(t, cl.Create(ctx, op), "an https URL with a digest is admitted")
+		require.NoError(t, cl.Delete(ctx, op))
+	})
+
 	st.run(t, "approval executes and the sim power-cycles", func(t *testing.T) {
 		before := smcState.Resets("1")
 		op := opByName("cycle-smc")

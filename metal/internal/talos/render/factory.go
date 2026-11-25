@@ -197,6 +197,21 @@ func (f *Factory) baseURL() string {
 	return "https://" + f.host()
 }
 
+// ImageClient is the client that downloads the images the factory serves.
+// It trusts what HTTPClient trusts; without one it trusts the system CAs
+// through the default transport (which honors the proxy environment), with
+// a timeout long enough for an image the factory builds on request.
+func (f *Factory) ImageClient() *http.Client {
+	if f != nil && f.HTTPClient != nil {
+		return f.HTTPClient
+	}
+	return &http.Client{Timeout: imageTimeout}
+}
+
+// imageTimeout bounds one image download: the factory builds an image on
+// its first request, and an image is a few hundred megabytes.
+const imageTimeout = 30 * time.Minute
+
 func (f *Factory) httpClient() *http.Client {
 	if f != nil && f.HTTPClient != nil {
 		return f.HTTPClient

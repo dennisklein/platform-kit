@@ -64,8 +64,6 @@ environment variables:
                         seconds release gives a machine to come back (default: 900)
   PK_LAB_DAY2_TIMEOUT   seconds day2 gives each reboot (default: 1200)
   PK_LAB_MIN_FREE_GIB   free disk doctor asks for under PK_LAB_DIR (default: 15)
-  PK_LAB_WARM_TIMEOUT   seconds up waits for the first proposed install before it warms
-                        the factory images; 0 skips the warm-up (default: 300)
   PK_LAB_TALOS          start the lab on this Talos release instead of the spec's, e.g.
                         v1.14.5, so that upgrade has something to upgrade
   PK_LAB_ROLLOUT_TIMEOUT
@@ -88,7 +86,6 @@ WAIT_TIMEOUT=${PK_LAB_WAIT_TIMEOUT:-2400}
 RELEASE_TIMEOUT=${PK_LAB_RELEASE_TIMEOUT:-900}
 DAY2_TIMEOUT=${PK_LAB_DAY2_TIMEOUT:-1200}
 MIN_FREE_GIB=${PK_LAB_MIN_FREE_GIB:-15}
-WARM_TIMEOUT=${PK_LAB_WARM_TIMEOUT:-300}
 KIND_CONFIG=${PK_LAB_KIND_CONFIG:-$ROOT/lab/kind.yaml}
 ROLLOUT_TIMEOUT=${PK_LAB_ROLLOUT_TIMEOUT:-2400}
 # The spec as committed (or as PK_LAB_SPEC names it): upgrade upgrades to
@@ -402,8 +399,8 @@ doctor() {
       no_proxy_covers_lab || missing=$((missing + 1))
     note "a proxy is set. The operator in kind gets it from lab:up; the Talos machines do not: see 'Behind a proxy' in lab/README.md."
   fi
-  # The simulated BMCs download installer images from the Talos image factory,
-  # and the operator registers its image builds there.
+  # The operator downloads the installer images from the Talos image factory
+  # and serves them to the simulated BMCs; it registers its image builds there.
   check "https://factory.talos.dev answers (installer images)" \
     "the lab needs it from this workstation. Behind a proxy, set HTTPS_PROXY and NO_PROXY (lab/README.md, 'Behind a proxy'); without internet, see https://dennisklein.github.io/platform-kit/operate/day-1/air-gapped-site/" \
     reachable https://factory.talos.dev/ || missing=$((missing + 1))
@@ -493,8 +490,8 @@ yaml_string() { jq -n --arg v "$1" '$v'; }
 
 # Writes a patch that gives the manager the workstation's proxy, and prints its
 # file name; prints nothing, and removes an old patch, when no proxy is set. The
-# manager registers image builds with the Talos image factory, which behind a
-# proxy only the proxy reaches. The lab network, kind's service and pod networks
+# manager registers image builds with the Talos image factory and downloads the
+# installer images from it, which behind a proxy only the proxy reaches. The lab network, kind's service and pod networks
 # (kind's defaults, lab/kind.yaml changes neither) and the cluster's own names
 # must not go through it.
 write_proxy_patch() {
@@ -794,7 +791,7 @@ talos_override_guard() {
 
 up() {
   local root=$1 lab_dir=$2 spec=$3 size=$4 workload=$5 gen=$6 cluster=$7 min_free_gib=$8 kind_config=$9
-  local warm_timeout=${10} talos_override=${11}
+  local talos_override=${10}
   pivoted_guard "$lab_dir"
   doctor "$root" "$lab_dir" "$spec" "$size" "$workload" "$min_free_gib" "$kind_config"
   rerender_guard "$root" "$lab_dir" "$spec" "$size" "$workload"
@@ -805,7 +802,6 @@ up() {
   deploy "$root" "$lab_dir" "$gen" "$cluster"
   fleet_up "$root" "$lab_dir" "$gen/fleet.yaml"
   manifests_apply "$gen"
-  warm_when_proposed "$lab_dir" "$warm_timeout"
   cat >&2 <<EOF
 
 The lab is up. The operator now enrolls the machines and proposes to boot them.
@@ -845,68 +841,14 @@ pending_operations() {
     | "\(.metadata.namespace) \(.metadata.name)"'
 }
 
-# Fetches the head of every factory image a BootAsset addresses, once per lab,
-# so that the factory has built it before a BMC asks. The factory builds an
-# image for a schematic and release on its first request, which takes longer
-# than a BMC waits for the answer to its mount-time fetch (the simulated one
-# waits 10 seconds): a cold image fails the mount and holds
-# the machine until a person retries it. Warming is the lab's stand-in for a
-# site's own factory or mirror, which has its images before it is used. A
-# warm-up that fails is reported and not retried here; the mount then fails
-# with the factory's own answer, which is the evidence worth reading.
-factory_warm() {
-  local lab_dir=$1
-  local warmed=$lab_dir/factory-warmed url
-  touch "$warmed"
-  while IFS= read -r url; do
-    [[ -n $url ]] || continue
-    ! grep -qxF "$url" "$warmed" || continue
-    echo "  warming the factory image $url (it is built on its first request)" >&2
-    # A finite timeout: a factory that never answers must not hold the lab
-    # forever. 15 minutes is well above the few minutes a build takes.
-    if curl --silent --show-error --fail --head --output /dev/null --max-time 900 "$url" >&2; then
-      echo "$url" >>"$warmed"
-    else
-      echo "  the factory did not serve $url; a mount of it will fail the same way" >&2
-    fi
-  done < <(kubectl get bootassets --output json 2>/dev/null | jq -r '.items[].status.url // empty' | sort -u)
-}
-
-# Waits until the operator proposes its first install, then warms the factory
-# images, so that the first approval mounts a warm image also when a person
-# approves in lab:top or with pk-metal approve, which do not warm. An install
-# is proposed only once its BootAssets have a URL, so the proposal is the
-# moment the URLs are known. The wait is bounded: a lab without claims, or an
-# operator that proposes nothing, must not hold up. Approving through
-# lab:approve or lab:wait warms again for images that appear later.
-warm_when_proposed() {
-  local lab_dir=$1 timeout=$2 waited=0
-  [[ $timeout =~ ^[0-9]+$ ]] || die "PK_LAB_WARM_TIMEOUT is not a number of seconds: $timeout. Set e.g.: PK_LAB_WARM_TIMEOUT=300"
-  (( timeout > 0 )) || return 0
-  [[ -n $(kubectl get hostclaims --all-namespaces --output name 2>/dev/null) ]] || return 0
-  step "factory images (waiting up to ${timeout}s for the first proposed install)"
-  until [[ -n $(pending_operations 2>/dev/null) ]]; do
-    if (( waited >= timeout )); then
-      echo "  nothing was proposed within ${timeout}s; the images are warmed when you run: mise run lab:approve" >&2
-      return 0
-    fi
-    sleep 5
-    waited=$((waited + 5))
-  done
-  factory_warm "$lab_dir"
-}
-
 # Approves every pending operation as the kubeconfig's user and prints how many
 # that were. An approval that fails is reported by pk-metal and not counted.
-# The operations are listed before the factory images are warmed, so every
-# image one of them mounts is warm by the time it is approved.
 approve_pending() {
   local root=$1 lab_dir=$2
   local namespace name pending count=0
   # A cluster that does not answer has nothing to approve; the callers poll.
   pending=$(pending_operations) || pending=""
   [[ -n $pending ]] || { echo 0; return 0; }
-  factory_warm "$lab_dir"
   while read -r namespace name; do
     [[ -n $name ]] || continue
     # --yes: this is the unattended path; approve would otherwise ask.
@@ -1861,9 +1803,10 @@ pivot() {
     # The lab's operator mounts the media store (config/lab), and the first
     # Talos cluster is bare: no StorageClass, so pivot would refuse to make
     # the claim there. --media-store=ephemeral mounts an emptyDir instead.
-    # The second cluster's machines have two-slot BMCs, which need no store;
-    # a one-slot machine there would wait with BuilderUnavailable, because
-    # the imager Jobs cannot write into the manager's emptyDir.
+    # The manager downloads the installer images of the second cluster's
+    # two-slot machines into it; a one-slot machine there would wait with
+    # BuilderUnavailable, because the imager Jobs cannot write into the
+    # manager's emptyDir.
     "$root/metal/bin/pk-metal" pivot --to "$lab_dir/workload.kubeconfig" --image "$ref" \
       --media-url "https://$media_node:30443" --media-store ephemeral --timeout 600s --yes >&2 \
       || die "the move did not finish. Its message above says what to do; rerun it with: mise run lab:pivot"
@@ -2179,7 +2122,7 @@ down() {
   registry_down
   rm -f "$lab_dir/kubeconfig" "$lab_dir/workload.kubeconfig" "$lab_dir/talosconfig" \
     "$lab_dir/second.kubeconfig" "$lab_dir/second.talosconfig" \
-    "$lab_dir/factory-warmed" "$lab_dir/scale-admin.kubeconfig"
+    "$lab_dir/scale-admin.kubeconfig"
   "$root/lab/net.sh" down
   # The pivot mark stays: after a pivot the disks still hold the moved
   # operator, and only reset, which wipes them, lets the next up start.
@@ -2240,7 +2183,7 @@ main() {
   case "$verb" in
     doctor) doctor "$ROOT" "$LAB_DIR" "$SPEC" "$SIZE" "$WORKLOAD" "$MIN_FREE_GIB" "$KIND_CONFIG" ;;
     render) render "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN" ;;
-    up) up "$ROOT" "$LAB_DIR" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN" "$CLUSTER" "$MIN_FREE_GIB" "$KIND_CONFIG" "$WARM_TIMEOUT" "${PK_LAB_TALOS:-}" ;;
+    up) up "$ROOT" "$LAB_DIR" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN" "$CLUSTER" "$MIN_FREE_GIB" "$KIND_CONFIG" "${PK_LAB_TALOS:-}" ;;
     network)
       require_rendered "$ROOT" "$SPEC" "$SIZE" "$WORKLOAD" "$GEN"
       network_up "$ROOT" "$GEN"

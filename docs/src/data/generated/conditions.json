@@ -1447,11 +1447,11 @@
       "context": "Reasons on the asset's Ready condition."
     },
     {
-      "name": "ReasonURLComputed",
-      "value": "URLComputed",
+      "name": "ReasonImageDownloaded",
+      "value": "ImageDownloaded",
       "group": "os.pk.io",
       "source": "metal/api/os/v1alpha1/conditions.go",
-      "description": "the image factory knows the schematic, and the content-addressed URL of its image is stamped. The bytes behind that URL are not fetched (the machine does that) but they are known to exist, which a computed URL alone never established.",
+      "description": "the image factory knows the schematic, and the operator downloaded the image at its content-addressed URL into the media store. Digest and size are stamped; the media service serves exactly those bytes.",
       "on": [
         {
           "condition": "Ready",
@@ -1507,7 +1507,7 @@
       "value": "Building",
       "group": "os.pk.io",
       "source": "metal/api/os/v1alpha1/conditions.go",
-      "description": "the imager Job is building the artifact for the current inputs. A stored artifact of earlier inputs stays in status until the new one replaces it.",
+      "description": "the imager Job is building the artifact for the current inputs, or the operator downloads the factory image. A stored artifact of earlier inputs stays in status until the new one replaces it.",
       "on": [
         {
           "condition": "Ready",
@@ -1521,7 +1521,7 @@
       "value": "BuilderUnavailable",
       "group": "os.pk.io",
       "source": "metal/api/os/v1alpha1/conditions.go",
-      "description": "this operator cannot build the artifact: no media store, no imager image pinned for the Talos version, or a Talos version without embedded config support. The message names the flag or field to set.",
+      "description": "this operator cannot build or keep the artifact: no media store, no imager image pinned for the Talos version, or a Talos version without embedded config support. The message names the flag or field to set.",
       "on": [
         {
           "condition": "Ready",

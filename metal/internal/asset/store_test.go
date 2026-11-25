@@ -189,3 +189,53 @@ func TestFileGrant(t *testing.T) {
 		assert.ErrorIs(t, err, os.ErrClosed)
 	})
 }
+
+// TestFetch: a downloaded image lands whole, owner-read-only, under the
+// asset's key, with its digest; an image that is not the one wanted, a
+// refused request and a short body leave nothing behind.
+func TestFetch(t *testing.T) {
+	image := []byte("an install image")
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/image.iso":
+			_, _ = w.Write(image)
+		case "/short.iso":
+			w.Header().Set("Content-Length", "100")
+			_, _ = w.Write(image)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	s, err := NewStore(t.TempDir())
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	sum, n, err := s.Fetch(ctx, srv.Client(), srv.URL+"/image.iso", "installer", "k1", "")
+	require.NoError(t, err)
+	assert.Equal(t, sha(image), sum)
+	assert.Equal(t, int64(len(image)), n)
+	st, err := os.Stat(filepath.Join(s.Dir, "assets", "installer", "k1.iso"))
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(artifactMode), st.Mode().Perm())
+	f, err := s.Open("installer", "k1", sum)
+	require.NoError(t, err, "the digest that Fetch reports is the one Open checks")
+	require.NoError(t, f.Close())
+
+	_, _, err = s.Fetch(ctx, srv.Client(), srv.URL+"/image.iso", "installer", "k2", sha([]byte("another image")))
+	require.ErrorContains(t, err, "want sha256:")
+	assert.False(t, s.Has("installer", "k2"), "an image nobody wanted is not kept")
+
+	_, _, err = s.Fetch(ctx, srv.Client(), srv.URL+"/missing.iso", "installer", "k3", "")
+	require.ErrorContains(t, err, "404")
+	_, _, err = s.Fetch(ctx, srv.Client(), srv.URL+"/short.iso", "installer", "k4", "")
+	require.Error(t, err)
+	assert.False(t, s.Has("installer", "k4"), "a short download is not kept")
+
+	entries, err := os.ReadDir(filepath.Join(s.Dir, "assets", "installer"))
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "no temporary file is left: %v", entries)
+
+	_, _, err = s.Fetch(ctx, http.DefaultClient, srv.URL+"/image.iso", "installer", "k5", "")
+	require.Error(t, err, "a server whose certificate the client does not trust is refused")
+}

@@ -16,9 +16,11 @@ const (
 	// served only under a grant.
 	StrategyConfigISO BootAssetStrategy = "configISO"
 
-	// StrategyFactory points at the generic secret-free install ISO on the image
-	// factory — content-addressed by schematic, shared across nodes, fetched
-	// without a grant.
+	// StrategyFactory is the generic secret-free install ISO of the image
+	// factory — content-addressed by schematic, shared across nodes. The
+	// operator downloads it into its media store over TLS that it verifies
+	// and records its digest. The media service serves it under a grant,
+	// pinned to that digest: a BMC never fetches it from the factory.
 	StrategyFactory BootAssetStrategy = "factory"
 
 	// StrategyEmbeddedInstaller builds a per-node install ISO with the node's
@@ -54,24 +56,24 @@ type BootAssetSpec struct {
 	Schematic *Schematic `json:"schematic,omitempty"`
 }
 
-// BootAssetStatus reports the built artifact. Secret-bearing artifacts never get
-// a stable URL — their fetch URLs are minted per mount as grants and revoked on
-// node check-in, eject, or expiry.
+// BootAssetStatus reports the built artifact. No artifact has a URL that a BMC
+// fetches directly: the fetch URLs are minted per mount as grants of the media
+// service and revoked on node check-in, eject, or expiry.
 type BootAssetStatus struct {
 	// Conditions: Ready.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// URL is where the artifact is fetched without a grant. factory only.
+	// URL is where the operator downloads the artifact from. A BMC never
+	// fetches it there. factory only.
 	// +optional
 	URL string `json:"url,omitempty"`
 
-	// Digest is sha256:<hex> of the artifact bytes. configISO and
-	// embeddedInstaller.
+	// Digest is sha256:<hex> of the artifact bytes.
 	// +optional
 	Digest string `json:"digest,omitempty"`
 
-	// Size is the artifact size in bytes. configISO and embeddedInstaller.
+	// Size is the artifact size in bytes.
 	// +optional
 	Size int64 `json:"size,omitempty"`
 
@@ -81,9 +83,11 @@ type BootAssetStatus struct {
 	// +optional
 	ConfigDigest string `json:"configDigest,omitempty"`
 
-	// BuildKey names the inputs of the stored artifact: config, Talos
-	// version, schematic and imager image. A change of any input is a new
-	// key and a new build. embeddedInstaller only.
+	// BuildKey names the stored artifact in the media store. For an
+	// embeddedInstaller it names the inputs: config, Talos version,
+	// schematic and imager image; a change of any input is a new key and a
+	// new build. For a factory image it is a hash of URL. embeddedInstaller
+	// and factory.
 	// +optional
 	BuildKey string `json:"buildKey,omitempty"`
 
@@ -110,8 +114,8 @@ type BootAssetStatus struct {
 // +kubebuilder:printcolumn:name="Size",type=integer,JSONPath=`.status.size`
 
 // BootAsset is a built boot artifact and how to get it. The controller builds
-// the artifact and reports readiness and digest. For strategies without a
-// grant, it also reports a URL.
+// or downloads the artifact and reports readiness and digest. For the factory
+// strategy, it also reports the URL it downloads from.
 //
 // One-slot BMCs: a BMC with one virtual media slot cannot mount the installer
 // and a config ISO side by side. For a blank machine behind such a BMC, the

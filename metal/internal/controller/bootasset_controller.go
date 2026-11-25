@@ -2,7 +2,11 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/opencontainers/go-digest"
 	batchv1 "k8s.io/api/batch/v1"
@@ -34,8 +38,9 @@ const (
 // BootAssetReconciler produces boot artifacts. configISO packs the node's
 // rendered config Secret into the metal-iso medium and rests it in an owned
 // artifact Secret for the asset server to serve under grants; factory registers
-// the schematic with the image factory and stamps the content-addressed URL of
-// the generic secret-free install image — nothing to build, nothing to grant.
+// the schematic with the image factory and downloads the generic secret-free
+// install image into the media store, from where it is served under grants
+// too.
 type BootAssetReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
@@ -49,6 +54,9 @@ type BootAssetReconciler struct {
 	// holds those assets with a message naming the flags.
 	Store  *asset.Store
 	Imager *Imager
+	// Fetches downloads the factory installers into Store. Nil makes one.
+	Fetches   *mediaFetcher
+	fetchOnce sync.Once
 }
 
 // +kubebuilder:rbac:groups=os.pk.io,resources=bootassets,verbs=get;list;watch
@@ -78,9 +86,10 @@ func (r *BootAssetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	orig := ba.DeepCopy()
 	var err error
+	var res ctrl.Result
 	switch ba.Spec.Strategy {
 	case osv1alpha1.StrategyFactory:
-		r.addressImage(ctx, ba)
+		res = r.fetchImage(ctx, ba)
 	case osv1alpha1.StrategyConfigISO:
 		err = r.build(ctx, ba)
 	case osv1alpha1.StrategyEmbeddedInstaller:
@@ -97,33 +106,84 @@ func (r *BootAssetReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if err := updateStatusIfChanged(ctx, r.Client, ba, &orig.Status, &ba.Status); err != nil {
 		return ctrl.Result{}, err
 	}
-	return ctrl.Result{}, nil
+	return res, nil
 }
 
 func (r *BootAssetReconciler) hold(ba *osv1alpha1.BootAsset, reason, message string) {
 	setCondition(&ba.Status.Conditions, ba.Generation, osv1alpha1.ConditionReady, metav1.ConditionFalse, reason, message)
 }
 
-// addressImage is the factory strategy: there is nothing to build, so the work
-// is making sure the image this names can actually be fetched.
+// fetchImage is the factory strategy: the operator downloads the install
+// image from the factory into the media store, and the media service serves
+// it to the BMC under a grant, pinned to the digest recorded here. A BMC
+// never fetches it from the factory itself: a BMC does not verify the
+// certificate of what it mounts, and a substituted installer would read the
+// config medium in the other slot.
 //
 // The URL is arithmetic — a content hash of the schematic — and arithmetic
 // always succeeds, including for a schematic no factory has ever heard of.
-// Registering first is what puts a fetchable image behind the URL before Ready
-// claims there is one; the alternative is a BMC mounting a 404 on the far side
-// of the rack, with the cause several hours behind it.
-func (r *BootAssetReconciler) addressImage(ctx context.Context, ba *osv1alpha1.BootAsset) {
+// Registering first is what puts a fetchable image behind the URL.
+func (r *BootAssetReconciler) fetchImage(ctx context.Context, ba *osv1alpha1.BootAsset) ctrl.Result {
 	if _, err := r.Factory.Register(ctx, ba.Spec.Schematic); err != nil {
 		r.hold(ba, osv1alpha1.ReasonSchematicUnavailable, err.Error())
-		return
+		return ctrl.Result{}
 	}
 	url, err := r.Factory.ISOURL(ba.Spec.Schematic, ba.Spec.TalosVersion)
 	if err != nil {
 		r.hold(ba, osv1alpha1.ReasonBuildFailed, err.Error())
-		return
+		return ctrl.Result{}
 	}
 	ba.Status.URL = url
-	setCondition(&ba.Status.Conditions, ba.Generation, osv1alpha1.ConditionReady, metav1.ConditionTrue, osv1alpha1.ReasonURLComputed, "")
+	if r.Store == nil {
+		r.hold(ba, osv1alpha1.ReasonBuilderUnavailable,
+			"this operator has no media store to keep the installer in: start the manager with --media-store")
+		return ctrl.Result{}
+	}
+	// The key names the URL, so another factory or another image is
+	// another file.
+	key := imageKey(url)
+	if ba.Status.BuildKey == key && ba.Status.Digest != "" && r.Store.Has(ba.Name, key) {
+		setCondition(&ba.Status.Conditions, ba.Generation, osv1alpha1.ConditionReady, metav1.ConditionTrue, osv1alpha1.ReasonImageDownloaded, "")
+		return ctrl.Result{}
+	}
+	st := r.fetcher().start(r.Store, r.Factory.ImageClient(), url, ba.Name, key, "")
+	switch {
+	case st.running:
+		r.hold(ba, osv1alpha1.ReasonBuilding, fmt.Sprintf(
+			"the operator downloads the installer from %s into its media store; the BMC fetches it from the media service", url))
+		return ctrl.Result{RequeueAfter: fetchPoll}
+	case st.err != nil:
+		r.hold(ba, osv1alpha1.ReasonBuildFailed, fmt.Sprintf("download the installer: %v. The operator tries again in %s", st.err, fetchRetry))
+		return ctrl.Result{RequeueAfter: fetchRetry}
+	}
+	ba.Status.Digest, ba.Status.Size, ba.Status.BuildKey = st.sum, st.size, key
+	setCondition(&ba.Status.Conditions, ba.Generation, osv1alpha1.ConditionReady, metav1.ConditionTrue, osv1alpha1.ReasonImageDownloaded, "")
+	if err := r.Store.Prune(ba.Name, key); err != nil {
+		logf.FromContext(ctx).Error(err, "prune superseded installers", "bootAsset", ba.Name)
+	}
+	return ctrl.Result{}
+}
+
+// fetchPoll is how often a running download is looked at; fetchRetry is
+// how long a failed one waits before the next try.
+const (
+	fetchPoll  = 5 * time.Second
+	fetchRetry = time.Minute
+)
+
+// imageKey is the store key of a downloaded image: a hash of its URL.
+func imageKey(url string) string {
+	sum := sha256.Sum256([]byte(url))
+	return hex.EncodeToString(sum[:16])
+}
+
+func (r *BootAssetReconciler) fetcher() *mediaFetcher {
+	r.fetchOnce.Do(func() {
+		if r.Fetches == nil {
+			r.Fetches = &mediaFetcher{}
+		}
+	})
+	return r.Fetches
 }
 
 // nodeConfig loads the rendered config of the asset's node. A missing

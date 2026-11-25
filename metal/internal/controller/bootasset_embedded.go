@@ -14,6 +14,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
+	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 )
 
 // embed is the embeddedInstaller strategy: the node's rendered config and the
@@ -198,8 +199,9 @@ func (r *BootAssetReconciler) deleteStaleBuilds(ctx context.Context, ba *osv1alp
 	return nil
 }
 
-// sweepStore removes the stored artifacts of BootAssets that are gone and the
-// output of build Jobs that are gone. It runs when a BootAsset disappears;
+// sweepStore removes the stored artifacts of BootAssets that are gone, the
+// downloads of operations that are gone, and the output of build Jobs that
+// are gone. It runs when a BootAsset disappears;
 // artifacts outlive their asset only until then.
 func (r *BootAssetReconciler) sweepStore(ctx context.Context) error {
 	if r.Store == nil {
@@ -211,9 +213,19 @@ func (r *BootAssetReconciler) sweepStore(ctx context.Context) error {
 	}
 	keepAsset := map[string]bool{}
 	for _, a := range assets.Items {
-		if a.Spec.Strategy == osv1alpha1.StrategyEmbeddedInstaller {
+		if storeBacked(&a) {
 			keepAsset[a.Name] = true
 		}
+	}
+	// The images an operation downloaded by URL stay while it exists; its
+	// end removes them, and this removes those of one deleted while the
+	// manager was down.
+	ops := &metalv1alpha1.HostOperationList{}
+	if err := r.List(ctx, ops); err != nil {
+		return err
+	}
+	for _, op := range ops.Items {
+		keepAsset[urlStoreName(client.ObjectKeyFromObject(&op))] = true
 	}
 	jobs := &batchv1.JobList{}
 	if err := r.List(ctx, jobs, client.InNamespace(r.Namespace), client.HasLabels{labelBootAssetUID}); err != nil {

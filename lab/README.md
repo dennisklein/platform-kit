@@ -537,16 +537,15 @@ the lab needs and marks the missing ones. Host firewalls:
   `sudo ufw allow in on pkbr0`.
 
 **An operation fails at `insertMedia`.** The simulated BMC downloads the
-installer image from `factory.talos.dev` and the node configuration from the
-operator at `https://10.77.0.1:30443`. The first needs internet access from the
-workstation (or a proxy, see above), the second the NodePort mapping of
+installer image and the node configuration from the operator at
+`https://10.77.0.1:30443`. That needs the NodePort mapping of
 `lab/kind.yaml`; check it with `curl -k https://10.77.0.1:30443/`, where a 404
 is the healthy answer. With a proxy set, `NO_PROXY` must contain
-`10.77.0.0/24`. The factory builds an image on its first request, which
-takes longer than the simulated BMC waits; `lab:up` (up to
-`PK_LAB_WARM_TIMEOUT` seconds, default 300) and `lab:approve` request each
-installer image first. If `lab:up` printed "nothing was proposed", run
-`mise run lab:approve`, or retry the operation (`r` in `lab:top`).
+`10.77.0.0/24`. The operator downloads each installer image from
+`factory.talos.dev` before it proposes the install, which needs internet
+access from the workstation (or a proxy, see above). An install that is not
+proposed shows why in `kubectl get bootassets`: a factory BootAsset that is
+not Ready names the download in its condition.
 
 **A machine boots but never checks in.** Its serial console is in
 `.lab/state/<machine>/console.log`. The machines reach the outside through

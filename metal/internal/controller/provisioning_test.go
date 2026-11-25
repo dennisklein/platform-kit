@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -651,4 +652,27 @@ func TestBootSchematic(t *testing.T) {
 			})
 		}
 	}
+}
+
+// TestTwoMediaPlanPinsBothMedia: a two-slot install pins the installer the
+// operator downloaded as well as the config medium, so the approver sees
+// both digests and the media service serves nothing else.
+func TestTwoMediaPlanPinsBothMedia(t *testing.T) {
+	r := &HostClaimReconciler{OperationsNamespace: "pk-metal"}
+	node := &osv1alpha1.TalosNode{ObjectMeta: metav1.ObjectMeta{Name: "node"}}
+	config := &osv1alpha1.BootAsset{ObjectMeta: metav1.ObjectMeta{Name: "node-config"}}
+	installer := &osv1alpha1.BootAsset{ObjectMeta: metav1.ObjectMeta{Name: "installer"}}
+	installerDigest, configDigest := "sha256:"+strings.Repeat("1", 64), "sha256:"+strings.Repeat("2", 64)
+	plan := provisionPlan{Slots: []string{"VirtualMedia1", "VirtualMedia2"}, Target: "UsbCd",
+		ArtifactDigest: configDigest, Installer: "https://factory.test/image.iso", InstallerDigest: installerDigest}
+	op := r.provisionOp(testClaim("node"), "host-a", "op", plan, node, config, installer)
+	pins := map[string]string{}
+	for _, a := range op.Spec.Actions {
+		if in := a.InsertMedia; in != nil {
+			pins[in.BootAssetRef.Name] = in.Digest
+		}
+	}
+	assert.Equal(t, map[string]string{"installer": installerDigest, "node-config": configDigest}, pins)
+	assert.NotEqual(t, planHash(plan), planHash(provisionPlan{Slots: plan.Slots, Target: plan.Target,
+		ArtifactDigest: configDigest, Installer: plan.Installer}), "another installer is another plan")
 }

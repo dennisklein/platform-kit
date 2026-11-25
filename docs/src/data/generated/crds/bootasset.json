@@ -12,7 +12,7 @@
   ],
   "scope": "Cluster",
   "source": "metal/config/crd/os.pk.io_bootassets.yaml",
-  "description": "BootAsset is a built boot artifact and how to get it. The controller builds the artifact and reports readiness and digest. For strategies without a grant, it also reports a URL.\n\nOne-slot BMCs: a BMC with one virtual media slot cannot mount the installer and a config ISO side by side. For a blank machine behind such a BMC, the operator creates an embeddedInstaller BootAsset named `<node>-embedded`. This is an installer for that node with its machine config inside, mounted in the one slot. The operator does not send the config to a machine in maintenance mode, because the machine takes it from anybody who reaches it. The installer reaches the BMC only through the media service and its grants, as a config ISO does.\n\nSecrets at rest: the embedded installer holds the node's machine config in plain text, keys and tokens included. It is on the media store volume (the manager's --media-store), and only the user of the operator can read it. It is deleted with its BootAsset, or when a newer build replaces it. It is not encrypted: use an encrypted StorageClass for the media store where Secrets are encrypted at rest.",
+  "description": "BootAsset is a built boot artifact and how to get it. The controller builds or downloads the artifact and reports readiness and digest. For the factory strategy, it also reports the URL it downloads from.\n\nOne-slot BMCs: a BMC with one virtual media slot cannot mount the installer and a config ISO side by side. For a blank machine behind such a BMC, the operator creates an embeddedInstaller BootAsset named `<node>-embedded`. This is an installer for that node with its machine config inside, mounted in the one slot. The operator does not send the config to a machine in maintenance mode, because the machine takes it from anybody who reaches it. The installer reaches the BMC only through the media service and its grants, as a config ISO does.\n\nSecrets at rest: the embedded installer holds the node's machine config in plain text, keys and tokens included. It is on the media store volume (the manager's --media-store), and only the user of the operator can read it. It is deleted with its BootAsset, or when a newer build replaces it. It is not encrypted: use an encrypted StorageClass for the media store where Secrets are encrypted at rest.",
   "statusSubresource": true,
   "printerColumns": [
     {
@@ -152,7 +152,7 @@
       "depth": 0,
       "type": "object",
       "required": false,
-      "description": "BootAssetStatus reports the built artifact. Secret-bearing artifacts never get a stable URL — their fetch URLs are minted per mount as grants and revoked on node check-in, eject, or expiry."
+      "description": "BootAssetStatus reports the built artifact. No artifact has a URL that a BMC fetches directly: the fetch URLs are minted per mount as grants of the media service and revoked on node check-in, eject, or expiry."
     },
     {
       "path": "status.artifactSecretRef",
@@ -197,7 +197,7 @@
       "depth": 1,
       "type": "string",
       "required": false,
-      "description": "BuildKey names the inputs of the stored artifact: config, Talos version, schematic and imager image. A change of any input is a new key and a new build. embeddedInstaller only."
+      "description": "BuildKey names the stored artifact in the media store. For an embeddedInstaller it names the inputs: config, Talos version, schematic and imager image; a change of any input is a new key and a new build. For a factory image it is a hash of URL. embeddedInstaller and factory."
     },
     {
       "path": "status.conditions",
@@ -292,7 +292,7 @@
       "depth": 1,
       "type": "string",
       "required": false,
-      "description": "Digest is sha256:<hex> of the artifact bytes. configISO and embeddedInstaller."
+      "description": "Digest is sha256:<hex> of the artifact bytes."
     },
     {
       "path": "status.size",
@@ -302,7 +302,7 @@
       "type": "integer",
       "format": "int64",
       "required": false,
-      "description": "Size is the artifact size in bytes. configISO and embeddedInstaller."
+      "description": "Size is the artifact size in bytes."
     },
     {
       "path": "status.url",
@@ -311,7 +311,7 @@
       "depth": 1,
       "type": "string",
       "required": false,
-      "description": "URL is where the artifact is fetched without a grant. factory only."
+      "description": "URL is where the operator downloads the artifact from. A BMC never fetches it there. factory only."
     }
   ]
 }

@@ -96,7 +96,8 @@ func TestRemountAfterAManagerRestart(t *testing.T) {
 	assert.Equal(t, iso, st.BootImage(mediaSlot), "the machine booted the config, not an empty slot")
 }
 
-// TestRemountOfAPlainImage: an image mounted by URL is put back too.
+// TestRemountOfAPlainImage: an image named by URL is put back too, under a
+// new grant.
 func TestRemountOfAPlainImage(t *testing.T) {
 	srv := isoServer(t)
 	want := srv.URL + "/installer.iso"
@@ -105,9 +106,12 @@ func TestRemountOfAPlainImage(t *testing.T) {
 	op.Status.Steps[0].Action = "insertMedia"
 	op.Status.OffObserved = nil
 	r, st, rec := executorFor(t, "supermicro-x12", op)
+	withImages(t, r, srv)
+	downloaded(t, r, want, isoDigest)
 
 	got := runOp(t, r)
 	require.True(t, opSucceeded(got), "%+v", got.Status)
-	assert.Equal(t, []string{want}, rec.inserts)
-	assert.Equal(t, want, mounted(t.Context(), st, mediaSlot))
+	require.Len(t, rec.inserts, 1)
+	assert.Contains(t, rec.inserts[0], urlGrantFile(isoDigest), "mounted again, from the media service")
+	assert.Equal(t, isoImage, st.BootImage(mediaSlot))
 }

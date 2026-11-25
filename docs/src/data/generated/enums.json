@@ -226,7 +226,7 @@
         {
           "name": "StrategyFactory",
           "value": "factory",
-          "description": "StrategyFactory points at the generic secret-free install ISO on the image factory — content-addressed by schematic, shared across nodes, fetched without a grant."
+          "description": "StrategyFactory is the generic secret-free install ISO of the image factory — content-addressed by schematic, shared across nodes. The operator downloads it into its media store over TLS that it verifies and records its digest. The media service serves it under a grant, pinned to that digest: a BMC never fetches it from the factory."
         },
         {
           "name": "StrategyEmbeddedInstaller",

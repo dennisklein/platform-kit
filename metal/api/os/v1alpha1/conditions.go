@@ -78,11 +78,11 @@ const (
 	// ReasonArtifactBuilt on Ready=True: the artifact Secret holds the built
 	// bytes; digest and size are stamped.
 	ReasonArtifactBuilt = "ArtifactBuilt"
-	// ReasonURLComputed on Ready=True (factory): the image factory knows the
-	// schematic, and the content-addressed URL of its image is stamped. The
-	// bytes behind that URL are not fetched (the machine does that) but they
-	// are known to exist, which a computed URL alone never established.
-	ReasonURLComputed = "URLComputed"
+	// ReasonImageDownloaded on Ready=True (factory): the image factory knows
+	// the schematic, and the operator downloaded the image at its
+	// content-addressed URL into the media store. Digest and size are
+	// stamped; the media service serves exactly those bytes.
+	ReasonImageDownloaded = "ImageDownloaded"
 	// ReasonNodeNotFound on Ready=False: nodeRef names no TalosNode.
 	ReasonNodeNotFound = "NodeNotFound"
 	// ReasonConfigNotRendered on Ready=False: the node exists but has no rendered
@@ -91,12 +91,13 @@ const (
 	// ReasonBuildFailed on Ready=False: packing the artifact failed (the message
 	// carries the builder's error).
 	ReasonBuildFailed = "BuildFailed"
-	// ReasonBuilding on Ready=False (embeddedInstaller): the imager Job is
-	// building the artifact for the current inputs. A stored artifact of
+	// ReasonBuilding on Ready=False (embeddedInstaller, factory): the imager
+	// Job is building the artifact for the current inputs, or the operator
+	// downloads the factory image. A stored artifact of
 	// earlier inputs stays in status until the new one replaces it.
 	ReasonBuilding = "Building"
-	// ReasonBuilderUnavailable on Ready=False (embeddedInstaller): this
-	// operator cannot build the artifact: no media store, no imager image
+	// ReasonBuilderUnavailable on Ready=False (embeddedInstaller, factory):
+	// this operator cannot build or keep the artifact: no media store, no imager image
 	// pinned for the Talos version, or a Talos version without embedded
 	// config support. The message names the flag or field to set.
 	ReasonBuilderUnavailable = "BuilderUnavailable"

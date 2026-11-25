@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -511,6 +512,7 @@ func TestWipeIsProposedOnRequestAndClearsTheMark(t *testing.T) {
 	a := &assets.Items[0]
 	assert.Contains(t, a.Spec.Schematic.Customization.ExtraKernelArgs, wipeKernelArg)
 	a.Status.URL = "https://factory.example/image.iso"
+	a.Status.Digest, a.Status.BuildKey = "sha256:"+strings.Repeat("ab", 32), "k"
 	a.Status.Conditions = []metav1.Condition{{Type: osv1alpha1.ConditionReady, Status: metav1.ConditionTrue, Reason: "x", LastTransitionTime: metav1.Now()}}
 	require.NoError(t, cl.Status().Update(t.Context(), a))
 
@@ -521,6 +523,7 @@ func TestWipeIsProposedOnRequestAndClearsTheMark(t *testing.T) {
 	require.Len(t, ops.Items, 1)
 	op := &ops.Items[0]
 	assert.Equal(t, []string{"ejectMedia", "insertMedia", "setBootOverride", "powerCycle"}, opActionKeys(op))
+	assert.Equal(t, a.Status.Digest, op.Spec.Actions[1].InsertMedia.Digest, "the wipe image is pinned to what the operator downloaded")
 	assert.True(t, *op.Spec.Approval.Required, "erasing a disk is a person's decision")
 
 	meta.SetStatusCondition(&op.Status.Conditions, metav1.Condition{Type: metalv1alpha1.ConditionExecuted,

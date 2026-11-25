@@ -293,9 +293,17 @@ func (c *MediaCache) caches(creds *bmc.MediaCredentials, size int64) bool {
 	return c != nil && creds == nil && size >= c.MinSize
 }
 
-// entry is the cache file for a URL and size.
+// entry is the cache file for a URL and size. The token of a grant URL is
+// left out of the key: the operator serves a factory installer under a new
+// grant for each mount, and the same installer must hit the same entry.
 func (c *MediaCache) entry(u *url.URL, size int64) string {
-	sum := sha256.Sum256([]byte(u.Scheme + "://" + u.Host + u.Path))
+	path := u.Path
+	if rest, ok := strings.CutPrefix(path, "/grants/"); ok {
+		if _, file, ok := strings.Cut(rest, "/"); ok {
+			path = "/grants/" + file
+		}
+	}
+	sum := sha256.Sum256([]byte(u.Scheme + "://" + u.Host + path))
 	return filepath.Join(c.dir, fmt.Sprintf("%s-%d.iso", hex.EncodeToString(sum[:16]), size))
 }
 

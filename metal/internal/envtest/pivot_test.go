@@ -92,6 +92,14 @@ func startManager(t *testing.T, mgr interface{ Start(context.Context) error }) (
 	return stop
 }
 
+// newStore is an empty media store.
+func newStore(t *testing.T) *asset.Store {
+	t.Helper()
+	store, err := asset.NewStore(t.TempDir())
+	require.NoError(t, err)
+	return store
+}
+
 func TestPivot(t *testing.T) {
 	src := startEnv(t)
 	dst := startBareEnv(t)
@@ -167,6 +175,9 @@ func TestPivot(t *testing.T) {
 			WaitInterval:         200 * time.Millisecond,
 			Factory:              imageFactory,
 			NodeName:             nodeName,
+			// Each manager has a store of its own, as each cluster has
+			// its own volume: the installer is downloaded again there.
+			MediaStore: newStore(t),
 		}
 	}
 	newMedia := func() *asset.Service {

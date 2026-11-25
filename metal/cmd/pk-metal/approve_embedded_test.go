@@ -49,6 +49,7 @@ steps, in this order:
    4. power cycle: if the machine is on, force it off (no clean shutdown) and on again; if it is off, power it on
    5. wait up to 30m for TalosNode node-1 to report in at 10.0.0.11
    6. eject whatever is mounted on virtual media slot CD
+note: the BMC fetches each medium from the operator's media service over HTTPS, certificate not verified by the BMC; a grant, bound to the first address that fetches it, and the digest of each medium protect it
 note: the installer on slot CD carries the machine config of TalosNode node-1, with its keys and tokens. It is built for this node only, the BMC fetches it under a grant made for this boot, and it is ejected when the node reports in
 boots TalosNode node-1: address 10.0.0.11, role controlplane
   installs Talos onto the disk that matches serial=disk-0001; everything on that disk is overwritten

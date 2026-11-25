@@ -55,6 +55,8 @@ func TestAbortUndoesTheMountAndTheOverride(t *testing.T) {
 		metalv1alpha1.HostOperationAction{PowerCycle: &metalv1alpha1.PowerCycleAction{}},
 	)
 	r, st, rec := executorFor(t, "supermicro-x12", op)
+	withImages(t, r, srv)
+	downloaded(t, r, srv.URL+"/installer.iso", isoDigest)
 	key := client.ObjectKey{Namespace: "pk-metal", Name: "op"}
 	_, err := r.Reconcile(t.Context(), ctrl.Request{NamespacedName: key})
 	require.NoError(t, err)

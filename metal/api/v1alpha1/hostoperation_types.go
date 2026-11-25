@@ -371,17 +371,24 @@ type SetBootOverrideAction struct {
 
 // InsertMediaAction mounts an image on one of the machine's virtual-media slots,
 // the way you would put a disc in a drive attached to it. The image is either a
-// plain URL or a BootAsset: a secret-free asset mounts from its stable URL, a
-// secret-bearing one (configISO) is served by the operator's media service
-// under a grant issued at execution time and revoked when the operation ends.
+// URL with a digest or a BootAsset. Either way the BMC fetches it from the
+// operator's media service, under a grant issued at execution time and revoked
+// when the operation ends, and never from where the image came from; a
+// secret-bearing BootAsset (configISO, embeddedInstaller) also gets its own
+// user and password.
 //
 // +kubebuilder:validation:XValidation:rule="has(self.imageUrl) != has(self.bootAssetRef)",message="exactly one of imageUrl and bootAssetRef"
-// +kubebuilder:validation:XValidation:rule="!has(self.digest) || has(self.bootAssetRef)",message="digest pins a bootAssetRef"
+// +kubebuilder:validation:XValidation:rule="!has(self.imageUrl) || (self.imageUrl.startsWith('https://') && has(self.digest))",message="imageUrl needs an https:// URL and a digest (sha256:<hex>): the operator downloads the image, checks the digest and serves it from its media service; or mount a BootAsset"
 type InsertMediaAction struct {
 	// MediaID is the virtual-media slot ("CD", "USBStick", …).
 	MediaID string `json:"mediaId"`
-	// ImageURL is what to mount. Already-mounted with the same URL is success —
-	// steps converge to their goal, so a resumed operation never double-issues.
+	// ImageURL is an image to mount that no BootAsset describes, such as a
+	// site's own rescue image. It must be https:// and come with Digest. The
+	// operator downloads it when the step runs, over TLS it verifies (the
+	// system CAs and the manager's --registry-ca), refuses bytes with another
+	// digest, and serves the image from its media service. The BMC does not
+	// fetch the URL itself.
+	// +kubebuilder:validation:MaxLength=2048
 	// +optional
 	ImageURL string `json:"imageUrl,omitempty"`
 	// BootAssetRef names the BootAsset (os.pk.io) to mount.
@@ -391,8 +398,9 @@ type InsertMediaAction struct {
 	// artifact rebuilt since the proposal fails the step instead of mounting
 	// content nobody approved. With a digest the asset need not be Ready: the
 	// artifact approved is mounted while a newer build runs, and an asset
-	// that names no artifact yet makes the step wait. Secret-bearing assets
-	// (configISO, embeddedInstaller) only.
+	// that names no artifact yet makes the step wait. Without a digest the
+	// step pins the artifact the asset names when the step runs. Required
+	// with imageUrl: it is the image's sha256.
 	// +kubebuilder:validation:Pattern=`^sha256:[a-f0-9]{64}$`
 	// +optional
 	Digest string `json:"digest,omitempty"`

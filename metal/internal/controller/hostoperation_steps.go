@@ -1,11 +1,13 @@
 package controller
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"net/url"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/opencontainers/go-digest"
@@ -24,6 +26,7 @@ import (
 	"github.com/dennisklein/platform-kit/metal/internal/boot"
 	"github.com/dennisklein/platform-kit/metal/internal/oci"
 	"github.com/dennisklein/platform-kit/metal/internal/poll"
+	"github.com/dennisklein/platform-kit/metal/internal/redact"
 )
 
 // defaultCheckInTimeout mirrors the schema default for awaitCheckIn.
@@ -120,6 +123,10 @@ func (x *exec) stepBudget(i int) time.Duration {
 	}
 	if a := x.op.Spec.Actions[i].PowerOff; a != nil {
 		return gracefulWindow(a) + x.r.powerTimeout()
+	}
+	if a := x.op.Spec.Actions[i].InsertMedia; a != nil && a.BootAssetRef == nil {
+		// The image is downloaded into the media store first.
+		return fetchTimeout + x.r.powerTimeout()
 	}
 	if d, ok := talosStepBudget(x.op.Spec.Actions[i]); ok {
 		return d
@@ -319,13 +326,7 @@ func (x *exec) insertMedia(ctx context.Context, i int, a *metalv1alpha1.InsertMe
 		return err
 	}
 	if a.BootAssetRef == nil {
-		if mounted(ctx, cl, a.MediaID) == a.ImageURL {
-			return nil // goal already met
-		}
-		if err := boot.EjectAndVerify(ctx, cl, a.MediaID, nil); err != nil {
-			return err
-		}
-		return cl.InsertMedia(ctx, a.MediaID, a.ImageURL, nil)
+		return x.insertURL(ctx, cl, i, a)
 	}
 
 	ba := &osv1alpha1.BootAsset{}
@@ -339,61 +340,121 @@ func (x *exec) insertMedia(ctx context.Context, i int, a *metalv1alpha1.InsertMe
 	// change in the build key alone (a new extension image digest) must not
 	// fail every approved install that has not mounted yet. Only an unpinned
 	// medium takes whatever is built now, and for that it must be Ready.
-	pinned := secretBearing(ba) && a.Digest != ""
-	if !pinned && !meta.IsStatusConditionTrue(ba.Status.Conditions, osv1alpha1.ConditionReady) {
+	pinned := a.Digest
+	if pinned == "" && !meta.IsStatusConditionTrue(ba.Status.Conditions, osv1alpha1.ConditionReady) {
 		return fmt.Errorf("boot asset %s is not Ready", ba.Name)
 	}
-	if pinned && !hasArtifact(ba) {
+	if pinned != "" && !hasArtifact(ba) {
 		return &artifactPending{msg: fmt.Sprintf("boot asset %s has no artifact yet; the approved one (%s) is mounted once it is there",
 			ba.Name, a.Digest)}
 	}
-	if !secretBearing(ba) {
-		// Secret-free: the stable URL, no grant, no credentials. No digest
-		// pin either: the URL is read when the step runs, not when the
-		// operation was approved. It is derived from the schematic id and
-		// the Talos version, so it names one build, and that build holds no
-		// secret.
-		if ba.Status.URL == "" {
-			return fmt.Errorf("boot asset %s carries no url", ba.Name)
-		}
-		if mounted(ctx, cl, a.MediaID) == ba.Status.URL {
-			return nil
-		}
-		if err := boot.EjectAndVerify(ctx, cl, a.MediaID, nil); err != nil {
-			return err
-		}
-		return cl.InsertMedia(ctx, a.MediaID, ba.Status.URL, nil)
-	}
+	// An unpinned medium is pinned here, to the artifact the status names:
+	// what the grant serves is checked against a digest either way.
+	pinned = cmp.Or(pinned, ba.Status.Digest)
 
-	media := x.r.Media
-	if media == nil {
-		return fmt.Errorf("boot asset %s is secret-bearing and this operator runs no media service (--media-url)", ba.Name)
+	if x.r.Media == nil {
+		return fmt.Errorf("boot asset %s is served by the media service, and this operator runs none (--media-url)", ba.Name)
 	}
+	issue := func(handle, filename string, ttl time.Duration, creds *asset.Credentials) (*asset.Grant, error) {
+		return x.grant(ctx, ba, pinned, handle, filename, ttl, creds)
+	}
+	return x.mountGranted(ctx, cl, i, a.MediaID, ba.Name+".iso", secretBearing(ba), issue)
+}
+
+// insertURL mounts an image named by URL and digest. The operator
+// downloads it into the media store first, over TLS it verifies, and keeps
+// it only when it has the digest; the BMC then fetches it from the media
+// service, under a grant, like any other medium. The download belongs to
+// the operation and goes when the operation ends (forget).
+func (x *exec) insertURL(ctx context.Context, cl bmc.Client, i int, a *metalv1alpha1.InsertMediaAction) error {
+	if a.Digest == "" {
+		// Admission refuses this; an object from before the rule is
+		// refused here too.
+		return fmt.Errorf("image %s has no digest: the operator mounts an image by URL only with the digest it checks", redact.String(a.ImageURL))
+	}
+	if x.r.Media == nil || x.r.Store == nil {
+		return fmt.Errorf("image %s is downloaded into the media store and served by the media service, and this operator runs no media service (--media-url)",
+			redact.String(a.ImageURL))
+	}
+	key := types.NamespacedName{Namespace: x.op.Namespace, Name: x.op.Name}
+	name, sum := urlStoreName(key), strings.TrimPrefix(a.Digest, "sha256:")
+	if !x.r.Store.Has(name, sum) {
+		st := x.r.fetcher().start(x.r.Store, x.r.imageClient(), a.ImageURL, name, sum, a.Digest)
+		switch {
+		case st.running:
+			return &artifactPending{msg: fmt.Sprintf("the operator downloads %s into its media store", redact.String(a.ImageURL))}
+		case st.err != nil:
+			return fmt.Errorf("download %s: %w", redact.String(a.ImageURL), st.err)
+		}
+	}
+	issue := func(handle, filename string, ttl time.Duration, _ *asset.Credentials) (*asset.Grant, error) {
+		f, err := x.r.Store.Open(name, sum, a.Digest)
+		if err != nil {
+			return nil, fmt.Errorf("image %s in the media store: %w", redact.String(a.ImageURL), err)
+		}
+		return x.r.Media.Grants.IssueFile(handle, filename, f, ttl, nil)
+	}
+	return x.mountGranted(ctx, cl, i, a.MediaID, urlGrantFile(a.Digest), false, issue)
+}
+
+// urlStoreName is where the media store keeps the images an operation
+// downloaded: one directory per operation, removed when it ends.
+func urlStoreName(op types.NamespacedName) string {
+	return urlStorePrefix + hash8(digest.FromString(op.String()).String())
+}
+
+// urlStorePrefix starts the store names of operation downloads; the store
+// sweep keeps those of the operations that exist.
+const urlStorePrefix = "op-"
+
+// urlGrantFile is the grant filename of an image named by URL: its digest
+// names it, so two images of one operation get two grants.
+func urlGrantFile(digest string) string {
+	return "image-" + strings.TrimPrefix(digest, "sha256:")[:16] + ".iso"
+}
+
+// mountGranted converges a slot on a medium the media service serves under
+// a grant of the operation: a live grant whose URL the slot holds is the
+// goal met; anything else is ejected and mounted under a fresh grant, which
+// issue mints. withCreds gives the grant its own user and password, for a
+// medium that carries a secret.
+func (x *exec) mountGranted(ctx context.Context, cl bmc.Client, i int, slot, filename string, withCreds bool,
+	issue func(handle, filename string, ttl time.Duration, creds *asset.Credentials) (*asset.Grant, error)) error {
+	media := x.r.Media
 	handle := grantHandle(types.NamespacedName{Namespace: x.op.Namespace, Name: x.op.Name})
-	filename := ba.Name + ".iso"
 	if g, ok := media.Grants.Live(handle, filename); ok {
-		if mounted(ctx, cl, a.MediaID) == media.URL(g) {
+		if mounted(ctx, cl, slot) == media.URL(g) {
 			return nil // mounted under a grant that still answers
 		}
 		media.Grants.Revoke(g.Token)
 	}
 	// Either never mounted, or mounted under a grant a restart forgot: the
 	// grant table fails closed, so the mount is re-minted, never resurrected.
-	if err := boot.EjectAndVerify(ctx, cl, a.MediaID, nil); err != nil {
+	if err := boot.EjectAndVerify(ctx, cl, slot, nil); err != nil {
 		return err
 	}
-	creds, err := asset.MintCredentials()
+	// A medium that carries a config gets its own user and password as
+	// well. One without a secret (an installer) needs none: the token, the
+	// source binding and the digest pin are its rails, and on the vmm
+	// dialect no credentials sit in the URL the BMC keeps.
+	var creds *asset.Credentials
+	if withCreds {
+		var err error
+		if creds, err = asset.MintCredentials(); err != nil {
+			return err
+		}
+	}
+	g, err := issue(handle, filename, x.grantTTL(i), creds)
 	if err != nil {
 		return err
 	}
-	g, err := x.grant(ctx, ba, a.Digest, handle, filename, x.grantTTL(i), creds)
-	if err != nil {
-		return err
+	logf.FromContext(ctx).Info("mounting granted medium", "operation", x.op.Name, "medium", filename,
+		"slot", slot, "expires", g.ExpiresAt)
+	var bmcCreds *bmc.MediaCredentials
+	if creds != nil {
+		bmcCreds = &bmc.MediaCredentials{Username: creds.Username, Password: creds.Password}
 	}
-	logf.FromContext(ctx).Info("mounting granted medium", "operation", x.op.Name, "bootAsset", ba.Name,
-		"slot", a.MediaID, "expires", g.ExpiresAt)
-	if err := cl.InsertMedia(ctx, a.MediaID, media.URL(g),
-		&bmc.MediaCredentials{Username: creds.Username, Password: creds.Password}); err != nil {
+	if err := cl.InsertMedia(ctx, slot, media.URL(g), bmcCreds); err != nil {
 		media.Grants.Revoke(g.Token)
 		return err
 	}
@@ -439,10 +500,9 @@ func (x *exec) remount(ctx context.Context, recorded int) error {
 }
 
 // stillMounted: the slot holds what a recorded insertMedia mounted, under a
-// grant this process still serves when the medium is granted. A plain image
-// URL and a secret-free asset are compared by URL. A granted medium is
-// compared with its live grant's URL, so one mounted under a grant a restart
-// forgot reads as not mounted.
+// grant this process still serves. A medium is compared with its live
+// grant's URL, so one mounted under a grant a restart forgot reads as not
+// mounted.
 func (x *exec) stillMounted(ctx context.Context, in *metalv1alpha1.InsertMediaAction) (bool, error) {
 	cl, _, err := x.client(ctx)
 	if err != nil {
@@ -452,15 +512,11 @@ func (x *exec) stillMounted(ctx context.Context, in *metalv1alpha1.InsertMediaAc
 	if err != nil {
 		return false, err
 	}
-	if in.BootAssetRef == nil {
-		return cur == in.ImageURL, nil
-	}
-	ba := &osv1alpha1.BootAsset{}
-	if err := x.r.Get(ctx, client.ObjectKey{Name: in.BootAssetRef.Name}, ba); err != nil {
-		return false, fmt.Errorf("boot asset %s: %w", in.BootAssetRef.Name, err)
-	}
-	if !secretBearing(ba) {
-		return cur != "" && cur == ba.Status.URL, nil
+	filename := urlGrantFile(in.Digest)
+	if in.BootAssetRef != nil {
+		filename = in.BootAssetRef.Name + ".iso"
+	} else if in.Digest == "" {
+		return false, nil // insertMedia refuses it, saying why
 	}
 	media := x.r.Media
 	if media == nil {
@@ -468,7 +524,7 @@ func (x *exec) stillMounted(ctx context.Context, in *metalv1alpha1.InsertMediaAc
 		return false, nil
 	}
 	handle := grantHandle(types.NamespacedName{Namespace: x.op.Namespace, Name: x.op.Name})
-	g, ok := media.Grants.Live(handle, ba.Name+".iso")
+	g, ok := media.Grants.Live(handle, filename)
 	return ok && cur == media.URL(g), nil
 }
 
@@ -492,10 +548,17 @@ func (e *artifactPending) Error() string { return e.msg }
 
 // hasArtifact: the status names a built artifact, for the asset's strategy.
 func hasArtifact(ba *osv1alpha1.BootAsset) bool {
-	if ba.Spec.Strategy == osv1alpha1.StrategyEmbeddedInstaller {
+	if storeBacked(ba) {
 		return ba.Status.BuildKey != ""
 	}
 	return ba.Status.ArtifactSecretRef != nil
+}
+
+// storeBacked: the asset's artifact rests in the media store, under its
+// build key: an embedded installer the imager built, or a factory installer
+// the operator downloaded.
+func storeBacked(ba *osv1alpha1.BootAsset) bool {
+	return ba.Spec.Strategy == osv1alpha1.StrategyEmbeddedInstaller || ba.Spec.Strategy == osv1alpha1.StrategyFactory
 }
 
 // secretBearing: the asset carries a node's config and is only ever served
@@ -504,14 +567,14 @@ func secretBearing(ba *osv1alpha1.BootAsset) bool {
 	return ba.Spec.Strategy == osv1alpha1.StrategyConfigISO || ba.Spec.Strategy == osv1alpha1.StrategyEmbeddedInstaller
 }
 
-// grant mints the grant for a secret-bearing asset's artifact, checked
-// against the digest the operation was approved with: a config medium from
-// its Secret, an embedded installer from the media store, served from the
-// file it opened and checked.
+// grant mints the grant for an asset's artifact, checked against the
+// digest the operation was approved with: a config medium from its Secret,
+// an installer from the media store, served from the file it opened and
+// checked.
 func (x *exec) grant(ctx context.Context, ba *osv1alpha1.BootAsset, pinned, handle, filename string,
 	ttl time.Duration, creds *asset.Credentials) (*asset.Grant, error) {
 	media := x.r.Media
-	if ba.Spec.Strategy == osv1alpha1.StrategyEmbeddedInstaller {
+	if storeBacked(ba) {
 		if x.r.Store == nil {
 			return nil, fmt.Errorf("boot asset %s rests in the media store and this operator runs none (--media-store)", ba.Name)
 		}

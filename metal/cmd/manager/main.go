@@ -18,6 +18,7 @@ import (
 	"maps"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -174,6 +175,18 @@ func main() {
 		}
 		log.Info("media store", "dir", c.mediaStore, "claim", c.storeClaim, "imager", c.imagerRepo,
 			"pinned", c.imagerPins.String(), "helper", helper)
+	} else if media != nil {
+		// The media service serves the factory installers too, which the
+		// manager downloads first. Without a store volume they go to the
+		// pod's temporary directory: lost at a restart, and downloaded
+		// again then. Installers with a config built in still need the
+		// volume (the imager Jobs write into it).
+		dir := filepath.Join(os.TempDir(), "pk-metal-media")
+		if store, err = asset.NewStore(dir); err != nil {
+			log.Error(err, "media store in the temporary directory; set --media-store")
+			os.Exit(1)
+		}
+		log.Info("media store", "dir", dir, "ephemeral", true)
 	}
 
 	mgr, err := ctrl.NewManager(restCfg, ctrl.Options{
@@ -417,7 +430,7 @@ func parseFlags(args []string, output io.Writer) (*config, error) {
 	fs.StringVar(&c.mediaCert, "media-cert-secret", "",
 		"Secret (keys tls.crt, tls.key) with the media service's certificate, read again every minute so a renewed one is served without a restart; empty uses a self-signed one, replaced 10 days before it expires (BMCs do not check it)")
 	fs.StringVar(&c.mediaStore, "media-store", "",
-		"directory of the media store, where installers with a node's config built in rest (for BMCs that hold one virtual medium); empty: such machines are not installed")
+		"directory of the media store, where the factory installers the manager downloads and the installers with a node's config built in (for BMCs that hold one virtual medium) rest; empty: a directory in $TMPDIR, which holds the downloads only, and machines behind one-slot BMCs are not installed")
 	fs.StringVar(&c.storeClaim, "media-store-claim", "",
 		"PersistentVolumeClaim mounted at --media-store; the imager Jobs mount it to write the installers they build. Empty with --media-store: the store is not a claim (an emptyDir) and no installer is built")
 	fs.StringVar(&c.backupDir, "etcd-backup-dir", "",

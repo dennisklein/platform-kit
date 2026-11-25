@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path"
 	"strings"
 	"syscall"
 	"testing"
@@ -81,8 +82,12 @@ type chaos struct {
 	// or -1. refused records that it happened.
 	refuseAt int
 	refused  bool
-	// failLost: a status write that recorded Executed=False did not persist.
+	// failLost: a status write that recorded Executed=False did not persist,
+	// or the process died between the refusal and that write (the failed
+	// step ejects the media it mounted first, which calls the BMC).
 	failLost bool
+	// verdictKept: a status write that recorded Executed=False persisted.
+	verdictKept bool
 
 	mutating int // mutating BMC calls attempted
 	applied  int // mutating BMC calls that took effect
@@ -93,6 +98,14 @@ type chaos struct {
 }
 
 func (c *chaos) roll(p float64) bool { return p > 0 && c.r.Float64() < p }
+
+// crash ends the pass as a process death would.
+func (c *chaos) crash() {
+	if c.refused && !c.verdictKept {
+		c.failLost = true
+	}
+	panic(crashed{})
+}
 
 var errRefused = errors.New("the machine refused the request")
 
@@ -113,7 +126,7 @@ func (b *chaosBMC) do(mutating bool, refusable bool, call func() error) error {
 	c := b.c
 	c.calls++
 	if c.roll(c.pCrash) {
-		panic(crashed{})
+		c.crash()
 	}
 	if c.roll(c.pDrop) {
 		return netErr("write")
@@ -133,7 +146,7 @@ func (b *chaosBMC) do(mutating bool, refusable bool, call func() error) error {
 		c.applied++
 	}
 	if c.roll(c.pCrash) {
-		panic(crashed{})
+		c.crash()
 	}
 	if c.roll(c.pLost) {
 		return netErr("read")
@@ -201,7 +214,7 @@ func (a *chaosAPI) Get(ctx context.Context, key client.ObjectKey, obj client.Obj
 		a.c.deleteOp()
 	}
 	if a.c.roll(a.c.pCrash) {
-		panic(crashed{})
+		a.c.crash()
 	}
 	return a.Client.Get(ctx, key, obj, opts...)
 }
@@ -224,7 +237,7 @@ func (s *chaosStatus) Update(ctx context.Context, obj client.Object, opts ...cli
 	}
 	if c.roll(c.pCrash) {
 		c.failLost = c.failLost || failing
-		panic(crashed{})
+		c.crash()
 	}
 	if c.roll(c.pConflict) {
 		c.failLost = c.failLost || failing
@@ -234,8 +247,9 @@ func (s *chaosStatus) Update(ctx context.Context, obj client.Object, opts ...cli
 	if err := s.SubResourceWriter.Update(ctx, obj, opts...); err != nil {
 		return err
 	}
+	c.verdictKept = c.verdictKept || failing
 	if c.roll(c.pCrash) {
-		panic(crashed{})
+		c.crash()
 	}
 	if c.roll(c.pConflict) {
 		// Applied, and the answer lost on the way back.
@@ -279,7 +293,7 @@ func (w *modelWorld) apply(a metalv1alpha1.HostOperationAction) {
 	case a.InsertMedia != nil && a.InsertMedia.BootAssetRef != nil:
 		w.slots[a.InsertMedia.MediaID] = grantedMedium
 	case a.InsertMedia != nil:
-		w.slots[a.InsertMedia.MediaID] = a.InsertMedia.ImageURL
+		w.slots[a.InsertMedia.MediaID] = granted + urlGrantFile(a.InsertMedia.Digest)
 	case a.EjectMedia != nil:
 		delete(w.slots, a.EjectMedia.MediaID)
 	case a.ApplyBios != nil:
@@ -299,8 +313,11 @@ func (w *modelWorld) apply(a metalv1alpha1.HostOperationAction) {
 
 // grantedMedium stands for a slot holding the config ISO under a grant: its
 // URL carries a fresh token on every mount, so the oracle compares only that
-// the slot holds the granted file.
-const grantedMedium = "granted:" + modelConfig + ".iso"
+// the slot holds the granted file. An image named by URL is served under a
+// grant too, as granted plus its grant filename.
+const grantedMedium = granted + modelConfig + ".iso"
+
+const granted = "granted:"
 
 // modelConfig is the secret-bearing BootAsset the model mounts.
 const modelConfig = "node-config"
@@ -330,7 +347,8 @@ func genActions(r *rand.Rand, image func(string) string, digest string) []metalv
 				Target: []string{"Cd", "Usb", "Pxe"}[r.IntN(3)], Once: ptr.To(r.IntN(3) != 0)}
 		case 3:
 			slot := slots[r.IntN(2)]
-			a.InsertMedia = &metalv1alpha1.InsertMediaAction{MediaID: slot, ImageURL: image(fmt.Sprintf("img-%d", r.IntN(2)))}
+			url := image(fmt.Sprintf("img-%d", r.IntN(2)))
+			a.InsertMedia = &metalv1alpha1.InsertMediaAction{MediaID: slot, ImageURL: url, Digest: imageDigest(url)}
 		case 4:
 			a.EjectMedia = &metalv1alpha1.EjectMediaAction{MediaID: slots[r.IntN(2)]}
 		case 5:
@@ -358,8 +376,9 @@ func genActions(r *rand.Rand, image func(string) string, digest string) []metalv
 }
 
 func TestExecutorModel(t *testing.T) {
-	images := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte("not really an iso"))
+	// Each image is its own path: two images have two digests.
+	images := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		_, _ = w.Write([]byte(req.URL.Path))
 	}))
 	t.Cleanup(images.Close)
 	image := func(name string) string { return images.URL + "/" + name + ".iso" }
@@ -372,14 +391,17 @@ func TestExecutorModel(t *testing.T) {
 		cases = 40
 	}
 	for seed := range uint64(cases) {
-		if !t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) { runExecutorCase(t, seed, image, media) }) {
+		if !t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) { runExecutorCase(t, seed, image, images.Client(), media) }) {
 			return // one failing seed is enough to read
 		}
 	}
 }
 
-func runExecutorCase(t *testing.T, seed uint64, image func(string) string, media *asset.Service) {
+func runExecutorCase(t *testing.T, seed uint64, image func(string) string, images *http.Client, media *asset.Service) {
 	ctx := t.Context()
+	// The media store is on disk: it outlives a crash of the process.
+	mediaStore, err := asset.NewStore(t.TempDir())
+	require.NoError(t, err)
 	handle := grantHandle(types.NamespacedName{Namespace: "pk-metal", Name: "op"})
 	media.Grants.RevokeAsset(handle)
 	iso, err := asset.BuildConfigISO([]byte("version: v1alpha1\n"))
@@ -491,9 +513,11 @@ func runExecutorCase(t *testing.T, seed uint64, image func(string) string, media
 			Connect: func(context.Context, *metalv1alpha1.Host) (bmc.Client, string, string, string, error) {
 				return rec, "1", "", "", nil
 			},
-			Media:       media,
-			PowerSettle: 10 * time.Millisecond,
-			PassTimeout: time.Duration(1+r.IntN(30)) * time.Second,
+			Media:          media,
+			Store:          mediaStore,
+			RegistryClient: images,
+			PowerSettle:    10 * time.Millisecond,
+			PassTimeout:    time.Duration(1+r.IntN(30)) * time.Second,
 		}
 		func() {
 			defer func() {
@@ -606,7 +630,7 @@ func runExecutorCase(t *testing.T, seed uint64, image func(string) string, media
 		if m.Inserted {
 			gotSlots[m.ID] = m.ImageURL
 			if strings.HasPrefix(m.ImageURL, media.BaseURL) {
-				gotSlots[m.ID] = grantedMedium
+				gotSlots[m.ID] = granted + path.Base(m.ImageURL)
 			}
 		}
 	}
@@ -618,6 +642,12 @@ func runExecutorCase(t *testing.T, seed uint64, image func(string) string, media
 	for k, v := range want.pending {
 		assert.True(t, jsonEqual(v, bios.Pending[k]), "%s: pending %s", desc(), k)
 	}
+}
+
+// imageDigest is the digest of what the model's image server serves at url:
+// its path.
+func imageDigest(url string) string {
+	return godigest.FromString(url[strings.Index(url[len("https://"):], "/")+len("https://"):]).String()
 }
 
 func actionNames(actions []metalv1alpha1.HostOperationAction) []string {

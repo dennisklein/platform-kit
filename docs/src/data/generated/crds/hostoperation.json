@@ -521,8 +521,8 @@
           "message": "exactly one of imageUrl and bootAssetRef"
         },
         {
-          "rule": "!has(self.digest) || has(self.bootAssetRef)",
-          "message": "digest pins a bootAssetRef"
+          "rule": "!has(self.imageUrl) || (self.imageUrl.startsWith('https://') && has(self.digest))",
+          "message": "imageUrl needs an https:// URL and a digest (sha256:<hex>): the operator downloads the image, checks the digest and serves it from its media service; or mount a BootAsset"
         }
       ]
     },
@@ -552,7 +552,7 @@
       "type": "string",
       "required": false,
       "pattern": "^sha256:[a-f0-9]{64}$",
-      "description": "Digest pins the artifact bytes (sha256:<hex>) the approver saw: an artifact rebuilt since the proposal fails the step instead of mounting content nobody approved. With a digest the asset need not be Ready: the artifact approved is mounted while a newer build runs, and an asset that names no artifact yet makes the step wait. Secret-bearing assets (configISO, embeddedInstaller) only."
+      "description": "Digest pins the artifact bytes (sha256:<hex>) the approver saw: an artifact rebuilt since the proposal fails the step instead of mounting content nobody approved. With a digest the asset need not be Ready: the artifact approved is mounted while a newer build runs, and an asset that names no artifact yet makes the step wait. Without a digest the step pins the artifact the asset names when the step runs. Required with imageUrl: it is the image's sha256."
     },
     {
       "path": "spec.actions[].insertMedia.imageUrl",
@@ -561,7 +561,8 @@
       "depth": 3,
       "type": "string",
       "required": false,
-      "description": "ImageURL is what to mount. Already-mounted with the same URL is success — steps converge to their goal, so a resumed operation never double-issues."
+      "maxLength": 2048,
+      "description": "ImageURL is an image to mount that no BootAsset describes, such as a site's own rescue image. It must be https:// and come with Digest. The operator downloads it when the step runs, over TLS it verifies (the system CAs and the manager's --registry-ca), refuses bytes with another digest, and serves the image from its media service. The BMC does not fetch the URL itself."
     },
     {
       "path": "spec.actions[].insertMedia.mediaId",

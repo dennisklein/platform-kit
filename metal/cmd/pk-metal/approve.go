@@ -659,7 +659,11 @@ func describeBootAsset(name string, ba *osv1alpha1.BootAsset) string {
 	}
 	switch ba.Spec.Strategy {
 	case osv1alpha1.StrategyFactory:
-		return fmt.Sprintf("the Talos %s installer (boot asset %s)", orDash(ba.Spec.TalosVersion), name)
+		from := ""
+		if ba.Status.URL != "" {
+			from = ", downloaded by the operator from " + ba.Status.URL
+		}
+		return fmt.Sprintf("the Talos %s installer (boot asset %s%s)", orDash(ba.Spec.TalosVersion), name, from)
 	case osv1alpha1.StrategyConfigISO:
 		node := "-"
 		if ba.Spec.NodeRef != nil {
@@ -683,6 +687,14 @@ func describeBootAsset(name string, ba *osv1alpha1.BootAsset) string {
 // who approves should see that, and that it is built for one node only.
 func configCarriers(op *metalv1alpha1.HostOperation, pc planContext) []string {
 	var out []string
+	// The operator serves every medium from its media service. No BMC that
+	// pk-metal drives verifies the certificate of what it mounts, and the
+	// approver should know what that transport is worth.
+	if slices.ContainsFunc(op.Spec.Actions, func(a metalv1alpha1.HostOperationAction) bool { return a.InsertMedia != nil }) {
+		out = append(out, "the BMC fetches each medium from the operator's media service over HTTPS, "+
+			"certificate not verified by the BMC; a grant, bound to the first address that fetches it, "+
+			"and the digest of each medium protect it")
+	}
 	for _, a := range op.Spec.Actions {
 		im := a.InsertMedia
 		if im == nil || im.BootAssetRef == nil {

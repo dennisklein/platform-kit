@@ -1,12 +1,14 @@
 package asset
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,7 +24,9 @@ import (
 // Layout:
 //
 //	builds/<job>/          what one build Job writes (the imager's output directory)
-//	assets/<asset>/<key>.iso  the imported artifact of a BootAsset, one per build key
+//	assets/<asset>/<key>.iso  the artifact of a BootAsset, one per build key:
+//	                       an imported build, or an image the manager downloaded
+//	                       (Fetch)
 //
 // A build writes into its own directory and the manager imports the result
 // with a rename, so an artifact is either absent or complete, never half
@@ -120,6 +124,71 @@ func (s *Store) Import(job, asset, key string) (string, int64, error) {
 	return s.Digest(asset, key)
 }
 
+// MaxFetch bounds what Fetch writes: an install image is a few hundred
+// megabytes, and a server that sends without end must not fill the volume.
+const MaxFetch = 4 << 30
+
+// Fetch downloads the image at url into the asset's place for key, and
+// reports its digest and size. With want set, the bytes must have that
+// digest (sha256:<hex>), or nothing is kept. The download goes to a
+// temporary file next to the artifact and is renamed into place only when
+// it is complete and checked, so an artifact is never half written. The
+// caller's client decides whose certificates the download trusts.
+func (s *Store) Fetch(ctx context.Context, hc *http.Client, url, asset, key, want string) (string, int64, error) {
+	for _, e := range []string{asset, key} {
+		if err := checkElem(e); err != nil {
+			return "", 0, err
+		}
+	}
+	dir := filepath.Join(s.Dir, storeAssets, asset)
+	if err := os.MkdirAll(dir, storeMode); err != nil {
+		return "", 0, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", 0, err
+	}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return "", 0, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return "", 0, fmt.Errorf("GET %s: %s", url, resp.Status)
+	}
+	// A dot name: Prune and Sweep pass over it only by asset, and a
+	// leftover of a dead process is removed with its asset.
+	tmp, err := os.CreateTemp(dir, ".fetch-*")
+	if err != nil {
+		return "", 0, err
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }() // a no-op once renamed
+	h := sha256.New()
+	n, err := io.Copy(io.MultiWriter(tmp, h), io.LimitReader(resp.Body, MaxFetch+1))
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	switch {
+	case err != nil:
+		return "", 0, fmt.Errorf("GET %s: %w", url, err)
+	case n > MaxFetch:
+		return "", 0, fmt.Errorf("GET %s: larger than %d bytes", url, int64(MaxFetch))
+	case resp.ContentLength >= 0 && n != resp.ContentLength:
+		return "", 0, fmt.Errorf("GET %s: %d of %d bytes", url, n, resp.ContentLength)
+	}
+	sum := "sha256:" + hex.EncodeToString(h.Sum(nil))
+	if want != "" && sum != want {
+		return "", 0, fmt.Errorf("GET %s: the image is %s, want %s", url, sum, want)
+	}
+	if err := os.Chmod(tmp.Name(), artifactMode); err != nil {
+		return "", 0, err
+	}
+	if err := os.Rename(tmp.Name(), s.path(asset, key)); err != nil {
+		return "", 0, err
+	}
+	return sum, n, nil
+}
+
 // Has reports whether an artifact for the asset's key is in the store.
 func (s *Store) Has(asset, key string) bool {
 	if checkElem(asset) != nil || checkElem(key) != nil {
@@ -197,6 +266,15 @@ func (s *Store) Prune(asset, keep string) error {
 		errs = append(errs, os.RemoveAll(filepath.Join(s.Dir, storeAssets, asset, e.Name())))
 	}
 	return errors.Join(errs...)
+}
+
+// RemoveAsset removes every artifact of the asset and its directory. A
+// grant serving one of them keeps its open file until it ends.
+func (s *Store) RemoveAsset(asset string) error {
+	if err := checkElem(asset); err != nil {
+		return err
+	}
+	return os.RemoveAll(filepath.Join(s.Dir, storeAssets, asset))
 }
 
 // Sweep removes what nothing claims any more: the artifacts of assets for

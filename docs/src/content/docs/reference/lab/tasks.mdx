@@ -122,8 +122,7 @@ Starts the lab. You can run it again: it uses again what exists, and it applies 
 
 After `up`, the operator proposes one install for each machine. The installs wait for [`approve`](#approve).
 
-At the end, `up` waits up to `PK_LAB_WARM_TIMEOUT` seconds for the first proposed install.
-Then it asks the Talos image factory for each installer image. The factory builds an image on its first request.
+The operator downloads each installer image from the Talos image factory before it proposes the install.
 Thus the first approval in [`top`](#top) or with [](cli:approve) mounts an image that is ready.
 
 ### load

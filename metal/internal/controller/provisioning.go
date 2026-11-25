@@ -86,12 +86,15 @@ const (
 // operation, so the same plan never spawns twice and a changed render, image or
 // endpoint shape is a new plan.
 type provisionPlan struct {
-	ConfigDigest   string   `json:"configDigest"`
-	ArtifactDigest string   `json:"artifactDigest"`
-	Installer      string   `json:"installer,omitempty"`
-	Slots          []string `json:"slots"`
-	Target         string   `json:"target,omitempty"`
-	Mode           string   `json:"mode,omitempty"`
+	ConfigDigest   string `json:"configDigest"`
+	ArtifactDigest string `json:"artifactDigest"`
+	Installer      string `json:"installer,omitempty"`
+	// InstallerDigest pins the installer the operator downloaded from
+	// Installer; the media service serves it under a grant.
+	InstallerDigest string   `json:"installerDigest,omitempty"`
+	Slots           []string `json:"slots"`
+	Target          string   `json:"target,omitempty"`
+	Mode            string   `json:"mode,omitempty"`
 	// Embedded: the one medium is an installer with the config built in;
 	// ArtifactDigest is its digest. Omitted when false, so the plans of the
 	// other shapes keep their hashes.
@@ -338,14 +341,15 @@ func (r *HostClaimReconciler) provision(ctx context.Context, claim *metalv1alpha
 		if installer, err = r.ensureInstallerAsset(ctx, node, cluster); err != nil {
 			return err
 		}
-		if !meta.IsStatusConditionTrue(installer.Status.Conditions, osv1alpha1.ConditionReady) || installer.Status.URL == "" {
-			return hold(metalv1alpha1.ReasonAwaitingBootAsset, fmt.Sprintf("installer image %s is not Ready", installer.Name))
+		if msg := installerPending(installer); msg != "" {
+			return hold(metalv1alpha1.ReasonAwaitingBootAsset, msg)
 		}
 		target, err := boot.PickTarget(shape.targets)
 		if err != nil {
 			return hold(metalv1alpha1.ReasonNoBootableMedia, err.Error())
 		}
-		plan.Installer, plan.Slots, plan.Target = installer.Status.URL, []string{bootSlot, configSlot}, target
+		plan.Installer, plan.InstallerDigest = installer.Status.URL, installer.Status.Digest
+		plan.Slots, plan.Target = []string{bootSlot, configSlot}, target
 		plan.Mode = overrideMode(shape.mode)
 	}
 
@@ -495,8 +499,8 @@ func bootsNode(op *metalv1alpha1.HostOperation, hostName, nodeName string) bool 
 }
 
 // provisionOp builds the boot operation for a plan. config is nil for an
-// embedded plan, installer is nil for a config-only one. The medium that
-// carries the config is pinned to the digest the plan was made from.
+// embedded plan, installer is nil for a config-only one. Each medium is
+// pinned to the digest the plan was made from.
 func (r *HostClaimReconciler) provisionOp(claim *metalv1alpha1.HostClaim, hostName, name string, plan provisionPlan,
 	node *osv1alpha1.TalosNode, config, installer *osv1alpha1.BootAsset) *metalv1alpha1.HostOperation {
 	var actions []metalv1alpha1.HostOperationAction
@@ -512,6 +516,7 @@ func (r *HostClaimReconciler) provisionOp(claim *metalv1alpha1.HostClaim, hostNa
 		if installer != nil {
 			actions = append(actions, metalv1alpha1.HostOperationAction{InsertMedia: &metalv1alpha1.InsertMediaAction{
 				MediaID: plan.Slots[0], BootAssetRef: &metalv1alpha1.Reference{Name: installer.Name},
+				Digest: plan.InstallerDigest,
 			}})
 		}
 		actions = append(actions, metalv1alpha1.HostOperationAction{InsertMedia: &metalv1alpha1.InsertMediaAction{
@@ -809,6 +814,20 @@ func embeddedName(node string) string {
 		node = strings.TrimRight(node[:maxPrefix], "-.")
 	}
 	return node + "-embedded"
+}
+
+// installerPending says why the factory installer cannot go into a plan
+// yet: the operator has not downloaded it into the media store. Empty when
+// it is there.
+func installerPending(a *osv1alpha1.BootAsset) string {
+	c := meta.FindStatusCondition(a.Status.Conditions, osv1alpha1.ConditionReady)
+	switch {
+	case c == nil || a.Status.Digest == "" || a.Status.BuildKey == "":
+		return fmt.Sprintf("installer image %s is not in the media store yet", a.Name)
+	case c.Status != metav1.ConditionTrue:
+		return fmt.Sprintf("installer image %s is not ready (%s): %s", a.Name, c.Reason, c.Message)
+	}
+	return ""
 }
 
 // embeddedAssetPending says why the embedded installer cannot be mounted yet,

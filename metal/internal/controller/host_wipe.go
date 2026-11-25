@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -100,7 +99,7 @@ func (r *hostWipeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if !meta.IsStatusConditionTrue(asset.Status.Conditions, osv1alpha1.ConditionReady) || asset.Status.URL == "" {
+	if installerPending(asset) != "" {
 		// The asset's watch brings the host back when it is ready.
 		return ctrl.Result{}, nil
 	}
@@ -113,7 +112,7 @@ func (r *hostWipeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		logf.FromContext(ctx).Info("wipe not proposed", "host", host.Name, "why", err.Error())
 		return ctrl.Result{}, nil
 	}
-	op := wipeOp(r.OperationsNamespace, r.Proposer, host.Name, name, asset.Name, shape, target)
+	op := wipeOp(r.OperationsNamespace, r.Proposer, host.Name, name, asset, shape, target)
 	if err := r.Create(ctx, op); err != nil && !apierrors.IsAlreadyExists(err) {
 		return ctrl.Result{}, err
 	}
@@ -126,14 +125,15 @@ func (r *hostWipeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 const labelWipeHost = "metal.pk.io/wipe-host"
 
 // wipeOp is the operation that boots the wipe image on host.
-func wipeOp(namespace, proposer, host, name, asset string, shape endpointView, target string) *metalv1alpha1.HostOperation {
+func wipeOp(namespace, proposer, host, name string, asset *osv1alpha1.BootAsset, shape endpointView, target string) *metalv1alpha1.HostOperation {
 	var actions []metalv1alpha1.HostOperationAction
 	for _, s := range shape.insertable {
 		actions = append(actions, metalv1alpha1.HostOperationAction{EjectMedia: &metalv1alpha1.EjectMediaAction{MediaID: s}})
 	}
 	actions = append(actions,
 		metalv1alpha1.HostOperationAction{InsertMedia: &metalv1alpha1.InsertMediaAction{
-			MediaID: shape.bootSlots[0], BootAssetRef: &metalv1alpha1.Reference{Name: asset},
+			MediaID: shape.bootSlots[0], BootAssetRef: &metalv1alpha1.Reference{Name: asset.Name},
+			Digest: asset.Status.Digest,
 		}},
 		metalv1alpha1.HostOperationAction{SetBootOverride: &metalv1alpha1.SetBootOverrideAction{
 			Target: target, Once: ptr.To(true), Mode: overrideMode(shape.mode),

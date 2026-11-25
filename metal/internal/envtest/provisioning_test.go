@@ -596,8 +596,10 @@ func TestProvisioning(t *testing.T) {
 
 		waitOp(key, executing("awaitCheckIn"))
 		mounted := mediaOf(dualState)
-		assert.True(t, strings.HasPrefix(mounted["VirtualMedia1"], "https://"+strings.TrimPrefix(factory.URL, "https://")),
-			"installer from the factory: %v", mounted)
+		assert.True(t, strings.HasPrefix(mounted["VirtualMedia1"], media.BaseURL+"/grants/"),
+			"the installer from the media service, not from the factory: %v", mounted)
+		assert.Equal(t, []byte("stand-in installer image"), dualState.BootImage("VirtualMedia1"),
+			"the machine booted the installer the operator downloaded from the factory")
 		configURL := mounted["VirtualMedia2"]
 		require.True(t, strings.HasPrefix(configURL, media.BaseURL+"/grants/"), "config under a grant: %v", mounted)
 		assert.Equal(t, http.StatusUnauthorized, grantStatus(configURL),

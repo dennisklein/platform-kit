@@ -101,10 +101,15 @@ type HostOperationReconciler struct {
 	// Media serves granted boot media. Nil leaves the executor unable to mount
 	// a secret-bearing BootAsset (the step fails saying so).
 	Media *asset.Service
-	// Store holds the embeddedInstaller artifacts the executor serves under
-	// grants. Nil fails the mount of one, saying so.
-	Store    *asset.Store
-	Recorder events.EventRecorder
+	// Store holds the artifacts the executor serves under grants that are
+	// too large for a Secret: the installers, and the images an operation
+	// names by URL. Nil fails the mount of one, saying so.
+	Store *asset.Store
+	// Fetches downloads the images an operation names by URL into Store.
+	// Nil makes one.
+	Fetches   *mediaFetcher
+	fetchOnce sync.Once
+	Recorder  events.EventRecorder
 
 	// Connect opens a write-capable session to the host's machine; nil dials
 	// the first reachable management path. A test seam.
@@ -695,6 +700,32 @@ func (c *stepClocks) forget(key types.NamespacedName) {
 func (r *HostOperationReconciler) forget(key types.NamespacedName) {
 	r.revokeGrants(key)
 	r.clock.forget(key)
+	// The images the operation downloaded by URL go with it.
+	if r.Store != nil {
+		if err := r.Store.RemoveAsset(urlStoreName(key)); err != nil {
+			logf.Log.WithName("hostoperation").Error(err, "remove the images the operation downloaded", "operation", key.String())
+		}
+	}
+}
+
+func (r *HostOperationReconciler) fetcher() *mediaFetcher {
+	r.fetchOnce.Do(func() {
+		if r.Fetches == nil {
+			r.Fetches = &mediaFetcher{}
+		}
+	})
+	return r.Fetches
+}
+
+// imageClient downloads the images operations name by URL. It trusts what
+// the firmware downloads trust: the system CAs, or the registry CA the
+// manager was given, which is how a site's own image server is trusted.
+func (r *HostOperationReconciler) imageClient() *http.Client {
+	c := &http.Client{Timeout: fetchTimeout}
+	if r.RegistryClient != nil {
+		c.Transport = r.RegistryClient.Transport
+	}
+	return c
 }
 
 func (r *HostOperationReconciler) workers() int {

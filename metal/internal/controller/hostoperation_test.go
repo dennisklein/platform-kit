@@ -49,10 +49,15 @@ type recordingClient struct {
 	ejects  []string
 	// insertErr, when set, is what every InsertMedia answers.
 	insertErr error
+	// onInsert, when set, sees each InsertMedia with its credentials.
+	onInsert func(imageURL string, creds *bmc.MediaCredentials)
 }
 
 func (c *recordingClient) InsertMedia(ctx context.Context, id, imageURL string, creds *bmc.MediaCredentials) error {
 	c.inserts = append(c.inserts, imageURL)
+	if c.onInsert != nil {
+		c.onInsert(imageURL, creds)
+	}
 	if c.insertErr != nil {
 		return c.insertErr
 	}
@@ -514,7 +519,7 @@ func TestRemountLeavesAReplacedMediumAlone(t *testing.T) {
 			MediaID: "VirtualMedia1", BootAssetRef: &metalv1alpha1.Reference{Name: config.Name}, Digest: digest,
 		}},
 		metalv1alpha1.HostOperationAction{InsertMedia: &metalv1alpha1.InsertMediaAction{
-			MediaID: "VirtualMedia1", ImageURL: imageURL,
+			MediaID: "VirtualMedia1", ImageURL: imageURL, Digest: godigest.FromBytes(installer).String(),
 		}},
 		metalv1alpha1.HostOperationAction{PowerCycle: &metalv1alpha1.PowerCycleAction{}},
 	)
@@ -524,7 +529,8 @@ func TestRemountLeavesAReplacedMediumAlone(t *testing.T) {
 	op.Status.Steps[0].Action, op.Status.Steps[1].Action = "insertMedia", "insertMedia"
 	op.Status.OffObserved = nil
 	r, st, _ := executorFor(t, "supermicro-x12", op, config, artifact)
-	r.Media = startMedia(t)
+	withImages(t, r, images)
+	downloaded(t, r, imageURL, godigest.FromBytes(installer).String())
 	require.NoError(t, st.InsertMedia(ctx, "VirtualMedia1", imageURL, nil))
 
 	got := runOp(t, r)
@@ -617,13 +623,15 @@ func TestRetriedBootKeepsItsRecord(t *testing.T) {
 	ctx := t.Context()
 	claim := testClaim("node-b")
 	claim.Finalizers = []string{releaseFinalizer}
+	images := isoServer(t)
 	failing := preClearedOp(
 		metalv1alpha1.HostOperationAction{PowerCycle: &metalv1alpha1.PowerCycleAction{}},
-		metalv1alpha1.HostOperationAction{InsertMedia: &metalv1alpha1.InsertMediaAction{
-			MediaID: "VirtualMedia1", ImageURL: "https://images.invalid/installer.iso"}},
+		insertURL(images.URL+"/installer.iso"),
 	)
 	failing.Labels = claimLabels(claim, purposeProvision)
 	r, _, rec := executorFor(t, "supermicro-x12", failing, claim)
+	withImages(t, r, images)
+	downloaded(t, r, images.URL+"/installer.iso", isoDigest)
 	rec.insertErr = fmt.Errorf("the BMC refuses the image")
 	host := &metalv1alpha1.Host{}
 	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: "host-a"}, host))

@@ -107,6 +107,7 @@ steps, in this order:
    7. wait up to 30m for TalosNode node-1 to report in at 10.0.0.11
    8. eject whatever is mounted on virtual media slot USBStick
    9. eject whatever is mounted on virtual media slot CD
+note: the BMC fetches each medium from the operator's media service over HTTPS, certificate not verified by the BMC; a grant, bound to the first address that fetches it, and the digest of each medium protect it
 boots TalosNode node-1: address 10.0.0.11, role controlplane
   installs Talos onto the disk that matches serial=disk-0001; everything on that disk is overwritten
 `
