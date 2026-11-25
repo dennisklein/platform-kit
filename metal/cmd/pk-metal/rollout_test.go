@@ -89,18 +89,16 @@ func TestApproveRollout(t *testing.T) {
 		assert.Empty(t, ro.Spec.Approval.ApprovedBy)
 	})
 	t.Run("refusals", func(t *testing.T) {
-		own := planned()
-		assert.ErrorContains(t, approvableRollout(own, operator), "another person")
 		blocked := planned()
 		blocked.Status.Conditions[0].Status = metav1.ConditionFalse
 		blocked.Status.Conditions[0].Message = "node worker-1 has no fresh dry run"
-		assert.ErrorContains(t, approvableRollout(blocked, "alice"), "no fresh dry run")
+		assert.ErrorContains(t, approvableRollout(blocked), "no fresh dry run")
 		empty := planned()
 		empty.Status.PlanHash = ""
-		assert.ErrorContains(t, approvableRollout(empty, "alice"), "no plan yet")
+		assert.ErrorContains(t, approvableRollout(empty), "no plan yet")
 		done := planned()
 		done.Spec.Approval = osv1alpha1.RolloutApproval{ApprovedBy: "bob", PlanHash: planHash}
-		assert.ErrorContains(t, approvableRollout(done, "alice"), "already approved by bob")
+		assert.ErrorContains(t, approvableRollout(done), "already approved by bob")
 	})
 	t.Run("no terminal and no --yes", func(t *testing.T) {
 		cl := fakeClient(planned())

@@ -287,14 +287,6 @@ func TestApprove(t *testing.T) {
 		assert.Equal(t, user, approvedBy(t, cl, op))
 	})
 
-	t.Run("the proposer cannot approve", func(t *testing.T) {
-		op, objs := bootPlan()
-		var out bytes.Buffer
-		a := req(op, &out)
-		a.User, a.Yes = operator, true
-		assert.ErrorContains(t, approve(ctx, fakeClient(objs...), a), "another person must approve it")
-	})
-
 	t.Run("an approved operation stays as it is", func(t *testing.T) {
 		op, objs := bootPlan()
 		op.Spec.Approval.ApprovedBy = "bob"

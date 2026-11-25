@@ -56,7 +56,7 @@ The talosconfig is read from the cluster's published Secret
 examples:
   pk-metal restore plan lab
   pk-metal restore plan lab --snapshot lab-daily-20261124-060000 --propose
-  pk-metal approve pk-metal/lab-etcd-recover-node-1          (another person)
+  pk-metal approve pk-metal/lab-etcd-recover-node-1          (a person; see selfApproval)
   pk-metal restore upload pk-metal/lab-etcd-recover-node-1 --identity ~/.config/age/keys.txt
 
 https://dennisklein.github.io/platform-kit/operate/day-2/restore-etcd/ walks through each case.`
@@ -545,7 +545,7 @@ func (p *restorePlan) propose(ctx context.Context, cl client.Client, w io.Writer
 		}
 	}
 	if len(p.Ops) > 0 {
-		fmt.Fprintln(w, "each waits for approval by another person: pk-metal approve")
+		fmt.Fprintln(w, "each waits for approval by a person: pk-metal approve")
 	}
 	return nil
 }

@@ -11,7 +11,7 @@
   "examples": [
     "pk-metal restore plan lab",
     "pk-metal restore plan lab --snapshot lab-daily-20261124-060000 --propose",
-    "pk-metal approve pk-metal/lab-etcd-recover-node-1          (another person)",
+    "pk-metal approve pk-metal/lab-etcd-recover-node-1          (a person; see selfApproval)",
     "pk-metal restore upload pk-metal/lab-etcd-recover-node-1 --identity ~/.config/age/keys.txt"
   ],
   "exitStatus": [],

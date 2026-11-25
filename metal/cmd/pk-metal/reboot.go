@@ -24,7 +24,8 @@ static pods stay), reboots it through Talos, waits until it runs ready again
 in Talos and in Kubernetes, and uncordons it. For a control plane it also
 waits until etcd is healthy again before it uncordons.
 
-Nothing happens until another person approves the operation:
+Nothing happens until a person approves the operation (you, if the site
+allows self-approval; otherwise another person):
   pk-metal approve pk-metal/<operation>
 
 A control plane is rebooted only while every other etcd member is healthy and
@@ -115,7 +116,7 @@ func rebootPlan(node string, role osv1alpha1.NodeRole, o rebootOptions) []metalv
 }
 
 // proposeReboot creates the reboot operation for the host that runs the
-// node, waiting for another person's approval.
+// node, waiting for a person's approval.
 func proposeReboot(ctx context.Context, cl client.Client, o rebootOptions, w io.Writer) (*metalv1alpha1.HostOperation, error) {
 	node := &osv1alpha1.TalosNode{}
 	if err := cl.Get(ctx, client.ObjectKey{Name: o.Node}, node); err != nil {
@@ -155,7 +156,7 @@ func proposeReboot(ctx context.Context, cl client.Client, o rebootOptions, w io.
 	}
 	ref := op.Namespace + "/" + op.Name
 	fmt.Fprintf(w, "proposed %s: a clean reboot of TalosNode %s on host %s (%d steps).\n", ref, o.Node, host.Name, len(op.Spec.Actions))
-	fmt.Fprintf(w, "Another person approves it after reading the plan: pk-metal approve %s\n", ref)
+	fmt.Fprintf(w, "Approve it after reading the plan (another person must, if the site forbids self-approval): pk-metal approve %s\n", ref)
 	if node.Spec.Role == osv1alpha1.RoleControlPlane {
 		fmt.Fprintf(w, "It is a control plane of cluster %s: once approved, it waits until every other etcd member is healthy "+
 			"and no other control plane is down.\n", node.Spec.ClusterRef.Name)

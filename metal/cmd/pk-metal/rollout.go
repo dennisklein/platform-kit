@@ -286,15 +286,14 @@ type rolloutApproval struct {
 	Window      time.Duration
 }
 
-// approvableRollout refuses a rollout the user cannot approve now.
-func approvableRollout(ro *osv1alpha1.TalosRollout, user string) error {
+// approvableRollout refuses a rollout that nobody can approve now. Whether
+// the proposer may approve it is the site's setting (selfApproval).
+func approvableRollout(ro *osv1alpha1.TalosRollout) error {
 	switch {
 	case ro.Spec.Approval.ApprovedBy != "":
 		return fmt.Errorf("rollout %s is already approved by %s (an approval cannot be changed)", ro.Name, ro.Spec.Approval.ApprovedBy)
 	case ro.Spec.Abort:
 		return fmt.Errorf("rollout %s was aborted; there is nothing to approve", ro.Name)
-	case ro.Spec.ProposedBy == user:
-		return fmt.Errorf("rollout %s was proposed by you (%s); another person must approve it", ro.Name, user)
 	case ro.Status.PlanHash == "" || len(ro.Status.Plan) == 0:
 		return fmt.Errorf("rollout %s has no plan yet; look again in a minute: pk-metal rollout show %s", ro.Name, ro.Name)
 	}
@@ -313,11 +312,24 @@ func approveRollout(ctx context.Context, cl client.Client, a rolloutApproval) er
 	if err != nil {
 		return err
 	}
-	if err := approvableRollout(ro, a.User); err != nil {
+	if err := approvableRollout(ro); err != nil {
 		return err
+	}
+	own := ro.Spec.ProposedBy == a.User
+	var self selfApproval
+	if own {
+		// Admission decides; refusing here, where the setting is readable,
+		// spares the person a plan they cannot approve.
+		self = readSelfApproval(ctx, cl)
+		if err := self.ownProposal("rollout "+ro.Name, a.User); err != nil {
+			return err
+		}
 	}
 	shown := renderRollout(ro)
 	fmt.Fprint(a.Out, shown)
+	if own {
+		fmt.Fprint(a.Out, "\n"+self.note("rollout"))
+	}
 	if !a.Yes {
 		if !a.Interactive {
 			return fmt.Errorf("stdin is not a terminal, so pk-metal cannot ask; " +
@@ -356,7 +368,7 @@ func approveRollout(ctx context.Context, cl client.Client, a rolloutApproval) er
 			if err != nil {
 				return err
 			}
-			if now.UID != shownUID || now.Status.PlanHash != shownPlan || approvableRollout(now, a.User) != nil {
+			if now.UID != shownUID || now.Status.PlanHash != shownPlan || approvableRollout(now) != nil {
 				return changed
 			}
 			ro = now
@@ -366,7 +378,7 @@ func approveRollout(ctx context.Context, cl client.Client, a rolloutApproval) er
 			break
 		}
 		if !apierrors.IsConflict(err) {
-			return fmt.Errorf("approve rollout %s: %w", ro.Name, err)
+			return approvalRefused("rollout "+ro.Name, err)
 		}
 		if attempt+1 >= patchAttempts {
 			return changed

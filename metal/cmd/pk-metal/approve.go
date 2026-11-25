@@ -35,8 +35,10 @@ The question waits five minutes. After a yes, approve reads the operation
 again and approves it only if it is the same object and its plan reads the
 same; otherwise nothing changes and you look at the new plan.
 
-The approval is recorded as your cluster user. You cannot approve an operation
-that you proposed yourself, and an approval cannot be changed afterwards.
+The approval is recorded as your cluster user, and it cannot be changed
+afterwards. Whether you can approve an operation that you proposed yourself is
+a site setting (selfApproval, default Allowed); where the site forbids it,
+another person must approve. The operator's own identity never approves.
 
 Operations live in the operator's namespace, pk-metal. You can give the name
 as it appears in pk-metal status (pk-metal/<name>) or use -n.
@@ -238,6 +240,12 @@ func approve(ctx context.Context, cl client.Client, a approval) error {
 		return changed
 	}
 	fmt.Fprint(a.Out, plan)
+	if op.Spec.ProposedBy == a.User && a.Expect == "" {
+		// approvalPlan refused it if the site forbids it. pk-metal top (a
+		// set Expect) showed the plan on its own screen and reports only the
+		// outcome.
+		fmt.Fprint(a.Out, "\n"+readSelfApproval(ctx, cl).note("operation"))
+	}
 
 	shown := op.UID
 	reread := false
@@ -290,7 +298,7 @@ func approve(ctx context.Context, cl client.Client, a approval) error {
 			if apierrors.IsConflict(err) {
 				return changed
 			}
-			return fmt.Errorf("approve %s: %w", ref, err)
+			return approvalRefused("operation "+ref, err)
 		}
 		// The operation changed after it was read; read it again, and
 		// approve it only if the plan is still the one shown.
@@ -351,10 +359,13 @@ func approvalPlan(ctx context.Context, cl client.Client, namespace, name, user s
 		return nil, "", fmt.Errorf("operation %s has finished (%s); there is nothing to approve", ref, opPhase(op))
 	case !op.ApprovalRequired():
 		return nil, "", fmt.Errorf("operation %s does not need approval; the operator runs it on its own", ref)
-	case op.Spec.ProposedBy == user:
-		// Admission refuses this too; saying it here names the rule instead
-		// of quoting a policy.
-		return nil, "", fmt.Errorf("operation %s was proposed by you (%s); another person must approve it", ref, user)
+	}
+	if op.Spec.ProposedBy == user {
+		// Admission decides; refusing here, where the setting is readable,
+		// spares the person a plan they cannot approve.
+		if err := readSelfApproval(ctx, cl).ownProposal("operation "+ref, user); err != nil {
+			return nil, "", err
+		}
 	}
 	pc, err := loadPlanContext(ctx, cl, op)
 	if err != nil {
