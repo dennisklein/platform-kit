@@ -21,6 +21,7 @@ import (
 
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/audit"
 	"github.com/dennisklein/platform-kit/metal/internal/controller"
 	pkscheme "github.com/dennisklein/platform-kit/metal/internal/scheme"
 )
@@ -466,6 +467,9 @@ func (m *Mover) ensure(ctx context.Context, so sourceObject, rw *rewriter) (int,
 			if err := as.Patch(ctx, cur, client.RawPatch(types.MergePatchType, patch)); err != nil {
 				return 0, fmt.Errorf("replay the approval by %s: %w", approvedBy, err)
 			}
+			proposedBy, _, _ := unstructured.NestedString(cur.Object, "spec", "proposedBy")
+			requestedBy, _, _ := unstructured.NestedStringSlice(cur.Object, "spec", "requestedBy")
+			m.Options.Audit.ApprovalReplayed(auditObject(cur), proposedBy, requestedBy, approvedBy, "")
 		} else if got != approvedBy {
 			return 0, fmt.Errorf("approved by %s on %s but by %s on %s; an approval cannot change", approvedBy, m.Source.Name, got, m.Target.Name)
 		}
@@ -625,9 +629,17 @@ func (m *Mover) prune(ctx context.Context, objs []sourceObject) ([]string, error
 			if err := w.Delete(ctx, u); client.IgnoreNotFound(err) != nil {
 				return nil, err
 			}
+			m.Options.Audit.Deleted(auditObject(u), audit.DeletePivotPruned,
+				fmt.Sprintf("%s no longer has it; an earlier move left it on %s", m.Source.Name, m.Target.Name))
 			pruned = append(pruned, key)
 			m.logf("removed %s from %s: %s no longer has it", key, m.Target.Name, m.Source.Name)
 		}
 	}
 	return pruned, nil
+}
+
+// auditObject names obj in the audit trail, with its UID on the target.
+func auditObject(obj client.Object) audit.Object {
+	return audit.Object{Kind: audit.Kind(obj.GetObjectKind().GroupVersionKind().Kind), Namespace: obj.GetNamespace(),
+		Name: obj.GetName(), UID: obj.GetUID()}
 }

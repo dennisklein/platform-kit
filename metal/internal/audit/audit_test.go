@@ -90,6 +90,29 @@ func TestSchema(t *testing.T) {
 				`"namespace":"","name":"fleet-talosupgrade-1a2b3c4d","uid":"u-2","actor":"bob"}`,
 		},
 		{
+			name:  "approval replayed by pk-metal pivot",
+			write: func(l *Logger) { l.ApprovalReplayed(op, "alice", nil, "bob", "") },
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"approved","kind":"HostOperation",` +
+				`"namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"bob","proposedBy":"alice",` +
+				`"approvedBy":"bob","selfApproved":false,"replayed":true,` +
+				`"replayedBy":"system:serviceaccount:pk-metal:pk-metal-manager"}`,
+		},
+		{
+			name:  "guard lift replayed by pk-metal pivot",
+			write: func(l *Logger) { l.GuardLiftReplayed(op, "metal.pk.io/ignore-window", "alice: CVE fix") },
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"guard.lifted","kind":"HostOperation",` +
+				`"namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"alice",` +
+				`"annotation":"metal.pk.io/ignore-window","value":"alice: CVE fix","named":true,"replayed":true,` +
+				`"replayedBy":"system:serviceaccount:pk-metal:pk-metal-manager"}`,
+		},
+		{
+			name:  "pruned by pk-metal pivot",
+			write: func(l *Logger) { l.Deleted(op, DeletePivotPruned, "kind no longer has it") },
+			want: `{"ts":"2026-03-04T05:06:07.0000008Z","logger":"audit","seq":1,"event":"deleted","kind":"HostOperation",` +
+				`"namespace":"pk-metal","name":"reboot-node-1","uid":"u-1","actor":"system:serviceaccount:pk-metal:pk-metal-manager",` +
+				`"reason":"PivotPruned","message":"kind no longer has it"}`,
+		},
+		{
 			name: "settings read",
 			write: func(l *Logger) {
 				l.SettingsRead(settings, map[string]string{"selfApproval": "Forbidden", "adminGroup": "pk-metal:admins"}, "")

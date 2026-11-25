@@ -33,6 +33,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/dennisklein/platform-kit/metal/internal/audit"
 )
 
 // Markers on the operator namespace. They let a rerun continue a move, and a
@@ -117,6 +119,10 @@ type Options struct {
 	Poll time.Duration
 	// Log receives one line per step.
 	Log io.Writer
+	// Audit records the approvals and guard lifts the move sets again on
+	// the target, marked as replayed, and the objects it prunes there. Its
+	// operator is the user who runs the move. Nil records nothing.
+	Audit *audit.Logger
 }
 
 func (o *Options) defaults() {

@@ -78,6 +78,7 @@ Each line has these fields:
 | `actor` | Who made the decision: a person, or the service account of the operator. It is empty if a guard lift names nobody. |
 | `requestedBy` | On `proposed` and `approved`: the persons whose edit made the operator propose the change (`spec.requestedBy`). Not there if the list is empty. |
 | `old`, `new` | On `settings.read` and `settings.changed`: the settings before and after, by key. A key that the ConfigMap does not have is not there. |
+| `replayed`, `replayedBy` | On `approved` and `guard.lifted`: `true` if [](cli:pivot) set the decision again on the target cluster, and the user who ran the move. The decision is not new. [](cli:pivot) writes these lines to its standard error. |
 
 An event adds the fields in the table below. A line never holds a Secret, a credential, a BMC password or a media grant token. The operator masks the credentials and the grant token of a URL in a `message`. A `message` has at most 512 bytes.
 
@@ -111,6 +112,7 @@ The `reason` of a `deleted` line is one of these:
 | `RetryRequested` | A person asked for a retry with [](cli:retry). The operator proposes the plan again. |
 | `RecordOfRemovedObject` | The record of a claim or a node that a person removed. |
 | `OwnerDeleted` | An operation of a rollout. The API server deletes it with the rollout. |
+| `PivotPruned` | [](cli:pivot) removed it from the target cluster: the source cluster no longer has it. The `actor` is the user who ran the move. |
 
 ### Examples
 

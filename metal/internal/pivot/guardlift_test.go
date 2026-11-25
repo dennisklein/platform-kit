@@ -3,6 +3,8 @@ package pivot
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/audit"
 )
 
 // The move writes no guard lift as the wrong person: it creates and updates
@@ -21,8 +24,9 @@ import (
 func TestMoveSetsGuardLiftsAsTheirAuthors(t *testing.T) {
 	ctx := context.Background()
 	m := fakeMover(t, nil, nil)
-	var log bytes.Buffer
+	var log, trail bytes.Buffer
 	m.Options.Log = &log
+	m.Options.Audit = audit.New(&trail, "dana")
 	target := m.Target.Client
 
 	// who records the user of every write; a write as anyone but the
@@ -56,8 +60,15 @@ func TestMoveSetsGuardLiftsAsTheirAuthors(t *testing.T) {
 				return c.Update(ctx, obj, opts...)
 			},
 			Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, p client.Patch, opts ...client.PatchOption) error {
+				// As for an update, only a lift the patch changes counts.
+				stored := obj.DeepCopyObject().(client.Object)
+				_ = c.Get(ctx, client.ObjectKeyFromObject(obj), stored)
 				err := c.Patch(ctx, obj, p, opts...)
-				check(obj)
+				for _, key := range metalv1alpha1.NamedGuardLifts {
+					if v, ok := obj.GetAnnotations()[key]; ok && stored.GetAnnotations()[key] != v {
+						check(obj)
+					}
+				}
 				return err
 			},
 		})
@@ -85,6 +96,7 @@ func TestMoveSetsGuardLiftsAsTheirAuthors(t *testing.T) {
 		metalv1alpha1.AnnotationIgnoreWindow:         "urgent",
 	})
 	require.NoError(t, unstructured.SetNestedField(op.Object, "alice", "spec", "proposedBy"))
+	require.NoError(t, unstructured.SetNestedField(op.Object, "bob", "spec", "approval", "approvedBy"))
 
 	rw := &rewriter{uids: map[types.UID]types.UID{}, claims: map[types.UID]bool{"claim-src": true}}
 	for _, so := range []sourceObject{
@@ -109,6 +121,26 @@ func TestMoveSetsGuardLiftsAsTheirAuthors(t *testing.T) {
 	assert.Equal(t, "alice: single control plane", gotOp.Annotations[metalv1alpha1.AnnotationOverrideClusterGuard])
 	assert.NotContains(t, gotOp.Annotations, metalv1alpha1.AnnotationIgnoreWindow, "a lift that names nobody stays behind")
 	assert.Contains(t, log.String(), "left metal.pk.io/ignore-window off HostOperation pk-metal/reboot-1")
+	assert.Equal(t, "bob", gotOp.Spec.Approval.ApprovedBy, "the approval is set again by its approver")
+
+	// The trail marks each decision the move set again as a copy, made by
+	// the person who runs the move; the second pass writes nothing.
+	var lines []audit.Line
+	for _, raw := range strings.Split(strings.TrimSpace(trail.String()), "\n") {
+		var l audit.Line
+		require.NoError(t, json.Unmarshal([]byte(raw), &l), raw)
+		lines = append(lines, l)
+	}
+	require.Len(t, lines, 3)
+	for _, l := range lines {
+		require.NotNil(t, l.Replayed, "%+v", l)
+		assert.True(t, *l.Replayed)
+		assert.Equal(t, "dana", l.ReplayedBy)
+	}
+	assert.Equal(t, []string{"guard.lifted carol", "guard.lifted alice", "approved bob"},
+		[]string{string(lines[0].Event) + " " + lines[0].Actor, string(lines[1].Event) + " " + lines[1].Actor,
+			string(lines[2].Event) + " " + lines[2].Actor})
+	assert.Equal(t, "alice", lines[2].ProposedBy)
 
 	// A lift removed on the source is removed on the target.
 	claim.SetAnnotations(map[string]string{"example.com/note": "kept"})

@@ -7,6 +7,8 @@ xref: { cat: cli, id: pivot }
 sidebar: { label: pivot }
 sources:
   - /repo/metal/cmd/pk-metal/pivot.go
+  - /repo/metal/internal/pivot/copy.go
+  - /repo/metal/internal/pivot/guardlift.go
 ---
 
 import Callout from '../../../../components/Callout.astro';
@@ -109,6 +111,24 @@ pk-metal --kubeconfig mgmt.kubeconfig pivot --to kind.kubeconfig
 | PersistentVolumeClaim of the media store | Not moved. | Made empty, or an `emptyDir`. |
 
 If the target cluster holds an older copy of the objects, the command removes the objects that the source cluster no longer has.
+
+### Who writes on the target
+
+- An approval is set again by its approver, and a guard lift by the person that it names. The command impersonates them.
+- The command writes an object as the person that its `metal.pk.io/requested-by` names. Such an object without the annotation gets `pk-metal-pivot`, and the command writes it as that user. See [](ref:admission-policies#requested-by).
+
+### Audit lines
+
+The command writes [audit lines](ref:audit-trail) to standard error, in the format of the operator. They name you as the user who ran the move:
+
+- An `approved` or `guard.lifted` line with `"replayed":true` and `replayedBy` for each approval and guard lift that it sets again. A replayed line is a copy of a decision. The original line is in the logs of the source cluster.
+- A `deleted` line with the reason `PivotPruned` for each object that it removes from the target cluster.
+
+The operator in the target cluster does not write these lines. Keep the standard error of the command with your audit logs:
+
+```sh
+pk-metal pivot --to mgmt.kubeconfig 2> >(tee -a pivot-audit.jsonl >&2)
+```
 
 ## Exit status
 

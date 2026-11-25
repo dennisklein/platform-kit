@@ -13,6 +13,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"github.com/dennisklein/platform-kit/metal/internal/audit"
 	"github.com/dennisklein/platform-kit/metal/internal/pivot"
 )
 
@@ -100,9 +101,17 @@ func pivotCmd(args []string) {
 	if err != nil {
 		die(err)
 	}
+	// The move sets approvals and guard lifts again on the target and prunes
+	// what an earlier run left there: its audit lines (replayed, deleted)
+	// go to standard error and name the user who runs it. Keep them.
+	mover, err := whoAmI(ctx, target.Client)
+	if err != nil {
+		die(fmt.Errorf("the move's audit lines must name you: %w", err))
+	}
 	m, err := pivot.New(ctx, source, target, pivot.Options{
 		Image: *image, MediaURL: *mediaURL, Claims: claims, ForceWaiting: *forceWaiting,
 		Settle: *settle, Timeout: *timeout, Log: prefixed{os.Stdout},
+		Audit: audit.New(os.Stderr, mover),
 	})
 	if err != nil {
 		die(err)

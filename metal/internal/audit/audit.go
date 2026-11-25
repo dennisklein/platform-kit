@@ -135,6 +135,9 @@ const (
 	// DeleteOwnerDeleted: the record goes with its owner (an operation of
 	// a rollout that the operator deletes).
 	DeleteOwnerDeleted DeleteReason = "OwnerDeleted"
+	// DeletePivotPruned: pk-metal pivot removed from the target cluster an
+	// object that the source no longer has (left there by an earlier run).
+	DeletePivotPruned DeleteReason = "PivotPruned"
 )
 
 // Object identifies the object that a line is about.
@@ -209,6 +212,12 @@ type Line struct {
 	// bmc.identity.pushed, bmc.tls.pinned: a certificate fingerprint or a
 	// key, never key material.
 	Key string `json:"key,omitempty"`
+
+	// Replayed marks an approval or a guard lift that pk-metal pivot set
+	// again on the target cluster, as the person it names; ReplayedBy is
+	// the user who ran the move.
+	Replayed   *bool  `json:"replayed,omitempty"`
+	ReplayedBy string `json:"replayedBy,omitempty"`
 
 	// settings.read and settings.changed: the site settings before and
 	// after, by key. A key the ConfigMap does not have is not there.
@@ -408,6 +417,25 @@ func (l *Logger) BMCRestarted(o Object, action, reason string) {
 // on; reason is how it came to be trusted (FirstUse, Approved, Pushed).
 func (l *Logger) BMCKeyPinned(o Object, key, reason string) {
 	l.write(o, EventBMCKeyPinned, l.Operator(), func(x *Line) { x.Key, x.Reason = key, reason })
+}
+
+// ApprovalReplayed records that pk-metal pivot set an approval again on the
+// target cluster, as the approver: a copy of a decision, not a new one. The
+// Logger's operator is the user who ran the move.
+func (l *Logger) ApprovalReplayed(o Object, proposedBy string, requestedBy []string, approvedBy, planHash string) {
+	self := approvedBy == proposedBy || slices.Contains(requestedBy, approvedBy)
+	replayed := true
+	l.write(o, EventApproved, approvedBy, func(x *Line) {
+		x.ProposedBy, x.RequestedBy, x.ApprovedBy, x.SelfApproved, x.PlanHash = proposedBy, requestedBy, approvedBy, &self, planHash
+		x.Replayed, x.ReplayedBy = &replayed, l.Operator()
+	})
+}
+
+// GuardLiftReplayed records that pk-metal pivot set a guard lift again on
+// the target cluster, as the person it names.
+func (l *Logger) GuardLiftReplayed(o Object, annotation, value string) {
+	replayed := true
+	l.guardLifted(o, annotation, value, func(x *Line) { x.Replayed, x.ReplayedBy = &replayed, l.Operator() })
 }
 
 // SettingsRead records the site settings as the operator first read them.

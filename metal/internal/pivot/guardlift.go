@@ -80,6 +80,7 @@ func (m *Mover) replayLifts(ctx context.Context, so sourceObject, cur *unstructu
 		if err := as.Patch(ctx, cur, client.RawPatch(types.MergePatchType, patch)); err != nil {
 			return fmt.Errorf("set %s on %s again as %s, who lifted it: %w", key, ref, user, err)
 		}
+		m.Options.Audit.GuardLiftReplayed(auditObject(cur), key, v)
 	}
 	return nil
 }
