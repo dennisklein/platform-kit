@@ -7,6 +7,7 @@ xref: { cat: kind, id: ManagementEndpoint }
 sources:
   - /repo/metal/api/v1alpha1/managementendpoint_types.go
   - /repo/metal/internal/controller/managementendpoint_controller.go
+  - /repo/metal/internal/controller/bmctls.go
   - /repo/metal/internal/phase/phase.go
 ---
 
@@ -80,6 +81,41 @@ The operator reads the BMC again each 5 minutes. The flag `--poll-interval` of t
 
 [](concept:identity) explains why the operator uses two sources.
 
+## Trust the BMC certificate
+
+`spec.tls` tells how the operator checks the BMC. The manager flags set it for all endpoints.
+
+| `spec.tls` | Check | Flag |
+| --- | --- | --- |
+| `caSecretRef` | The certificate chain against the CA. | `--bmc-ca-secret` |
+| Not set | The key that the BMC showed at the first contact (`status.tlsPin`). | No flag |
+| `insecureSkipVerify` | Nothing. For simulated BMCs only. | `--bmc-insecure` |
+
+Without a CA, the operator reads the certificate of the BMC before it sends a login. At the first contact, it pins the key: `status.tlsPin.source` is `FirstUse`. After that, each session accepts only the pinned key, and the key of a certificate that an [](kind:EndpointProfile) pushed (`Pushed`).
+
+If the BMC shows a different key, `Reachable` is False with the reason `TLSKeyChanged`, and the phase is Unreachable. The operator sends nothing to the BMC. The message gives the new key and the command to approve it.
+
+1. Find out why the key changed. A new certificate on the BMC, a firmware update or a new board can change it. A device that poses as the BMC can also cause it.
+
+2. Compare the key in the message with the key of the BMC. Run this on a workstation on the BMC network:
+
+   ```sh
+   openssl s_client -connect 192.0.2.21:443 </dev/null 2>/dev/null \
+     | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der \
+     | sha256sum
+   ```
+
+3. If the change is correct, approve the key. Use the value from the message.
+
+   ```sh
+   kubectl annotate managementendpoint asset-07 \
+     metal.pk.io/approve-tls-key=sha256:<64 hex digits>
+   ```
+
+The operator pins the approved key (`Approved`) only while the BMC shows it. Then it removes the annotation. Only a person who can update ManagementEndpoints can approve a key. The default roles give this to the admin group only.
+
+`status.authentication` tells how the requests log in. `Session` is a Redfish session: the password crosses the network one time for each pass. `Basic` means that the BMC has no sessions, and each request carries the password.
+
 ## Spec
 
 The Asset controller writes the spec. A change that you make does not stay.
@@ -94,7 +130,7 @@ The Asset controller writes the spec. A change that you make does not stay.
 
 | Condition | True means | Effect on the phase |
 | --- | --- | --- |
-| `Reachable` | The BMC answers and the login works. | Unreachable when False |
+| `Reachable` | The BMC answers with a trusted certificate and the login works. Reason `TLSKeyChanged` when the BMC shows a key that is not pinned. | Unreachable when False |
 | `Inventoried` | The operator has the facts of the BMC. | Inventorying until True |
 | `Verified` | The MAC address and the serial number agree with the Asset. | Mismatch when False |
 | `Configured` | The BMC has the configuration of its EndpointProfiles. Absent when no profile applies. | Configuring until True |
@@ -141,7 +177,7 @@ asset-08   https://[2001:db8:0:100::15]   Huawei   Mismatch   SerialMismatch   3
 
 | Phase | Cause | Next step |
 | --- | --- | --- |
-| Unreachable | The address, the network, the login or the CA is wrong. | [](rb:bmc-unreachable) |
+| Unreachable | The address, the network, the login, the CA or the pinned key is wrong. | [](rb:bmc-unreachable) |
 | Mismatch | The Asset or the ledger names a different machine. | [](rb:host-mismatch) |
 | Configuring | A profile is in progress, or the operator cannot apply it. | Read the reason of `Configured` in [](kind:EndpointProfile). |
 

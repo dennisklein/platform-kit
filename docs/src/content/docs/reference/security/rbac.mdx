@@ -62,6 +62,10 @@ Kubernetes RBAC does the split. The [admission policies](ref:admission-policies)
   <dd>Read backup policies and snapshots, and ask for a snapshot now. It holds no Secret and cannot decrypt a backup. Nothing binds it by default.</dd>
 </dl>
 
+<Callout type="warning">
+Secret read in `pk-metal` is admin on every managed cluster and every BMC. The namespace holds the secrets bundles, the published admin credentials and the BMC logins. Give `get`, `list` and `watch` on Secrets in `pk-metal` to the admin group only. The built-in roles `edit` and `admin` include Secret read: do not bind them in `pk-metal`. [](cli:restore) needs only `<cluster>-talosconfig`: use a Role with `resourceNames` for it. See [](ref:threat-model).
+</Callout>
+
 ### pk-metal-approver
 
 <RbacRows role="pk-metal-approver" />

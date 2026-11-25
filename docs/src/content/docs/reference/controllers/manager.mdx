@@ -70,8 +70,8 @@ The controllers reconcile the [kinds](kind:index) of the API group. [](ctrl:inde
 | --- | --- | --- |
 | `--ledger` | necessary | The ledger file: YAML that maps each BMC MAC to its HTTPS URL. A line that does not parse is logged and skipped. |
 | `--credentials-namespace` | `pk-metal` | Where the manager reads BMC logins and CAs, and writes node configs and cluster credentials. Operations are proposed here too. |
-| `--bmc-ca-secret` | empty | Secret (key `ca.crt`) with the CA of the BMC certificates. Empty trusts the system CAs. |
-| `--bmc-insecure` | `false` | Accept any BMC certificate. For simulated BMCs in a lab only. See [BMC certificates](howto:install-operator#bmc-certificates). |
+| `--bmc-ca-secret` | empty | Secret (key `ca.crt`) with the CA of the BMC certificates. Empty pins the key of each BMC on first use, see [Trust the BMC certificate](kind:ManagementEndpoint#trust-the-bmc-certificate). |
+| `--bmc-insecure` | `false` | Accept any BMC certificate, and pin no key. Each device at the address of a BMC gets its password. For simulated BMCs in a lab only. See [BMC certificates](howto:install-operator#bmc-certificates). |
 | `--poll-interval` | `5m` | How often each BMC is read again. |
 | `--image-factory` | public factory | The host of the Talos image factory. |
 | `--registry-ca` | empty | PEM file with the CA of the registry that serves firmware images. |

@@ -34,6 +34,7 @@ These annotations are commands. Most of them have a `pk-metal` command that sets
 | <KeyRef k="metal.pk.io/ack-etcd-risk" /> | HostClaim, [](kind:TalosNode) | You accept a risk for etcd when a control plane goes. | `--ack-etcd-risk` |
 | <KeyRef k="metal.pk.io/allow-self-disruption" /> | Host | The operator can reboot the machine that it runs on. | `kubectl annotate` |
 | <KeyRef k="metal.pk.io/override-cluster-guard" /> | HostOperation | The operation can stop a control plane when etcd is not healthy. | `kubectl annotate`, with your name |
+| <KeyRef k="metal.pk.io/approve-tls-key" /> | [](kind:ManagementEndpoint) | The operator pins this TLS key of the BMC when the BMC shows it. See [Trust the BMC certificate](kind:ManagementEndpoint#trust-the-bmc-certificate). | `kubectl annotate` |
 | <KeyRef k="os.pk.io/resume" /> | [](kind:TalosRollout) | The rollout continues after the pause on the first node. | [](cli:rollout) |
 | <KeyRef k="os.pk.io/restore-pending" /> | [](kind:TalosCluster) | The operator does not bootstrap etcd, because you restore it. | `kubectl annotate` |
 

@@ -55,7 +55,7 @@ Each part of the spec is one lane. A lane is active only when the profile has th
 
 <dl>
   <dt>`credentials`</dt>
-  <dd>The operator makes its own account on the BMC and keeps the password in a Secret, `endpoint-creds-<endpoint>`. It makes a new password when the Secret is older than `maxAge`.</dd>
+  <dd>The operator makes its own account on the BMC and keeps the password in a Secret, `endpoint-creds-<endpoint>`. It makes a new password when the Secret is older than `maxAge`, 90 days by default. When the username changes, it disables the old account after the new one logs in.</dd>
   <dt>`ntp`</dt>
   <dd>The operator sets the time servers of the BMC. Then it reads them again to make sure that the BMC has them.</dd>
   <dt>`tls`</dt>
@@ -102,7 +102,10 @@ The condition is on the ManagementEndpoint. It is absent when no profile selects
 | False | `AwaitingIssuance` | The certificate request has no signature yet. |
 | False | `IdentityPushed` | The certificate is on the BMC, and the BMC restarts. |
 | False | `IdentityPushHeld` | An operation runs on a machine of this BMC. The certificate waits for its end. |
-| False | `IdentityPushFailed` | The BMC does not use the certificate that the operator sent. |
+| False | `IdentityPushFailed` | The BMC does not use the certificate that the operator sent, or the issued certificate does not carry the key of the request. |
+| False | `AccountRetireFailed` | The account that a new username replaced still logs in. The operator tries again. |
+| False | `TLSNotVerified` | The BMC takes a private key (key-upload dialect), and `insecureSkipVerify` checks nothing. The operator makes no key. |
+| False | `TLSKeyNotPinned` | No key of the BMC is pinned yet. The observation of the endpoint pins it. |
 
 [](ref:conditions) has the full text of each reason.
 

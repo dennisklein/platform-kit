@@ -127,7 +127,7 @@ This stage is a short form of [](howto:install-operator). That page explains eac
 
 8. In `overlay/ledger.yaml`, write one line: the BMC MAC and `https://192.0.2.21`. Delete the example lines.
 
-9. Decide how the manager checks the BMC certificate. See [BMC certificates](howto:install-operator#bmc-certificates). For this first test on a closed BMC network, you can replace `--bmc-ca-secret=bmc-ca` with `--bmc-insecure`.
+9. Decide how the manager checks the BMC certificate. See [BMC certificates](howto:install-operator#bmc-certificates). For this first test on a closed BMC network, you can remove `--bmc-ca-secret=bmc-ca`. The manager then pins the key that the BMC shows at the first contact.
 
 10. If the BMC has one slot, remove the comment marks from `components` in `overlay/kustomization.yaml`.
 

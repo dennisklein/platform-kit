@@ -11,6 +11,8 @@ sources:
   - /repo/metal/config/policy/talosrollout-approval.yaml
   - /repo/metal/config/policy/endpointprofile-guard.yaml
   - /repo/metal/config/policy/etcdbackuppolicy-guard.yaml
+  - /repo/metal/config/policy/taloscluster-credentials-guard.yaml
+  - /repo/metal/internal/controller/bmctls.go
   - /repo/metal/config/manager/services.yaml
 ---
 
@@ -52,17 +54,19 @@ pk-metal can wipe disks, flash firmware and boot any image on a machine. This pa
 | # | Crossing | What crosses | Control |
 | --- | --- | --- | --- |
 | 1 | Person to API server | Approvals | RBAC and the [](ref:admission-policies). A person proposes, and a person approves as themselves. The site setting `selfApproval` decides if that can be the same person. The operator never approves. Two identities can create work that needs no approval: the operator service account and a member of the admin group. See [Who can skip the gate](#who-can-skip-the-gate). |
-| 2 | Manager or CLI to BMC | BMC login, power and boot commands | Redfish over TLS. Each [](kind:ManagementEndpoint) has its own `spec.tls`, see [BMC certificates](#bmc-certificates). The CLI checks the BMC certificate against `--bmc-ca`; `--insecure` turns the check off and prints a warning. |
+| 2 | Manager or CLI to BMC | BMC login, power and boot commands | Redfish over TLS. The client logs in with a Redfish session: the password crosses the network one time for each session, not with each request. A BMC without sessions gets HTTP Basic, and `status.authentication` of the endpoint shows `Basic`. Each [](kind:ManagementEndpoint) has its own `spec.tls`. Without a CA, the manager pins the key of the BMC on first use. See [BMC certificates](#bmc-certificates). The CLI checks the BMC certificate against `--bmc-ca`; `--insecure` turns the check off and prints a warning. |
 | 3 | BMC to media service | Each boot medium, maybe with a node config | HTTPS that the BMC does not verify. A grant token in the URL, bound to the first source address. A user and password for each grant that carries a secret. The digest of each medium. A NetworkPolicy for the BMC network. See [Media grants](#media-grants). |
 | 4 | Manager to node | Talos API calls | Mutual TLS with the cluster certificates. To observe a node, the manager can also call the maintenance service without authentication. That call reads the version only. It sends no configuration. |
 | 5 | Manager to sink | Etcd snapshots | Age encryption to public recipients. Only the holder of the age identity can decrypt, on their own machine. Only an admin chooses the recipients and the sink. |
-| 6 | Manager to BMC, from an [](kind:EndpointProfile) | Account, NTP servers, TLS identity | No operation and no approval: the profile is the approval. Only an admin creates or changes a profile (`endpointprofile-guard`). |
+| 6 | Manager to BMC, from an [](kind:EndpointProfile) | Account, NTP servers, TLS identity | No operation and no approval: the profile is the approval. Only an admin creates or changes a profile (`endpointprofile-guard`). The [](ref:audit-trail) records each account change, identity push and BMC restart (events `bmc.*`). The operator sends a private key only over a session that a CA or a pinned key checks. |
 
 ## Assets worth protecting
 
 <dl>
   <dt>BMC logins</dt>
-  <dd>Secrets in `pk-metal`. With them, a person controls power and boot of a machine outside Kubernetes.</dd>
+  <dd>Secrets in `pk-metal`. With them, a person controls power and boot of a machine outside Kubernetes. The managed account of an [](kind:EndpointProfile) gets a new password each 90 days by default, so a copied Secret stops working. When a profile names a new username, the operator disables the old account after the new one logs in. The factory account stays as break-glass: change its password to a value that only your site holds. See [Rotate BMC credentials](howto:rotate-bmc-credentials#change-the-factory-password).</dd>
+  <dt>Secret read in `pk-metal`</dt>
+  <dd>This namespace holds all secrets. These are the secrets bundles, the published admin credentials, the BMC logins and the S3 keys. A person or a workload that can `get` or `list` Secrets in `pk-metal` is admin on every cluster and on every BMC. Give this access to the admin group and to the manager only. Do not bind a role such as `edit` or `admin` in `pk-metal`. See [Record Secret reads](#record-secret-reads) and [](ref:rbac).</dd>
   <dt>Rendered node configs</dt>
   <dd>A control-plane config carries the CA keys of the cluster. It leaves the manager only on a config ISO or an embedded installer, and only under a grant.</dd>
   <dt>Cluster credentials</dt>
@@ -124,9 +128,22 @@ On Huawei iBMC, the user and password of the grant go into the image URL. The BM
 
 The manager checks the certificate of a BMC with one of three sources:
 
-1. The `spec.tls` of the [](kind:ManagementEndpoint): a CA Secret, or `insecureSkipVerify`. The manager copies its own default into it when it makes the endpoint from an Asset.
-2. The manager default: the CA of `--bmc-ca-secret`, else `--bmc-insecure`, else the system CAs.
+1. The `spec.tls` of the [](kind:ManagementEndpoint): a CA Secret, or `insecureSkipVerify`, or neither. The manager copies its own default into it when it makes the endpoint from an Asset.
+2. The manager default: the CA of `--bmc-ca-secret`, else `--bmc-insecure`, else the key pin.
 3. An [](kind:EndpointProfile) with `spec.tls` replaces the certificate of the BMC with one from the issuer that it names.
+
+Without a CA and without `insecureSkipVerify`, the manager pins the key of each BMC on first use:
+
+1. At the first contact, the manager reads the certificate of the BMC. It sends no login. It records the SHA-256 of the public key in `status.tlsPin`.
+2. Each session after that accepts only the pinned key, and the key of a certificate that the operator pushed. The check happens in the TLS handshake, before the login.
+3. If the BMC shows a different key, the endpoint goes to `Unreachable` with the reason `TLSKeyChanged`. The operator sends nothing to it. A person approves the new key with the annotation `metal.pk.io/approve-tls-key`. See [Trust the BMC certificate](kind:ManagementEndpoint#trust-the-bmc-certificate).
+4. After the operator pushes a TLS identity, it pins the key of the pushed certificate.
+
+The first contact is the weak point: a device that poses as the BMC at that time gets pinned. Enroll a BMC only on a BMC network that you control. Compare the pinned key with the key that the BMC shows on its own console, if the vendor shows it.
+
+The identity lane of an EndpointProfile is in sync only when the BMC serves the certificate that the operator pushed. Same names and dates are not enough. Before a push, the operator checks two things. The issued certificate carries the key of its request. The next certificate in the chain signed it.
+
+`insecureSkipVerify` checks nothing, and pins nothing. Use it for simulated BMCs only. The approval plan of each operation on such a BMC says `TLS not checked`. The operator does not send a private key over it: the key-upload identity dialect stops with the reason `TLSNotVerified`.
 
 `pk-metal` on a workstation ([](cli:check), [](cli:inventory), [](cli:boot)) checks the BMC certificate against the CA file of `--bmc-ca`, else the system CAs. `--insecure` turns the check off.
 
@@ -149,10 +166,26 @@ The [relay](concept:relay) lets the CLI drive a BMC through a jump host on day 0
 ### Credentials
 
 - Published cluster credentials live 24 hours by default, and 720 hours at most. The operator renews them when one third of the time is left.
+- Only the admin group sets `spec.credentials.ttl` of a [](kind:TalosCluster) to more than 24 hours (`taloscluster-credentials-guard`). The on-call and approver roles can patch a cluster, but they cannot make a published credential live longer.
 - [](cli:render) writes credentials that live 24 hours by default, and 720 hours at most.
 - `readerTalosconfig` publishes a talosconfig with the `os:reader` role only.
 - The client certificate for the install check-in lives 10 minutes.
 - The metric `pk_metal_credentials_expiry_timestamp_seconds` shows each expiry.
+
+### Record Secret reads
+
+The operator audit trail records decisions, not reads. The kube-apiserver audit log must record each read of a Secret in `pk-metal`. Put this rule into the audit policy of the management cluster, before a rule that records Secrets at a higher level. Level `Metadata` records who read which Secret and when, and never the content.
+
+```yaml
+- level: Metadata
+  namespaces: ["pk-metal"]
+  resources:
+    - group: ""
+      resources: ["secrets"]
+  verbs: ["get", "list", "watch"]
+```
+
+The manager reads these Secrets all the time through its informer. Look for each other user name in these records.
 
 ### Self and cluster guards
 
@@ -161,12 +194,13 @@ The operator refuses actions that would take down the cluster that it runs on, o
 ## What this model does not cover
 
 - A person with cluster admin can change the policies, the ConfigMap or the RBAC. Watch those objects in the kube-apiserver audit log. See [](ref:audit-trail).
-- A BMC with known default logins. Change them before enrollment.
+- A BMC with known default logins. The operator does not change the factory password. Change it to a value that only your site holds. See [Rotate BMC credentials](howto:rotate-bmc-credentials#change-the-factory-password).
+- One namespace for all secrets. The secrets of all clusters and all BMCs are in `pk-metal`, so one Secret read gets all of them.
 - A node that answers on the maintenance service. The manager reports it as `MaintenanceMode`, but a machine on the node network can pose as it. Take `MaintenanceMode` as a hint, not as proof.
 - The firmware that you flash. The operator checks the digest that you approved, not who built the image.
 
 <Callout type="caution">
-Do not set `--bmc-insecure` outside a lab. It accepts any BMC certificate, so a machine on the BMC network can pose as a BMC and receive its login.
+Do not set `--bmc-insecure` outside a lab. It accepts any BMC certificate and pins no key, so a machine on the BMC network can pose as a BMC and receive its login. Without a CA, remove the flag: the manager then pins the key of each BMC on first use.
 </Callout>
 
 ## Related

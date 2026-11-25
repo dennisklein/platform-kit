@@ -163,7 +163,8 @@ The ledger ConfigMap has a name that changes with its content. Thus an apply of 
 ## BMC certificates
 
 The manager checks the HTTPS certificate of each BMC. It checks the signature against the CA in the Secret `bmc-ca`. It checks the name or address against the URL in the ledger.
-A BMC from the factory usually has a self-signed certificate. The manager refuses it, and the endpoint shows `Unreachable`.
+A BMC from the factory usually has a self-signed certificate. The CA check refuses it, and the endpoint shows `Unreachable`.
+Without `--bmc-ca-secret`, the manager pins the key of each BMC on first use instead. See [Trust the BMC certificate](kind:ManagementEndpoint#trust-the-bmc-certificate).
 
 `pk-metal check --insecure` does not make this check. A BMC that passes the check can still fail in the manager.
 
@@ -179,12 +180,13 @@ A BMC from the factory usually has a self-signed certificate. The manager refuse
 | Path | What you do | State |
 | --- | --- | --- |
 | Certificates from your CA | Give each BMC a certificate from your CA. Its subject alternative name is the address or name of the ledger URL. Put the CA certificate into `bmc-ca.crt`. | The recommended path. |
-| Certificates from cert-manager | Let the operator put a certificate on each BMC. See the `tls` lane of [](kind:EndpointProfile). The first connection needs one of the other paths. | Tested with simulated BMCs only. |
+| Key pinned on first use | Remove `--bmc-ca-secret=bmc-ca` from `manager_args.yaml`. The manager trusts the key that each BMC shows at the first contact. It refuses a different key until a person approves it. Enroll on a BMC network that you control. | Tested with simulated BMCs only. |
+| Certificates from cert-manager | Let the operator put a certificate on each BMC. See the `tls` lane of [](kind:EndpointProfile). The first connection needs one of the other paths, for example the key pin. | Tested with simulated BMCs only. |
 | Factory certificates | Put the certificate of each BMC into `bmc-ca.crt`. This works only if each certificate has the address of the ledger URL as a subject alternative name. | Not tested on real hardware. |
-| No check | Replace `--bmc-ca-secret=bmc-ca` with `--bmc-insecure` in `manager_args.yaml`. | For a lab or a first test on a closed network only. |
+| No check | Replace `--bmc-ca-secret=bmc-ca` with `--bmc-insecure` in `manager_args.yaml`. | For a lab with simulated BMCs only. |
 
 <Callout type="warning">
-With `--bmc-insecure`, the manager sends the BMC password to each device that answers at the address.
+With `--bmc-insecure`, the manager sends the BMC password to each device that answers at the address. The approval plan of each operation shows `TLS not checked`, and the operator puts no private key on such a BMC.
 Do not use it on a network that other persons can reach.
 </Callout>
 

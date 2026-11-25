@@ -44,7 +44,7 @@ Each request to the BMC must answer in 30 seconds. <kbd>Ctrl</kbd>+<kbd>C</kbd> 
 
 ## What it does
 
-1. The command connects to the BMC with HTTP Basic authentication. It opens no Redfish session, so nothing stays open on the BMC when the command stops.
+1. The command logs in to the BMC with a Redfish session, and deletes the session when it stops. A BMC without sessions gets HTTP Basic authentication.
 2. It reads the manager: the vendor and the firmware version.
 3. It reads each virtual media slot and the dialect that the slot uses to mount an image.
 4. It reads each system: the serial number and the power state.

@@ -10,6 +10,7 @@ sources:
   - /repo/metal/config/policy/talosrollout-approval.yaml
   - /repo/metal/config/policy/etcdbackuppolicy-guard.yaml
   - /repo/metal/config/policy/endpointprofile-guard.yaml
+  - /repo/metal/config/policy/taloscluster-credentials-guard.yaml
   - /repo/metal/config/policy/guard-lift.yaml
 ---
 
@@ -19,7 +20,7 @@ import Edge from '../../../../components/diagram/Edge.astro';
 import Callout from '../../../../components/Callout.astro';
 
 RBAC says who may create or patch an object. It cannot see the name that a person writes into a field.
-Six [ValidatingAdmissionPolicies](term:vap) close that gap. They are [CEL](term:cel) in the API server: no webhook, no certificate, no pod.
+Seven [ValidatingAdmissionPolicies](term:vap) close that gap. They are [CEL](term:cel) in the API server: no webhook, no certificate, no pod.
 
 ## At a glance
 
@@ -30,9 +31,10 @@ Six [ValidatingAdmissionPolicies](term:vap) close that gap. They are [CEL](term:
 | `hostclaim-provisioning` | [](kind:HostClaim) | CREATE, UPDATE | Who may choose the OS of a machine, and who may skip the boot approval. |
 | `etcdbackuppolicy-guard` | [](kind:EtcdBackupPolicy) | CREATE, UPDATE | Who may choose who can read the etcd backups, and where they go. |
 | `endpointprofile-guard` | [](kind:EndpointProfile) | CREATE, UPDATE | Who may change what the operator writes to the BMCs. |
+| `taloscluster-credentials-guard` | [](kind:TalosCluster) | CREATE, UPDATE | Who may make the published admin credentials live longer than 24 hours. |
 | `guard-lift` | HostOperation, HostClaim, [](kind:TalosNode) | CREATE, UPDATE | A guard lift names the person who sets it, and a reason. |
 
-All five have these settings:
+All seven have these settings:
 
 <dl>
   <dt>`failurePolicy: Fail`</dt>
@@ -175,6 +177,16 @@ An [](kind:EndpointProfile) has no approval of its own. The operator applies it 
 | 1 | Only an admin creates a profile or changes its `spec`. | CREATE, UPDATE | only an admin may create or change an EndpointProfile |
 
 Labels and annotations of a profile need no admin.
+
+## `taloscluster-credentials-guard`
+
+`spec.credentials.ttl` of a [](kind:TalosCluster) sets how long the published admin kubeconfig and talosconfig are valid. Nobody can revoke a copy before it expires. The CRD allows 720 hours at most.
+
+| # | Rule | When | Message |
+| --- | --- | --- | --- |
+| 1 | Only an admin sets `spec.credentials.ttl` to more than 24 hours. | CREATE, UPDATE, when the value changes | only an admin may set spec.credentials.ttl above 24h |
+
+Each person who can patch a cluster can make the time shorter, or remove it. The on-call and approver roles can patch clusters.
 
 ## `guard-lift`
 

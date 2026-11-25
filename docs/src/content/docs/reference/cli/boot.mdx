@@ -55,7 +55,7 @@ A BMC with one slot cannot hold the two media. Install such a machine with the o
 ## What it does
 
 1. The command packs the machine configuration into an ISO.
-2. It connects to the BMC with HTTP Basic authentication and prints its plan. It opens no Redfish session.
+2. It logs in to the BMC with a Redfish session, or with HTTP Basic authentication if the BMC has no sessions, and prints its plan.
 3. It ejects the media that is in the virtual media slot.
 4. It serves the ISO through HTTPS, with a user and a password that it makes for this one boot.
 5. It mounts the ISO as virtual media.
