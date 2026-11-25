@@ -211,18 +211,19 @@ The example is shorter than a real answer.
 
 OVMF sometimes stops immediately after a power-on, before it tries a boot option.
 The console then shows only control sequences that clear the screen.
+Rarely the boot stops one step later: the installer's boot manager runs its countdown, clears the screen, and no kernel starts.
 The fleet does what an administrator does with real hardware: it power cycles the virtual machine.
 
 | Property | Value |
 | --- | --- |
-| Condition | No readable text on the console for 90 seconds after a power-on |
+| Condition | No new readable text on the console for 90 seconds after a power-on, before the kernel banner `Linux version` |
 | Action | A power cycle, up to three times for each power-on |
-| Log | `FIRMWARE HANG` in `.lab/fleet.log` |
+| Log | `FIRMWARE HANG` or `LOADER HANG` in `.lab/fleet.log` |
 | Counter | `backend.hangCycles` in the state endpoint, and `hang-cycled` in [](lab:top) |
 | Change the time | `pk-metal sim fleet --hang-timeout <duration>`. `0` turns the guard off. |
 
 The guard cannot reset a system that runs.
-The first readable character on the console stops the guard for that power-on.
+The kernel banner on the console stops the guard for that power-on.
 The guard also watches the machine after its own power cycle. The log line tells which try it is.
 A power-on through the BMC starts a new count. If the machine stops a fourth time, a person must examine it.
 

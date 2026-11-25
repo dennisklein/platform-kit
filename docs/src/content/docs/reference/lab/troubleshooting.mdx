@@ -139,13 +139,13 @@ The operation fails with `gave up waiting for TalosNode ... to check in`. See []
 
 ## A machine stays in its firmware
 
-The console log contains only control sequences and no text.
+The console log contains only control sequences and no text, or it ends with the boot manager's countdown and no kernel messages follow.
 The [firmware-hang guard](lab:page/simulated-bmc#firmware-hang-guard) power cycles such a machine after 90 seconds, up to three times for each power-on.
 
 1. Look for the guard in the fleet log.
 
    ```sh
-   grep 'FIRMWARE HANG' .lab/fleet.log
+   grep -E 'FIRMWARE HANG|LOADER HANG' .lab/fleet.log
    ```
 
 2. If the machine stopped a fourth time, the guard does not act again. Examine the machine in [](lab:top).

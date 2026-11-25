@@ -1,6 +1,7 @@
 package qemu
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -11,23 +12,28 @@ import (
 // The firmware-hang guard. OVMF has been seen to stop right after a correct
 // power-on: the console showed nothing but the firmware clearing the screen,
 // no boot option was tried, and the machine sat there until someone reset it.
-// Real hardware does that too, rarely, and an admin power-cycles it. The guard
-// does the same: when, for HangTimeout after a power-on, the console shows
-// nothing beyond screen control sequences, the VM is power-cycled.
+// A boot has also been seen to stop one step later: the firmware started the
+// installer's boot manager, its countdown ran out, the screen cleared, and no
+// kernel ever started. Real hardware does both, rarely, and an admin
+// power-cycles it. The guard does the same: when, for HangTimeout, the
+// console gains nothing readable and the kernel banner has not shown, the VM
+// is power-cycled.
 //
-// It never touches a VM that wrote anything readable: the first printable
-// character on the console (a boot manager line, a kernel message) disarms it
-// for the rest of that power-on. So it cannot reset a running OS. Its own
-// power cycle is watched again, up to hangTries cycles per power-on, then the
-// VM is left for a person to look at. One try was not enough: on a CI runner
-// that starts five VMs at once, three hung, and one of them hung again after
-// its cycle, failing the round after 30 minutes for want of a second cycle.
+// It never touches a VM whose kernel started: the banner disarms it for the
+// rest of that power-on, so it cannot reset a running OS. It watches only
+// the BMC's power-ons; a reboot the guest does on its own is not watched. Its
+// own power cycle is watched again, up to hangTries cycles per power-on, then
+// the VM is left for a person to look at. One try was not enough: on a CI
+// runner that starts five VMs at once, three hung, and one of them hung again
+// after its cycle, failing the round after 30 minutes for want of a second
+// cycle.
 
 // hangTries is how many times the guard power-cycles one power-on.
 const hangTries = 3
 
-// DefaultHangTimeout is how long a freshly powered-on VM may show nothing but
-// screen control sequences before the guard power-cycles it.
+// DefaultHangTimeout is how long a freshly powered-on VM may go without
+// readable console output, before its kernel starts, until the guard
+// power-cycles it.
 const DefaultHangTimeout = 90 * time.Second
 
 // hangCheckEvery is how often the guard reads the console.
@@ -140,14 +146,19 @@ type hangGuard struct {
 	try     int // which of the power-on's hangTries this cycle would be
 }
 
-// watch reads the console at every tick (a tick carries the time) until it
-// shows progress, ctx ends, or the timeout passes with nothing readable; then
-// it power-cycles once. It reports whether it did. A console it cannot read
-// is no evidence of a hang: the guard then gives up rather than reset a
-// machine it cannot see.
+// watch reads the console at every tick (a tick carries the time) until the
+// kernel banner shows, ctx ends, or the console stays without progress for
+// the timeout; then it power-cycles once. It reports whether it did. Two
+// hangs are told apart: the firmware's (nothing readable since the power-on)
+// and the loader's (the firmware or the boot manager wrote, then nothing for
+// the timeout and no kernel started). A console it cannot read is no
+// evidence of a hang: the guard then gives up rather than reset a machine it
+// cannot see.
 func (g *hangGuard) watch(ctx context.Context, tick <-chan time.Time) bool {
 	var now time.Time
 	var f screenFilter
+	var k bannerScan
+	last, loader := g.start, false
 	for {
 		select {
 		case <-ctx.Done():
@@ -159,24 +170,53 @@ func (g *hangGuard) watch(ctx context.Context, tick <-chan time.Time) bool {
 			g.logf("qemu %s: firmware-hang guard: cannot read the console, not watching this boot: %v", g.name, err)
 			return false
 		}
-		if f.progress(data) {
+		if k.found(data) {
 			return false
 		}
-		if waited := now.Sub(g.start); waited >= g.timeout {
+		if f.progress(data) {
+			last, loader = now, true
+			continue
+		}
+		if waited := now.Sub(last); waited >= g.timeout {
 			// A power action of the BMC may have replaced this power-on
 			// while the console was read.
 			if ctx.Err() != nil {
 				return false
 			}
-			g.logf("qemu %s: FIRMWARE HANG: no boot output on the console %s after power-on "+
-				"(only screen control sequences); power-cycling the VM (try %d of %d)", g.name, waited.Round(time.Second),
-				g.try, hangTries)
+			if loader {
+				g.logf("qemu %s: LOADER HANG: the boot manager ran but no kernel started, nothing new on the console for %s; "+
+					"power-cycling the VM (try %d of %d)", g.name, waited.Round(time.Second), g.try, hangTries)
+			} else {
+				g.logf("qemu %s: FIRMWARE HANG: no boot output on the console %s after power-on "+
+					"(only screen control sequences); power-cycling the VM (try %d of %d)", g.name, waited.Round(time.Second),
+					g.try, hangTries)
+			}
 			if err := g.cycle(); err != nil {
 				g.logf("qemu %s: firmware-hang guard: the power cycle failed: %v", g.name, err)
 			}
 			return true
 		}
 	}
+}
+
+// kernelBanner is the kernel's first console line; once it shows, the boot
+// is the operating system's and the guard stands down.
+var kernelBanner = []byte("Linux version ")
+
+// bannerScan looks for the kernel banner across reads: it keeps the tail of
+// the last read, as the banner may be split between two.
+type bannerScan struct{ tail []byte }
+
+func (b *bannerScan) found(data []byte) bool {
+	buf := append(b.tail, data...)
+	if bytes.Contains(buf, kernelBanner) {
+		return true
+	}
+	if keep := len(kernelBanner) - 1; len(buf) > keep {
+		buf = buf[len(buf)-keep:]
+	}
+	b.tail = bytes.Clone(buf)
+	return false
 }
 
 // armGuard starts watching the power-on that just happened; offset is where

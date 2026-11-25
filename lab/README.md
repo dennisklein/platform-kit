@@ -554,12 +554,14 @@ DNS"), Talos cannot pull its installer or set its clock.
 
 **A machine sits in its firmware after power-on.** OVMF sometimes stops
 before it tries a boot option: the console log then holds only screen-clear
-sequences and no text. The fleet watches for this. When a VM shows nothing
-readable for 90 seconds after a power-on, the fleet power-cycles it and
-logs `FIRMWARE HANG` in `.lab/fleet.log`; the state endpoint counts it as
-`backend.hangCycles`. It tries up to three times per power-on, and never
-after the console showed text, so a running system is never reset. A fourth
-hang stays for you to look at. `pk-metal sim fleet --hang-timeout` changes the time;
+sequences and no text. Rarely the installer's boot manager runs its
+countdown, clears the screen, and no kernel follows. The fleet watches for
+both. When a VM's console gains nothing readable for 90 seconds after a
+power-on, before the kernel banner (`Linux version`), the fleet power-cycles
+it and logs `FIRMWARE HANG` or `LOADER HANG` in `.lab/fleet.log`; the state
+endpoint counts it as `backend.hangCycles`. It tries up to three times per
+power-on, and never after the kernel started, so a running system is never
+reset. A fourth hang stays for you to look at. `pk-metal sim fleet --hang-timeout` changes the time;
 `0` turns the guard off.
 
 **`sudo` asks for a password.** Only `lab/net.sh` calls it; see "What runs as

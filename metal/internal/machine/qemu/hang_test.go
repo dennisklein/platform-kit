@@ -160,8 +160,24 @@ func TestHangGuardLeavesABootingMachineAlone(t *testing.T) {
 	r := startGuard(t, 90*time.Second)
 	r.step(hungScreen, 30*time.Second)
 	r.step("BdsDxe: loading Boot0002 \"UEFI QEMU DVD-ROM\"\r\n", 30*time.Second)
-	assert.False(t, r.result(t), "readable output ends the watch")
+	r.step("Boot in 5s.\r\n", 60*time.Second)
+	assert.Zero(t, r.cycles.Load(), "readable output restarts the wait")
+	r.step("\x1b[2J[    0.000000] Linu", 60*time.Second)
+	r.step("x version 6.12.40-talos", 60*time.Second)
+	assert.False(t, r.result(t), "the kernel banner ends the watch, even split across reads")
 	assert.Zero(t, r.cycles.Load())
+}
+
+func TestHangGuardCyclesALoaderThatStartsNoKernel(t *testing.T) {
+	r := startGuard(t, 90*time.Second)
+	r.step("BdsDxe: starting Boot0003 \"UEFI QEMU DVD-ROM QM00003 \"\r\n", 10*time.Second)
+	r.step("    Reboot Into Firmware Interface      Boot in 5s.", 5*time.Second)
+	r.step("\x1b[2J", 60*time.Second)
+	assert.Zero(t, r.cycles.Load(), "60 s after the boot manager is not yet a hang")
+	r.step("", 30*time.Second)
+	assert.True(t, r.result(t), "90 s without a kernel after the boot manager is a hang")
+	assert.Equal(t, int32(1), r.cycles.Load())
+	assert.Contains(t, r.log.all(), "LOADER HANG")
 }
 
 func TestHangGuardLateOutputStillCounts(t *testing.T) {

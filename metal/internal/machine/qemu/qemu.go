@@ -85,8 +85,8 @@ type Options struct {
 	// MAC is the NIC's address — required with Tap, where the DHCP lease and
 	// the inventory hang on it; empty leaves it to qemu in user mode.
 	MAC string
-	// HangTimeout is how long the console may show nothing but screen
-	// control sequences after a power-on before the VM is power-cycled, once
+	// HangTimeout is how long the console may gain nothing readable after a
+	// power-on, before the kernel starts, until the VM is power-cycled
 	// (see hang.go). Zero is DefaultHangTimeout; negative turns the guard off.
 	HangTimeout time.Duration
 	// Logf receives what the machine does on its own, such as the guard's
