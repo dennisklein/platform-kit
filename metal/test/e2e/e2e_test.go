@@ -17,6 +17,7 @@ package e2e_test
 
 import (
 	"context"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"net/http/httptest"
@@ -203,6 +204,14 @@ func TestE2EKind(t *testing.T) {
 			last = h
 			return pred(h)
 		}, timeout, tick) {
+			// The operations say what the host waits on: log each one's status.
+			ops := &metalv1alpha1.HostOperationList{}
+			if err := cl.List(context.Background(), ops, client.InNamespace(ns)); err == nil {
+				for i := range ops.Items {
+					st, _ := json.Marshal(ops.Items[i].Status)
+					t.Logf("operation %s: %s", ops.Items[i].Name, st)
+				}
+			}
 			t.Fatalf("%s (last: phase=%q blockedOn=%q conditions=%+v)",
 				msg, last.Status.Phase, last.Status.BlockedOn, last.Status.Conditions)
 		}
