@@ -98,7 +98,10 @@ func TestRotationDue(t *testing.T) {
 			Annotations: map[string]string{rotatedAtAnnotation: at},
 		}}
 	}
-	assert.False(t, rotationDue(stamped(""), nil), "no cadence, never due")
+	assert.True(t, rotationDue(stamped(time.Now().UTC().Add(-91*24*time.Hour).Format(time.RFC3339)), nil),
+		"no cadence named: 90 days")
+	assert.False(t, rotationDue(stamped(time.Now().UTC().Add(-89*24*time.Hour).Format(time.RFC3339)), nil),
+		"no cadence named: 90 days")
 	assert.False(t, rotationDue(stamped(time.Now().UTC().Format(time.RFC3339)), maxAge), "fresh stamp")
 	assert.True(t, rotationDue(stamped(time.Now().UTC().Add(-2*time.Hour).Format(time.RFC3339)), maxAge), "outlived")
 	assert.True(t, rotationDue(&corev1.Secret{}, maxAge), "missing stamp rotates — conservative")

@@ -139,6 +139,35 @@ func (s *State) EnsureAccount(_ context.Context, username, password string) erro
 	return nil
 }
 
+// DisableAccount is the seam entrance: the named account logs in no more.
+// An absent account is already off.
+func (s *State) DisableAccount(_ context.Context, username string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.reachable(); err != nil {
+		return err
+	}
+	if len(s.accounts) == 0 {
+		return refuse("fixture models no account service")
+	}
+	if a := s.accountByUser(username); a != nil && username != "" {
+		if slices.Contains(s.f.ReservedAccountSlots, a.id) {
+			return refuse("the account slot %s is reserved and cannot be changed", a.id)
+		}
+		a.enabled = false
+	}
+	return nil
+}
+
+// AccountEnabled reports whether the named account exists and is enabled
+// (test observability).
+func (s *State) AccountEnabled(username string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a := s.accountByUser(username)
+	return a != nil && username != "" && a.enabled
+}
+
 // accountByUser finds an account by username under the caller's lock; the
 // empty name finds the first vacant slot.
 func (s *State) accountByUser(username string) *account {

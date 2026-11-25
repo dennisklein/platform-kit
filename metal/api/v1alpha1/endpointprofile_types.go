@@ -27,9 +27,10 @@ type EndpointProfileSpec struct {
 	// managed Secret, rotated on cadence. A new password is kept beside the
 	// working one (keys next-username, next-password) and replaces it only
 	// after a login with it succeeds, so a manager that refuses it leaves the
-	// working password in place. The factory account is left untouched: it is
-	// the way back in after the managed password was changed behind the
-	// operator's back, and the way in at adoption.
+	// working password in place. When the username changes, the account it
+	// replaces is disabled once the new one logs in. The factory account is
+	// left untouched: it is the way back in after the managed password was
+	// changed behind the operator's back, and the way in at adoption.
 	// +optional
 	Credentials *CredentialsPolicy `json:"credentials,omitempty"`
 
@@ -58,10 +59,11 @@ type CredentialsPolicy struct {
 	Username string `json:"username"`
 
 	// MaxAge rotates the managed password when the Secret grows older than
-	// this. Unset rotates only when the Secret is missing or names another
-	// account. A rotation sets the new password through the managed
-	// account's own session first, so it works when the factory login no
-	// longer does.
+	// this; 90 days when unset. A copy of the Secret therefore stops
+	// working at the latest after this time. A rotation sets the new
+	// password through the managed account's own session first, so it
+	// works when the factory login no longer does.
+	// +kubebuilder:default="2160h"
 	// +optional
 	MaxAge *metav1.Duration `json:"maxAge,omitempty"`
 }

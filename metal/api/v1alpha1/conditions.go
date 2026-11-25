@@ -185,6 +185,10 @@ const (
 	// the session of the step in flight, so the push waits for the operation
 	// to finish.
 	ReasonIdentityPushHeld = "IdentityPushHeld"
+	// ReasonAccountRetireFailed on Configured=False: the managed account
+	// that a new username replaced still logs in; disabling it failed, and
+	// the next pass tries again.
+	ReasonAccountRetireFailed = "AccountRetireFailed"
 	// ReasonTLSNotVerified on Configured=False: the key-upload dialect would
 	// send a private key over a connection whose certificate nobody checks
 	// (insecureSkipVerify). The upload is refused.

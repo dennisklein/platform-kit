@@ -71,3 +71,33 @@ func TestEnsureAccountUnlocks(t *testing.T) {
 	assert.False(t, st.AccountLocked("pk-metal"))
 	require.NoError(t, connectAs(t, srv.URL, "pk-metal", "new-pass-1"))
 }
+
+// DisableAccount turns the account off over the wire, on both collection
+// shapes: the account logs in no more, and the account that disabled it
+// keeps working.
+func TestDisableAccountOverHTTP(t *testing.T) {
+	for name, slots := range map[string]int{"fixed-slots": 8, "growable": 0} {
+		t.Run(name, func(t *testing.T) {
+			f, err := sim.LoadFixture("generic")
+			require.NoError(t, err)
+			f.AccountSlots = slots
+			st := sim.NewState(f)
+			srv := httptest.NewServer(sim.NewServer(st))
+			defer srv.Close()
+			admin := f.Accounts[0]
+
+			c, err := gofishclient.Connect(context.Background(), gofishclient.Config{
+				Endpoint: srv.URL, Username: admin.Username, Password: admin.Password,
+			})
+			require.NoError(t, err)
+			defer c.Close()
+			require.NoError(t, c.EnsureAccount(context.Background(), "pk-old", "old-pass-1"))
+			require.NoError(t, connectAs(t, srv.URL, "pk-old", "old-pass-1"))
+
+			require.NoError(t, c.DisableAccount(context.Background(), "pk-old"))
+			assert.False(t, st.AccountEnabled("pk-old"))
+			require.Error(t, connectAs(t, srv.URL, "pk-old", "old-pass-1"), "a disabled account logs in no more")
+			require.NoError(t, connectAs(t, srv.URL, admin.Username, admin.Password))
+		})
+	}
+}

@@ -87,6 +87,11 @@ type Client interface {
 	// caller keeps the old password until a login with the new one succeeds,
 	// so an error here, even one after the change landed, cannot lock out.
 	EnsureAccount(ctx context.Context, username, password string) error
+	// DisableAccount turns the named manager account off (Enabled false):
+	// it logs in no more, and its password is kept nowhere. An account
+	// that does not exist is already off, so that is a success. It is
+	// called with a session of another account than the one it disables.
+	DisableAccount(ctx context.Context, username string) error
 
 	// NTP reads the manager's time-source configuration. Two vendor shapes
 	// behind one view: the X12 serves the standard NetworkProtocol NTP

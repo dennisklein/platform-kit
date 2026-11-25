@@ -717,6 +717,20 @@
       "context": "Reasons on the endpoint's Configured condition (the EndpointProfile lanes). InSync and ProfileConflict are shared with the convergence vocabulary above. There is no operation gate here — merging the profile is the approval — so every False is either in-flight work or an alert-and-hold the next pass retries (the factory account stays as break-glass, faults self-heal)."
     },
     {
+      "name": "ReasonAccountRetireFailed",
+      "value": "AccountRetireFailed",
+      "group": "metal.pk.io",
+      "source": "metal/api/v1alpha1/conditions.go",
+      "description": "the managed account that a new username replaced still logs in; disabling it failed, and the next pass tries again.",
+      "on": [
+        {
+          "condition": "Configured",
+          "status": "False"
+        }
+      ],
+      "context": "Reasons on the endpoint's Configured condition (the EndpointProfile lanes). InSync and ProfileConflict are shared with the convergence vocabulary above. There is no operation gate here — merging the profile is the approval — so every False is either in-flight work or an alert-and-hold the next pass retries (the factory account stays as break-glass, faults self-heal)."
+    },
+    {
       "name": "ReasonTLSNotVerified",
       "value": "TLSNotVerified",
       "group": "metal.pk.io",

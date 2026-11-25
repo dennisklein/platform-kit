@@ -459,6 +459,21 @@ func Run(t *testing.T, c bmc.Client, f *sim.Fixture, readOnly bool) {
 			"ensuring an existing account converges its password")
 	})
 
+	t.Run("account-disable", func(t *testing.T) {
+		if len(f.Accounts) == 0 {
+			assert.Error(t, c.DisableAccount(ctx, "pk-retired"),
+				"a fixture without accounts models no account service")
+			return
+		}
+		require.NoError(t, c.EnsureAccount(ctx, "pk-retired", "RetiredPass2"))
+		require.NoError(t, c.DisableAccount(ctx, "pk-retired"), "disable")
+		require.NoError(t, c.DisableAccount(ctx, "pk-retired"), "disabling a disabled account is a success")
+		require.NoError(t, c.DisableAccount(ctx, "pk-absent"), "an absent account is already off")
+		if a, ok := c.(interface{ AccountEnabled(string) bool }); ok {
+			assert.False(t, a.AccountEnabled("pk-retired"), "the account is off")
+		}
+	})
+
 	t.Run("identity-dialect-dispatch", func(t *testing.T) {
 		caps, err := c.Capabilities(ctx)
 		require.NoError(t, err)

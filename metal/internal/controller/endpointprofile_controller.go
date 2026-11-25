@@ -35,6 +35,15 @@ import (
 // password was last generated — the rotation-cadence observable.
 const rotatedAtAnnotation = labelDomain + "rotated-at"
 
+// retireAccountAnnotation on the managed-credential Secret names the managed
+// account that a new username replaced, until it is disabled on the
+// manager. It outlives a crash between the promotion and the disable.
+const retireAccountAnnotation = labelDomain + "retire-account"
+
+// defaultMaxAge is the rotation cadence of a profile that names none (the
+// CRD default; a profile stored before the default existed gets it here).
+const defaultMaxAge = 90 * 24 * time.Hour
+
 // EndpointConvergenceReconciler drives matched EndpointProfiles onto the
 // manager itself. Unlike the host lanes there is no operation gate: merging
 // the profile is the approval — nothing here disrupts the host — so the
@@ -326,6 +335,9 @@ func (r *EndpointConvergenceReconciler) credentials(ctx context.Context, ep *met
 	if !next.set() {
 		due := !cur.set() || cur.user != pol.Username || rotationDue(sec, pol.MaxAge)
 		if !due {
+			if old := sec.Annotations[retireAccountAnnotation]; old != "" && curOK {
+				return r.retire(ctx, ep, sec, cur, old)
+			}
 			return r.keep(ctx, ep, cur, curOK)
 		}
 		pw, err := randomPassword()
@@ -445,6 +457,11 @@ func (r *EndpointConvergenceReconciler) promote(ctx context.Context, ep *metalv1
 		sec.Annotations = map[string]string{}
 	}
 	sec.Annotations[rotatedAtAnnotation] = time.Now().UTC().Format(time.RFC3339)
+	// The account a new username replaces is disabled on a later pass,
+	// through the new one; never the factory account, the break-glass.
+	if old := string(sec.Data["username"]); old != "" && old != next.user && !r.isFactoryAccount(ctx, ep, old) {
+		sec.Annotations[retireAccountAnnotation] = old
+	}
 	sec.Data = map[string][]byte{
 		"username": []byte(next.user),
 		"password": []byte(next.pass),
@@ -456,6 +473,42 @@ func (r *EndpointConvergenceReconciler) promote(ctx context.Context, ep *metalv1
 	}
 	logf.FromContext(ctx).Info("rotated managed credentials", "endpoint", ep.Name, "account", next.user)
 	return metav1.ConditionTrue, metalv1alpha1.ReasonInSync, "account " + next.user + " managed", nil
+}
+
+// retire disables the managed account a new username replaced, through a
+// session of the new account, which has just been seen to log in. The
+// annotation goes only once the manager took the change.
+func (r *EndpointConvergenceReconciler) retire(ctx context.Context, ep *metalv1alpha1.ManagementEndpoint, sec *corev1.Secret, cur managedCred, old string) (metav1.ConditionStatus, string, string, error) {
+	cfg, _, err := endpointTLSConfig(ctx, r.Client, r.CredentialsNamespace, ep, false)
+	if err != nil {
+		return "", "", "", err
+	}
+	cfg.Username, cfg.Password = cur.user, cur.pass
+	if err := withSession(ctx, r.Dial, cfg, func(ctx context.Context, cl bmc.Client) error {
+		return cl.DisableAccount(ctx, old)
+	}); err != nil {
+		return metav1.ConditionFalse, metalv1alpha1.ReasonAccountRetireFailed,
+			"account " + cur.user + " managed, but the account it replaced, " + old +
+				", still logs in: disabling it failed (" + err.Error() + "); the next pass tries again", nil
+	}
+	delete(sec.Annotations, retireAccountAnnotation)
+	if err := r.Update(ctx, sec); err != nil {
+		return "", "", "", fmt.Errorf("managed credentials %s: %w", sec.Name, err)
+	}
+	logf.FromContext(ctx).Info("disabled the replaced managed account", "endpoint", ep.Name, "account", old)
+	return metav1.ConditionTrue, metalv1alpha1.ReasonInSync,
+		"account " + cur.user + " managed; the replaced account " + old + " is disabled", nil
+}
+
+// isFactoryAccount reports whether user is the endpoint's factory account,
+// or whether that cannot be known: then it is treated as the factory
+// account, and left alone.
+func (r *EndpointConvergenceReconciler) isFactoryAccount(ctx context.Context, ep *metalv1alpha1.ManagementEndpoint, user string) bool {
+	if ep.Spec.CredentialsRef == nil {
+		return false
+	}
+	fuser, _, err := secretCreds(ctx, r.Client, r.CredentialsNamespace, ep.Spec.CredentialsRef.Name)
+	return err != nil || fuser == user
 }
 
 // ntp converges the manager's time sources: read, write on drift, prove by
@@ -646,17 +699,18 @@ func mergeStanza[T any](profiles []metalv1alpha1.EndpointProfile, stanza string,
 }
 
 // rotationDue reports whether the managed password has outlived the
-// profile's cadence. An unparsable or missing stamp rotates — conservative,
+// profile's cadence (defaultMaxAge when it names none). An unparsable or missing stamp rotates — conservative,
 // and self-correcting because rotation rewrites the stamp.
 func rotationDue(sec *corev1.Secret, maxAge *metav1.Duration) bool {
-	if maxAge == nil {
-		return false
+	age := defaultMaxAge
+	if maxAge != nil {
+		age = maxAge.Duration
 	}
 	t, err := time.Parse(time.RFC3339, sec.Annotations[rotatedAtAnnotation])
 	if err != nil {
 		return true
 	}
-	return time.Since(t) > maxAge.Duration
+	return time.Since(t) > age
 }
 
 // passwordSpecials are the punctuation a generated password may hold:

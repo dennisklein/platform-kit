@@ -95,6 +95,43 @@ func (c *client) EnsureAccount(ctx context.Context, username, password string) e
 	return nil
 }
 
+// DisableAccount PATCHes Enabled false on the member of that name. Every
+// account service in the field takes it, fixed-slot collections included,
+// where a DELETE is refused; a disabled account also stays visible to a
+// person who looks at the BMC, which a vacated slot would not.
+func (c *client) DisableAccount(ctx context.Context, username string) error {
+	if c.readOnly {
+		return errReadOnly
+	}
+	if username == "" {
+		return fmt.Errorf("bmc: disable account: no username")
+	}
+	as, err := c.svc.AccountService()
+	if err != nil {
+		return fmt.Errorf("bmc: account service: %w", err)
+	}
+	if as == nil || as.ODataID == "" {
+		return fmt.Errorf("bmc: endpoint exposes no account service")
+	}
+	accounts, err := as.Accounts()
+	if err != nil {
+		return fmt.Errorf("bmc: accounts: %w", err)
+	}
+	for _, a := range accounts {
+		if a.UserName != username {
+			continue
+		}
+		if !a.Enabled {
+			return nil
+		}
+		if err := c.patch(a.ODataID, map[string]any{"Enabled": false}); err != nil {
+			return fmt.Errorf("bmc: disable account %s: %w", username, err)
+		}
+		return nil
+	}
+	return nil
+}
+
 // servesProperty reports whether a resource's JSON carries the property.
 func servesProperty(raw []byte, name string) bool {
 	var doc map[string]json.RawMessage

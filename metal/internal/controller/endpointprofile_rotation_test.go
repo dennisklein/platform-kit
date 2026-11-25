@@ -192,3 +192,32 @@ func TestClientConfigWhileOnlyACandidateIsParked(t *testing.T) {
 	assert.Equal(t, "admin", cfg.Username)
 	assert.Equal(t, "admin-pass", cfg.Password)
 }
+
+// A new username replaces the managed account: once the new one logs in,
+// the old one is disabled through it, so no admin account stays behind that
+// nobody rotates. The factory account is never disabled.
+func TestRenamedAccountIsDisabledAfterTheNewOneWorks(t *testing.T) {
+	g := newRotationRig(t)
+	g.pass(t)
+	old := string(g.secret(t).Data["password"])
+
+	g.pol.Username = "pk-metal-2"
+	status, reason, msg := g.pass(t)
+	require.Equal(t, metav1.ConditionTrue, status, "%s: %s", reason, msg)
+	sec := g.secret(t)
+	require.Equal(t, "pk-metal-2", string(sec.Data["username"]))
+	assert.Equal(t, "pk-metal", sec.Annotations[retireAccountAnnotation], "the replaced account is remembered")
+	assert.True(t, g.state.AccountEnabled("pk-metal"), "not disabled before the new account is promoted")
+
+	status, reason, msg = g.pass(t)
+	require.Equal(t, metav1.ConditionTrue, status, "%s: %s", reason, msg)
+	assert.Contains(t, msg, "replaced account pk-metal is disabled")
+	assert.False(t, g.state.AccountEnabled("pk-metal"))
+	assert.False(t, g.state.Authenticate("pk-metal", old), "the replaced account logs in no more")
+	assert.True(t, g.state.AccountEnabled("admin"), "the factory account stays")
+	assert.NotContains(t, g.secret(t).Annotations, retireAccountAnnotation, "the disable is done")
+
+	// The factory account is never named for retirement.
+	assert.True(t, g.r.isFactoryAccount(t.Context(), g.ep, "admin"))
+	assert.False(t, g.r.isFactoryAccount(t.Context(), g.ep, "pk-metal"))
+}
