@@ -61,7 +61,7 @@ The actions are in the [action catalog](act:index), for example [](act:PowerCycl
 <OperationPhases />
 
 1. A controller or a person creates the operation. The phase changes from Proposed to AwaitingApproval.
-2. A second person approves it. The gates start.
+2. A person approves it. The gates start. The site setting `selfApproval` tells if the proposer can approve, see [](ref:admission-policies).
 3. A gate can hold the operation. The phase shows Proposed again, and `blockedOn` gives the reason.
 4. All gates open. The operator records a baseline and the phase is Running.
 5. Each action runs in order. When all actions reach their goal, the phase changes to Succeeded.

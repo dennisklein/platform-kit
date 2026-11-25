@@ -57,7 +57,7 @@ kubectl -n pk-metal get hostoperation reboot-w-1-x7k2p -o jsonpath='{.spec.reaso
 
 | Made by | Reason | Fix |
 | --- | --- | --- |
-| The operator, for a claim | `Provisioning`, `Release`, and others | Run `pk-metal retry pk-metal/reboot-w-1-x7k2p`. The operator proposes it again. A second person approves it. |
+| The operator, for a claim | `Provisioning`, `Release`, and others | Run `pk-metal retry pk-metal/reboot-w-1-x7k2p`. The operator proposes it again. A person approves it. |
 | A person, with [](cli:reboot) | `Reboot` | `pk-metal retry` only deletes it. Then propose it again, for example `pk-metal reboot --drain-timeout 30m w-1`, and get it approved. |
 | A rollout | `TalosRollout` | The rollout has failed. Follow [](rb:rollout-paused). |
 

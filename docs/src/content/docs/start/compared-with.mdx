@@ -21,7 +21,7 @@ The other projects change. Read their documentation before you decide.
 | Topic | pk-metal | What you possibly expect |
 | --- | --- | --- |
 | Scale by a number | No. One [](kind:TalosNode) and one [](kind:HostClaim) for each machine. You name the machine. | A replica count that selects free machines. |
-| Approval | A person approves each change that disrupts a machine. A second person approves what the first proposed. | The controller acts when the object changes. |
+| Approval | A person approves each change that disrupts a machine. A site setting can require a second person. | The controller acts when the object changes. |
 | Boot path | Redfish virtual media only. No PXE, no TFTP, no DHCP for the install. | PXE or iPXE, sometimes virtual media. |
 | Operating system | Talos Linux only. | An image of your choice. |
 | State | Kubernetes objects in one management cluster. No other database. | The same for most tools. |

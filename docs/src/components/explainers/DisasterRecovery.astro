@@ -49,7 +49,7 @@ const steps = [
   },
   {
     title: 'Approve and reset',
-    caption: 'A second person approves the operations one after the other. The resets wipe EPHEMERAL on the stuck control planes.',
+    caption: 'A person approves the operations one after the other. The resets wipe EPHEMERAL on the stuck control planes.',
     code: 'pk-metal approve pk-metal/lab-etcd-reset-node-2',
     state: { ops: 'active', ops2etcd: 'flow', etcd: 'warn' },
     text: { 'etcd-ph': 'no etcd runs', 'snap-ph': 'Verified', 'sink-ph': 'ciphertext', 'ops-ph': 'Running' },

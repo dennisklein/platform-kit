@@ -28,7 +28,7 @@ const steps = [
   },
   {
     title: 'Admission',
-    caption: 'You approve as yourself. The admission policy refuses an approval of your own proposal, and an approval that someone changes later.',
+    caption: 'You approve as yourself. The admission policy refuses an approval by the operator, and an approval that someone changes later. Your site decides if you can approve your own proposal.',
     code: 'spec.approval.approvedBy: <you>',
     state: { ctrl: 'done', op: 'active', you: 'active', you2op: 'flow', you2vap: 'flow', vap: 'ok' },
     text: { 'op-ph': 'Approved', 'gate-ph': '-', 'm-ph': 'no change', 'cl-ph': 'no hold' },

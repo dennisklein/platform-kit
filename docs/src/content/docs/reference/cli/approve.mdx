@@ -49,12 +49,13 @@ The operator does not act on a machine before a person approves the plan.
    - A person approved the operation before. An approval cannot change.
    - The operation has a result.
    - The operation needs no approval.
-   - You proposed the operation. A different person must approve it.
+   - You proposed the operation, and your site forbids self-approval. The command can see this only if you can read the ConfigMap `hostoperation-approval`. If you cannot, the API server refuses the approval.
 3. It reads the [](kind:Host), its BMC paths, the boot assets and the TalosNodes that the plan names.
 4. It prints the plan: the machine, the BMC, each [action](act:index) in order, the media and the boot target.
    For an install, the plan also shows the node, its address and the disk that the install overwrites.
    If an annotation lifts a guard for the operation, the plan shows the annotation, its reason and the rule that it lifts.
    Refer to [Lifted guards](#lifted-guards).
+   If you proposed the operation, it says so. The record then names you as proposer and as approver.
 5. It asks `Approve as <user>? [y/N]`. The question waits five minutes.
 6. After a yes, it reads the operation again. The operation must be the same object, and the plan must read the same.
 7. It writes your user name into [`spec.approval.approvedBy`](kind:HostOperation#spec.approval.approvedBy).
@@ -165,7 +166,9 @@ pk-metal approve --yes provision-simhw2288v5000397-1a2b3c4d
 
 | Message | Cause | What to do |
 | --- | --- | --- |
-| `was proposed by you` | You proposed the operation, for example with [](cli:reboot). | Ask a different person to approve it. |
+| `was proposed by you`, `this site forbids approving your own proposal` | You proposed the operation, for example with [](cli:reboot), and your site sets `selfApproval: Forbidden`. | Ask a different person to approve it. |
+| `the cluster refused the approval` | An admission policy refused the approval. The rest of the message is the rule. | Do what the message says. See [](ref:admission-policies). |
+| `the operator approves nothing` | You run the command as the operator service account. | Approve as a person with `pk-metal-approver`. |
 | `is already approved by` | A person approved it before. | Follow it with [](cli:status). |
 | `changed since its plan was shown` | The object or its plan changed while you read. | Run the command again and read the new plan. |
 | `no answer within 5m` | The question got no answer in five minutes. | Run the command again. |
@@ -182,6 +185,7 @@ pk-metal approve --yes provision-simhw2288v5000397-1a2b3c4d
 | [](kind:HostOperation) | get, list, patch | Reads the plan. Writes `spec.approval.approvedBy`. |
 | [](kind:Host), [](kind:ManagementEndpoint) | get | Shows the machine and its BMC paths in the plan. |
 | [](kind:BootAsset), [](kind:TalosNode) | get | Shows the media, the node, its address and its install disk. |
+| ConfigMap `pk-metal/hostoperation-approval` | get, optional | Only for your own proposal: reads `selfApproval`. Without access, the API server decides. |
 
 If you have no permission to read one of the last four kinds, the plan says that the object is not found.
 

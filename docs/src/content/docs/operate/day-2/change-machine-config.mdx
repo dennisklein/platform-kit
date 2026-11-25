@@ -21,7 +21,7 @@ Send a changed [](term:machine-config) to the running nodes, one node at a time.
 ## Before you start
 
 - The change is in git and reviewed.
-- A second person can approve the rollout.
+- A person with `pk-metal-approver` can approve the rollout. That is you, if your site allows self-approval. If not, it is a second person. See [](howto:approval-permissions).
 - All other rollouts of the cluster are complete. The operator proposes nothing new while one is open.
 
 ## Steps
@@ -58,7 +58,7 @@ Send a changed [](term:machine-config) to the running nodes, one node at a time.
    pk-metal rollout show prod-config-5e6f7a8b
    ```
 
-5. Ask a second person to approve the plan.
+5. Approve the plan. If your site forbids self-approval, ask a second person to approve it.
 
    ```sh
    pk-metal rollout approve prod-config-5e6f7a8b

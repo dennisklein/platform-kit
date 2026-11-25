@@ -4,7 +4,7 @@
 #   - delete a failed or aborted HostOperation (pk-metal retry); the operator
 #     proposes a new one, which waits for approval again;
 #   - patch a HostClaim (pk-metal hold, unhold) and a Host (pk-metal wipe, or
-#     remove the disk-not-wiped mark); a wipe is still an operation a second
+#     remove the disk-not-wiped mark); a wipe is still an operation that a
 #     person approves;
 #   - patch a TalosCluster to remove the restore-pending mark after a restore;
 #   - patch an Asset to correct its ledger facts;

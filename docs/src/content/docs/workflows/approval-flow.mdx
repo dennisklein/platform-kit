@@ -1,6 +1,6 @@
 ---
 title: Approval flow
-description: The operator proposes a change. A second person reads the plan and approves it. Then the operator runs it.
+description: The operator proposes a change. A person reads the plan and approves it. Then the operator runs it.
 type: workflow
 xref: { cat: flow, id: approval-flow }
 sidebar:
@@ -23,7 +23,7 @@ A controller proposes a [](kind:HostOperation), a person approves it, and only t
 
 1. A controller proposes a HostOperation. Its phase is `AwaitingApproval`.
 2. Find the operations that wait with [](cli:status) or [](cli:top).
-3. Read the plan and approve it with [](cli:approve). You cannot approve your own proposal.
+3. Read the plan and approve it with [](cli:approve). You can approve your own proposal only if your site allows it. See [](howto:approval-permissions).
 4. The [](ctrl:hostoperation) checks the gates before the start, in this sequence:
    1. an abort ends the operation;
    2. a [](kind:TalosRollout) must cover the operation, if it names one;

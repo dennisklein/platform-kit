@@ -27,7 +27,7 @@ A [](kind:TalosRollout) holds the plan, a person approves it, and the operator m
    - to reboot each node in turn, write a TalosRollout of kind `Reboot`.
 2. The [](ctrl:rolloutproposer) compares the spec with the machines and proposes a rollout. See [](concept:rollouts) and [](concept:drift).
 3. Read the plan with [](cli:rollout).
-4. Another person approves the [plan hash](kind:TalosRollout#status.planHash).
+4. A person approves the [plan hash](kind:TalosRollout#status.planHash). If your site forbids self-approval, that is not the proposer.
 5. The [](ctrl:talosrollout) runs the first node, then pauses.
 6. Examine the node. Resume the rollout with [](cli:rollout).
 7. The control planes go one at a time, the etcd leader last. Then the workers go.

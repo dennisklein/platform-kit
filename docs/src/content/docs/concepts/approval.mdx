@@ -16,15 +16,16 @@ import Box from '../../../components/diagram/Box.astro';
 import Edge from '../../../components/diagram/Edge.astro';
 
 Nothing that disrupts a machine happens before a person approves it.
-The operator only proposes. A second person reads the plan and approves it. Then the operator runs it.
+The operator only proposes. A person reads the plan and approves it. Then the operator runs it.
+The operator never approves. A site setting tells if a person can approve their own proposal: `selfApproval`, `Allowed` by default.
 
-<Figure title="Propose, approve, execute. The admission policy stands between the person and the operation." caption="The three roles. The proposer and the approver are different people." width={720} height={140} wide>
+<Figure title="Propose, approve, execute. The admission policy stands between the person and the operation." caption="The three roles. The approver is a person, never the operator. If the site forbids self-approval, the approver is not the proposer." width={720} height={140} wide>
   <Box x={10} y={45} w={190} h={54} label="Propose" sub="operator or person" />
-  <Box x={265} y={45} w={190} h={54} label="Approve" sub="another person" variant="accent" />
+  <Box x={265} y={45} w={190} h={54} label="Approve" sub="a person" variant="accent" />
   <Box x={520} y={45} w={190} h={54} label="Execute" sub="HostOperation controller" cat="ctrl" href="/reference/controllers/hostoperation/" />
   <Edge points={[[200, 72], [265, 72]]} label="plan" at={[232, 64]} />
   <Edge points={[[455, 72], [520, 72]]} label="approved" at={[487, 64]} />
-  <text class="t-small t-label" x={360} y={125} text-anchor="middle">rules: approve as yourself, never your own proposal, write once</text>
+  <text class="t-small t-label" x={360} y={125} text-anchor="middle">rules: approve as yourself, never as the operator, write once</text>
 </Figure>
 
 ## Terms
@@ -35,7 +36,9 @@ The operator only proposes. A second person reads the plan and approves it. Then
   <dt>Plan</dt>
   <dd>The list of actions, fixed when the operator proposes. A changed plan is a new proposal with a new name.</dd>
   <dt>Approver</dt>
-  <dd>A person with the ClusterRole `pk-metal-approver`, other than the proposer.</dd>
+  <dd>A person with the ClusterRole `pk-metal-approver`. If the site sets `selfApproval: Forbidden`, the approver is not the proposer.</dd>
+  <dt>Self-approval</dt>
+  <dd>An approval by the person who proposed. The ConfigMap `hostoperation-approval` sets it: `Allowed` (the default) or `Forbidden`. See [](howto:approval-permissions).</dd>
   <dt>Hold</dt>
   <dd>The annotation `metal.pk.io/hold` on a claim. While it is there, the operator proposes nothing for the claim.</dd>
   <dt>Automatic approval</dt>
@@ -80,3 +83,4 @@ Only a member of the admin group can create or change an EndpointProfile. See []
 ## Do it
 
 - [](howto:approve-hold-retry)
+- [](howto:approval-permissions)

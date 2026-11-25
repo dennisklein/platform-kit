@@ -87,7 +87,7 @@ If a step does not give its checkpoint, see [](lab:page/troubleshooting).
 
 ### 2. Reboot a worker
 
-The person who proposes a change cannot approve it. The lab has one admin, so you make a second user.
+The lab forbids self-approval (`selfApproval: Forbidden`): the person who proposes a change cannot approve it. The lab has one admin, so you make a second user.
 
 1. Write a kubeconfig for the user `lab-proposer`.
 
@@ -105,7 +105,7 @@ The person who proposes a change cannot approve it. The lab has one admin, so yo
 
    ```console
    proposed pk-metal/reboot-node-2-x7k2p: a clean reboot of TalosNode node-2 on host pklab0002 (5 steps).
-   Another person approves it after reading the plan: pk-metal approve pk-metal/reboot-node-2-x7k2p
+   Approve it after reading the plan (another person must, if the site forbids self-approval): pk-metal approve pk-metal/reboot-node-2-x7k2p
    To withdraw it: pk-metal abort pk-metal/reboot-node-2-x7k2p
    ```
 

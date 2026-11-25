@@ -25,7 +25,7 @@ Move every node of one cluster to a new Talos release, one node at a time.
 ## Before you start
 
 - You have the kubeconfig of the management cluster.
-- A second person can approve. You cannot approve your own rollout.
+- A person with `pk-metal-approver` can approve. That is you, if your site allows self-approval. If not, it is a second person. See [](howto:approval-permissions).
 - The cluster is `Available`. Each node is `Ready`.
 - Talos accepts the new release from the release that each node runs. Talos v1.14 accepts an upgrade from v1.12 or later. The Talos project recommends one minor at a time.
 - [](cli:upgrade) refuses a downgrade.
@@ -38,7 +38,7 @@ Move every node of one cluster to a new Talos release, one node at a time.
   title="A Talos upgrade rollout"
   steps={[
     { title: 'Ask', caption: 'You set the new release. The operator proposes one TalosRollout with a plan. No machine changes.', code: 'pk-metal upgrade talos prod v1.14.7', state: { you: 'active', ro: 'warn', ask: 'flow' }, text: { 'ro-ph': 'AwaitingApproval' } },
-    { title: 'Approve', caption: 'A second person reads the plan and approves it. The approval names the plan hash.', code: 'pk-metal rollout approve prod-talosupgrade-1a2b3c4d', state: { you: 'done', ask: 'done', ro: 'active', other: 'active', ok: 'flow' }, text: { 'ro-ph': 'Approved' } },
+    { title: 'Approve', caption: 'A person reads the plan and approves it. The approval names the plan hash.', code: 'pk-metal rollout approve prod-talosupgrade-1a2b3c4d', state: { you: 'done', ask: 'done', ro: 'active', other: 'active', ok: 'flow' }, text: { 'ro-ph': 'Approved' } },
     { title: 'First node', caption: 'The first control plane drains, upgrades, reboots and becomes Ready. etcd must be healthy again.', code: 'drain → talosUpgrade → waitNodeReady → waitEtcdHealthy → uncordon', state: { ro: 'active', ok: 'done', cp1: 'active', r1: 'flow' }, text: { 'ro-ph': 'NodeRunning', 'cp1-v': 'upgrading' } },
     { title: 'Pause', caption: 'The rollout always stops after the first node. Examine the node, then resume.', code: 'pk-metal rollout resume prod-talosupgrade-1a2b3c4d', state: { ro: 'warn', cp1: 'ok', you: 'active', res: 'flow' }, text: { 'ro-ph': 'PausedAfterFirstNode', 'cp1-v': 'v1.14.7' } },
     { title: 'Control planes', caption: 'The other control planes follow, one at a time. The etcd leader goes last.', state: { ro: 'active', cp1: 'ok', cp2: 'active', r2: 'flow' }, text: { 'ro-ph': 'NodeRunning', 'cp1-v': 'v1.14.7', 'cp2-v': 'upgrading' } },
@@ -100,7 +100,7 @@ If your TalosCluster is in git, change `spec.talosVersion` there, and use [](cli
 
    The output names the rollout, for example `prod-talosupgrade-1a2b3c4d`.
 
-2. Ask a second person to approve the plan.
+2. Approve the plan. If your site forbids self-approval, ask a second person to approve it.
 
    ```sh
    pk-metal rollout approve prod-talosupgrade-1a2b3c4d

@@ -26,7 +26,7 @@ Control each [](kind:HostOperation): run it, stop new proposals, run a failed on
 ## Before you start
 
 - You have the ClusterRole `pk-metal-approver`. It lets you patch HostOperations.
-- You did not propose the operation. The admission policy refuses an approval of your own proposal.
+- If you proposed the operation, your site allows self-approval (`selfApproval`, see [](howto:approval-permissions)). If it does not, another person must approve.
 
 <Figure
   title="HostOperation phases: AwaitingApproval, Running, then Succeeded, Failed or Aborted. Retry deletes a failed operation so that the operator proposes it again."

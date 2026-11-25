@@ -26,7 +26,7 @@ If most control planes lose their etcd data, only a snapshot brings the state ba
 2. Write an [](kind:EtcdBackupPolicy) with a sink and at least two age recipients.
 3. Take the first snapshot with [](cli:backup) and make sure that it is `Verified`.
 4. When etcd fails, start with `pk-metal restore plan`. It changes nothing.
-5. Propose the fix with `--propose`. Another person approves the operations, one after the other.
+5. Propose the fix with `--propose`. A person approves the operations, one after the other. If your site forbids self-approval, that is not the proposer.
 6. For a lost majority, upload the snapshot with `pk-metal restore upload`.
 7. The [](act:EtcdRecover) action starts etcd from the snapshot on one node. The other control planes join.
 

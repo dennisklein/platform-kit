@@ -19,7 +19,7 @@ import Terminal from '../../../../components/cli/Terminal.astro';
 <CliBadges cmd="restore" />
 
 `pk-metal restore` examines the etcd of a Talos cluster on each control plane. It says what is wrong and what repairs it.
-The command changes nothing on a machine by itself. With `--propose`, it makes the operations of the plan, and a different person approves each one.
+The command changes nothing on a machine by itself. With `--propose`, it makes the operations of the plan, and a person approves each one.
 
 ## Synopsis
 
@@ -97,11 +97,11 @@ text={`
     note: after the restore operation is approved, upload the snapshot: pk-metal restore upload pk-metal/lab-etcd-recover-cp-1 --identity <age identity file>
     note: the other control planes join the restored etcd by themselves once their etcd data is gone; pk-metal restore plan lab shows any that do not
     proposed pk-metal/lab-etcd-recover-cp-1
-    each waits for approval by another person: pk-metal approve
+    each waits for approval by a person: pk-metal approve
 `}
 />
 
-A different person approves the operation. Then upload the snapshot.
+A person approves the operation. If your site forbids self-approval, that is not the proposer. Then upload the snapshot.
 
 <Terminal
 title="pk-metal restore upload"

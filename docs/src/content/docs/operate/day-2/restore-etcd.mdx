@@ -23,7 +23,7 @@ Bring back the etcd of a cluster with the minimum data loss.
 
 ## Before you start
 
-- A second person can approve.
+- A person with `pk-metal-approver` can approve. That is you, if your site allows self-approval. If not, it is a second person. See [](howto:approval-permissions).
 - For a lost majority: you have an age identity that can decrypt the snapshot, and a verified snapshot exists.
 - The operator never restores and never bootstraps again by itself.
 
@@ -56,7 +56,7 @@ No snapshot is necessary. The broken member leaves, its data is wiped, and it jo
 
    The command makes `prod-etcd-replace-<node>` with [](act:EtcdRemoveMember), [](act:TalosReset) and [](act:WaitEtcdHealthy).
 
-2. Ask a second person to approve it.
+2. Approve it. If your site forbids self-approval, ask a second person to approve it.
 
    ```sh
    pk-metal approve pk-metal/prod-etcd-replace-cp-2
@@ -117,13 +117,13 @@ Repair one member at a time. With three control planes, a second lost member is 
    pk-metal restore plan prod --snapshot prod-offsite-20261124-060000 --node cp-1 --propose
    ```
 
-3. Ask a second person to approve each reset operation.
+3. Approve each reset operation, or ask a second person if your site forbids self-approval.
 
    ```sh
    pk-metal approve pk-metal/prod-etcd-reset-cp-2
    ```
 
-4. Ask a second person to approve the recover operation.
+4. Approve the recover operation, or ask a second person if your site forbids self-approval.
 
    ```sh
    pk-metal approve pk-metal/prod-etcd-recover-cp-1

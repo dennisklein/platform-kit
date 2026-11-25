@@ -55,7 +55,7 @@ The plan puts control planes first, one at a time. Workers follow.
 ### approve
 
 1. The command asks the API server for your user name.
-2. It reads the rollout. It refuses a rollout that has an approval, that a person aborted, that has no plan, or that you proposed.
+2. It reads the rollout. It refuses a rollout that has an approval, that a person aborted, or that has no plan. It also refuses a rollout that you proposed if your site forbids self-approval and you can read the ConfigMap `hostoperation-approval`. Otherwise the API server decides.
 3. It prints the plan and asks `Approve plan <hash> as <user>? [y/N]`. The question waits five minutes.
 4. After a yes, it reads the rollout again. The object and the hash of the plan must be the same, and you must still be able to approve it.
 5. It writes your user name and the hash of the plan into `spec.approval`. The patch names the object (`uid`) and its version (`resourceVersion`), so the API server refuses it if the rollout changed after the read.
@@ -127,6 +127,7 @@ text={`
 | `SelfSubjectReview` | create | `approve`: gets your user name from the API server. |
 | [](kind:TalosRollout) | get, list | `list` and `show`. |
 | [](kind:TalosRollout) | patch | `approve`: `spec.approval`. `pause` and `resume`: `spec.paused`. `abort`: `spec.abort`. |
+| ConfigMap `pk-metal/hostoperation-approval` | get, optional | `approve` of your own proposal: reads `selfApproval`. Without access, the API server decides. |
 
 Each patch carries the UID of the rollout that the command read. The API server refuses it if a new rollout has the same name.
 

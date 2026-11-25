@@ -56,7 +56,7 @@ pk-metal rollout show prod-talosupgrade-1a2b3c4d
 | `PlanBlocked` | The message names the step that the operator cannot plan. Correct the cause. The operator then makes the plan again. |
 | `PlanChanged` | The operator proposes a fresh rollout. Read it and approve it. |
 | `RolloutFailed` | See [](rb:operation-failed) for the failed node. Then delete the failed rollout. The operator proposes a new one. |
-| `AwaitingApproval` | A second person runs `pk-metal rollout approve <rollout>`. |
+| `AwaitingApproval` | A person runs `pk-metal rollout approve <rollout>`. If your site forbids self-approval, that is not the proposer. |
 
 ### Stop it now
 

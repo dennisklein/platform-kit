@@ -91,7 +91,7 @@ A node that runs finishes in both cases.
 A ValidatingAdmissionPolicy enforces the same rules as for a HostOperation:
 
 1. The creator must name themselves in `spec.proposedBy`.
-2. The approver must be another person, not the operator.
+2. The approver is a person, never the operator. The approver is not the proposer if the site sets `selfApproval: Forbidden`.
 3. `approvedBy` and `planHash` are set together, and cannot change after that.
 
 Before each node operation starts, the [](ctrl:hostoperation) checks that this rollout still covers it.

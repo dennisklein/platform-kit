@@ -19,7 +19,7 @@ import Terminal from '../../../../components/cli/Terminal.astro';
 <CliBadges cmd="reboot" />
 
 `pk-metal reboot` proposes a clean reboot of one Talos node as a [](kind:HostOperation).
-Nothing changes until a different person approves the operation.
+Nothing changes until a person approves the operation. Your site decides if that can be you.
 
 ## Synopsis
 
@@ -41,7 +41,7 @@ Nothing changes until a different person approves the operation.
 1. The command asks the API server for your user name.
 2. It reads the TalosNode and finds the [](kind:Host) that runs it.
 3. It makes a HostOperation with the reason `Reboot` in the namespace `pk-metal`. You are the proposer.
-4. The operation waits for approval. You cannot approve your own proposal.
+4. The operation waits for approval. You can approve it yourself only if your site allows self-approval.
 
 ### The plan
 
@@ -72,7 +72,7 @@ title="pk-metal reboot"
 text={`
     $ pk-metal reboot cp-2
     proposed pk-metal/reboot-cp-2-m4q8z: a clean reboot of TalosNode cp-2 on host simhw2288v5000398 (6 steps).
-    Another person approves it after reading the plan: pk-metal approve pk-metal/reboot-cp-2-m4q8z
+    Approve it after reading the plan (another person must, if the site forbids self-approval): pk-metal approve pk-metal/reboot-cp-2-m4q8z
     It is a control plane of cluster lab: once approved, it waits until every other etcd member is healthy and no other control plane is down.
     To withdraw it: pk-metal abort pk-metal/reboot-cp-2-m4q8z
 `}

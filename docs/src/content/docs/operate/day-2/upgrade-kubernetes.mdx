@@ -22,7 +22,7 @@ Move the control plane, kube-proxy and the kubelets of one cluster to a new Kube
 
 - The Talos release of the cluster supports the new version. [](cli:upgrade) refuses a version that it does not support.
 - The new version has the same minor as the current version, or the next minor. [](cli:upgrade) and the rollout plan refuse a skipped minor and a downgrade. To go from v1.34 to v1.36, do two upgrades.
-- A second person can approve.
+- A person with `pk-metal-approver` can approve. That is you, if your site allows self-approval. If not, it is a second person. See [](howto:approval-permissions).
 - The cluster is `Available`.
 
 ## The order
@@ -67,7 +67,7 @@ The rollout does not update the bootstrap manifests in the machine config: CoreD
 
    The output names the rollout, for example `prod-kubernetesupgrade-9c8d7e6f`.
 
-2. Ask a second person to approve it.
+2. Approve it. If your site forbids self-approval, ask a second person to approve it.
 
    ```sh
    pk-metal rollout approve prod-kubernetesupgrade-9c8d7e6f
