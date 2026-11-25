@@ -202,6 +202,8 @@ func TestE2EQemu(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, controller.SetupAll(mgr, controller.Options{
 		CredentialsNamespace: qemuNS,
+		OperationsNamespace:  qemuNS,
+		Proposer:             "pk-metal-e2e-qemu",
 		EventSource:          "pk-metal-e2e-qemu",
 		Ledger:               led,
 		TLS:                  &metalv1alpha1.EndpointTLS{CASecretRef: &corev1.LocalObjectReference{Name: "bmc-ca"}},

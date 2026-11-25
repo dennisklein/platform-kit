@@ -168,6 +168,8 @@ func TestE2EKind(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, controller.SetupAll(mgr, controller.Options{
 		CredentialsNamespace: ns,
+		OperationsNamespace:  ns,
+		Proposer:             "pk-metal-e2e",
 		EventSource:          "pk-metal-e2e",
 		Ledger:               led,
 		TLS:                  &metalv1alpha1.EndpointTLS{CASecretRef: &corev1.LocalObjectReference{Name: "bmc-ca"}},
