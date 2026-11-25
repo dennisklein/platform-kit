@@ -13,6 +13,7 @@ import (
 
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	"github.com/dennisklein/platform-kit/metal/internal/poll"
+	"github.com/dennisklein/platform-kit/metal/internal/redact"
 )
 
 // vmmControlAction is the iBMC's OEM virtual-media action.
@@ -192,7 +193,19 @@ func (c *client) slotByID(id string) (slot, error) {
 	return slot{}, fmt.Errorf("bmc: no media slot %q", id)
 }
 
+// InsertMedia masks the error text before it leaves the client: a service
+// that refuses a mount echoes the image URL, which carries a grant token and,
+// on the vmm dialect, the grant credentials as userinfo. Whoever records the
+// error then cannot store them by mistake.
 func (c *client) InsertMedia(ctx context.Context, mediaID, imageURL string, creds *bmc.MediaCredentials) error {
+	var secret string
+	if creds != nil {
+		secret = creds.Password
+	}
+	return redact.Error(c.insertMedia(ctx, mediaID, imageURL, creds), secret)
+}
+
+func (c *client) insertMedia(ctx context.Context, mediaID, imageURL string, creds *bmc.MediaCredentials) error {
 	if c.readOnly {
 		return errReadOnly
 	}
@@ -271,7 +284,13 @@ func withUserinfo(imageURL string, creds *bmc.MediaCredentials) (string, error) 
 	return u.String(), nil
 }
 
+// EjectMedia masks its error text as InsertMedia does: a refusal can name
+// the URL the slot holds.
 func (c *client) EjectMedia(ctx context.Context, mediaID string) error {
+	return redact.Error(c.ejectMedia(ctx, mediaID))
+}
+
+func (c *client) ejectMedia(ctx context.Context, mediaID string) error {
 	if c.readOnly {
 		return errReadOnly
 	}

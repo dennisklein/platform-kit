@@ -8,6 +8,7 @@ import (
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	"github.com/dennisklein/platform-kit/metal/internal/boot"
 	"github.com/dennisklein/platform-kit/metal/internal/drain"
+	"github.com/dennisklein/platform-kit/metal/internal/redact"
 )
 
 // undo takes back what the steps before step i left on the machine when an
@@ -36,7 +37,7 @@ func (x *exec) undo(ctx context.Context, i int) (undone, failed []string, err er
 		case transient(ctx, e):
 			return e
 		default:
-			failed = append(failed, what+": "+e.Error())
+			failed = append(failed, what+": "+redact.String(e.Error()))
 		}
 		return nil
 	}

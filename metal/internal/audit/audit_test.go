@@ -187,3 +187,14 @@ func TestMessageIsClipped(t *testing.T) {
 	assert.True(t, strings.HasSuffix(got.Message, "…"))
 	assert.NotContains(t, got.Message, "�", "the cut falls between two characters")
 }
+
+// TestMessageIsMasked: a step's error that echoes a grant URL with its
+// credentials (the Huawei form) reaches the trail masked.
+func TestMessageIsMasked(t *testing.T) {
+	l, b := newTest()
+	l.StepFailed(op, 1, "insertMedia", "StepFailed",
+		"bmc: VmmControl Connect: 400: Image https://media:fedcba9876543210@10.0.0.1:30443/grants/0123456789abcdef/n.iso")
+	var got Line
+	require.NoError(t, json.Unmarshal(b.Bytes(), &got))
+	assert.Equal(t, "bmc: VmmControl Connect: 400: Image https://***@10.0.0.1:30443/grants/***/n.iso", got.Message)
+}

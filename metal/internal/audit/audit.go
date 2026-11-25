@@ -7,7 +7,10 @@
 // name, uid, actor), and each event adds only the fields that its method
 // takes. The call sites cannot add a field or misspell one: the methods are
 // the whole interface. A line holds names, reasons and plan summaries. It
-// never holds a config, a token or a password: no method takes one.
+// never holds a config, a token or a password: no method takes one, and
+// the free text a method takes (a step's error) is masked with
+// internal/redact before it is written, since a BMC's error can echo a grant
+// URL with its credentials.
 //
 // The lines go to the writer the Logger was made with (the manager's
 // standard error, next to its other log lines). Each one carries
@@ -31,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/redact"
 )
 
 // LoggerName is the value of the logger field of every line.
@@ -238,7 +242,7 @@ func (l *Logger) StepFinished(o Object, step int, action, result string) {
 // object's status carries.
 func (l *Logger) StepFailed(o Object, step int, action, reason, message string) {
 	l.write(o, EventStepFailed, l.Operator(), func(x *Line) {
-		x.Step, x.Action, x.Result, x.Reason, x.Message = &step, action, "Failed", reason, clip(message)
+		x.Step, x.Action, x.Result, x.Reason, x.Message = &step, action, "Failed", reason, clip(redact.String(message))
 	})
 }
 
@@ -253,7 +257,7 @@ func (l *Logger) Finished(o Object, phase, reason string, ran time.Duration) {
 // before the delete request, so that the record of the delete exists even
 // when the request is the last thing the process does.
 func (l *Logger) Deleted(o Object, reason DeleteReason, message string) {
-	l.write(o, EventDeleted, l.Operator(), func(x *Line) { x.Reason, x.Message = string(reason), clip(message) })
+	l.write(o, EventDeleted, l.Operator(), func(x *Line) { x.Reason, x.Message = string(reason), clip(redact.String(message)) })
 }
 
 func (l *Logger) write(o Object, ev Event, actor string, fill func(*Line)) {

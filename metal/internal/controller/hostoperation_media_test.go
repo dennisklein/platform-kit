@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	osv1alpha1 "github.com/dennisklein/platform-kit/metal/api/os/v1alpha1"
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/asset"
+	"github.com/dennisklein/platform-kit/metal/internal/audit"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 )
 
@@ -386,4 +388,31 @@ func TestMountedStripsUserinfo(t *testing.T) {
 	assert.Empty(t, mounted(t.Context(), cl, "Floppy"), "an empty slot")
 	assert.Empty(t, mounted(t.Context(), cl, "USB"), "an unknown slot")
 	assert.Empty(t, mounted(t.Context(), mediaStub{err: errors.New("unreachable")}, "CD"), "an unreadable BMC")
+}
+
+// TestFailedStepMasksTheBMCError: a BMC refusal that echoes the grant URL
+// with its credentials is recorded masked in the step, the condition and the
+// audit trail.
+func TestFailedStepMasksTheBMCError(t *testing.T) {
+	const (
+		token    = "0123456789abcdef0123456789abcdef"
+		password = "fedcba9876543210fedcba9876543210"
+	)
+	ba, artifact := configAsset(t, buildISO(t, "version: v1alpha1\n"))
+	op := preClearedOp(insertAsset(ba.Name, ""))
+	r, _, rec := executorFor(t, "supermicro-x12", op, ba, artifact)
+	r.Media = startMedia(t)
+	var trail bytes.Buffer
+	r.Audit = audit.New(&trail, "operator")
+	rec.insertErr = errors.New(`400: {"MessageArgs":["https://media:` + password + `@10.0.0.1:30443/grants/` + token + `/node-config.iso"]}`)
+
+	got := runOp(t, r)
+	requireFailed(t, got, "https://***@10.0.0.1:30443/grants/***/node-config.iso")
+	require.NotEmpty(t, got.Status.Steps)
+	for _, text := range []string{got.Status.Steps[len(got.Status.Steps)-1].Message,
+		meta.FindStatusCondition(got.Status.Conditions, metalv1alpha1.ConditionExecuted).Message, trail.String()} {
+		assert.NotContains(t, text, token)
+		assert.NotContains(t, text, password)
+	}
+	assert.Contains(t, trail.String(), `"event":"step.failed"`)
 }

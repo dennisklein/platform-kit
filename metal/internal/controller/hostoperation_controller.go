@@ -30,6 +30,7 @@ import (
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	gofishclient "github.com/dennisklein/platform-kit/metal/internal/bmc/gofish"
 	"github.com/dennisklein/platform-kit/metal/internal/phase"
+	"github.com/dennisklein/platform-kit/metal/internal/redact"
 	"github.com/dennisklein/platform-kit/metal/internal/talos"
 )
 
@@ -405,20 +406,24 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	// fail records step i as failed — terminal, one-shots never auto-retry.
+	// The error text is masked before it is recorded anywhere: a BMC's
+	// refusal can echo a grant URL and its credentials (internal/redact).
 	fail := func(i int, err error) (ctrl.Result, error) {
 		name := actionName(op.Spec.Actions[i])
+		msg := redact.String(err.Error())
 		op.Status.Steps = append(op.Status.Steps, metalv1alpha1.OperationStep{
-			Action: name, Phase: "Failed", Message: err.Error(), FinishedAt: ptrTime(metav1.Now()),
+			Action: name, Phase: "Failed", Message: msg, FinishedAt: ptrTime(metav1.Now()),
 		})
 		setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionFalse,
-			metalv1alpha1.ReasonStepFailed, fmt.Sprintf("step %d/%d %s: %v", i+1, len(op.Spec.Actions), name, err))
+			metalv1alpha1.ReasonStepFailed, fmt.Sprintf("step %d/%d %s: %s", i+1, len(op.Spec.Actions), name, msg))
 		r.Recorder.Eventf(op, nil, corev1.EventTypeWarning, metalv1alpha1.ReasonStepFailed,
-			"Execute", "step %s failed: %v", name, err)
+			"Execute", "step %s failed: %s", name, msg)
 		r.forget(req.NamespacedName)
 		return ctrl.Result{}, client.IgnoreNotFound(flush())
 	}
 	// wait leaves step i in flight and comes back after the given pause.
 	wait := func(i int, msg string, after time.Duration) (ctrl.Result, error) {
+		msg = redact.String(msg)
 		setCond(metalv1alpha1.ConditionExecuted, metav1.ConditionUnknown, metalv1alpha1.ReasonExecuting,
 			fmt.Sprintf("step %d/%d %s: %s", i+1, len(op.Spec.Actions), actionName(op.Spec.Actions[i]), msg))
 		if err := flush(); err != nil {

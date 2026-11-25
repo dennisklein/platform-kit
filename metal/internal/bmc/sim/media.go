@@ -103,8 +103,13 @@ func (s *State) InsertMedia(ctx context.Context, mediaID, imageURL string, creds
 
 	size, err := fetchMount(ctx, u, creds, dialect)
 	if err != nil {
-		// The observed iBMC failure shape for an unfetchable image.
-		return refuse("media %q: failed to connect to virtual media: %v", mediaID, err)
+		// The observed iBMC failure shape for an unfetchable image. The
+		// image goes back in MessageArgs as it was given, userinfo and all,
+		// as Redfish services commonly echo an offending value: whoever
+		// records this error must mask it (internal/redact).
+		e := refuse("media %q: failed to connect to virtual media: %v", mediaID, err)
+		e.Args = []string{imageURL}
+		return e
 	}
 
 	s.mu.Lock()
