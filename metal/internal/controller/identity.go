@@ -387,11 +387,17 @@ func (r *EndpointConvergenceReconciler) pushIdentity(ctx context.Context, ep *me
 				return err
 			}
 		}
-		if err := cl.ResetManager(ctx, bmc.ActionGracefulRestart); err != nil {
-			if err := cl.ResetManager(ctx, bmc.ActionForceRestart); err != nil {
+		// The certificate is on the manager from here on, whether or not
+		// the restart that puts it in service succeeds.
+		r.Audit.BMCIdentityPushed(endpointObject(ep), certFingerprint(leaf), leaf.Subject.CommonName)
+		action := bmc.ActionGracefulRestart
+		if err := cl.ResetManager(ctx, action); err != nil {
+			action = bmc.ActionForceRestart
+			if err := cl.ResetManager(ctx, action); err != nil {
 				return fmt.Errorf("manager reset refused: %w", err)
 			}
 		}
+		r.Audit.BMCRestarted(endpointObject(ep), string(action), metalv1alpha1.ReasonIdentityPushed)
 		return nil
 	})
 	if err != nil {

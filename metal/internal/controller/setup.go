@@ -209,7 +209,7 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 		}
 	case LaneEndpoint:
 		return "managementendpoint", &ManagementEndpointReconciler{
-			Client: c, CredentialsNamespace: o.CredentialsNamespace, PollInterval: o.PollInterval,
+			Client: c, CredentialsNamespace: o.CredentialsNamespace, PollInterval: o.PollInterval, Audit: o.Audit,
 		}
 	case LaneHost:
 		return "host", &HostReconciler{Client: c}
@@ -243,7 +243,7 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 		}
 	case LaneEndpointConvergence:
 		return "endpoint convergence", &EndpointConvergenceReconciler{
-			Client: c, CredentialsNamespace: o.CredentialsNamespace, PollInterval: o.PollInterval,
+			Client: c, CredentialsNamespace: o.CredentialsNamespace, PollInterval: o.PollInterval, Audit: o.Audit,
 		}
 	case LaneTalosNode:
 		// The member finalizer rides with the node lane: every setup that

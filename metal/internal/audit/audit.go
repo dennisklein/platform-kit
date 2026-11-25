@@ -51,6 +51,9 @@ const (
 	KindHostClaim     Kind = "HostClaim"
 	KindTalosNode     Kind = "TalosNode"
 	KindHost          Kind = "Host"
+	// KindManagementEndpoint: a BMC, for what the operator does to it
+	// outside an operation (EndpointProfile lanes, the TLS key pin).
+	KindManagementEndpoint Kind = "ManagementEndpoint"
 )
 
 // Event is what happened.
@@ -74,6 +77,13 @@ const (
 	// EventMediaGrantEnded: a media grant was revoked or expired; the line
 	// says what it served.
 	EventMediaGrantEnded Event = "media.grantEnded"
+
+	// The operator's own changes to a BMC, which no operation gates.
+	EventBMCAccountSet      Event = "bmc.account.set"
+	EventBMCAccountDisabled Event = "bmc.account.disabled"
+	EventBMCIdentityPushed  Event = "bmc.identity.pushed"
+	EventBMCRestarted       Event = "bmc.restarted"
+	EventBMCKeyPinned       Event = "bmc.tls.pinned"
 )
 
 // DeleteReason says why the operator deletes a record.
@@ -161,6 +171,11 @@ type Line struct {
 	Requests *int64 `json:"requests,omitempty"`
 	Bytes    *int64 `json:"bytes,omitempty"`
 	Refused  *int   `json:"refused,omitempty"`
+	// bmc.account.*
+	Account string `json:"account,omitempty"`
+	// bmc.identity.pushed, bmc.tls.pinned: a certificate fingerprint or a
+	// key, never key material.
+	Key string `json:"key,omitempty"`
 }
 
 // maxMessage bounds the free text of a line. The full text stays on the
@@ -299,6 +314,36 @@ func (l *Logger) MediaGrantEnded(o Object, grant, source, how string, requests, 
 		x.Grant, x.Source, x.Reason = grant, source, how
 		x.Requests, x.Bytes, x.Refused = &requests, &bytes, &refused
 	})
+}
+
+// BMCAccountSet records that the operator set the password of its managed
+// account on a BMC; reason says why (Adopted, Rotated, Renamed, Repaired).
+// The password itself is never written.
+func (l *Logger) BMCAccountSet(o Object, account, reason string) {
+	l.write(o, EventBMCAccountSet, l.Operator(), func(x *Line) { x.Account, x.Reason = account, reason })
+}
+
+// BMCAccountDisabled records that the operator disabled an account on a BMC.
+func (l *Logger) BMCAccountDisabled(o Object, account, reason string) {
+	l.write(o, EventBMCAccountDisabled, l.Operator(), func(x *Line) { x.Account, x.Reason = account, reason })
+}
+
+// BMCIdentityPushed records that the operator gave a BMC a new TLS
+// certificate; key is the certificate's fingerprint.
+func (l *Logger) BMCIdentityPushed(o Object, key, message string) {
+	l.write(o, EventBMCIdentityPushed, l.Operator(), func(x *Line) { x.Key, x.Message = key, clip(message) })
+}
+
+// BMCRestarted records that the operator restarted a BMC (action is the
+// reset type), and why.
+func (l *Logger) BMCRestarted(o Object, action, reason string) {
+	l.write(o, EventBMCRestarted, l.Operator(), func(x *Line) { x.Action, x.Reason = action, reason })
+}
+
+// BMCKeyPinned records the TLS key the operator trusts for a BMC from now
+// on; reason is how it came to be trusted (FirstUse, Approved, Pushed).
+func (l *Logger) BMCKeyPinned(o Object, key, reason string) {
+	l.write(o, EventBMCKeyPinned, l.Operator(), func(x *Line) { x.Key, x.Reason = key, reason })
 }
 
 func (l *Logger) write(o Object, ev Event, actor string, fill func(*Line)) {

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/audit"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	gofishclient "github.com/dennisklein/platform-kit/metal/internal/bmc/gofish"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc/sim"
@@ -201,6 +203,8 @@ func TestRenamedAccountIsDisabledAfterTheNewOneWorks(t *testing.T) {
 	g.pass(t)
 	old := string(g.secret(t).Data["password"])
 
+	var trail bytes.Buffer
+	g.r.Audit = audit.New(&trail, testOperator)
 	g.pol.Username = "pk-metal-2"
 	status, reason, msg := g.pass(t)
 	require.Equal(t, metav1.ConditionTrue, status, "%s: %s", reason, msg)
@@ -216,6 +220,13 @@ func TestRenamedAccountIsDisabledAfterTheNewOneWorks(t *testing.T) {
 	assert.False(t, g.state.Authenticate("pk-metal", old), "the replaced account logs in no more")
 	assert.True(t, g.state.AccountEnabled("admin"), "the factory account stays")
 	assert.NotContains(t, g.secret(t).Annotations, retireAccountAnnotation, "the disable is done")
+
+	// The trail has both changes to the BMC, and no password.
+	assert.Contains(t, trail.String(), `"event":"bmc.account.set","kind":"ManagementEndpoint"`)
+	assert.Contains(t, trail.String(), `"account":"pk-metal-2"`)
+	assert.Contains(t, trail.String(), `"event":"bmc.account.disabled"`)
+	assert.Contains(t, trail.String(), `"reason":"Replaced","account":"pk-metal"`)
+	assert.NotContains(t, trail.String(), old)
 
 	// The factory account is never named for retirement.
 	assert.True(t, g.r.isFactoryAccount(t.Context(), g.ep, "admin"))

@@ -6,6 +6,8 @@ package envtest_test
 
 import (
 	"crypto/x509"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -17,6 +19,7 @@ import (
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/asset"
+	"github.com/dennisklein/platform-kit/metal/internal/audit"
 	gofishclient "github.com/dennisklein/platform-kit/metal/internal/bmc/gofish"
 	"github.com/dennisklein/platform-kit/metal/internal/controller"
 )
@@ -29,11 +32,13 @@ func TestTLSKeyPin(t *testing.T) {
 	ctx := t.Context()
 	seedBMCSecrets(t, ctx, cl)
 
+	trail := &syncBuffer{}
 	mgr := st.newManager(t)
 	require.NoError(t, controller.SetupAll(mgr, controller.Options{
 		CredentialsNamespace: "default",
 		Ledger:               led,
 		PollInterval:         pollInterval,
+		Audit:                audit.New(trail, "op"),
 	}, controller.LaneAsset, controller.LaneEndpoint))
 	runManager(t, ctx, mgr)
 
@@ -93,4 +98,15 @@ func TestTLSKeyPin(t *testing.T) {
 		return !approval && c != nil && c.Status == metav1.ConditionTrue
 	})
 	assert.Equal(t, &metalv1alpha1.TLSPin{PublicKey: other, Source: metalv1alpha1.TLSPinApproved}, ep.Status.TLSPin)
+
+	// The trail has each pin once, with how it came to be trusted.
+	var pins []string
+	for _, line := range strings.Split(strings.TrimSpace(trail.String()), "\n") {
+		var l struct{ Event, Key, Reason string }
+		require.NoError(t, json.Unmarshal([]byte(line), &l))
+		if l.Event == "bmc.tls.pinned" {
+			pins = append(pins, l.Reason+" "+l.Key)
+		}
+	}
+	assert.Equal(t, []string{"FirstUse " + first, "Approved " + other}, pins)
 }

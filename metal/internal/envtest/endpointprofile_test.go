@@ -36,6 +36,7 @@ import (
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
 	"github.com/dennisklein/platform-kit/metal/internal/asset"
+	"github.com/dennisklein/platform-kit/metal/internal/audit"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc/sim"
 	"github.com/dennisklein/platform-kit/metal/internal/controller"
 	testpki "github.com/dennisklein/platform-kit/metal/internal/testpki"
@@ -75,12 +76,14 @@ func TestEndpointConvergence(t *testing.T) {
 
 	seedBMCSecrets(t, ctx, cl, huaweiSeed.Raw, smcSeed.Raw, ca.Cert.Raw)
 
+	trail := &syncBuffer{}
 	mgr := st.newManager(t)
 	require.NoError(t, controller.SetupAll(mgr, controller.Options{
 		CredentialsNamespace: "default",
 		Ledger:               led,
 		TLS:                  &metalv1alpha1.EndpointTLS{CASecretRef: &corev1.LocalObjectReference{Name: "bmc-ca"}},
 		PollInterval:         pollInterval,
+		Audit:                audit.New(trail, "op"),
 	}, controller.LaneAsset, controller.LaneEndpoint, controller.LaneEndpointConvergence))
 	runManager(t, ctx, mgr)
 
@@ -167,6 +170,8 @@ func TestEndpointConvergence(t *testing.T) {
 				"%s: the managed account carries the secret's password", name)
 			assert.True(t, st.Authenticate("admin", "dev"),
 				"%s: the factory account survives adoption untouched", name)
+			assert.Contains(t, trail.String(), `"event":"bmc.account.set","kind":"ManagementEndpoint","namespace":"","name":"`+name+`"`,
+				"%s: the trail has the account the operator set", name)
 		}
 	})
 
@@ -302,6 +307,12 @@ func TestEndpointConvergence(t *testing.T) {
 			sec := &corev1.Secret{}
 			err := cl.Get(ctx, client.ObjectKey{Namespace: "default", Name: "endpoint-identity-" + name}, sec)
 			assert.True(t, err != nil, "%s: the in-flight identity secret must be withdrawn", name)
+
+			// The trail has the push and the restart that put it in service.
+			for _, event := range []string{"bmc.identity.pushed", "bmc.restarted"} {
+				assert.Contains(t, trail.String(), `"event":"`+event+`","kind":"ManagementEndpoint","namespace":"","name":"`+name+`"`,
+					"%s: %s", name, event)
+			}
 
 			// The hardware proof, in-process: a handshake pinned to the
 			// issuing CA alone, dialing the identity's name.

@@ -30,6 +30,10 @@ func opObject(op *metalv1alpha1.HostOperation) audit.Object {
 	return audit.Object{Kind: audit.KindHostOperation, Namespace: op.Namespace, Name: op.Name, UID: op.UID}
 }
 
+func endpointObject(ep *metalv1alpha1.ManagementEndpoint) audit.Object {
+	return audit.Object{Kind: audit.KindManagementEndpoint, Name: ep.Name, UID: ep.UID}
+}
+
 func rolloutObject(ro *osv1alpha1.TalosRollout) audit.Object {
 	return audit.Object{Kind: audit.KindTalosRollout, Name: ro.Name, UID: ro.UID}
 }

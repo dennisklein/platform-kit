@@ -26,6 +26,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
+	"github.com/dennisklein/platform-kit/metal/internal/audit"
 	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	gofishclient "github.com/dennisklein/platform-kit/metal/internal/bmc/gofish"
 	"github.com/dennisklein/platform-kit/metal/internal/phase"
@@ -76,6 +77,9 @@ type EndpointConvergenceReconciler struct {
 	APIReader client.Reader
 	// Dial opens the sessions to the endpoint; nil dials over gofish.
 	Dial Dialer
+	// Audit writes a line for each change the lanes make to a BMC: a
+	// password set, an account disabled, an identity pushed, a restart.
+	Audit *audit.Logger
 
 	// logins remembers the credentials a manager refused, so that a probe
 	// does not try a known-bad password on every pass.
@@ -413,6 +417,7 @@ func (r *EndpointConvergenceReconciler) keep(ctx context.Context, ep *metalv1alp
 			"account " + cur.user + " reset but login still fails: " + err.Error(), nil
 	}
 	logf.FromContext(ctx).Info("repaired managed account", "endpoint", ep.Name, "account", cur.user)
+	r.Audit.BMCAccountSet(endpointObject(ep), cur.user, "Repaired")
 	return metav1.ConditionTrue, metalv1alpha1.ReasonInSync, "account " + cur.user + " managed", nil
 }
 
@@ -459,8 +464,16 @@ func (r *EndpointConvergenceReconciler) promote(ctx context.Context, ep *metalv1
 	sec.Annotations[rotatedAtAnnotation] = time.Now().UTC().Format(time.RFC3339)
 	// The account a new username replaces is disabled on a later pass,
 	// through the new one; never the factory account, the break-glass.
-	if old := string(sec.Data["username"]); old != "" && old != next.user && !r.isFactoryAccount(ctx, ep, old) {
+	old := string(sec.Data["username"])
+	if old != "" && old != next.user && !r.isFactoryAccount(ctx, ep, old) {
 		sec.Annotations[retireAccountAnnotation] = old
+	}
+	why := "Rotated"
+	switch {
+	case old == "":
+		why = "Adopted"
+	case old != next.user:
+		why = "Renamed"
 	}
 	sec.Data = map[string][]byte{
 		"username": []byte(next.user),
@@ -472,6 +485,7 @@ func (r *EndpointConvergenceReconciler) promote(ctx context.Context, ep *metalv1
 		return "", "", "", fmt.Errorf("managed credentials %s: %w", sec.Name, err)
 	}
 	logf.FromContext(ctx).Info("rotated managed credentials", "endpoint", ep.Name, "account", next.user)
+	r.Audit.BMCAccountSet(endpointObject(ep), next.user, why)
 	return metav1.ConditionTrue, metalv1alpha1.ReasonInSync, "account " + next.user + " managed", nil
 }
 
@@ -496,6 +510,7 @@ func (r *EndpointConvergenceReconciler) retire(ctx context.Context, ep *metalv1a
 		return "", "", "", fmt.Errorf("managed credentials %s: %w", sec.Name, err)
 	}
 	logf.FromContext(ctx).Info("disabled the replaced managed account", "endpoint", ep.Name, "account", old)
+	r.Audit.BMCAccountDisabled(endpointObject(ep), old, "Replaced")
 	return metav1.ConditionTrue, metalv1alpha1.ReasonInSync,
 		"account " + cur.user + " managed; the replaced account " + old + " is disabled", nil
 }
