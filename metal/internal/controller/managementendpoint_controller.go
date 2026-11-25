@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -20,8 +21,8 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	metalv1alpha1 "github.com/dennisklein/platform-kit/metal/api/v1alpha1"
-	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	"github.com/dennisklein/platform-kit/metal/internal/audit"
+	"github.com/dennisklein/platform-kit/metal/internal/bmc"
 	gofishclient "github.com/dennisklein/platform-kit/metal/internal/bmc/gofish"
 	"github.com/dennisklein/platform-kit/metal/internal/identity"
 	"github.com/dennisklein/platform-kit/metal/internal/phase"
@@ -57,6 +58,12 @@ type ManagementEndpointReconciler struct {
 	Probe TLSProbe
 	// Audit writes a line when the pinned TLS key changes.
 	Audit *audit.Logger
+
+	// pinned remembers the last pin written to the trail for each endpoint
+	// (by UID). A pass that starts from a cache that has not yet seen the
+	// stored pin pins the same key again; that is no new trust, and the
+	// trail gets no second line for it.
+	pinned sync.Map
 }
 
 // +kubebuilder:rbac:groups=metal.pk.io,resources=managementendpoints,verbs=get;list;watch;update
@@ -105,7 +112,9 @@ func (r *ManagementEndpointReconciler) Reconcile(ctx context.Context, req ctrl.R
 		// The trail gets the pin once it is stored: a pass whose write
 		// fails pins again, and writes the line then.
 		if p := ep.Status.TLSPin; p != nil && !equality.Semantic.DeepEqual(orig.Status.TLSPin, p) {
-			r.Audit.BMCKeyPinned(endpointObject(ep), p.PublicKey, p.Source)
+			if last, ok := r.pinned.Swap(ep.UID, *p); !ok || last != *p {
+				r.Audit.BMCKeyPinned(endpointObject(ep), p.PublicKey, p.Source)
+			}
 		}
 	}
 	return ctrl.Result{RequeueAfter: r.PollInterval}, nil
