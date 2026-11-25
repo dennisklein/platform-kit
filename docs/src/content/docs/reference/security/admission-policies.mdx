@@ -1,6 +1,6 @@
 ---
 title: Admission policies
-description: The eight ValidatingAdmissionPolicies that guard approval, provisioning, backups, BMC settings, guard lifts, the name of the requester and the site settings, rule by rule.
+description: The nine ValidatingAdmissionPolicies that guard approval, provisioning, backups, BMC settings, guard lifts, the name of the requester and the site settings, rule by rule.
 type: reference
 eyebrow: Reference · security
 xref: { cat: ref, id: admission-policies }
@@ -39,7 +39,7 @@ Eight [ValidatingAdmissionPolicies](term:vap) close that gap. They are [CEL](ter
 | `requested-by` | TalosCluster, TalosNode, HostClaim, [](kind:BiosProfile), [](kind:FirmwareProfile), Host, TalosRollout, ConfigMaps with `os.pk.io/patch` | CREATE, UPDATE, DELETE | A change that makes the operator propose work names the user who asked for it. |
 | `settings-guard` | The ConfigMap `pk-metal/hostoperation-approval` | CREATE, UPDATE, DELETE | Only the admin group changes or deletes the site settings. |
 
-All eight have these settings:
+All nine have these settings:
 
 <dl>
   <dt>`failurePolicy: Fail`</dt>

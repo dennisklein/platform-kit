@@ -37,6 +37,7 @@ var GatePolicies = []string{
 	"hostclaim-provisioning",
 	"etcdbackuppolicy-guard",
 	"endpointprofile-guard",
+	"taloscluster-credentials-guard",
 	"guard-lift",
 	"requested-by",
 	"settings-guard",

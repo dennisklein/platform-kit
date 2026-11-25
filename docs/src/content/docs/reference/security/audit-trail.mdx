@@ -102,6 +102,11 @@ An event adds the fields in the table below. A line never holds a Secret, a cred
 | `settings.changed` | The operator sees a change of `selfApproval`, `retention`, `adminGroup` or `operator`. The `actor` is empty: the kube-apiserver audit log names who. | `old`, `new`, and `message` if the ConfigMap is gone |
 | `gate.degraded` | An admission policy of the gate, or its binding, is missing or does not deny. See [](rb:admission-gate-degraded). | `message` |
 | `gate.restored` | A degraded policy is in place again. | None |
+| `bmc.account.set` | The operator sets the password of its managed account on a BMC. The password is not in the line. | `account`, `reason` (`Adopted`, `Rotated`, `Renamed` or `Repaired`) |
+| `bmc.account.disabled` | The operator disables an account on a BMC that a rotation replaced. | `account`, `reason` |
+| `bmc.identity.pushed` | The operator gives a BMC a new TLS certificate. | `key` (the fingerprint), `message` |
+| `bmc.restarted` | The operator restarts a BMC. | `action` (the reset type), `reason` |
+| `bmc.tls.pinned` | The operator trusts a TLS key of a BMC from this point. | `key`, `reason` (`FirstUse`, `Approved` or `Pushed`) |
 
 The `reason` of a `deleted` line is one of these:
 
