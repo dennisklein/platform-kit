@@ -652,6 +652,23 @@ func TestReconcile(t *testing.T) {
 		require.NoError(t, cl.Delete(ctx, op))
 	})
 
+	st.run(t, "an operator proposal without approval of another kind is refused", func(t *testing.T) {
+		// The operator's token may create an operation that needs no
+		// approval; the executor still runs only the kinds the operator
+		// code makes so. This one is none of them.
+		before := smcState.Resets("1")
+		op := powerCycleOp("cycle-unwaived")
+		op.Spec.Approval.Required = ptr.To(false)
+		require.NoError(t, cl.Create(ctx, op))
+		got := waitOp("cycle-unwaived", opPhaseIs(metalv1alpha1.OperationFailed))
+		ex := meta.FindStatusCondition(got.Status.Conditions, metalv1alpha1.ConditionExecuted)
+		require.NotNil(t, ex)
+		assert.Equal(t, metalv1alpha1.ReasonWaiverRefused, ex.Reason)
+		assert.Contains(t, ex.Message, "nothing was done to the machine")
+		assert.Equal(t, before, smcState.Resets("1"), "the machine was not touched")
+		require.NoError(t, cl.Delete(ctx, &got))
+	})
+
 	st.run(t, "approval executes and the sim power-cycles", func(t *testing.T) {
 		before := smcState.Resets("1")
 		op := opByName("cycle-smc")
@@ -701,10 +718,14 @@ func TestReconcile(t *testing.T) {
 		require.NotNil(t, m)
 		assert.Contains(t, m.Message, "replacing DIMM B2", "the person's reason is shown")
 
-		// Even a pre-cleared operation waits.
+		// Even a pre-cleared operation waits. It has the shape of a release
+		// that needs no person, one of the kinds the operator runs without
+		// an approval.
 		before := smcState.Resets("1")
 		op := powerCycleOp("cycle-in-maintenance")
 		op.Spec.Approval.Required = ptr.To(false)
+		op.Spec.Reason = "Release"
+		op.Labels = map[string]string{"metal.pk.io/purpose": "release"}
 		require.NoError(t, cl.Create(ctx, op))
 		blocked := waitOp("cycle-in-maintenance", func(op metalv1alpha1.HostOperation) bool {
 			return op.Status.BlockedOn == metalv1alpha1.ReasonHostInMaintenance

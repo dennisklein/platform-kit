@@ -185,10 +185,11 @@ The [action catalog](act:index) gives the budget and the guard for each action.
 | `Approved` | `AwaitingApproval` | A person must approve. The message gives the command. |
 | `Approved` | `Approved` | A person approved, or the rollout approval covers it. |
 | `Approved` | `ApprovalNotRequired` | `required: false`. |
+| `Approved` | `WaiverRefused` | False. The operator proposed it with `required: false`, but it is not a rollout step, an install of an `Automatic` claim or a release. |
 | `Executed` | `Executing` | Steps run. The message names the current step. |
 | `Executed` | `OperationQueued`, `HostNotFound`, `HostInMaintenance`, `OutsideMaintenanceWindow`, `SelfDisruption`, `ClusterDisruption`, `NoReachablePath` | A gate holds the operation. The phase shows Proposed. |
 | `Executed` | `StepsSucceeded` | True. All steps reached their goal. |
-| `Executed` | `StepFailed`, `RolloutRefused`, `HostNotClaimed` | False. The operation failed. |
+| `Executed` | `StepFailed`, `RolloutRefused`, `WaiverRefused`, `HostNotClaimed` | False. The operation failed. |
 | `Executed` | `Aborted` | False. A person stopped it. |
 
 A finished operation with [`spec.ttlSecondsAfterFinished`](kind:HostOperation#spec.ttlSecondsAfterFinished) goes away when the time is over and the site retention ended, but only if it succeeded. See [Retention](ref:audit-trail#retention).

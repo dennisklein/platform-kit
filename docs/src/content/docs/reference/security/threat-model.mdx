@@ -76,7 +76,7 @@ pk-metal can wipe disks, flash firmware and boot any image on a machine. This pa
   <dt>The approval gate</dt>
   <dd>A bypass lets one identity wipe or reboot machines alone. The operator service account and the admin group can bypass it by design today. Protect both as you protect the gate. With `selfApproval: Allowed`, one person who can propose and approve can also change a machine alone. See [Known limits](#known-limits).</dd>
   <dt>The operator service account</dt>
-  <dd>Its token can create an operation with `approval.required: false`, with any actions. The executor runs it with no person. The operator code decides when it does this: the node steps of an approved rollout, an install with `provisioning.approval: Automatic`, and a release that needs no person. Admission does not limit the actions.</dd>
+  <dd>Its token can create an operation with `approval.required: false`, with any actions. The executor runs it with no person. The operator code decides when it does this: the node steps of an approved rollout, an install with `provisioning.approval: Automatic`, and a release that needs no person. Admission does not limit the actions. The executor runs such an operation in the name of the operator only if it is one of these three kinds. It refuses each other kind before it acts, with the reason `WaiverRefused`. A person with the token can still copy the shape of one of these kinds.</dd>
   <dt>The admin group</dt>
   <dd>A member can create an operation that needs no approval. A member can also set a claim to `Automatic`, name the TalosNode of a claim, change the backup recipients, and change an EndpointProfile. One member can do these alone. Keep the group small, and audit each create with `approval.required: false` by a person. See [Get into the admin group](ref:rbac#get-into-the-admin-group).</dd>
   <dt>Data at rest</dt>
@@ -98,7 +98,7 @@ pk-metal can wipe disks, flash firmware and boot any image on a machine. This pa
   <dt>Self-approval</dt>
   <dd>The default of `selfApproval` is `Allowed`. Then one person with propose and approve rights can change a machine alone. The record still names them in `spec.proposedBy` and in `spec.approval.approvedBy`. If one account must not change a machine alone, set `Forbidden`. See [](howto:approval-permissions).</dd>
   <dt>Operator work without approval</dt>
-  <dd>The identity of the operator can create operations that need no approval. These are the node steps of an approved rollout, an install of a claim with `provisioning.approval: Automatic`, and a release that needs no person. `selfApproval: Forbidden` does not change this. Admission does not limit the actions of these operations. Protect the token of the operator service account: give nobody `impersonate` on it, or `create` on `serviceaccounts/token` in `pk-metal`, and do not copy its token out of the cluster.</dd>
+  <dd>The identity of the operator can create operations that need no approval. These are the node steps of an approved rollout, an install of a claim with `provisioning.approval: Automatic`, and a release that needs no person. `selfApproval: Forbidden` does not change this. Admission does not limit the actions of these operations. The executor refuses an operation in the name of the operator that needs no approval and is none of these kinds. Protect the token of the operator service account: give nobody `impersonate` on it, or `create` on `serviceaccounts/token` in `pk-metal`, and do not copy its token out of the cluster.</dd>
 </dl>
 
 ## Controls

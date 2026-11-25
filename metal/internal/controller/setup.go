@@ -231,6 +231,7 @@ func (o Options) reconciler(mgr ctrl.Manager, l Lane) (string, reconciler) {
 			RegistryClient: o.RegistryClient, Media: o.Media, Store: o.MediaStore,
 			Recorder: recorder(), WaitInterval: o.WaitInterval, Self: self,
 			TalosDial: o.TalosDial, GuardInterval: o.GuardInterval, Audit: o.Audit,
+			Operator: o.Proposer,
 			// The cluster guard holds for every Talos cluster, wherever the
 			// operator runs; SelfGuard adds the rules for its own.
 			Guard: &ClusterGuard{Reader: mgr.GetAPIReader(), Dial: o.TalosDial, Namespace: o.CredentialsNamespace},

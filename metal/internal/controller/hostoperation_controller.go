@@ -148,6 +148,10 @@ type HostOperationReconciler struct {
 	GuardInterval time.Duration
 	// Audit writes the audit trail; nil writes none.
 	Audit *audit.Logger
+	// Operator is the operator's own username. An operation it proposed
+	// without approval runs only if it is a kind the operator makes so
+	// (hostoperation_waiver.go); empty skips that check.
+	Operator string
 
 	// locks keeps two passes off one host and off one BMC. startMu makes a
 	// guarded start (the self guard's verdict through the baseline write)
@@ -264,6 +268,9 @@ func (r *HostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		setCond(metalv1alpha1.ConditionApproved, metav1.ConditionFalse,
 			metalv1alpha1.ReasonAwaitingApproval, awaitingApprovalMessage(op))
 		return ctrl.Result{}, client.IgnoreNotFound(flush())
+	}
+	if res, stop, err := r.gateWaiver(ctx, op, setCond, flush); stop { // hostoperation_waiver.go
+		return res, err
 	}
 	if op.ApprovalRequired() {
 		setCond(metalv1alpha1.ConditionApproved, metav1.ConditionTrue,
