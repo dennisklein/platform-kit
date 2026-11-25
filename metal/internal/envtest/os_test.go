@@ -259,7 +259,10 @@ func TestOSLane(t *testing.T) {
 		var c osv1alpha1.TalosCluster
 		require.Eventually(t, func() bool {
 			c, _ = clusterCondition("lab", osv1alpha1.ConditionBootstrapped)
-			return c.Status.KubeconfigSecretRef != nil && c.Status.TalosconfigSecretRef != nil
+			// The node counts can land in a later status write than the
+			// credentials: wait for both.
+			return c.Status.KubeconfigSecretRef != nil && c.Status.TalosconfigSecretRef != nil &&
+				c.Status.UnassignedNodes == 3
 		}, waitFor, tick)
 
 		kc, err := clientcmd.Load(secretData(c.Status.KubeconfigSecretRef, controller.KubeconfigKey))
