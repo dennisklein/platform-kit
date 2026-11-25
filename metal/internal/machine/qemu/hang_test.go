@@ -99,28 +99,37 @@ type guardRun struct {
 	tick    chan time.Time
 	cycles  atomic.Int32
 	done    chan bool
+	exited  chan struct{}
 	cancel  context.CancelFunc
 }
 
 func startGuard(t *testing.T, timeout time.Duration) *guardRun {
 	t.Helper()
 	r := &guardRun{clock: &fakeClock{}, console: &fakeConsole{}, log: &logRecorder{},
-		tick: make(chan time.Time), done: make(chan bool, 1)}
+		tick: make(chan time.Time), done: make(chan bool, 1), exited: make(chan struct{})}
 	r.clock.advance(time.Hour) // any start will do
 	g := &hangGuard{timeout: timeout, start: r.clock.now(), read: r.console.read, logf: r.log.logf, name: "node-1",
 		cycle: func() error { r.cycles.Add(1); return nil }}
 	ctx, cancel := context.WithCancel(context.Background())
 	r.cancel = cancel
 	t.Cleanup(cancel)
-	go func() { r.done <- g.watch(ctx, r.tick) }()
+	go func() {
+		defer close(r.exited)
+		r.done <- g.watch(ctx, r.tick)
+	}()
 	return r
 }
 
-// step writes to the console, moves the clock and ticks.
+// step writes to the console, moves the clock and ticks. The guard reads
+// the console after it took the previous tick, so it can see this write
+// early and finish; the tick is then not taken.
 func (r *guardRun) step(console string, d time.Duration) {
 	r.console.write(console)
 	r.clock.advance(d)
-	r.tick <- r.clock.now()
+	select {
+	case r.tick <- r.clock.now():
+	case <-r.exited:
+	}
 }
 
 func (r *guardRun) result(t *testing.T) bool {
