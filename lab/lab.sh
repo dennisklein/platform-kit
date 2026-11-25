@@ -1471,17 +1471,26 @@ rollout_conditions() {
     (.status.conditions // [])[] | "\(.type)=\(.status)/\(.reason)"'
 }
 
-# Waits for the operator to propose a rollout of a kind, and prints its name.
+# Waits for the operator to propose a rollout of a kind whose plan covers
+# every node (Planned=True), and prints its name. A node that has just
+# rebooted holds the plan until its dry run answers, and pk-metal rollout
+# approve refuses the plan until then.
 rollout_wait_proposed() {
   local cluster_name=$1 kind=$2 timeout=$3
-  local name deadline=$((SECONDS + timeout))
+  local name planned deadline=$((SECONDS + timeout))
   while true; do
     name=$(rollout_open "$cluster_name" "$kind") || name=""
-    if [[ -n $name ]] && [[ -n $(kubectl get talosrollout "$name" --output jsonpath='{.status.planHash}') ]]; then
-      echo "$name"
-      return 0
+    if [[ -n $name ]]; then
+      planned=$(kubectl get talosrollout "$name" --output json | jq -r '
+        if (.status.planHash // "") == "" then "no"
+        else ([(.status.conditions // [])[] | select(.type == "Planned") | .status] | first // "no")
+        end')
+      if [[ $planned == True ]]; then
+        echo "$name"
+        return 0
+      fi
     fi
-    (( SECONDS < deadline )) || die "the operator proposed no planned $kind rollout for cluster $cluster_name within ${timeout}s.
+    (( SECONDS < deadline )) || die "the operator proposed no fully planned $kind rollout for cluster $cluster_name within ${timeout}s.
   See its conditions: kubectl get taloscluster $cluster_name -o yaml; and the nodes': kubectl get talosnodes -o wide"
     sleep 10
   done
