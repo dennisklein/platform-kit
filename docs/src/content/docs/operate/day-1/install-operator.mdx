@@ -153,6 +153,7 @@ The overlay is a kustomize directory. It adds the values of your site to the bas
 | `ledger.yaml` | BMC MAC address to BMC URL | [](concept:ledger) |
 | `bmc-ca.crt` | The CA of the BMC certificates | [BMC certificates](#bmc-certificates) |
 | `bindings.yaml` | The rights of the admin group and of the approvers | [](ref:rbac) |
+| `approval.yaml` | Whether a person can approve their own proposal (`selfApproval`) | [](howto:approval-permissions) |
 
 The ledger ConfigMap has a name that changes with its content. Thus an apply of a new ledger restarts the manager.
 
@@ -192,11 +193,11 @@ The API server gets the groups of a person from the login. The source is the `O=
 | Group | What only its members can do | Default name |
 | --- | --- | --- |
 | Admin group | Apply a [](kind:HostClaim) that installs a node, set automatic approval, move a claim to a different machine | `pk-metal:admins` |
-| Approvers | Approve an operation or a rollout that a different person proposed | No default. `bindings.yaml` binds a group to the role `pk-metal-approver`. |
+| Approvers | Approve an operation or a rollout. Also their own proposal, if `selfApproval` is `Allowed`. | No default. `bindings.yaml` binds a group to the role `pk-metal-approver`. |
 
 - The admission policies ask for the admin group by name. A cluster admin is not a member.
 - The name of the admin group is in the ConfigMap `hostoperation-approval`, key `adminGroup`.
-- [](ref:rbac) and [](ref:admission-policies) have the rules.
+- [](ref:rbac) and [](ref:admission-policies) have the rules. [](howto:approval-permissions) helps you choose the groups and the setting.
 
 On a kind cluster for a test, you can act as a member with impersonation. The kind admin has the right to do that.
 

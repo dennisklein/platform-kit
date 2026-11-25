@@ -1,0 +1,145 @@
+---
+title: Set up approval permissions
+description: Choose who proposes, who approves, and if a person can approve a change that they proposed.
+type: howto
+day: 1
+xref: { cat: howto, id: approval-permissions }
+sidebar:
+  order: 0.6
+sources:
+  - /repo/metal/config/policy/hostoperation-approval.yaml
+  - /repo/metal/config/policy/talosrollout-approval.yaml
+  - /repo/metal/config/samples/site-overlay/approval.yaml
+  - /repo/metal/config/samples/site-overlay/bindings.yaml
+  - /repo/metal/config/rbac/approver_role.yaml
+  - /repo/metal/config/rbac/oncall_role.yaml
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Callout from '../../../../components/Callout.astro';
+
+## Goal
+
+Give each person the rights for their work. Choose if a person can approve a change that they proposed.
+
+## Before you start
+
+- You have the site overlay from [](howto:install-operator).
+- You know the groups of your identity provider, or the `O=` fields of your client certificates.
+
+## The roles
+
+| Role | What it does | How a person gets it |
+| --- | --- | --- |
+| Operator | Proposes most operations and rollouts. It never approves. | The service account `pk-metal/pk-metal-manager`. The base binds it. |
+| Proposer | Proposes an operation or a rollout: [](cli:reboot), `pk-metal restore plan --propose`, or a [](kind:TalosRollout) of kind `Reboot`. | `create` on `hostoperations` or `talosrollouts`. The base has no role for this. Write a ClusterRole for it. |
+| Approver | Approves with [](cli:approve) and [](cli:rollout). Also aborts, pauses, resumes, and lifts guards. | The ClusterRole `pk-metal-approver`. `bindings.yaml` binds it to a group. |
+| Admin group | Names the TalosNode of a claim. Sets automatic approval. Moves a claim to a different machine. Changes backup recipients and EndpointProfiles. Creates operations that need no approval. | The group in the ConfigMap key `adminGroup`, default `pk-metal:admins`. The membership comes from the login, not from a binding. |
+| On call | Follows the [runbooks](rb:index): reads each kind, deletes failed operations, holds claims. It cannot approve. | The ClusterRole `pk-metal-oncall`. Bind it in your overlay. |
+| GitOps service account | Applies the kinds that you keep in git. | Its own binding. Never give it `pk-metal-approver`. See [](concept:gitops). |
+
+A person can have more than one role. A person on call usually also has `pk-metal-approver`.
+
+## Choose the `selfApproval` setting
+
+The key `selfApproval` in the ConfigMap `hostoperation-approval` tells if a person can approve their own proposal. It applies to operations and to rollouts.
+
+| Value | What it prevents | What it does not prevent |
+| --- | --- | --- |
+| `Allowed` (the default) | The operator approves nothing. A person approves in their own name only, and only one time. Nobody creates an approved object. | One person with the proposer and the approver role changes a machine alone. The record names that person as proposer and as approver. |
+| `Forbidden` | The same, and also: one account alone cannot change a machine. A second person reads each plan before it runs. | The operator and the admin group can still create operations that need no approval. See [](ref:threat-model). |
+
+- Select `Forbidden` if two or more approvers can answer in time.
+- Select `Allowed` for a small team. Then examine the approvals that a person gave to their own proposals:
+
+  ```sh
+  kubectl get hostoperations,talosrollouts -A -o json | jq -r '.items[]
+    | select(.spec.approval.approvedBy != null and .spec.proposedBy == .spec.approval.approvedBy)
+    | "\(.kind) \(.metadata.name) \(.spec.proposedBy)"'
+  ```
+
+- The API server reads each other value as `Forbidden`, and its message names the value.
+
+## Steps
+
+<Steps>
+
+1. Bind the approvers. In `bindings.yaml`, replace `example:platform-approvers` with your group.
+
+2. Bind the persons on call. Add this binding to `bindings.yaml`, with your group:
+
+   ```yaml
+   ---
+   apiVersion: rbac.authorization.k8s.io/v1
+   kind: ClusterRoleBinding
+   metadata:
+     name: pk-metal-oncall
+   roleRef:
+     apiGroup: rbac.authorization.k8s.io
+     kind: ClusterRole
+     name: pk-metal-oncall
+   subjects:
+     - apiGroup: rbac.authorization.k8s.io
+       kind: Group
+       name: example:platform-oncall
+   ```
+
+3. Set `selfApproval` in `approval.yaml`.
+
+   ```yaml title="approval.yaml"
+   apiVersion: v1
+   kind: ConfigMap
+   metadata:
+     name: hostoperation-approval
+     namespace: pk-metal
+   data:
+     selfApproval: Forbidden
+   ```
+
+4. Apply the overlay.
+
+   ```sh
+   kubectl apply --server-side -k .
+   ```
+
+5. Read the setting back.
+
+   ```sh
+   kubectl -n pk-metal get configmap hostoperation-approval -o jsonpath='{.data.selfApproval}{"\n"}'
+   ```
+
+   The API server uses the new value after a few seconds.
+
+6. Ask each approver to examine their rights.
+
+   ```sh
+   kubectl auth can-i patch hostoperations -n pk-metal
+   ```
+
+   The output is `yes`.
+
+</Steps>
+
+## Guard-lift annotations
+
+Two annotations on a [](kind:HostOperation) lift a safety rule for that operation:
+
+| Annotation | Rule that it lifts |
+| --- | --- |
+| `metal.pk.io/override-cluster-guard` | A control plane goes down only while etcd is healthy without it. See [](concept:cluster-guard). |
+| `metal.pk.io/ignore-window` | The operation starts only in a [](kind:MaintenanceWindow). |
+
+- Each person with `patch` on operations can set them, before or after the approval. That is each holder of `pk-metal-approver`. `selfApproval` does not apply to annotations.
+- [](cli:approve) shows each lifted guard in the plan, with its reason. If an annotation changes after the command showed the plan, the command approves nothing.
+- An annotation with an empty value lifts nothing. The plan shows it as `empty: lifts nothing`.
+
+<Callout type="caution">
+Give `pk-metal-approver` only to persons who may decide to lift these rules. An annotation that a person adds after the approval does not go through the approval again.
+</Callout>
+
+## Related
+
+- [](concept:approval)
+- [](ref:rbac)
+- [](ref:admission-policies)
+- [](ref:threat-model)
